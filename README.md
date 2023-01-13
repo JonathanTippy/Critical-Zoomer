@@ -1,5 +1,5 @@
-![Untitled-Artwork](https://user-images.githubusercontent.com/54297927/212390312-b09d2da5-9ee9-48d4-ad4b-40e1e714f2ec.jpg)
-
+![Untitled-Artwork_shortened](https://user-images.githubusercontent.com/54297927/212390663-ff8359e9-438a-4742-8cf6-3b7675a27f7a.jpg)
+Artwork by Deborah Tippy
 
 # Critical Zoomer
 a mandelbrot set zoomer for potato pc people
