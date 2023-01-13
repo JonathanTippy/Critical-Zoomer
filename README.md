@@ -1,3 +1,6 @@
+![Untitled-Artwork](https://user-images.githubusercontent.com/54297927/212390312-b09d2da5-9ee9-48d4-ad4b-40e1e714f2ec.jpg)
+
+
 # Critical Zoomer
 a mandelbrot set zoomer for potato pc people
 
