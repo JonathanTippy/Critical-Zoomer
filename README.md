@@ -9,6 +9,16 @@ a mandelbrot set zoomer written in rust
 - not worth using for majority of fractal enthusiasts
 - really just a proof of concept
 
+## How to use (linux)
+- install rust (go to rustlang.org)
+- install build essential:
+- sudo apt install build-essential
+- download the repo using:
+git clone https://github.com/JonathanTippy/Critical-Zoomer
+- cd Critical-Zoomer
+- cargo build
+- cargo run
+
 ## Controls
 - movement: arrow keys
 - adjust number of iterations: i to increase and o to decrease
