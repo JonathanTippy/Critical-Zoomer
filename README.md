@@ -2,16 +2,19 @@
 Artwork by Deborah Tippy
 
 # Critical Zoomer
-a mandelbrot set zoomer for potato pc people
+a mandelbrot set zoomer written in rust
 
 ## Current state of the project
+- originally i had ambitions to make it a rival to Xaos but i didnt work on it for a long time so i fixed it up the last few days well enough that it works passably
 - not worth using for majority of fractal enthusiasts
-- has to be recompiled for a specific view
+- really just a proof of concept
 
-## Current Goals of the Project
-- easy to use with not confusing gui:
-will work on this soon™
-- faster than Xaos, while zooming infinitely:
-verified to be possible, currently working on it
-- coloring methods which provide both intricate detail and don't devolve into static at high-density areas:
-probably is possible, will work on this later
+## Controls
+- movement: arrow keys
+- adjust number of iterations: i to increase and o to decrease
+- adjust number of extra bits: e to increase and r to decrease
+- adjust zoom: f to zoom in and g to zoom out
+
+## Power of two denominator fractions
+here is a short explanation; by using power of two denominator fractions, all of the math can be done using integers. thats right; all of the mandelbrot rendering is done using integers! Here's how it works:
+You first decide how many bits you need. you will need at list enough values to uniquely identify each pixel, accounting for how far in you have zoomed (which requires additional precision), and also around 10 extra bits so your mandelbrot won't get messed up due to not enough precision. then, you convert each pixel to a numerator which fits that denominator. now, the math. we need to do a couple things: addition, and mulitplication. lets start with addition. in order to add two of these numbers, we simply add the numerators. we can do this since they have the same denomenator and therefore the ones of each numerator represent the same value. Multiplication is almost as fast, but since we're talking about a fraction we need to get fancy. we could just multiply the numerators together, but they will be squared relative to the numberator. no matter, actually this is useful; i make use of it by comparing these squares added together to the numerator four, because you must square values if you want to get a circle. i could just accept the square but it messes up the coloring of parts outside of the set.
