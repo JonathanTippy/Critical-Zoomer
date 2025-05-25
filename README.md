@@ -13,6 +13,8 @@ a mandelbrot set zoomer written in rust
 - install rust (go to rustlang.org)
 - install build essential:
 - sudo apt install build-essential
+- install m4:
+- sudo apt install m4
 - download the repo using:
 git clone https://github.com/JonathanTippy/Critical-Zoomer
 - cd Critical-Zoomer
