@@ -1,7 +1,327 @@
 use rug::Integer;
 use std::{
-    cmp::min,
+    cmp::{min,max}
 };
+
+use std::ops::{Add, Sub, Mul};
+
+const FP_LOCATION:u8 = 60; // leaves 63-n bits for integers
+const ESC_RAD:u8 = 2;
+const ESC_RAD_SQR:u8 = ESC_RAD*ESC_RAD;
+
+const SCREEN_MIN_RAD:u8 = 2; // range visible in viewport at zoom of 1
+
+const TWO: FixedPoint = FixedPoint { val:2 * (1<<FP_LOCATION)};
+#[derive(Debug, Copy, Clone, PartialEq)]
+
+pub enum Esc {
+    In
+    , Esc
+    , Hlf
+    , Exp
+    , Unk
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct FixedPoint { //SFP = Small Fixed Point
+    val: i64
+}
+
+impl Add for FixedPoint {
+    type Output = Self;
+    fn add(self, other: Self) -> Self {
+        Self {
+            val: self.val + other.val
+        }
+    }
+}
+
+impl Sub for FixedPoint {
+    type Output = Self;
+    fn sub(self, other: Self) -> Self {
+        Self {
+            val: self.val - other.val
+        }
+    }
+}
+
+impl Mul for FixedPoint {
+    type Output = Self;
+    fn mul(self, other: Self) -> Self {
+        Self {
+            val: ((self.val as i128 * other.val as i128) >> FP_LOCATION) as i64
+        }
+    }
+
+}
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct MandelComplexRange {
+    real_upper_bound: f64
+    , real_lower_bound: f64
+    , imag_upper_bound: f64
+    , imag_lower_bound: f64
+}
+impl Add for MandelComplexRange {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        Self {
+              real_upper_bound: self.real_upper_bound + other.real_upper_bound
+            , real_lower_bound: self.real_lower_bound + other.real_lower_bound
+            , imag_upper_bound: self.imag_upper_bound + other.imag_upper_bound
+            , imag_lower_bound: self.imag_lower_bound + other.imag_lower_bound
+        }
+    }
+}
+
+impl Sub for MandelComplexRange {
+    type Output = Self;
+
+    fn sub(self, other: Self) -> Self {
+        Self {
+            real_upper_bound: self.real_upper_bound - other.real_lower_bound
+            , real_lower_bound: self.real_lower_bound - other.real_upper_bound
+            , imag_upper_bound: self.imag_upper_bound - other.imag_lower_bound
+            , imag_lower_bound: self.imag_lower_bound - other.imag_upper_bound
+        }
+    }
+}
+
+ // multiplying with:
+ // (a + bi) * (c + di)
+ // ac - bd + i(ad + bc)
+
+impl Mul for MandelComplexRange {
+    type Output = Self;
+
+    fn mul(self, other: Self) -> Self {
+        Self {
+            real_upper_bound: self.real_upper_bound * other.real_upper_bound - self.imag_lower_bound * other.imag_lower_bound
+            , real_lower_bound: self.real_lower_bound * other.real_lower_bound - self.imag_upper_bound * other.imag_upper_bound
+            , imag_upper_bound: self.real_upper_bound * other.imag_upper_bound + self.imag_upper_bound * other.real_upper_bound
+            , imag_lower_bound: self.real_lower_bound * other.imag_lower_bound + self.imag_lower_bound * other.real_lower_bound
+        }
+    }
+}
+
+fn fmax(a:f64, b:f64) -> f64 {
+    if (a>=b) {a} else {b}
+}
+
+fn fmin(a:f64, b:f64) -> f64 {
+    if (a<=b) {a} else {b}
+}
+
+fn fsqr(i:f64) -> f64 {
+    i*i
+}
+
+// squaring with:
+// (a + bi) * (a + bi)
+// aa - bb + 2abi
+
+fn sqr(input: MandelComplexRange) -> MandelComplexRange {
+
+    // bounds for square must consider the sign at each turn
+
+    MandelComplexRange{
+        real_upper_bound:
+            fmax(fsqr(input.real_lower_bound), fsqr(input.real_upper_bound))
+         -
+                if (input.imag_lower_bound <=0.0&&input.imag_upper_bound>=0.0) {
+                    fmin(fmin(fsqr(input.imag_lower_bound), fsqr(input.imag_upper_bound)), 0.0)
+                } else {fmin(fsqr(input.imag_lower_bound), fsqr(input.imag_upper_bound))}
+
+        , real_lower_bound:
+            if (input.real_lower_bound <=0.0&&input.real_upper_bound>=0.0) {
+                fmin(fmin(fsqr(input.real_lower_bound), fsqr(input.real_upper_bound)), 0.0)
+            } else {fmin(fsqr(input.real_lower_bound), fsqr(input.real_upper_bound))}
+                -
+            fmax(fsqr(input.imag_lower_bound), fsqr(input.imag_upper_bound))
+        , imag_upper_bound: fmax(fmax(input.real_upper_bound * input.imag_upper_bound, input.real_upper_bound * input.imag_lower_bound)
+        , fmax(input.real_lower_bound * input.imag_upper_bound, input.real_lower_bound * input.imag_lower_bound))* 2.0
+
+        , imag_lower_bound: fmin(fmin(input.real_upper_bound * input.imag_upper_bound, input.real_upper_bound * input.imag_lower_bound)
+                                 , fmin(input.real_lower_bound * input.imag_upper_bound, input.real_lower_bound * input.imag_lower_bound))* 2.0
+    }
+
+}
+
+
+fn mbrot(z: MandelComplexRange, c: MandelComplexRange) -> MandelComplexRange {
+    sqr(z) + c
+    //z*z + c
+}
+
+
+fn h(r:f64, i:f64) -> bool {
+    //r*r+i*i > ESC_RAD_SQR as f64
+    r.abs()>2.0||i.abs()>2.0
+}
+
+
+fn contains(a:&MandelComplexRange, b:&MandelComplexRange) -> bool {
+    if a.real_upper_bound >= b.real_upper_bound
+        && a.real_lower_bound <= b.real_lower_bound
+        && a.imag_upper_bound >= b.imag_upper_bound
+        && a.imag_lower_bound <= b.imag_lower_bound {true}
+    else {false}
+}
+
+fn overlaps(a:&MandelComplexRange, b:&MandelComplexRange) -> bool {
+    if (a.real_upper_bound >= b.real_lower_bound && a.real_lower_bound <= b.real_upper_bound)
+    && (a.imag_upper_bound >= b.imag_lower_bound && a.imag_lower_bound <= b.imag_upper_bound)
+        {true}
+    else {false}
+}
+
+
+fn esccheck(z:&MandelComplexRange, oldz:&MandelComplexRange, C:&MandelComplexRange) -> Esc {
+
+    let esc_box = MandelComplexRange {
+        real_upper_bound: ESC_RAD as f64
+        , real_lower_bound: -(ESC_RAD as f64)
+        , imag_upper_bound: ESC_RAD as f64
+        , imag_lower_bound: -(ESC_RAD as f64)
+    };
+
+    if contains(&esc_box, z) {
+        if contains(oldz, z) || contains(C, z) {return Esc::In;} else {return Esc::Unk;}
+    } else {
+        if contains(z, &esc_box) {return Esc::Exp;} else {
+            /*if (z.real_upper_bound * z.real_upper_bound + z.imag_upper_bound * z.imag_upper_bound > 8.0
+                && z.real_lower_bound * z.real_lower_bound + z.imag_lower_bound * z.imag_lower_bound > 8.0
+            ) {
+                return Esc::Esc;
+            } else {return Esc::Hlf;}*/
+            if !overlaps(z, &esc_box) {
+                return Esc::Esc;
+            } else {return Esc::Hlf;}
+        }
+    }
+
+    let a = h(z.real_upper_bound, z.imag_upper_bound);
+    let b = h(z.real_upper_bound, z.imag_lower_bound);
+    let c = h(z.real_lower_bound, z.imag_upper_bound);
+    let d = h(z.real_lower_bound, z.imag_lower_bound);
+
+    if ! (a || b || c || d) {
+
+        if contains(z, oldz) || contains(z, C) {Esc::In} else {Esc::Unk}
+    } else {
+        if !(a==b && b==c && c==d) {
+            Esc::Hlf
+        } else {
+            if (z.real_upper_bound > ESC_RAD as f64 && z.real_lower_bound < ESC_RAD as f64 && z.imag_upper_bound > ESC_RAD as f64 && z.imag_lower_bound < ESC_RAD as f64) {
+                Esc::Exp
+            } else {Esc::Esc}
+        }
+    }
+}
+
+fn eval(z:MandelComplexRange) -> (Esc, u64) {
+    let c = z.clone();
+    let mut oldz = z.clone();
+    let mut z = z;
+    let mut h = Esc::Unk;
+    for i in 0..100 {
+        z = mbrot(z, c);
+        h = esccheck(&z, &oldz, &c);
+        if h==Esc::Esc || h==Esc::Exp || h==Esc::In {
+            return (h, i)
+        }
+        oldz = z;
+    }
+    //(Esc::In, 100)
+    (h, 100)
+}
+
+fn get_screen_value(
+    zoom:f64, zoom_recip: f64
+    , offset_real: f64
+    , offset_imag: f64
+    , screen_width: usize
+    , screen_height: usize
+    , min_side_recip:f64
+    , pixel_x:usize
+    , pixel_y:usize
+) -> MandelComplexRange {
+
+    // normalize screen size
+
+    let min_side = min(screen_width, screen_height);
+
+    let screen_screenspace_width:f64 = screen_width as f64 * min_side_recip;
+    let screen_screenspace_height:f64 = screen_height as f64 * min_side_recip;
+
+    // create transforms so screen narrow dimension goes from -0.5 to 0.5 instead of 0 to 1
+
+    let screenspace_x_transform = -(screen_screenspace_width * 0.5);
+    let screenspace_y_transform = -(screen_screenspace_height * 0.5);
+
+    // calculate screenspace coordinate
+
+    let left_side_screenspace_x:f64 = (pixel_x as f64) * min_side_recip + screenspace_x_transform;
+    let top_side_screenspace_y:f64 = (pixel_y as f64) * min_side_recip + screenspace_y_transform;
+
+    // adjust screenspace coordinates
+
+    let left_side_screenspace_x = left_side_screenspace_x * SCREEN_MIN_RAD as f64 * 2.0; // extra 2.0 for -1 to 1 instead of -0.5 to 0.5
+    let top_side_screenspace_y = top_side_screenspace_y * SCREEN_MIN_RAD as f64 * 2.0;
+
+    // screenspace coordinates are now ready to be transformed for use
+
+    //first scrunch down towards zero with zoom, then add offset
+    // then invert y because pixels march down but up is positive imag
+    let left_side_x:f64 = left_side_screenspace_x * zoom_recip + offset_real;
+    let bottom_side_y:f64 = -(top_side_screenspace_y * zoom_recip + offset_imag);
+    let pixel_girth:f64 = SCREEN_MIN_RAD as f64*2.0*min_side_recip;
+    MandelComplexRange{
+        real_upper_bound: left_side_x + pixel_girth
+        , real_lower_bound: left_side_x
+        , imag_upper_bound: bottom_side_y + pixel_girth
+        , imag_lower_bound: bottom_side_y
+    }
+    //(left_side_x, bottom_side_y)
+}
+
+pub fn get_screen_values (zoom: f64, offset_real: f64, offset_imag: f64, screen_width: usize, screen_height: usize) -> Vec<MandelComplexRange> {
+    let zoom_recip = 1.0 / zoom;
+    let min_side_recip = 1.0 / (min(screen_width, screen_height) as f64);
+    let mut returned = vec!();
+    for y in 0..screen_height {
+        for x in 0..screen_width {
+            let value = get_screen_value(zoom, zoom_recip, offset_real, offset_imag, screen_width, screen_height, min_side_recip, x, y);
+            returned.push(value);
+        }
+    }
+    returned
+}
+
+pub fn eval_screen (inputs: Vec<MandelComplexRange>) -> Vec<(Esc, u64)> {
+    let mut returned = vec!();
+    for input in inputs {
+        returned.push(eval(input));
+    }
+    returned
+}
+
+pub fn paint_result (results: Vec<(Esc, u64)>, screen_buffer: &mut Vec<u32>) {
+    assert_eq!(results.len(), screen_buffer.len(), "Results Don't match screen buffer size");
+    for i in 0..results.len() {
+        let shade = (results[i].1*10 & 127)  as u32;
+        if results[i].0 == Esc::Esc {screen_buffer[i] = u32::MAX} else {screen_buffer[i] = 0}
+        match results[i].0 {
+            Esc::In => {screen_buffer[i]=0} //black
+            Esc::Esc => {screen_buffer[i]=(128+shade) * (1<<8)+(128+shade)+(128+shade)*(1<<16)} // white
+            Esc::Hlf => {screen_buffer[i]=(128+shade) * (1<<8)} // green
+            Esc::Exp => {screen_buffer[i]=(128+shade)} // blue
+            Esc::Unk => (screen_buffer[i]=(128+shade)*(1<<16)) //red
+        }
+    }
+}
+
+
 
 pub fn compute_screen(
     offset_real: &Integer,
