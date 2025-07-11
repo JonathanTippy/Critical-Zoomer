@@ -1,191 +1,126 @@
-mod text;
+use steady_state::*;
+use arg::MainArg;
+mod arg;
 
-use text::Text;
+// The actor module contains all the actor implementations for this pipeline.
+// Each actor is in its own submodule for clarity and separation of concerns.
+pub(crate) mod actor {
+    pub(crate) mod window;
+    pub(crate) mod transformer;
+    pub(crate) mod computer;
+}
 
-use critical_zoomer::*;
+fn main() -> Result<(), Box<dyn Error>> {
+    // Parse command-line arguments (rate, beats, etc.) using clap.
+    let cli_args = MainArg::parse();
 
-use minifb::{Key, ScaleMode, Window, WindowOptions};
+    // Initialize logging at Info level for runtime diagnostics and performance output.
+    init_logging(LogLevel::Info)?;
 
-use std::{
-    cmp::min,
-    time::{Duration, Instant},
-};
+    // Build the actor graph with all channels and actors, using the parsed arguments.
+    let mut graph = GraphBuilder::default()
+        .with_telemtry_production_rate_ms(200)
+        .build(cli_args);
 
-use rug::Integer;
+    // Construct the full actor pipeline and channel topology.
+    build_graph(&mut graph);
 
-// initial settings are stored as const values
-const INIT_SCREEN_WIDTH: usize = 640;
-const INIT_SCREEN_HEIGHT: usize = 480;
-const INIT_ZOOM: f64 = 1.0; // POT stands for power of two
-const MIN_MICROSECONDS_PER_LOOP: u64 = 16666;
-// extra bits for more precision
-// (about 10 is enough but you may need more for more iterations)
-const INIT_BAIL_ITER_POT: u32 = 6;
-//const INIT_RAM_BYTES_POT: u8 = 24;
+    // Start the entire actor system. All actors and channels are now live.
+    graph.start();
 
-// internal stuff
-//const recurrence_vec_indexer: usize = 4095;
-const MIN_LOOP_DURATION: Duration = Duration::from_micros(MIN_MICROSECONDS_PER_LOOP as u64);
+    // The system runs until an actor requests shutdown or the timeout is reached.
+    graph.block_until_stopped(Duration::from_secs(1))
+}
 
-const CONTROLS_TEXT:&str = "Zoom:F+G- Bits:E+R- Iter:I+O-";
-//const LOOPS_PER_SECOND: u64 = 1000000 / MIN_MICROSECONDS_PER_LOOP;
-fn main() {
-    let mut window = Window::new(
-        "Critical Zoomer",
-        INIT_SCREEN_WIDTH,
-        INIT_SCREEN_HEIGHT,
-        WindowOptions {
-            resize: true,
-            scale_mode: ScaleMode::UpperLeft,
-            ..WindowOptions::default()
-        },
-    )
-    .expect("Unable to create window!");
+// Actor names for use in graph construction and testing.
 
-    let mut overlay_text = Text::new(INIT_SCREEN_WIDTH, INIT_SCREEN_HEIGHT, 2);
+const NAME_WINDOW: &str = "window";
+const NAME_TRANSFORMER: &str = "transformer";
+const NAME_COMPUTER: &str = "computer";
 
-    let mut screen_width = INIT_SCREEN_WIDTH;
-    let mut screen_height = INIT_SCREEN_HEIGHT;
-    let mut offset_real = 0.0;
-    let mut offset_imag = 0.0;
-    let mut zoom = INIT_ZOOM;
-    let mut bail_iter_pot = INIT_BAIL_ITER_POT;
-    let mut screen_buffer: Vec<u32> = Vec::with_capacity(INIT_SCREEN_WIDTH * INIT_SCREEN_HEIGHT);
-    screen_buffer.resize(screen_width * screen_height, 0);
-    let mut will_rerender = true;
-    let mut render_time = 0.0;
 
-    // window.limit_update_rate(Some(Duration::from_micros(100000)));
+fn build_graph(graph: &mut Graph) {
+    // Channel builder is configured with advanced telemetry and alerting features.
+    // - Red/orange alerts for congestion
+    // - Percentile-based monitoring for channel fill levels
+    // - Real-time average rate tracking
+    let channel_builder = graph.channel_builder()
+        // Smoother rates over a longer window
+        .with_compute_refresh_window_floor(Duration::from_secs(4),Duration::from_secs(24))
+        // Red alert if channel is >90% full on average (critical congestion)
+        .with_filled_trigger(Trigger::AvgAbove(Filled::p90()), AlertColor::Red)
+        // Orange alert if channel is >60% full on average (early warning)
+        .with_filled_trigger(Trigger::AvgAbove(Filled::p60()), AlertColor::Orange)
+        // Track average message rate for each channel
+        .with_avg_rate()
+        .with_capacity(10);
 
-    while window.is_open() {
+    // Channel capacities are set extremely large for high-throughput, batch-friendly operation.
+    // - Heartbeat channel: moderate size for timing signals
+    // - Generator and computer channels: 1,048,576 messages (1<<20) for massive batch processing
 
-        let time_when_started_loop = Instant::now();
 
-        if will_rerender {
-            println!("Computing resolution {} by {}", screen_width, screen_height);
+    // window to and from transformer channels
+    let (
+        window_tx_to_transformer
+        , transformer_rx_from_window
+    ) = channel_builder.build();
+    let (
+        transformer_tx_to_window
+        , window_rx_from_transformer
+    ) = channel_builder.build();
 
-            let time_when_compute_started = Instant::now();
+    // transformer to and from computer channels
+    let (
+        transformer_tx_to_computer
+        , computer_rx_from_transformer
+    ) = channel_builder.build();
+    let (
+        computer_tx_to_transformer
+        , transformer_rx_from_computer
+    ) = channel_builder.build();
 
-            paint_result(eval_screen(get_screen_values(zoom, offset_real, offset_imag, screen_width, screen_height)), &mut screen_buffer);
 
-            /*compute_screen(
-                &offset_real,
-                &offset_imag,
-                screen_width as u32,
-                screen_height as u32,
-                zoom_pot,
-                extra_bits,
-                bail_iter_pot,
-                //&mut undo_rememberer,
-                //in_rememberer_items_POT,
-                //&mut in_rememberer,
-                &mut screen_buffer,
-            );*/
-            println!("done computing");
-            render_time = time_when_compute_started.elapsed().as_micros() as f64 / 1000000.0;
-            println!(
-                "Computation of resolution {} by {} took {} seconds.",
-                screen_width,
-                screen_height,
-                render_time,
-            );
-            //in_rememberer.iter_mut().map(|x| *x = 0).count();
-        }
 
-        overlay_text.resize(screen_width, screen_height);
+    // The actor builder is configured to collect thread/core info and load metrics.
+    // - with_thread_info: enables reporting of OS thread and CPU core (requires core_affinity feature in Cargo.toml)
+    // - with_load_avg, with_mcpu_avg: enables real-time load and CPU usage metrics
+    let actor_builder = graph.actor_builder()
+        .with_thread_info()
+        .with_mcpu_trigger(Trigger::AvgAbove(MCPU::m768()), AlertColor::Red)
+        .with_mcpu_trigger(Trigger::AvgAbove(MCPU::m512()), AlertColor::Orange)
+        .with_mcpu_trigger(Trigger::AvgAbove(MCPU::m256()), AlertColor::Yellow)
+        .with_load_avg()
+        .with_mcpu_avg();
 
-        overlay_text.draw(&mut screen_buffer, (20, screen_height - 20), CONTROLS_TEXT);
+    // NOTE: The core_affinity and display features in Cargo.toml ensure that actors remain on their assigned CPU core.
+    // This is critical for cache locality and consistent performance. Without core_affinity, actors could move between cores,
+    // but would still not move between threads (each actor or team is always bound to a thread).
 
-        window
-            .update_with_buffer(&screen_buffer, screen_width, screen_height)
-            .unwrap();
-        will_rerender = false;
+    // Actor grouping: Troupe (team) vs SoloAct
+    // - MemberOf(&mut team): actors are grouped to share a single thread, cooperatively yielding to each other.
+    //   This is optimal for lightweight actors or those that coordinate closely (e.g., generator and heartbeat).
+    // - SoloAct: actor runs on its own dedicated thread, ideal for CPU-intensive or batch-heavy actors (e.g., computer, logger).
 
-        // we get the new window size, and check if we're gonna need to re-render
-        // then we resize the pixels buffer to the right size for the new screen
-        // size
-        let (new_screen_width, new_screen_height) = window.get_size();
-        if screen_width == new_screen_width && screen_height == new_screen_height {
-        } else {
-            screen_height = new_screen_height;
-            screen_width = new_screen_width;
-            will_rerender = true;
-        }
-        assert!(screen_width > 0 && screen_height > 0);
-        screen_buffer.resize(screen_width * screen_height, 0);
+    //let mut responsive_team = graph.actor_troupe();
 
-        window.get_keys().iter().for_each(|key| match key {
-            Key::Left => {
-                println!("Moving the viewport left.");
-                offset_real = offset_real - 0.1 / zoom;
-                println!("new offset is {}, {}", offset_real, offset_imag);
-                will_rerender = true;
-            }
-            Key::Right => {
-                println!("Moving the viewport right.");
-                offset_real = offset_real + 0.1 / zoom;
-                println!("new offset is {}, {}", offset_real, offset_imag);
-                will_rerender = true;
-            }
-            Key::Up => {
-                println!("Moving the viewport up.");
-                offset_imag = offset_imag - 0.1 / zoom;
-                println!("new offset is {}, {}", offset_real, offset_imag);
-                will_rerender = true;
-            }
-            Key::Down => {
-                println!("Moving the viewport down");
-                offset_imag = offset_imag + 0.1 / zoom;
-                println!("new offset is {}, {}", offset_real, offset_imag);
-                will_rerender = true;
-            }
-            Key::F => {
-                println!("Increasing the zoom");
-                zoom = zoom * 1.1;
-                println!("new zoom is {}", zoom);
-                will_rerender = true;
-            }
-            Key::G => {
-                //if zoom_pot > 0 {
-                println!("Decreasing the zoom by a power of two");
-                if zoom > 0.0 {
-                    zoom = zoom * 0.9;
-                    will_rerender = true;
-                    println!("new zoom is {}", zoom);
-                } else {
-                    println!("zoom unchanged");
-                }
-            }
-            Key::I => {
-                println!("Increasing the bail Iterations by a power of two");
-                bail_iter_pot = bail_iter_pot + 1;
-                will_rerender = true;
-            }
-            Key::O => {
-                if bail_iter_pot > 0 {
-                    println!("Decreasing the bail Iterations by a power of two");
-                    bail_iter_pot = bail_iter_pot - 1;
-                    will_rerender = true;
-                } else {
-                    println!("Cannot decrease iterations past 0")
-                }
-            }
-            _ => (),
-        });
+    let state = new_state();
+    actor_builder.with_name(NAME_WINDOW)
+        .build(move |context|
+            actor::window::run(context, window_rx_from_transformer.clone(), window_tx_to_transformer.clone(), state.clone()) //#!#//
+               //, MemberOf(&mut responsive_team));
+               , SoloAct);
 
-        /*window.get_keys_released().iter().for_each(|key| match key {
-            Key::Left => println!("released left"),
-            Key::Right => println!("released right"),
-            Key::Up => println!("released up"),
-            Key::Down => println!("released down"),
-            _ => (),
-        });*/
-        let time_elapsed = time_when_started_loop.elapsed();
+    let state = new_state();
+    actor_builder.with_name(NAME_TRANSFORMER)
+        .build(move |context|
+                   actor::transformer::run(context, transformer_rx_from_window.clone(), transformer_rx_from_computer.clone(), transformer_tx_to_window.clone(), transformer_tx_to_computer.clone(), state.clone()) //#!#//
+               //, MemberOf(&mut responsive_team));
+               , SoloAct);
 
-        let remaining_time = MIN_LOOP_DURATION
-            .checked_sub(time_elapsed)
-            .unwrap_or_else(|| Duration::from_secs(0));
-
-        std::thread::sleep(remaining_time);
-    }
+    let state = new_state();
+    actor_builder.with_name(NAME_COMPUTER)
+        .build(move |context|
+                   actor::computer::run(context, computer_rx_from_transformer.clone(), computer_tx_to_transformer.clone(), state.clone()) //#!#//
+               , SoloAct);
 }
