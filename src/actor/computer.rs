@@ -62,9 +62,20 @@ async fn internal_behavior<A: SteadyActor>(
     ) {
         // Wait for all required conditions:
         // - A periodic timer
-        await_for_any!(  //#!#//
-            actor.wait_periodic(max_latency)
+        await_for_all_or_proceed_upon!(  //#!#//
+            actor.wait_periodic(max_latency),
+            actor.wait_avail(&mut jobs_in, 1)
         );
+
+
+        // do computer stuff
+
+
+
+
+
+
+
     }
 
     // Final shutdown log, reporting all statistics.
