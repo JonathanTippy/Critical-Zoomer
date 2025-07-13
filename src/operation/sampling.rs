@@ -56,7 +56,7 @@ pub(crate) struct ZoomedScreen {
 
 
 
-pub(crate) struct SamplerState {
+pub(crate) struct SamplingState {
     pub(crate) average_color: (u8, u8, u8),
     pub(crate) screen_collection: Vec<Vec<(u8, u8, u8)>>,
     pub(crate) viewport_position_real: String,
@@ -66,91 +66,29 @@ pub(crate) struct SamplerState {
     pub(crate) window_res: (u32, u32)
 }
 
-
-pub async fn run(
-    actor: SteadyActorShadow,
-    commands_in: SteadyRx<ZoomerCommandPackage>,
-    pixels_in: SteadyRx<PixelGroup>,
-    pixels_out: SteadyTx<PixelsForWindow>,
-    jobs_out: SteadyTx<Vec<ZoomerJob>>,
-    state: SteadyState<SamplerState>,
-) -> Result<(), Box<dyn Error>> {
-    internal_behavior(
-        actor.into_spotlight([&commands_in, &pixels_in], [&pixels_out, &jobs_out]),
-        commands_in,
-        pixels_in,
-        pixels_out,
-        jobs_out,
-        state
-    )
-        .await
-}
-
-async fn internal_behavior<A: SteadyActor>(
-    mut actor: A,
-    commands_in: SteadyRx<ZoomerCommandPackage>,
-    pixels_in: SteadyRx<PixelGroup>,
-    pixels_out: SteadyTx<PixelsForWindow>,
-    jobs_out: SteadyTx<Vec<ZoomerJob>>,
-    state: SteadyState<SamplerState>,
-) -> Result<(), Box<dyn Error>> {
-
-    // Lock all channels for exclusive access within this actor.
-
-    let mut commands_in = commands_in.lock().await;
-    let mut pixels_in = pixels_in.lock().await;
-    let mut pixels_out = pixels_out.lock().await;
-    let mut jobs_out = jobs_out.lock().await;
+async fn sample(
+    commands: ZoomerCommandPackage,
+    mut state: &mut Option<SamplingState>
+) -> PixelsForWindow {
 
 
     // Initialize the actor's state, setting batch_size to half the generator channel's capacity.
     // This ensures that the producer can fill one half while the consumer processes the other.
-    let mut state = state.lock(|| SamplerState {
-        average_color: DEFAULT_AVERAGE_COLOR,
-        screen_collection: vec!(),
-        viewport_position_real: String::from("0"),
-        viewport_position_imag: String::from("0"),
-        viewport_zoom: String::from("1"),
-        zoom_power_base: 2,
-        window_res: (DEFAULT_WINDOW_RES.0, DEFAULT_WINDOW_RES.0)
-    }).await;
 
-    // Main processing loop.
-    // The actor runs until all input channels are closed and empty, and the output channel is closed.
-    while actor.is_running(
-            || i!(pixels_in.is_closed_and_empty())
-                && i!(pixels_out.mark_closed())
-    ) {
-        let actor_start = Instant::now();
-        // Wait for a periodic timer (clock speed of actor)
-
-
-        actor.wait_avail(&mut commands_in, 1).await;
-
-        /*await_for_any!(
-            actor.wait_periodic(max_actor_wait),
-            actor.wait_avail(&mut commands_in, 1),
-            actor.wait_avail(&mut pixels_in, 1)
-        );*/
-
-        let actor_wake = Instant::now();
-
-        //info!("transformer woke");
-
-        // swap buffers if new picture available
-
-        //command immediate response stuff
-
-        match actor.try_take(&mut commands_in) {
-            Some(command_package) => {
-
-                let noticing_time: Duration = command_package.start_time.elapsed();
-
-                let my_code_start = Instant::now();
-
-                //info!("some command package to process");
-
-                let mut will_send_frame = false;
+    match(state) {
+        Some(_) => {}
+        None => {
+            state = &mut Some(SamplingState {
+                average_color: DEFAULT_AVERAGE_COLOR,
+                screen_collection: vec!(),
+                viewport_position_real: String::from("0"),
+                viewport_position_imag: String::from("0"),
+                viewport_zoom: String::from("1"),
+                zoom_power_base: 2,
+                window_res: (DEFAULT_WINDOW_RES.0, DEFAULT_WINDOW_RES.0)
+            });
+        }
+    };
 
                 for command in command_package.commands {
                     match command {

@@ -10,6 +10,10 @@ pub(crate) mod actor {
     pub(crate) mod computer;
 }
 
+pub(crate) mod operation {
+    pub(crate) mod sampling;
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     // Parse command-line arguments (rate, beats, etc.) using clap.
     let cli_args = MainArg::parse();
@@ -53,7 +57,7 @@ fn build_graph(graph: &mut Graph) {
         .with_filled_trigger(Trigger::AvgAbove(Filled::p60()), AlertColor::Orange)
         // Track average message rate for each channel
         .with_avg_rate()
-        .with_capacity(10);
+        .with_capacity(2);
 
     // Channel capacities are set extremely large for high-throughput, batch-friendly operation.
     // - Heartbeat channel: moderate size for timing signals
