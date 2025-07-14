@@ -6,12 +6,14 @@ mod arg;
 // Each actor is in its own submodule for clarity and separation of concerns.
 pub(crate) mod actor {
     pub(crate) mod window;
-    pub(crate) mod transformer;
     pub(crate) mod computer;
+    pub(crate) mod colorer;
+    pub(crate) mod updater;
 }
 
 pub(crate) mod operation {
     pub(crate) mod sampling;
+    pub(crate) mod settings;
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -39,8 +41,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 // Actor names for use in graph construction and testing.
 
 const NAME_WINDOW: &str = "window";
-const NAME_TRANSFORMER: &str = "transformer";
+const NAME_SETTINGS_WINDOW: &str = "settings";
+const NAME_COLORER: &str = "colorer";
 const NAME_COMPUTER: &str = "computer";
+const NAME_UPDATER: &str = "updater";
 
 
 fn build_graph(graph: &mut Graph) {
@@ -64,25 +68,58 @@ fn build_graph(graph: &mut Graph) {
     // - Generator and computer channels: 1,048,576 messages (1<<20) for massive batch processing
 
 
-    // window to and from transformer channels
+    // window to updater channel
     let (
-        window_tx_to_transformer
-        , transformer_rx_from_window
-    ) = channel_builder.build();
-    let (
-        transformer_tx_to_window
-        , window_rx_from_transformer
+        window_tx_to_updater
+        , updater_rx_from_window
     ) = channel_builder.build();
 
-    // transformer to and from computer channels
+
+
     let (
-        transformer_tx_to_computer
-        , computer_rx_from_transformer
+        updater_tx_to_window
+        , window_rx_from_updater
     ) = channel_builder.build();
+
+/*
     let (
-        computer_tx_to_transformer
-        , transformer_rx_from_computer
+        colorer_tx_to_window
+        , window_rx_from_colorer
     ) = channel_builder.build();
+*/
+
+
+/*
+
+    //colorer to window channel
+
+
+    //computer to colorer channel
+
+    let (
+        computer_tx_to_colorer
+        , colorer_rx_from_computer
+    ) = channel_builder.build();
+
+    //updater to actors channels
+
+
+
+
+
+
+    let (
+        updater_tx_to_colorer
+        , colorer_rx_from_updater
+    ) = channel_builder.build();
+
+    let (
+        updater_tx_to_computer
+        , computer_rx_from_updater
+    ) = channel_builder.build();
+
+
+*/
 
 
 
@@ -111,20 +148,28 @@ fn build_graph(graph: &mut Graph) {
     let state = new_state();
     actor_builder.with_name(NAME_WINDOW)
         .build(move |context|
-            actor::window::run(context, window_rx_from_transformer.clone(), window_tx_to_transformer.clone(), state.clone()) //#!#//
+            actor::window::run(context, window_rx_from_updater.clone(),  /*window_rx_from_colorer.clone(), */window_tx_to_updater.clone(),  state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
                , SoloAct);
 
-    let state = new_state();
-    actor_builder.with_name(NAME_TRANSFORMER)
+    /*let state = new_state();
+    actor_builder.with_name(NAME_UPDATER)
         .build(move |context|
-                   actor::transformer::run(context, transformer_rx_from_window.clone(), transformer_rx_from_computer.clone(), transformer_tx_to_window.clone(), transformer_tx_to_computer.clone(), state.clone()) //#!#//
+                   actor::updater::run(context, updater_rx_from_window.clone(), updater_rx_from_settings_window.clone(), updater_tx_to_settings_window.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
-               , SoloAct);
+               , SoloAct);*/
 
-    let state = new_state();
+    /*let state = new_state();
+    actor_builder.with_name(NAME_COLORER)
+        .build(move |context|
+                   actor::colorer::run(context, window_tx_to_updater.clone(), window_rx_from_colorer.clone(), window_rx_from_updater.clone() state.clone()) //#!#//
+               //, MemberOf(&mut responsive_team));
+               , SoloAct);*/
+
+    /*let state = new_state();
     actor_builder.with_name(NAME_COMPUTER)
         .build(move |context|
-                   actor::computer::run(context, computer_rx_from_transformer.clone(), computer_tx_to_transformer.clone(), state.clone()) //#!#//
-               , SoloAct);
+                   actor::computer::run(context, window_tx_to_updater.clone(), window_rx_from_colorer.clone(), window_rx_from_updater.clone() state.clone()) //#!#//
+               //, MemberOf(&mut responsive_team));
+               , SoloAct);*/
 }
