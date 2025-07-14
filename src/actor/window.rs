@@ -6,18 +6,19 @@ use winit::platform::x11::EventLoopBuilderExtX11; // For X11
 //use winit::platform::wayland::EventLoopBuilderExtWayland; // For Wayland
 //use winit::platform::windows::EventLoopBuilderExtWindows; // For Windows
 use winit::event_loop::EventLoopBuilder;
-use egui::{Color32, ColorImage, TextureHandle, Vec2, Pos2, ViewportInfo};
+use egui::{Color32, ColorImage, TextureHandle, Vec2, Pos2, ViewportInfo, viewport::*};
 use winit::raw_window_handle::HasWindowHandle;
 use winit::dpi::PhysicalPosition;
-use crate::actor::transformer::*;
-use crate::actor::computer::*;
-use crate::operation::sampling;
-
 use std::error::Error;
 use std::fmt;
 use std::path::PathBuf;
-
 use std::sync::{Arc, Mutex};
+
+
+use crate::actor::colorer::*;
+use crate::actor::updater::*;
+use crate::operation::sampling::*;
+use crate::operation::settings::*;
 
 
 const RECOVER_EGUI_CRASHES:bool = false;
@@ -27,21 +28,7 @@ const MIN_FRAME_RATE:f64 = 20.0;
 const MAX_FRAME_TIME:f64 = 1.0 / MIN_FRAME_RATE;
 const VSYNC:bool = false;
 
-pub const DEFAULT_WINDOW_RES:(u32, u32) = (800, 480);
-
-
-#[derive(Debug)]
-struct EguiWindowError {
-    state: WindowState
-}
-
-impl fmt::Display for EguiWindowError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "egui window stopped unexpectedly")
-    }
-}
-
-impl Error for EguiWindowError {}
+pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (800, 480);
 
 /// State struct for the window actor.
 
@@ -55,6 +42,17 @@ impl Error for EguiWindowError {}
 // commands can't be undone (undo/redo in window)
 // commands are packaged into a vector and sent to the controller.
 // all commands in the vector are executed every input tick
+
+pub(crate) struct ZoomerState {
+    pub(crate) settings_window_open: bool
+}
+
+pub(crate) struct ZoomerReport {
+    pub(crate) actor_start: Instant,
+    pub(crate) actor_wake: Instant,
+    pub(crate) time_to_xyz: Vec<(String, Duration)>
+}
+
 pub(crate) enum ZoomerCommand {
     SetAttention{pixel_x:u32, pixel_y:u32}
     , SetRes{hori: u32, verti: u32}
@@ -72,11 +70,11 @@ pub(crate) enum ZoomerCommand {
 pub(crate) struct ZoomerCommandPackage {
     pub(crate) start_time: Instant
     , pub(crate) commands: Vec<ZoomerCommand>
-    , pub(crate) bucket: Option<Vec<(u8, u8, u8)>>
+    , pub(crate) bucket: Vec<Vec<(u8, u8, u8)>>
 }
 
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub(crate) struct WindowState {
     size: Vec2
     , location: Option<Pos2>
@@ -84,21 +82,25 @@ pub(crate) struct WindowState {
     , free_buffer: Vec<Vec<(u8, u8, u8)>>
     , used_buffer: Vec<Vec<(u8,u8,u8)>>
     , id_counter:u64
-    , expecting_frame: bool
+    , sampling_state: Option<SamplingState>
+    , settings_window_state: Arc<Mutex<SettingsWindowState>>
+    , settings_window_open: bool
+    , controls_settings: ControlsSettings
 }
-
 
 /// Entry point for the window actor.
 pub async fn run(
     actor: SteadyActorShadow,
-    pixels_in: SteadyRx<PixelsForWindow>,
-    commands_out: SteadyTx<ZoomerCommandPackage>,
+    updates_in: SteadyRx<ZoomerUpdate>,
+    //pixels_in: SteadyRx<ZoomerScreen>,
+    state_out: SteadyTx<Vec<ZoomerStateUpdate>>,
     state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
     internal_behavior(
-        actor.into_spotlight([&pixels_in], [&commands_out]),
-        pixels_in,
-        commands_out,
+        actor.into_spotlight([/*&pixels_in, */&updates_in], [&state_out]),
+        updates_in,
+        //pixels_in,
+        state_out,
         state,
     )
     .await
@@ -107,8 +109,9 @@ pub async fn run(
 
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
-    pixels_in: SteadyRx<PixelsForWindow>,
-    commands_out: SteadyTx<ZoomerCommandPackage>,
+    updates_in: SteadyRx<ZoomerUpdate>,
+    //pixels_in: SteadyRx<ZoomerScreen>,
+    state_out: SteadyTx<Vec<ZoomerStateUpdate>>,
     state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
 
@@ -121,7 +124,10 @@ async fn internal_behavior<A: SteadyActor>(
         free_buffer: vec!(vec!((0,0,0);(DEFAULT_WINDOW_RES.0*DEFAULT_WINDOW_RES.1) as usize);2),
         used_buffer: vec!(vec!((0,0,0);(DEFAULT_WINDOW_RES.0*DEFAULT_WINDOW_RES.1) as usize);1), // on window start, what should be displayed?
         id_counter: 0,
-        expecting_frame: false
+        sampling_state: None,
+        settings_window_state: Arc::new(Mutex::new(DEFAULT_SETTINGS_WINDOW_STATE)),
+        settings_window_open: false,
+        controls_settings: ControlsSettings::H
     }).await;
 
     // with_decorations!!!!
@@ -155,8 +161,9 @@ async fn internal_behavior<A: SteadyActor>(
 
     let passthrough = EguiWindowPassthrough{
         portable_actor: portable_actor.clone()
-        , pixels_in: pixels_in.clone()
-        , commands_out: commands_out.clone()
+        , updates_in: updates_in.clone()
+        //, pixels_in: pixels_in.clone()
+        , state_out: state_out.clone()
         , portable_state: portable_state.clone()
     };
 
@@ -168,16 +175,16 @@ async fn internal_behavior<A: SteadyActor>(
 
 
     let mut actor = portable_actor.lock().unwrap();
-    let mut pixels_in = pixels_in.try_lock().unwrap();
-    let mut commands_out = commands_out.try_lock().unwrap();
+    let mut state_out = state_out.try_lock().unwrap();
+    //let mut pixels_in = pixels_in.try_lock().unwrap();
+    let mut updates_in = updates_in.try_lock().unwrap();
     let mut state = portable_state.lock().unwrap();
 
     //println!("state size final value: {}", state.size);
 
 
     if actor.is_running(
-        || i!(pixels_in.is_closed_and_empty())
-            && i!(commands_out.mark_closed())
+        || i!(true)
     ) {
         //warn!("Egui window loop stopped unexpectedly");
         //return Err((Box::from(EguiWindowError{})));
@@ -194,8 +201,9 @@ async fn internal_behavior<A: SteadyActor>(
 
 struct EguiWindowPassthrough<'a, A> {
     portable_actor: Arc<Mutex<A>>,
-    pixels_in: SteadyRx<PixelsForWindow>,
-    commands_out: SteadyTx<ZoomerCommandPackage>,
+    updates_in: SteadyRx<ZoomerUpdate>,
+    //pixels_in: SteadyRx<ZoomerScreen>,
+    state_out: SteadyTx<Vec<ZoomerStateUpdate>>,
     portable_state:Arc<Mutex<StateGuard<'a, WindowState>>>
 }
 
@@ -209,13 +217,13 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
         // init hybrid actor
         let mut actor = self.portable_actor.lock().unwrap();
-        let mut pixels_in = self.pixels_in.try_lock().unwrap();
-        let mut commands_out = self.commands_out.try_lock().unwrap();
+        let mut updates_in = self.updates_in.try_lock().unwrap();
+        //let mut pixels_in = self.pixels_in.try_lock().unwrap();
+        let mut state_out = self.state_out.try_lock().unwrap();
         let mut state = self.portable_state.lock().unwrap();
 
         if actor.is_running(
-            || i!(pixels_in.is_closed_and_empty())
-                && i!(commands_out.mark_closed())
+            || i!(true)
         ) {
 
             // calculate framerate and frametime
@@ -234,42 +242,28 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 None => {timinginfo = None}
             }
 
+            // go fast
+
+            ctx.request_repaint();
+
+
+
+            // sample
+
+            let command_package = ZoomerCommandPackage {
+                start_time: Instant::now(),
+                commands: vec!(),
+                bucket: vec!(state.free_buffer.pop().unwrap())
+            };
+
+            let sampled = sample(command_package, &mut state.sampling_state);
+
             // blit pixels
 
+            let b = state.used_buffer.pop().unwrap();
+            state.free_buffer.push(b);
+            state.used_buffer.push(sampled.pixels);
 
-            let mut tries = 0;
-            while state.expecting_frame {
-
-                match actor.try_take(&mut pixels_in) {
-
-                    Some(pixels) => {
-                        state.expecting_frame = false;
-                        //info!("command response loop took {:.2}ms", pixels.command_processing_duration.as_secs_f64()*1000.0);
-                        //info!("some pixels, swapping buffers");
-                        let b = state.used_buffer.pop().unwrap();
-                        state.free_buffer.push(b);
-                        state.used_buffer.push(pixels.pixels);
-
-                        if tries!=0 {
-
-                            let mut message = format!("retried {} times", tries);
-
-                            match pixels.report {
-                                Some(r) => {
-                                    for dur in r.time_to_xyz {
-                                        message = message + format!("\n{} {:.3}ms", dur.0, dur.1.as_secs_f64()*1000.0).as_str();
-                                    }
-                                }
-                                None => {}
-                            }
-
-                            info!("{}", message);
-                        }
-                    }
-                    None => {tries+=1; std::thread::sleep(Duration::from_millis(1))}
-                };
-
-            }
 
 
             // Convert Vec<u8> to ColorImage
@@ -349,11 +343,32 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                         // create button and get its state
                         let button_state = ui.button("⚙");
                         if button_state.clicked() {
-                            // Gear button action (empty for now)
+                            state.settings_window_open = true;
+                            state.settings_window_state.try_lock().unwrap().will_close = false;
                         }
                         return button_state;
                     }
                 );
+
+                // Add a home icon button in the top-right corner
+                ui.put(
+                    egui::Rect::from_min_size(
+                        egui::pos2(ui.available_width() - 80.0, 0.0),
+                        egui::vec2(40.0, 40.0)
+                    ),
+                    |ui: &mut egui::Ui| {
+                        // create button and get its state
+                        let button_state = ui.button("🏠");
+                        if button_state.clicked() {
+                        }
+                        return button_state;
+                    }
+                );
+
+                if state.settings_window_open {
+                    let result = settings(&ctx, state.settings_window_state.clone());
+                    state.settings_window_open = !result.will_close;
+                }
             });
 
             // save current window position and size
@@ -372,22 +387,27 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             }
 
 
-            let command_package = ZoomerCommandPackage {
-                command_package_id: state.id_counter,
-                start_time: Instant::now(),
-                commands: vec!(ZoomerCommand::DemandFrame{}),
-                bucket: state.free_buffer.pop()
-            };
-
-            actor.try_send(&mut commands_out, command_package);
-            state.expecting_frame = true;
-            ctx.request_repaint();
-
-
             state.last_frame_period = Some(  (this_frame_start, Instant::now())  );
         }
         else {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
+}
+
+
+fn show_deferred_viewport(ctx: &egui::Context, visible: &mut bool) {
+    ctx.show_viewport_deferred(
+        ViewportId::from_hash_of("my_viewport"),
+        ViewportBuilder::default()
+            .with_title("Deferred Viewport")
+            .with_inner_size([300.0, 200.0])
+            .with_visible(*visible)
+            .with_window_level(WindowLevel::AlwaysOnTop),
+        |ctx, class| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.label("This is a deferred viewport!");
+            });
+        },
+    );
 }
