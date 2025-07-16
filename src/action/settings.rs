@@ -17,8 +17,8 @@ use std::sync::{Arc, Mutex};
 
 
 
-use crate::actor::computer::*;
-use crate::operation::sampling::*;
+use crate::actor::worker::*;
+use crate::action::sampling::*;
 use crate::actor::updater::*;
 use crate::actor::window::DEFAULT_WINDOW_RES;
 
@@ -29,38 +29,26 @@ const MIN_FRAME_RATE:f64 = 20.0;
 const MAX_FRAME_TIME:f64 = 1.0 / MIN_FRAME_RATE;
 const VSYNC:bool = true;
 
-pub(crate) const DEFAULT_SETTINGS_WINDOW_RES:(u32, u32) = (800, 480);
+pub(crate) const DEFAULT_SETTINGS_WINDOW_RES:(u32, u32) = (300, 200);
 
-pub const DEFAULT_SETTINGS:ZoomerSettingsState = ZoomerSettingsState{};
+pub const DEFAULT_SETTINGS:SettingsState = SettingsState{};
 
-pub const DEFAULT_SETTINGS_WINDOW_STATE:SettingsWindowState = SettingsWindowState{
+pub const DEFAULT_SETTINGS_WINDOW_CONTEXT:SettingsWindowContext = SettingsWindowContext{
     settings: DEFAULT_SETTINGS
     , size: egui::vec2(DEFAULT_SETTINGS_WINDOW_RES.0 as f32, DEFAULT_SETTINGS_WINDOW_RES.1 as f32)
     , location: None
     , will_close: false
+    , settings_updates: None
 };
-
-
-#[derive(Debug)]
-struct EguiWindowError {
-    state: SettingsWindowState
-}
-
-impl fmt::Display for EguiWindowError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "egui window stopped unexpectedly")
-    }
-}
-impl Error for EguiWindowError {}
 
 /// State struct for the window actor.
 
 #[derive(Clone, Debug)]
-pub(crate) struct ZoomerSettingsState {
+pub(crate) struct SettingsState {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct ZoomerSettingsUpdate {
+pub(crate) struct SettingsUpdate {
 }
 
 enum ZoomerSetting {
@@ -78,14 +66,14 @@ pub(crate) enum ControlsSettings {
 
 pub(crate) struct SettingsWindowResult {
     pub(crate) will_close: bool,
-    pub(crate) control_settings: ControlsSettings,
-    pub(crate) settings_update:ZoomerSettingsUpdate
+    pub(crate) settings_updates: Option<SettingsUpdate>
 }
 
 
 #[derive(Clone, Debug)]
-pub(crate) struct SettingsWindowState {
-    pub(crate) settings: ZoomerSettingsState
+pub(crate) struct SettingsWindowContext {
+    pub(crate) settings: SettingsState
+    , pub(crate) settings_updates: Option<SettingsUpdate>
     , pub(crate) size: Vec2
     , pub(crate) location: Option<Pos2>
     , pub(crate) will_close: bool
@@ -94,7 +82,7 @@ pub(crate) struct SettingsWindowState {
 
 pub(crate) fn settings (
     ctx: &egui::Context,
-    state: Arc<Mutex<SettingsWindowState>>,
+    state: Arc<Mutex<SettingsWindowContext>>,
 ) -> SettingsWindowResult {
 
     let state1 = state.clone();
@@ -102,11 +90,9 @@ pub(crate) fn settings (
 
     let mut state = state.try_lock().unwrap();
 
-
     let viewport_options =
         egui::ViewportBuilder::default()
-            .with_inner_size(state.size.clone())
-        ;
+            .with_inner_size(state.size.clone());
 
     let mut viewport_options = match state.location {
         Some(l) => {viewport_options.with_position(l)}
@@ -119,8 +105,6 @@ pub(crate) fn settings (
         ViewportId::from_hash_of("my_viewport"),
         viewport_options
             .with_title("Deferred Viewport")
-            .with_inner_size([300.0, 200.0])
-
             .with_window_level(WindowLevel::AlwaysOnTop),
         move |ctx, class| {
 
@@ -142,7 +126,6 @@ pub(crate) fn settings (
 
 
             ctx.input(|input_state| {
-
                 match input_state.raw.viewports.get(&ViewportId::from_hash_of("my_viewport")) {
                     Some(info) => {
 
@@ -157,7 +140,7 @@ pub(crate) fn settings (
                         for viewport_event in info.events.clone() {
                             match viewport_event {
                                 egui::ViewportEvent::Close => {
-                                    info!("settings window should close");
+                                    //info!("settings window should close");
                                     state.will_close = true;
                                 }
                             }
@@ -169,13 +152,16 @@ pub(crate) fn settings (
         },
     );
 
-    let state = state2.try_lock().unwrap();
+    let mut state = state2.try_lock().unwrap();
 
-    info!("will close: {}", state.will_close);
+    //info!("will close: {}", state.will_close);
+
+    let will_close = state.will_close.clone();
+
+    state.will_close = false;
 
     SettingsWindowResult{
-        will_close: state.will_close,
-        control_settings: ControlsSettings::H,
-        settings_update: ZoomerSettingsUpdate{}
+        will_close: will_close,
+        settings_updates: state.settings_updates.clone()
     }
 }
