@@ -1,83 +1,148 @@
-/*use steady_state::*;
+use rand::Rng;
+use steady_state::*;
+
+
+
 
 use crate::actor::window::*;
+use crate::actor::updater::*;
+use crate::action::settings::*;
 
+#[derive(Clone, Debug)]
 
-
-pub(crate) struct ComputerState {
+pub(crate) struct ZoomerScreen {
+    pub(crate) pixels: Vec<(u8,u8,u8)>
+    , pub(crate) location: (String, String)
+    , pub(crate) screen_size: (u32, u32)
+    , pub(crate) zoom_factor: String
+    , pub(crate) state_revision: u64
 }
 
-pub(crate) struct PixelGroup {
-    pub(crate) pixels: Vec<u32>
-    , pub(crate) job_uuid: Option<u64>
-    , pub(crate) report: Option<ZoomerReport>
+pub(crate) struct ZoomerScreenValues {
+    pub(crate) values: Vec<(u32)>
+    , pub(crate) location: (String, String)
+    , pub(crate) screen_size: (u32, u32)
+    , pub(crate) zoom_factor: String
+    , pub(crate) state_revision: u64
 }
 
+pub(crate) struct ColorerState {
+    //pub(crate) zoomer_state: ZoomerState,
+    //pub(crate) settings: ZoomerSettingsState,
+    pub(crate) values:ZoomerScreenValues,
+    pub(crate) bucket:Vec<Vec<(u8,u8,u8)>>
+}
 
 pub async fn run(
     actor: SteadyActorShadow,
-    jobs_in: SteadyRx<Vec<ZoomerJob>>,
-    pixels_out: SteadyTx<PixelGroup>,
-    state: SteadyState<ComputerState>,
+    values_in: SteadyRx<ZoomerScreenValues>,
+    buckets_in: SteadyRx<Vec<Vec<(u8,u8,u8)>>>,
+    updates_in: SteadyRx<ZoomerUpdate>,
+    screens_out: SteadyTx<(ZoomerScreen)>,
+    state: SteadyState<ColorerState>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
-        actor.into_spotlight([&jobs_in], [&pixels_out]),
-        jobs_in,
-        pixels_out,
+        actor.into_spotlight([&updates_in, &values_in], [&screens_out]),
+        values_in,
+        buckets_in,
+        updates_in,
+        screens_out,
         state,
     )
         .await
 }
 
-/// The core logic for the worker actor.
-/// This function implements high-throughput, cache-friendly batch processing.
-///
-/// Key performance strategies:      //#!#//
-/// - **Double-buffering**: The channel is logically split into two halves. While one half is being filled by the producer, the consumer processes the other half.
-/// - **Full-channel consumption**: The worker processes both halves (two slices) before yielding, maximizing cache line reuse and minimizing context switches.
-/// - **Pre-allocated buffers**: All batch buffers are allocated once and reused, ensuring zero-allocation hot paths.
-/// - **Mechanically sympathetic**: The design aligns with CPU cache and memory bus behavior for optimal throughput.
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
-    jobs_in: SteadyRx<Vec<ZoomerJob>>,
-    pixels_out: SteadyTx<PixelGroup>,
-    state: SteadyState<ComputerState>,
+    values_in: SteadyRx<ZoomerScreenValues>,
+    buckets_in: SteadyRx<Vec<Vec<(u8,u8,u8)>>>,
+    updates_in: SteadyRx<ZoomerUpdate>,
+    screens_out: SteadyTx<ZoomerScreen>,
+    state: SteadyState<ColorerState>,
 ) -> Result<(), Box<dyn Error>> {
-    let mut jobs_in = jobs_in.lock().await;
-    let mut pixels_out = pixels_out.lock().await;
+    let mut values_in = values_in.lock().await;
+    let mut buckets_in = buckets_in.lock().await;
+    let mut updates_in = updates_in.lock().await;
+    let mut screens_out = screens_out.lock().await;
 
-    let mut state = state.lock(|| ComputerState {
+    let mut state = state.lock(|| ColorerState {
+        values: ZoomerScreenValues {
+        values: vec!()
+        , location: ("0".to_string(), "0".to_string())
+        , screen_size: (2, 2)
+        , zoom_factor: "1".to_string()
+        , state_revision: 0
+        },
+        bucket: vec!()
     }).await;
 
     // Lock all channels for exclusive access within this actor.
 
-    let max_latency = Duration::from_millis(40);
+    let max_sleep = Duration::from_millis(100);
 
     // Main processing loop.
     // The actor runs until all input channels are closed and empty, and the output channel is closed.
     while actor.is_running(
-        || i!(pixels_out.mark_closed())
+        || i!(true)
     ) {
         // Wait for all required conditions:
         // - A periodic timer
-        await_for_all_or_proceed_upon!(  //#!#//
-            actor.wait_periodic(max_latency),
-            actor.wait_avail(&mut jobs_in, 1)
+        await_for_any!(  //#!#//
+            actor.wait_periodic(max_sleep),
+            actor.wait_avail(&mut values_in, 1),
+            actor.wait_avail(&mut updates_in, 1),
+            actor.wait_avail(&mut buckets_in, 1)
         );
 
 
-        // do computer stuff
+        // do stuff
 
+        match actor.try_take(&mut buckets_in) {
+            Some(mut b) => {
+                state.bucket.push(b.pop().unwrap());
+            }
+            None => {}
+        }
 
+        match actor.try_take(&mut values_in) {
+            Some(v) => {
+                info!("recieved values");
+                state.values = v;
+                let len = state.values.values.len();
+                let mut output = vec!();
 
+                for i in 0..state.values.values.len() {
+                    let value = state.values.values[i%len];
+                    let color:(u8,u8,u8) = if value == u32::MAX {
+                        (0, 0, 0)
+                    } else {
+                        ((value * 100) as u8, (value * 100) as u8, (value * 100) as u8)
+                    };
+                    //let color = (255, 255, 255);
+                    output.push(color);
+                }
 
+                info!("done coloring");
+
+                actor.try_send(&mut screens_out, ZoomerScreen{
+                    pixels: output
+                    , location: state.values.location.clone()
+                    , screen_size: state.values.screen_size
+                    , state_revision: state.values.state_revision
+                    , zoom_factor: state.values.zoom_factor.clone()
+                });
+                info!("sent colors to window");
+
+            }
+            None => {}
+        }
 
 
 
     }
 
     // Final shutdown log, reporting all statistics.
-    info!("Computer shutting down.");
+    info!("Colorer shutting down.");
     Ok(())
-}*/
+}

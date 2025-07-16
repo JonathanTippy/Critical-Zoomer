@@ -2,21 +2,25 @@ use steady_state::*;
 use arg::MainArg;
 mod arg;
 
+
 // The actor module contains all the actor implementations for this pipeline.
 // Each actor is in its own submodule for clarity and separation of concerns.
 pub(crate) mod actor {
     pub(crate) mod window;
-    pub(crate) mod computer;
+    pub(crate) mod worker;
     pub(crate) mod colorer;
     pub(crate) mod updater;
 }
 
-pub(crate) mod operation {
+pub(crate) mod action {
     pub(crate) mod sampling;
     pub(crate) mod settings;
+    pub(crate) mod rolling;
+    pub(crate) mod workday;
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+
     // Parse command-line arguments (rate, beats, etc.) using clap.
     let cli_args = MainArg::parse();
 
@@ -43,7 +47,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 const NAME_WINDOW: &str = "window";
 const NAME_SETTINGS_WINDOW: &str = "settings";
 const NAME_COLORER: &str = "colorer";
-const NAME_COMPUTER: &str = "computer";
+const NAME_WORKER: &str = "worker";
 const NAME_UPDATER: &str = "updater";
 
 
@@ -68,58 +72,45 @@ fn build_graph(graph: &mut Graph) {
     // - Generator and computer channels: 1,048,576 messages (1<<20) for massive batch processing
 
 
-    // window to updater channel
     let (
         window_tx_to_updater
         , updater_rx_from_window
     ) = channel_builder.build();
 
-
-
-    let (
-        updater_tx_to_window
-        , window_rx_from_updater
-    ) = channel_builder.build();
-
-/*
     let (
         colorer_tx_to_window
         , window_rx_from_colorer
     ) = channel_builder.build();
-*/
-
-
-/*
-
-    //colorer to window channel
-
-
-    //computer to colorer channel
-
-    let (
-        computer_tx_to_colorer
-        , colorer_rx_from_computer
-    ) = channel_builder.build();
-
-    //updater to actors channels
-
-
-
-
-
 
     let (
         updater_tx_to_colorer
         , colorer_rx_from_updater
     ) = channel_builder.build();
 
+
+
+    // buckets channels
+
     let (
-        updater_tx_to_computer
-        , computer_rx_from_updater
+        window_bucket_tx_to_colorer
+        , colorer_bucket_rx_from_window
+    ) = channel_builder.build();
+
+    //worker channels
+
+    let (
+        worker_tx_to_colorer
+        , colorer_rx_from_worker
+    ) = channel_builder.build();
+
+    let (
+        updater_tx_to_worker
+        , worker_rx_from_updater
     ) = channel_builder.build();
 
 
-*/
+
+
 
 
 
@@ -148,28 +139,28 @@ fn build_graph(graph: &mut Graph) {
     let state = new_state();
     actor_builder.with_name(NAME_WINDOW)
         .build(move |context|
-            actor::window::run(context, window_rx_from_updater.clone(),  /*window_rx_from_colorer.clone(), */window_tx_to_updater.clone(),  state.clone()) //#!#//
+            actor::window::run(context, window_rx_from_colorer.clone(), window_tx_to_updater.clone(), window_bucket_tx_to_colorer.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
                , SoloAct);
 
-    /*let state = new_state();
+    let state = new_state();
     actor_builder.with_name(NAME_UPDATER)
         .build(move |context|
-                   actor::updater::run(context, updater_rx_from_window.clone(), updater_rx_from_settings_window.clone(), updater_tx_to_settings_window.clone(), state.clone()) //#!#//
+                   actor::updater::run(context, updater_rx_from_window.clone(), updater_tx_to_colorer.clone(), updater_tx_to_worker.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
-               , SoloAct);*/
+               , SoloAct);
 
-    /*let state = new_state();
+    let state = new_state();
     actor_builder.with_name(NAME_COLORER)
         .build(move |context|
-                   actor::colorer::run(context, window_tx_to_updater.clone(), window_rx_from_colorer.clone(), window_rx_from_updater.clone() state.clone()) //#!#//
+                   actor::colorer::run(context, colorer_rx_from_worker.clone(), colorer_bucket_rx_from_window.clone(), colorer_rx_from_updater.clone(), colorer_tx_to_window.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
-               , SoloAct);*/
+               , SoloAct);
 
-    /*let state = new_state();
-    actor_builder.with_name(NAME_COMPUTER)
+    let state = new_state();
+    actor_builder.with_name(NAME_WORKER)
         .build(move |context|
-                   actor::computer::run(context, window_tx_to_updater.clone(), window_rx_from_colorer.clone(), window_rx_from_updater.clone() state.clone()) //#!#//
+                   actor::worker::run(context, worker_rx_from_updater.clone(), worker_tx_to_colorer.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
-               , SoloAct);*/
+               , SoloAct);
 }
