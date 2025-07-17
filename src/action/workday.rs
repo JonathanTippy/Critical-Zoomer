@@ -11,6 +11,8 @@ use rand::rng;
 
 
 
+pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 4;
+
 
 
 
@@ -54,7 +56,7 @@ pub(crate) struct PointF32 {
     , pub(crate) iterations: u32
     // if this isn't updated enough, you will take longer to realize loops.
     // If its updated too often, you will not be able to realize long loops.
-    , pub(crate) loop_detection_points: [(f32, f32);10]
+    , pub(crate) loop_detection_points: [(f32, f32);NUMBER_OF_LOOP_CHECK_POINTS]
     , pub(crate) last_point: (f32, f32)
     , pub(crate) done: (bool, bool)
 }
@@ -96,7 +98,7 @@ pub(crate) fn workday(
 
     let total_points = context.points.len();
 
-    while context.index < total_points-1 && context.spent_tokens_today + bout_token_cost + 1000*iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
+    while context.index < total_points-1 && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
 
         let point = &mut context.points[context.random_index];
 
@@ -117,10 +119,7 @@ pub(crate) fn workday(
                 }
             };
 
-            context.completed_points.insert(
-                context.random_index,
-                completed_point
-            );
+            context.completed_points[context.random_index] = completed_point;
 
             context.total_iterations += point.iterations;
 
@@ -157,7 +156,8 @@ pub(crate) fn workday(
         Some(returned)
     } else {
 
-        let mut returned = vec!();
+
+        /*let mut returned = vec!();
         for i in 0..total_points {
             returned.push(
                 match context.points[i].done {
@@ -176,13 +176,35 @@ pub(crate) fn workday(
         }
         context.workdays += 1;
         context.percent_completed = context.index as f64 / (total_points-1) as f64 * 100.0;
-        Some(returned)
+        Some(returned)*/
 
+        if context.workdays % 1000 == 0 {
+            let mut returned = vec!();
+            for i in 0..total_points {
+                returned.push(
+                    match context.points[i].done {
+                        (true, false) => {
+                            CompletedPoint::Escapes{
+                                escape_time: context.points[i].iterations
+                                , escape_location: context.points[i].z
+                            }
+                        }
+                        , (false, true) => {
+                            CompletedPoint::Repeats{}
+                        }
+                        , _ => {CompletedPoint::Repeats{}}//CompletedPoint::Dummy}
+                    }
+                );
+            }
+            context.workdays += 1;
+            context.percent_completed = context.index as f64 / (total_points-1) as f64 * 100.0;
+            Some(returned)
+        } else {
+            context.workdays += 1;
 
-        /*context.workdays += 1;
-
-        context.percent_completed = context.index as f64 / (total_points-1) as f64 * 100.0;
-        None*/
+            context.percent_completed = context.index as f64 / (total_points-1) as f64 * 100.0;
+            None
+        }
     }
 }
 #[inline]
@@ -225,12 +247,12 @@ fn loop_check_point_f32 (point: & PointF32) -> bool {
     for loop_check_point in &point.loop_detection_points {
         looped = looped || point.z == *loop_check_point;
     }
-    looped || point.z == point.last_point
+    looped// || point.z == point.last_point
 }
 
 #[inline]
 fn update_loop_check_points (point: &mut PointF32) {
-    point.last_point = point.z;
+    /*point.last_point = point.z;
     if point.iterations%(1000) == 0 {
         point.loop_detection_points[0] = point.z;
     }
@@ -260,6 +282,44 @@ fn update_loop_check_points (point: &mut PointF32) {
     }
     if point.iterations%(50000000) == 0 {
         point.loop_detection_points[9] = point.z;
+    }*/
+
+   /* point.last_point = point.z;
+    if point.iterations%(1000) == 0 {
+        point.loop_detection_points[0] = point.z;
+    }
+    if point.iterations%(10000) == 0 {
+        point.loop_detection_points[1] = point.z;
+    }
+
+    if point.iterations%(100000) == 0 {
+        point.loop_detection_points[2] =point.z;
+    }
+
+    if point.iterations%(1000000) == 0 {
+        point.loop_detection_points[3] = point.z;
+    }
+
+    if point.iterations%(10000000) == 0 {
+        point.loop_detection_points[4] =  point.z;
+    }*/
+
+    //point.last_point = point.z;
+
+    if point.iterations%(1<<1) == 0 {
+        point.loop_detection_points[0] = point.z;
+    }
+
+    if point.iterations%(1<<8) == 0 {
+        point.loop_detection_points[1] = point.z;
+    }
+
+    if point.iterations%(1<<14) == 0 {
+        point.loop_detection_points[2] = point.z;
+    }
+
+    if point.iterations%(1<<23) == 0 {
+        point.loop_detection_points[3] =point.z;
     }
 }
 

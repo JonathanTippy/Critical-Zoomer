@@ -16,27 +16,21 @@ pub(crate) struct ZoomerWorldColors {
 }
 
 
-pub(crate) struct ZoomedScreen {
-    pixels: Vec<(u8, u8, u8)>
-    , zoom_power: i32
-}
-
-
 #[derive(Clone, Debug)]
 pub(crate) struct SamplingContext {
     pub(crate) used_screen: Vec<ZoomerScreen>
     , pub(crate) unused_screen: Vec<ZoomerScreen>
     , pub(crate) sampling_size: (u32, u32)
-    /*pub(crate) world: ZoomerWorldColors
-    , pub(crate) viewport_position_real: &'static str
-    , pub(crate) viewport_position_imag: &'static str
-    , pub(crate) viewport_zoom: &'static str
-    , pub(crate) zoom_power_base: u8
-    , pub(crate) window_res: (u32, u32)*/
+    , pub(crate) relative_pos: (i32, i32) // these are updated in response to commands
+    , pub(crate) relative_zoom: f64
+    , pub(crate) objective_pos: (String, String) // these are just retrieved from the data
+    , pub(crate) objective_zoom: (String)
+    //pub(crate) world: ZoomerWorldColors
+    //, pub(crate) zoom_power_base: u8
 }
 
 pub(crate) fn sample(
-    mut command_package: ZoomerCommandPackage,
+    mut command_package: Vec<ZoomerCommand>,
     mut output_buffer: &mut Vec<Color32>,
     mut sampling_context: &mut SamplingContext
 ) {
@@ -47,21 +41,41 @@ pub(crate) fn sample(
     let size = context.sampling_size;
     // handle commands
 
-    for command in &mut command_package.commands {
+    for command in &mut command_package {
         match command {
-            ZoomerCommand::SetAttention{pixel_x, pixel_y} => {
-                // send the jobs and stuff
+            ZoomerCommand::SetFocus{pixel_x, pixel_y} => {
             }
-            ZoomerCommand::ZoomClean{factor_power} => {
-            }
-            ZoomerCommand::SetZoomPowerBase{base} => {
+            ZoomerCommand::ZoomClean{factor, center_relative_relative_pos} => {
+
+                context.relative_zoom =
+                    context.relative_zoom * *factor as f64;
+
+                let center_relative_pos = (
+                    context.relative_pos + *center_relative_relative_pos.0
+                    , context.relative_pos + *center_relative_relative_pos.1
+                );
+
+                context.relative_pos = (
+                    (context.relative_pos.0 - center_relative_pos) * factor + center_relative_pos.0
+                    , (context.relative_pos.1 - center_relative_pos) * factor + center_relative_pos.1
+                )
+
             }
             ZoomerCommand::ZoomUnclean{factor} => {
+
             }
             ZoomerCommand::SetZoom{factor} => {
             }
-            ZoomerCommand::MoveClean{pixels_x, pixels_y} => {
+            ZoomerCommand::Move{pixels_x, pixels_y} => {
+
+
             }
+            ZoomerCommand::MoveTo{x, y} => {
+
+
+
+            }
+
             ZoomerCommand::SetPos{real, imag} => {
             }
             ZoomerCommand::TrackPoint{point_id, point_real, point_imag} => {
@@ -73,43 +87,104 @@ pub(crate) fn sample(
         }
     }
 
-    let psize = size.0 * size.1;
-
-    let data_size = context.used_screen[0].pixels.len()-1;
-
-    let adjusted_rate = data_size as f64 / psize as f64;
-
-    for i in 0..psize {
-        bucket.push(Color32::BLACK);
-    }
-
-    for i in 0..data_size {
-        let l = objective_location_from_index(i as u32, context.used_screen[0].screen_size);
-        let color = context.used_screen[0].pixels[i];
-        let j = index_from_objective_location(l, size) as usize;
-
-        //if j < bucket.len() {
-            bucket[j] = Color32::from_rgb(color.0, color.1, color.2);
-       // }
-
+    //let mut i = 0;
+    for row in 0..size.1 as usize {
+        for seat in 0..size.0 as usize {
+            bucket.push(get_color(
+                &context.used_screen[0].pixels
+                , context.used_screen[0].screen_size
+                , context.sampling_size
+                , row
+                , seat
+                , (     (1<<16) / size.0,    (1<<16) / size.1    )
+                , context.sampling_relative_pos
+                , context.sampling_relative_zoom
+            ));
+            //i+=1;
+        }
     }
 }
 
+//screen space uses fixed point i32, 1<<16 is 1.
+//multiplication results in an extra 1<<16 which means we have to >> 16
+//addition is fine as long as all values invloved are already fixed points
+//division cancels the 1<<16 so we have to add it back with << 16
+
 #[inline]
-fn objective_location_from_index(i: u32, res: (u32, u32)) -> (f64, f64) {
+fn get_color(pixels: &Vec<(u8,u8,u8)>, data_res: (u32, u32), res: (u32, u32), row: usize, seat: usize, res_recip: (u32, u32), relative_pos: (i32, i32), relative_zoom: f64) -> Color32 {
+    let color = pixels
+        [
+            index_from_relative_location_i32(
+                transform_relative_location_i32(
+                    relative_location_i32_row_and_seat(res_recip, seat, row)
+                    , (relative_pos.0, relative_pos.1)
+                    , relative_zoom
+                )
+                , data_res
+            )
+        ];
+    Color32::from_rgb(color.0, color.1, color.2)
+}
+
+
+#[inline]
+fn relative_location_i32_row_and_seat(res_recip: (u32, u32), seat: usize, row: usize) -> (i32, i32) {
+
+    let seat = seat as u32;
+    let row = row as u32;
+
     (
-        (i % res.0) as f64 / res.0 as f64
-        , (i / res.0) as f64 / res.1 as f64
+        (seat * res_recip.0) as i32
+        , (row * res_recip.1) as i32
     )
+
 }
-/*#[inline]
-fn index_from_objective_location(l: (f64, f64), res: (u32, u32)) -> u32 {
-    ((l.0 * res.0 as f64) + (l.1 * res.1 as f64) * res.0 as f64) as u32
-}*/
 
 #[inline]
-fn index_from_objective_location(l: (f64, f64), res: (u32, u32)) -> u32 {
-    let col = (l.0 * res.0 as f64).floor() as u32; // x * width, floored to get column
-    let row = (l.1 * res.1 as f64).floor() as u32; // y * height, floored to get row
-    row * res.0 + col                              // index = row * width + col
+fn index_from_relative_location_i32(l: (i32, i32), res: (u32, u32)) -> usize {
+
+    let l = (
+        l.0 % (1<<16)
+        , l.1 % (1<<16)
+    );
+
+    let pixel_l = (
+        (l.0 as u32 * res.0) >> 16
+        , (l.1 as u32 * res.1) >> 16
+    );
+
+    ((
+        pixel_l.1 * res.0
+            + pixel_l.0
+    ) % (res.0 * res.1)) as usize
+
+}
+
+#[inline]
+fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom: f64) -> (i32, i32) {
+
+
+    // move + apply modulo
+
+    let l = (
+        (l.0 - m.0) % (1<<16)
+        , (l.1 - m.1) % (1<<16)
+    );
+
+    let centered = (
+        l.0 - zc.0
+        , l.1 - zc.1
+    );
+
+    let centered_zoomed= (
+        (centered.0 as f64 * zoom) as i32
+        , (centered.1 as f64 * zoom) as i32
+    );
+
+    let uncentered_zoomed =(
+        (centered_zoomed.0 + zc.0) % (1<<16)
+        , (centered_zoomed.1 + zc.1) % (1<<16)
+    );
+
+    uncentered_zoomed
 }
