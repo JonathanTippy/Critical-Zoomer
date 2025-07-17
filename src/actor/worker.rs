@@ -18,7 +18,7 @@ pub(crate) struct WorkerState {
     , workday_token_cost: u32
 }
 
-pub(crate) const WORKER_INIT_RES:(u32, u32) = (800, 480);
+pub(crate) const WORKER_INIT_RES:(u32, u32) = (500, 500);
 pub(crate) const WORKER_INIT_LOC:(&'static str, &'static str) = ("0", "0");
 pub(crate) const WORKER_INIT_ZOOM:&'static str = "1";
 
@@ -74,10 +74,10 @@ async fn internal_behavior<A: SteadyActor>(
             , total_bouts_today: 0
         }
         , worker_token_budget: 50000000
-        , iteration_token_cost: 25
-        , bout_token_cost: 1000
-        , workday_token_cost: 10000000
-        , point_token_cost: 10000
+        , iteration_token_cost: 2
+        , bout_token_cost: 4
+        , workday_token_cost: 0
+        , point_token_cost: 150
     }).await;
 
     let max_sleep = Duration::from_millis(100);
@@ -119,8 +119,12 @@ async fn internal_behavior<A: SteadyActor>(
                 ,  &mut state.current_work_context)
             {
                 Some(c) => {
-                    //info!("context is done. Total workdays: {}\n total iterations: {}", state.current_work_context.workdays, state.current_work_context.total_iterations);
-                    info!("workday completed. context is now {:.2}% done.", state.current_work_context.percent_completed);
+                    if state.current_work_context.percent_completed == 100.0 {
+                        info!("context is done. Total time: {:.2}s\n total iterations: {}", state.current_work_context.time_created.elapsed().as_secs_f64(), state.current_work_context.total_iterations);
+                    } else {
+                        info!("workday completed. context is now {:.2}% done.", state.current_work_context.percent_completed);
+                    }
+
                     actor.try_send(&mut values_out, ZoomerScreenValues{
                         values: strip_destination_f32(c)
                         , location: (WORKER_INIT_LOC.0.to_string(), WORKER_INIT_LOC.1.to_string())
@@ -174,7 +178,7 @@ fn get_points_f32(res: (u32, u32), loc:(&str, &str), zoom: &str) -> Vec<PointF32
                         , imag_squared: 0.0
                         , real_imag: 0.0
                         , iterations: 0
-                        , loop_detection_points: [(0.0, 0.0); 10]
+                        , loop_detection_points: [(0.0, 0.0); NUMBER_OF_LOOP_CHECK_POINTS]
                         , done: (false, false)
                         , last_point: (0.0, 0.0)
                     }

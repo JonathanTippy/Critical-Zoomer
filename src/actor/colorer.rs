@@ -117,7 +117,7 @@ async fn internal_behavior<A: SteadyActor>(
                     let color:(u8,u8,u8) = if value == u32::MAX {
                         (0, 0, 0)
                     } else {
-                        ((value * 100) as u8, (value * 100) as u8, (value * 100) as u8)
+                        ((value * 10 % 192) as u8 + 64, (value * 10 % 192) as u8 + 64, (value * 10 % 192) as u8 + 64)
                     };
                     //let color = (255, 255, 255);
                     output.push(color);

@@ -19,6 +19,8 @@ use std::collections::*;
 
 use crate::actor::colorer::*;
 use crate::actor::updater::*;
+use crate::actor::worker::*;
+
 use crate::action::sampling::*;
 use crate::action::settings::*;
 use crate::action::rolling::*;
@@ -32,10 +34,10 @@ const RECOVER_EGUI_CRASHES:bool = false;
 //const MAX_FRAME_TIME:f64 = 1.0 / MIN_FRAME_RATE;
 const VSYNC:bool = false;
 
-pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (800, 480);
+pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (500, 500);
 
- pub(crate) const MIN_PIXELS:u32 = 1080; // min_pixels is prioritized over min_fps
-pub(crate) const MIN_FPS:f32 = 50.0;
+ pub(crate) const MIN_PIXELS:u32 = 40; // min_pixels is prioritized over min_fps and should be greater than ~6
+pub(crate) const MIN_FPS:f32 = 10.0;
 
 /// State struct for the window actor.
 
@@ -50,12 +52,12 @@ pub(crate) struct ZoomerReport {
 }
 
 pub(crate) enum ZoomerCommand {
-    SetAttention{pixel_x:u32, pixel_y:u32}
-    , ZoomClean{factor_power: i8}
-    , SetZoomPowerBase{base: u8}
-    , ZoomUnclean{factor: f32}
+    SetFocus{pixel_x:u32, pixel_y:u32}
+    , ZoomClean{factor: u16, center_relative_relative_pos: (i32, i32)} // zoom clean can only zoom in
+    , ZoomUnclean{factor: f32} // zoom unclean can zoom in or out
     , SetZoom{factor: String}
-    , MoveClean{pixels_x: i32, pixels_y: i32}
+    , MoveTo{x: u16, y: u16}
+    , Move{pixels_x: i32, pixels_y: i32}
     , SetPos{real: String, imag: String}
     , TrackPoint{point_id:u64, point_real: String, point_imag: String}
     , UntrackPoint{point_id:u64}
@@ -88,6 +90,8 @@ pub(crate) struct WindowState {
     , pub(crate) texturing_things: Vec<(TextureHandle, ColorImage, Vec<Color32>)>
     , pub(crate) sampling_resolution_multiplier: f32
     , pub(crate) timer: Instant
+    , pub(crate) fps_margin: f32
+    , pub(crate) mouse_drag_start: Option<((f32, f32), (u16, u16))>
 }
 
 /// Entry point for the window actor.
@@ -145,6 +149,10 @@ async fn internal_behavior<A: SteadyActor>(
                 }
             )
             , sampling_size: (DEFAULT_WINDOW_RES.0, DEFAULT_WINDOW_RES.1)
+            , objective_pos: (WORKER_INIT_LOC.0.to_string(), WORKER_INIT_LOC.1.to_string())
+            , objective_zoom: WORKER_INIT_ZOOM.to_string()
+            , relative_pos: (0, 0)
+            , relative_zoom: 0.0
             /*world: None,
             viewport_position_real: "0",
             viewport_position_imag: "0",
@@ -159,6 +167,8 @@ async fn internal_behavior<A: SteadyActor>(
         , texturing_things: vec!()
         , sampling_resolution_multiplier: 1.0
         , timer: Instant::now()
+        , fps_margin: 0.0
+        , mouse_drag_start: None
     }).await;
 
     // with_decorations!!!!
@@ -296,44 +306,13 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             let size = ((state.size.x*state.sampling_resolution_multiplier) as usize, (state.size.y*state.sampling_resolution_multiplier) as usize);
             let pixels = size.0 * size.1;
 
-            //let start = Instant::now();
 
-            /*if state.buffers.len() == 0 {
-                state.buffers.push(Vec::with_capacity(pixels));
-            }*/
+            let mut sampler_buffer = Vec::with_capacity(pixels);// = //vec!(Color32::BLACK; pixels); //Vec::with_capacity(pixels);
 
-            let mut sampler_buffer = Vec::with_capacity(pixels);
-
-            //info!("bucket length: {}", sampler_buffer.len());
-
-            //info!("took {:.3}ms allocating a new bucket", start.elapsed().as_secs_f64()*1000.0);
-
-            // prepare bucket
-
-            //let start = Instant::now();
-
-            /*if state.buffers[0].len() != pixels {
-                state.buffers[0].resize(pixels, (Color32::BLACK));
-            }*/
-
-            //info!("took {:.3}ms resizing bucket", start.elapsed().as_secs_f64()*1000.0);
-
-            //let start = Instant::now();
-
-            // send colring bucket to colorer
 
             if state.sampling_context.unused_screen.len() > 0 {
                 actor.try_send(&mut buckets_out, vec!(state.sampling_context.unused_screen.pop().unwrap().pixels));
             }
-
-            //info!("took {:.3}ms sending bucket to colorer", start.elapsed().as_secs_f64()*1000.0);
-
-
-            //info!("took {:.3}ms before updating sampling state", this_frame_start.elapsed().as_secs_f64()*1000.0);
-
-            // update sampling state
-
-            //let start = Instant::now();
 
             match actor.try_take(&mut pixels_in) {
                 Some(p) => {
@@ -347,18 +326,10 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 }
                 None => {}
             }
-            //info!("took {:.3}ms updating sampling state", start.elapsed().as_secs_f64()*1000.0);
-            //let start = Instant::now();
+
             // sample
 
-            let command_package = ZoomerCommandPackage {
-                start_time: Instant::now(),
-                commands: vec!(),
-            };
-
-            //info!("took {:.3}ms cloning bucket", start.elapsed().as_secs_f64()*1000.0);
-            //let start = Instant::now();
-
+            let command_package = parse_inputs(&ctx, &mut state, size);
 
             state.sampling_context.sampling_size = (size.0 as u32, size.1 as u32);
 
@@ -383,12 +354,6 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 image,
                 egui::TextureOptions::NEAREST,
             );
-
-            //info!("took {:.3}ms texturing", start.elapsed().as_secs_f64()*1000.0);
-
-            //info!("took {:.3}ms", start.elapsed().as_secs_f64()*1000.0);
-
-            //let start = Instant::now();
 
 
             egui::CentralPanel::default()
@@ -451,12 +416,13 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                                             , r.1.0.as_secs_f64()*1000.0 - r.1.1.as_secs_f64()*1000.0
                                         ).as_str();*/
 
+
                                         if state.timer.elapsed().as_secs_f64() > 0.1 {
                                             state.timer = Instant::now();
 
                                             let fps:f64 = r.0.0 as f64 / 1000000000.0;
                                             let frametime:f64 = r.0.1.as_secs_f64()*1000.0;
-                                            if fps < (MIN_FPS) as f64 {
+                                            if fps < (MIN_FPS - state.fps_margin) as f64 {
                                                 let excess_frametime:f64 = frametime - ((1000.0/MIN_FPS) as f64);
 
                                                 let size = ((state.size.x*state.sampling_resolution_multiplier) as usize, (state.size.y*state.sampling_resolution_multiplier) as usize);
@@ -475,7 +441,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                                 let res_multiplier:f32 = (ypixels / (state.size.y as f64)) as f32;
 
                                                 state.sampling_resolution_multiplier = res_multiplier;
-                                            } else {
+                                            } else if fps > (MIN_FPS + state.fps_margin ) as f64 {
                                                 let extra_frametime:f64 = ((1000.0/MIN_FPS) as f64)-frametime;
 
                                                 let size = ((state.size.x*state.sampling_resolution_multiplier) as usize, (state.size.y*state.sampling_resolution_multiplier) as usize);
@@ -510,14 +476,17 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                         }
 
 
-
                                     }
                                     None => {}
                                 }
 
                                 match rolling_frame_result.1 {
                                     Some(r) => {
-                                        response += format!("fps:{:.1} / 1s low: {:.1}", r.0.0 as f64 / 1000000000.0, 1.0 / r.1.0.as_secs_f64()).as_str();
+                                        response += format!("fps:{:.0} / 1s low: {:.1}", r.0.0 as f64 / 1000000000.0, 1.0 / r.1.0.as_secs_f64()).as_str();
+
+
+
+
                                         /*
                                         response += format!("1s avg data:\nfps: {:.1}\nframetime:{:.1}ms\n    from me:{:.1}ms\n    from egui: {:.1}ms\n\n"
                                                             , r.0.0 as f64 / 1000000000.0
@@ -564,6 +533,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
                                 match rolling_frame_result.0 {
                                     Some(r) => {
+                                        //state.fps_margin = 10.0;
                                         /*response += format!("10s data:\nfps: {:.2}\nframetime:{:.2}ms\n    from me:{:.2}ms\n    from egui: {:.2}ms\n"
                                                             , r.0.0 as f64 / 1000000000.0
                                                             , r.0.1.as_secs_f64()*1000.0
@@ -660,4 +630,96 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
+}
+
+
+
+fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usize, usize)) -> Vec<ZoomerCommand> {
+
+
+    let settings = &state.controls_settings;
+
+    let mut returned = vec!();
+
+    let ppp = ctx.pixels_per_point();
+
+    ctx.input(|input_state| {
+
+
+        // begin a new drag if neither of the buttons are held and one or both has just been pressed
+        if
+        (input_state.pointer.primary_pressed() && (! input_state.pointer.button_down(egui::PointerButton::Middle)))
+        || (input_state.pointer.button_pressed(egui::PointerButton::Middle) && (! input_state.pointer.primary_down())) {
+            let d = input_state.pointer.latest_pos().unwrap();
+            state.mouse_drag_start = Some(
+                (
+                    (
+                    d.x
+                    , d.y
+                    ), (
+                    state.sampling_context.sampling_pos.0
+                    , state.sampling_context.sampling_pos.1
+                    )
+                )
+            );
+        }
+
+        match state.mouse_drag_start {
+            Some(start) => {
+
+                // end the current drag if appropriate
+                if (!input_state.pointer.button_down(egui::PointerButton::Primary)) && (!input_state.pointer.button_down(egui::PointerButton::Middle)) {
+                    state.mouse_drag_start = None;
+                } else {
+                    // execute the drag
+
+                    let pos = input_state.pointer.latest_pos().unwrap();
+
+                    let drag = (
+                        pos.x - start.0.0
+                        , pos.y - start.0.1
+                    );
+
+                    let drag_start_pos = (start.1.0, start.1.1);
+
+                    returned.push(
+                        ZoomerCommand::MoveTo{
+                            x: drag_start_pos.0 + drag.0
+                            , y: drag_start_pos.1 + drag.1
+                        }
+                    );
+                }
+            }
+            None => {}
+        }
+
+        let scroll = -input_state.raw_scroll_delta.y;
+
+        if scroll != 0.0 {
+
+            info!("scrolling");
+
+            let c = input_state.pointer.latest_pos().unwrap();
+
+            let c = (
+                ((c.x as f64) * (1<<16) as f64 / sampling_size.0 as f64) as u16
+                ,((c.x as f64) * (1<<16) as f64 / sampling_size.1 as f64) as u16
+            );
+
+
+            returned.push(
+                ZoomerCommand::ZoomClean{
+                    power: (1.0 * scroll.signum()) as i8
+                    , center: (c.0, c.0)
+                }
+            );
+        }
+
+
+
+
+
+    });
+
+    returned
 }
