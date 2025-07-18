@@ -8,6 +8,19 @@ a mandelbrot set zoomer written in rust
 - new beginning based on steady state (jul 11 2025)
 - not quite MVP yet; working on it :thumbsup:
 
+## Roadmap (subject to change)
+### MVP (0.0.1)
+- technically usable
+### Something (0.1.0)
+- combine data
+- settings window
+- perturbation & other advanced methods
+- multi-platform
+- basic polish
+### Done (1.0.0)
+- to be decided....
+
+
 ## How to use (linux)
 - install rust (go to rustlang.org)
 - install build essential:
