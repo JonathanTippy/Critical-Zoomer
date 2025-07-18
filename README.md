@@ -10,8 +10,8 @@ a mandelbrot set zoomer written in rust
 
 ## Roadmap (subject to change)
 ### MVP (0.0.1)
-- window exists :check:
-- computation exists :check:
+- window exists ✔️
+- computation exists ✔️
 - window and computation communicate
 ### Something (0.1.0)
 - settings window
