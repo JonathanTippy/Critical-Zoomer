@@ -4,12 +4,8 @@ Artwork by Deborah Tippy
 # Critical Zoomer
 a mandelbrot set zoomer written in rust
 
-## Current state of the project
-- new beginning based on steady state (jul 11 2025)
-- not quite MVP yet; working on it :thumbsup:
-
 ## Roadmap (subject to change)
-### MVP (0.0.1)
+### MVP (0.0.1)  in progress.....
 - window exists ✔️
 - computation exists ✔️
 - window and computation communicate
