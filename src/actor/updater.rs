@@ -51,13 +51,18 @@ async fn internal_behavior<A: SteadyActor>(
     updates_out_worker: SteadyTx<ZoomerUpdate>,
     state: SteadyState<UpdaterState>,
 ) -> Result<(), Box<dyn Error>> {
+
+    // Lock all channels for exclusive access within this actor.
     let mut updates_in = updates_in.lock().await;
     let mut updates_out_colorer = updates_out_colorer.lock().await;
     let mut updates_out_worker = updates_out_worker.lock().await;
     let mut state = state.lock(|| UpdaterState {
     }).await;
 
-    // Lock all channels for exclusive access within this actor.
+    // the updater runs at a precise rate, to control animations and stuff.
+    // because of this, the code here should run extremely fast.
+    // This shouldn't be hard to achieve because it won't need any n-long loops.
+
 
     let max_latency = Duration::from_millis(40);
 
@@ -76,12 +81,12 @@ async fn internal_behavior<A: SteadyActor>(
 
         // do updater stuff
 
-        let mut update = ZoomerUpdate{
+        /*let mut update = ZoomerUpdate{
             settings: SettingsState{}
             , state: ZoomerState{settings_window_open: false}
             , settings_changes:vec!()
             , state_changes:vec!()
-        };
+        };*/
 
         let mut updated = false;
     }

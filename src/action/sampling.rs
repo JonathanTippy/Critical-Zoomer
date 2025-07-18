@@ -8,23 +8,14 @@ use std::cmp::min;
 use crate::actor::window::*;
 use crate::actor::colorer::*;
 
-
-#[derive(Clone, Debug)]
-pub(crate) struct ZoomerWorldColors {
-    screens: Vec<ZoomerScreen>,
-    state_revision: u64,
-}
-
-
 #[derive(Clone, Debug)]
 pub(crate) struct SamplingContext {
     pub(crate) used_screen: Vec<ZoomerScreen>
     , pub(crate) unused_screen: Vec<ZoomerScreen>
     , pub(crate) sampling_size: (u32, u32)
-    , pub(crate) relative_pos: (i32, i32) // these are updated in response to commands
-    , pub(crate) relative_zoom: f64
-    , pub(crate) objective_pos: (String, String) // these are just retrieved from the data
-    , pub(crate) objective_zoom: (String)
+    , pub(crate) relative_pos: (i32, i32) // these are updated in response to commands. pos is in terms of pixels on the screen.
+    , pub(crate) relative_zoom_pot: i8
+    , pub(crate) objective_zoom_pot: i64
     //pub(crate) world: ZoomerWorldColors
     //, pub(crate) zoom_power_base: u8
 }
@@ -39,41 +30,59 @@ pub(crate) fn sample(
     let mut context = sampling_context;
 
     let size = context.sampling_size;
+    let min_side = min(context.sampling_size.0, context.sampling_size.1);
     // handle commands
 
     for command in &mut command_package {
         match command {
             ZoomerCommand::SetFocus{pixel_x, pixel_y} => {
             }
-            ZoomerCommand::ZoomClean{factor, center_relative_relative_pos} => {
+            ZoomerCommand::Zoom{pot, center_relative_relative_pos} => {
 
-                context.relative_zoom =
-                    context.relative_zoom * *factor as f64;
+                let mut factor:f32;
 
-                let center_relative_pos = (
-                    context.relative_pos + *center_relative_relative_pos.0
-                    , context.relative_pos + *center_relative_relative_pos.1
-                );
+                if *pot > 0 {
+                    factor = (1<<*pot) as f32;
+                } else {
+                    factor =  1.0 / (1<<-*pot) as f32;
+                }
 
-                context.relative_pos = (
-                    (context.relative_pos.0 - center_relative_pos) * factor + center_relative_pos.0
-                    , (context.relative_pos.1 - center_relative_pos) * factor + center_relative_pos.1
-                )
+                context.relative_zoom_pot =
+                    context.relative_zoom_pot + *pot;
 
-            }
-            ZoomerCommand::ZoomUnclean{factor} => {
+
+
+
+                if factor > 1.0 {
+                    context.relative_pos = (
+                        (((context.relative_pos.0 as f64) * factor as f64) - (center_relative_relative_pos.0) as f64) as i32 // + ((center_relative_relative_pos.0 - (1<<15)) as f64 / *factor as f64) as i32)
+                        , (((context.relative_pos.1 as f64) * factor as f64 ) - (center_relative_relative_pos.1) as f64) as i32 //  + ((center_relative_relative_pos.1 - (1<<15)) as f64 / *factor as f64) as i32)
+                    );
+                } else {
+
+
+                    // adjust position based on zooming (ridiculously hard to think about)
+                    context.relative_pos = (
+                        (((context.relative_pos.0 as f64) * factor as f64) + (center_relative_relative_pos.0 as f64 * (factor as f64))) as i32 // + ((center_relative_relative_pos.0 - (1<<15)) as f64 / *factor as f64) as i32)
+                        , (((context.relative_pos.1 as f64) * factor as f64 ) + (center_relative_relative_pos.1 as f64 * (factor as f64))) as i32 //  + ((center_relative_relative_pos.1 - (1<<15)) as f64 / *factor as f64) as i32)
+                    );
+
+                    // if we are zooming out, we need to make sure we gently guide pixels to be in the proper position when they need to reach full resolution.
+
+                    context.relative_pos = (
+                        context.relative_pos.0 - context.relative_pos.0 % 2
+                        , context.relative_pos.1 - context.relative_pos.1 % 2
+                    );
+                }
 
             }
             ZoomerCommand::SetZoom{factor} => {
             }
             ZoomerCommand::Move{pixels_x, pixels_y} => {
-
-
             }
             ZoomerCommand::MoveTo{x, y} => {
-
-
-
+                context.relative_pos =
+                    (*x, *y);
             }
 
             ZoomerCommand::SetPos{real, imag} => {
@@ -87,19 +96,50 @@ pub(crate) fn sample(
         }
     }
 
+    // go over the sampling size in rows and seats, and sample the
+
+    let data_size = context.used_screen[0].screen_size.clone();
+
+    let data_len = data_size.0 * data_size.1;
+
+    let data = &context.used_screen[0].pixels;
+
+    let relative_pos = context.relative_pos;
+
+
+    let mut factor:f64;
+
+    if context.relative_zoom_pot > 0 {
+        factor = (1<<context.relative_zoom_pot) as f64;
+    } else {
+        factor =  1.0 / (1<<-context.relative_zoom_pot) as f64;
+    }
+
+    let relative_zoom_recip = ((1.0 / factor) * ((1<<16) as f64)) as u32;
+
+    let min_side_recip = (1<<32) / (min_side as i64);
+    //let res_recip = (     (1<<16) / size.0,    (1<<16) / size.1    );
+
+
+    //info!("data res: {}, {}", data_size.0, data_size.1);
+
+
     //let mut i = 0;
     for row in 0..size.1 as usize {
         for seat in 0..size.0 as usize {
-            bucket.push(get_color(
-                &context.used_screen[0].pixels
-                , context.used_screen[0].screen_size
-                , context.sampling_size
-                , row
-                , seat
-                , (     (1<<16) / size.0,    (1<<16) / size.1    )
-                , context.sampling_relative_pos
-                , context.sampling_relative_zoom
-            ));
+            bucket.push(
+                sample_color(
+                    data
+                    , data_size
+                    , data_len
+                    , row
+                    , seat
+                    //, res_recip
+                    , min_side_recip
+                    , relative_pos
+                    , relative_zoom_recip
+                )
+            );
             //i+=1;
         }
     }
@@ -111,16 +151,30 @@ pub(crate) fn sample(
 //division cancels the 1<<16 so we have to add it back with << 16
 
 #[inline]
-fn get_color(pixels: &Vec<(u8,u8,u8)>, data_res: (u32, u32), res: (u32, u32), row: usize, seat: usize, res_recip: (u32, u32), relative_pos: (i32, i32), relative_zoom: f64) -> Color32 {
-    let color = pixels
-        [
-            index_from_relative_location_i32(
-                transform_relative_location_i32(
-                    relative_location_i32_row_and_seat(res_recip, seat, row)
-                    , (relative_pos.0, relative_pos.1)
-                    , relative_zoom
+fn sample_color(
+    pixels: &Vec<(u8,u8,u8)>
+    , data_res: (u32, u32)
+    , data_len: u32
+    , row: usize
+    , seat: usize
+    //, res_recip: (u32, u32)
+    , min_side_recip: i64
+    , relative_pos: (i32, i32)
+    , relative_zoom_recip: u32
+) -> Color32 {
+    let color =
+        pixels[
+            index_from_fixed_point(
+                relative_location_to_fixed_point(
+                    transform_relative_location_i32(
+                        relative_location_i32_row_and_seat(seat, row)
+                        , (relative_pos.0, relative_pos.1)
+                        , relative_zoom_recip
+                    )
+                    , min_side_recip
                 )
                 , data_res
+                , data_len
             )
         ];
     Color32::from_rgb(color.0, color.1, color.2)
@@ -128,63 +182,61 @@ fn get_color(pixels: &Vec<(u8,u8,u8)>, data_res: (u32, u32), res: (u32, u32), ro
 
 
 #[inline]
-fn relative_location_i32_row_and_seat(res_recip: (u32, u32), seat: usize, row: usize) -> (i32, i32) {
+fn relative_location_i32_row_and_seat(seat: usize, row: usize) -> (i32, i32) {
 
     let seat = seat as u32;
     let row = row as u32;
 
     (
-        (seat * res_recip.0) as i32
-        , (row * res_recip.1) as i32
+        seat as i32
+        , row as i32
     )
 
 }
 
 #[inline]
-fn index_from_relative_location_i32(l: (i32, i32), res: (u32, u32)) -> usize {
+fn relative_location_to_fixed_point(l: (i32, i32), min_side_recip: i64) -> (i64, i64) {
+
+    (
+        l.0 as i64 * min_side_recip
+        , l.1 as i64 * min_side_recip
+    )
+
+}
+
+
+#[inline]
+fn index_from_fixed_point(l: (i64, i64), data_res: (u32, u32), data_length: u32) -> usize {
+
+    //let data_res = (1024, 1024);
+    //let data_length = (data_res.0 * data_res.0);
 
     let l = (
-        l.0 % (1<<16)
-        , l.1 % (1<<16)
+        ((l.0 * data_res.0 as i64) >> 32) as u32
+            , ((l.1 * data_res.1 as i64) >> 32) as u32
     );
 
-    let pixel_l = (
-        (l.0 as u32 * res.0) >> 16
-        , (l.1 as u32 * res.1) >> 16
-    );
 
-    ((
-        pixel_l.1 * res.0
-            + pixel_l.0
-    ) % (res.0 * res.1)) as usize
+    let i =
+        ((l.1 * data_res.0)
+            + l.0) as u64
+        ;
+
+    //info!("data length: {}, data res: {}, {}", data_length, data_res.0, data_res.1);
+    //info!("input: {}, {}\noutput: {}", l.0 as f64 / (1u64<<32) as f64, l.1 as f64 / (1u64<<32) as f64, i);
+
+    if i < (data_length as u64) {i as usize} else {
+        (i % (data_length as u64)) as usize
+    }
 
 }
 
 #[inline]
-fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom: f64) -> (i32, i32) {
+fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom_recip: u32) -> (i32, i32) {
+    // move + zoom
 
-
-    // move + apply modulo
-
-    let l = (
-        (l.0 - m.0) % (1<<16)
-        , (l.1 - m.1) % (1<<16)
-    );
-
-    let centered = (
-        l.0 - zc.0
-        , l.1 - zc.1
-    );
-
-    let centered_zoomed= (
-        (centered.0 as f64 * zoom) as i32
-        , (centered.1 as f64 * zoom) as i32
-    );
-
-    let uncentered_zoomed =(
-        (centered_zoomed.0 + zc.0) % (1<<16)
-        , (centered_zoomed.1 + zc.1) % (1<<16)
-    );
-
-    uncentered_zoomed
+    (
+        (((l.0 - m.0) as i64 * zoom_recip as i64) >> 16)  as i32
+        , (((l.1 - m.1) as i64 * zoom_recip as i64) >> 16) as i32
+    )
 }

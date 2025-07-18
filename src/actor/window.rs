@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use std::collections::*;
-
+use std::cmp::*;
 
 use crate::actor::colorer::*;
 use crate::actor::updater::*;
@@ -34,15 +34,17 @@ const RECOVER_EGUI_CRASHES:bool = false;
 //const MAX_FRAME_TIME:f64 = 1.0 / MIN_FRAME_RATE;
 const VSYNC:bool = false;
 
-pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (500, 500);
+pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (512, 512);
 
- pub(crate) const MIN_PIXELS:u32 = 40; // min_pixels is prioritized over min_fps and should be greater than ~6
-pub(crate) const MIN_FPS:f32 = 10.0;
+ //pub(crate) const MIN_PIXELS:u32 = 40; // min_pixels is prioritized over min_fps and should be greater than ~6
+//pub(crate) const MIN_FPS:f32 = 10.0;
 
 /// State struct for the window actor.
 
 pub(crate) struct ZoomerState {
     pub(crate) settings_window_open: bool
+    , pub(crate) position: (String, String)
+    , pub(crate) zoom: String
 }
 
 pub(crate) struct ZoomerReport {
@@ -53,10 +55,9 @@ pub(crate) struct ZoomerReport {
 
 pub(crate) enum ZoomerCommand {
     SetFocus{pixel_x:u32, pixel_y:u32}
-    , ZoomClean{factor: u16, center_relative_relative_pos: (i32, i32)} // zoom clean can only zoom in
-    , ZoomUnclean{factor: f32} // zoom unclean can zoom in or out
+    , Zoom{pot: i8, center_relative_relative_pos: (i32, i32)} // zoom in or out
     , SetZoom{factor: String}
-    , MoveTo{x: u16, y: u16}
+    , MoveTo{x: i32, y: i32}
     , Move{pixels_x: i32, pixels_y: i32}
     , SetPos{real: String, imag: String}
     , TrackPoint{point_id:u64, point_real: String, point_imag: String}
@@ -88,10 +89,10 @@ pub(crate) struct WindowState {
         , Option<Instant>
     )
     , pub(crate) texturing_things: Vec<(TextureHandle, ColorImage, Vec<Color32>)>
-    , pub(crate) sampling_resolution_multiplier: f32
+    //, pub(crate) sampling_resolution_multiplier: f32
     , pub(crate) timer: Instant
     , pub(crate) fps_margin: f32
-    , pub(crate) mouse_drag_start: Option<((f32, f32), (u16, u16))>
+    , pub(crate) mouse_drag_start: Option<((f32, f32), (i32, i32))>
 }
 
 /// Entry point for the window actor.
@@ -134,7 +135,7 @@ async fn internal_behavior<A: SteadyActor>(
                 ZoomerScreen{
                     pixels: vec!((0,0,0);(DEFAULT_WINDOW_RES.0*DEFAULT_WINDOW_RES.1) as usize)
                     , screen_size: (DEFAULT_WINDOW_RES.0, DEFAULT_WINDOW_RES.1)
-                    , zoom_factor: "1".to_string()
+                    , zoom_factor_pot: 0
                     , location: ("0".to_string(), "0".to_string())
                     , state_revision: 0
                 }
@@ -143,16 +144,15 @@ async fn internal_behavior<A: SteadyActor>(
                 ZoomerScreen{
                     pixels: vec!((0,0,0);(DEFAULT_WINDOW_RES.0*DEFAULT_WINDOW_RES.1) as usize)
                     , screen_size: (DEFAULT_WINDOW_RES.0, DEFAULT_WINDOW_RES.1)
-                    , zoom_factor: "1".to_string()
+                    , zoom_factor_pot: 0
                     , location: ("0".to_string(), "0".to_string())
                     , state_revision: 1
                 }
             )
             , sampling_size: (DEFAULT_WINDOW_RES.0, DEFAULT_WINDOW_RES.1)
-            , objective_pos: (WORKER_INIT_LOC.0.to_string(), WORKER_INIT_LOC.1.to_string())
-            , objective_zoom: WORKER_INIT_ZOOM.to_string()
+            , objective_zoom_pot: WORKER_INIT_ZOOM_POT
             , relative_pos: (0, 0)
-            , relative_zoom: 0.0
+            , relative_zoom_pot: 0
             /*world: None,
             viewport_position_real: "0",
             viewport_position_imag: "0",
@@ -165,7 +165,7 @@ async fn internal_behavior<A: SteadyActor>(
         , controls_settings: ControlsSettings::H
         , rolling_frame_info: (VecDeque::new(), VecDeque::new(), VecDeque::new(), None)
         , texturing_things: vec!()
-        , sampling_resolution_multiplier: 1.0
+        //, sampling_resolution_multiplier: 1.0
         , timer: Instant::now()
         , fps_margin: 0.0
         , mouse_drag_start: None
@@ -303,7 +303,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             ctx.request_repaint();
 
-            let size = ((state.size.x*state.sampling_resolution_multiplier) as usize, (state.size.y*state.sampling_resolution_multiplier) as usize);
+            let size = (state.size.x as usize, state.size.y as usize);
             let pixels = size.0 * size.1;
 
 
@@ -319,6 +319,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     info!("window recieved pixels");
                     let old = state.sampling_context.used_screen.pop();
                     state.sampling_context.used_screen.push(p);
+                    //update_pos(&state.sampling_context);
                     actor.try_send(
                         &mut buckets_out,
                         vec!(old.unwrap().pixels)
@@ -417,7 +418,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                         ).as_str();*/
 
 
-                                        if state.timer.elapsed().as_secs_f64() > 0.1 {
+                                        /*if state.timer.elapsed().as_secs_f64() > 0.1 {
                                             state.timer = Instant::now();
 
                                             let fps:f64 = r.0.0 as f64 / 1000000000.0;
@@ -473,7 +474,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                                 state.sampling_resolution_multiplier = 1.0;
                                             }
 
-                                        }
+                                        }*/
 
 
                                     }
@@ -643,6 +644,8 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
 
     let ppp = ctx.pixels_per_point();
 
+    let min_size = min(state.size.x as u32, state.size.y as u32) as f32;
+
     ctx.input(|input_state| {
 
 
@@ -657,8 +660,8 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
                     d.x
                     , d.y
                     ), (
-                    state.sampling_context.sampling_pos.0
-                    , state.sampling_context.sampling_pos.1
+                    state.sampling_context.relative_pos.0
+                    , state.sampling_context.relative_pos.1
                     )
                 )
             );
@@ -675,9 +678,13 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
 
                     let pos = input_state.pointer.latest_pos().unwrap();
 
+                    // dragging should snap to pixels
+
+                    //let min_size_recip = (1<<16) / min_size as i32;
+
                     let drag = (
-                        pos.x - start.0.0
-                        , pos.y - start.0.1
+                        (pos.x - start.0.0) as i32// * min_size_recip
+                        , (pos.y - start.0.1) as i32// * min_size_recip
                     );
 
                     let drag_start_pos = (start.1.0, start.1.1);
@@ -693,32 +700,36 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
             None => {}
         }
 
-        let scroll = -input_state.raw_scroll_delta.y;
+        let scroll = input_state.raw_scroll_delta.y;
 
         if scroll != 0.0 {
 
-            info!("scrolling");
+            //info!("scrolling");
 
             let c = input_state.pointer.latest_pos().unwrap();
 
             let c = (
-                ((c.x as f64) * (1<<16) as f64 / sampling_size.0 as f64) as u16
-                ,((c.x as f64) * (1<<16) as f64 / sampling_size.1 as f64) as u16
+                c.x// * (1<<16) as f32 / min_size
+                , c.y// * (1<<16) as f32 / min_size
             );
-
 
             returned.push(
-                ZoomerCommand::ZoomClean{
-                    power: (1.0 * scroll.signum()) as i8
-                    , center: (c.0, c.0)
+                if scroll > 0.0 {
+                    //info!("zooming in");
+                    ZoomerCommand::Zoom{
+                        pot: 1
+                        , center_relative_relative_pos: (c.0 as i32, c.1 as i32)
+                    }
+                } else {
+                    //info!("zooming out");
+                    ZoomerCommand::Zoom{
+                        pot: -1
+                        , center_relative_relative_pos: (c.0 as i32, c.1 as i32)
+                    }
                 }
+
             );
         }
-
-
-
-
-
     });
 
     returned
