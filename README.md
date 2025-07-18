@@ -6,9 +6,9 @@ a mandelbrot set zoomer written in rust
 
 ## Roadmap (subject to change)
 ### MVP (0.0.1)  in progress.....
-- window exists ✔️
-- computation exists ✔️
-- window and computation communicate
+- blazing fast window exists ✔️
+- workday-based worker exists ✔️
+- window and worker communicate
 ### Something (0.1.0)
 - settings window
 - perturbation & other advanced methods
