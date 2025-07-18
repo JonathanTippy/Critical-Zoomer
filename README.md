@@ -12,8 +12,8 @@ a mandelbrot set zoomer written in rust
 ### Something (0.1.0)
 - settings window
 - perturbation & other advanced methods
-- multi-platform
-- basic polish
+- multi-platform (app acts as it should at all resolutions, and on windows linux and mac, iphone and android)
+- basic polish (animations, data is stored, data is combined, app acts as it should in all cases)
 ### Done (1.0.0)
 - to be decided....
 
