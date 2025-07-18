@@ -23,3 +23,9 @@ git clone https://github.com/JonathanTippy/Critical-Zoomer
 ## Controls
 - movement: mouse drag :smiley:
 - adjust zoom: scroll :smiley:
+
+## Scope
+- the mandelbrot set, tracking a given point and overlaying its path, and perhaps:
+- julia sets
+- the buddhabrot
+- other degrees of the mandelbrot set
