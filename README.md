@@ -10,9 +10,10 @@ a mandelbrot set zoomer written in rust
 
 ## Roadmap (subject to change)
 ### MVP (0.0.1)
-- technically usable
+- window exists :check:
+- computation exists :check:
+- window and computation communicate
 ### Something (0.1.0)
-- combine data
 - settings window
 - perturbation & other advanced methods
 - multi-platform
