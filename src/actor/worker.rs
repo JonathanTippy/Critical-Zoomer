@@ -3,11 +3,18 @@ use steady_state::*;
 use crate::actor::window::*;
 use crate::actor::updater::*;
 use crate::action::workday::*;
-use crate::actor::colorer::ZoomerScreenValues;
 
 use rand::Rng;
 
 use std::cmp::*;
+
+pub(crate) struct ZoomerScreenValues {
+    pub(crate) values: Vec<(u32)>
+    , pub(crate) location: (String, String)
+    , pub(crate) screen_size: (u32, u32)
+    , pub(crate) zoom_factor_pot: i64
+    , pub(crate) state_revision: u64
+}
 
 pub(crate) struct WorkerState {
     current_work_context: WorkContextF32
@@ -18,9 +25,9 @@ pub(crate) struct WorkerState {
     , workday_token_cost: u32
 }
 
-pub(crate) const WORKER_INIT_RES:(u32, u32) = (500, 500);
+pub(crate) const WORKER_INIT_RES:(u32, u32) = (4096, 4096);
 pub(crate) const WORKER_INIT_LOC:(&'static str, &'static str) = ("0", "0");
-pub(crate) const WORKER_INIT_ZOOM:&'static str = "1";
+pub(crate) const WORKER_INIT_ZOOM_POT: i64 = 0;
 
 pub async fn run(
     actor: SteadyActorShadow,
@@ -58,7 +65,7 @@ async fn internal_behavior<A: SteadyActor>(
 
     let mut state = state.lock(|| WorkerState {
         current_work_context: WorkContextF32 {
-            points: get_points_f32((WORKER_INIT_RES.0, WORKER_INIT_RES.1), WORKER_INIT_LOC, WORKER_INIT_ZOOM)
+            points: get_points_f32((WORKER_INIT_RES.0, WORKER_INIT_RES.1), WORKER_INIT_LOC, WORKER_INIT_ZOOM_POT)
             , completed_points: vec!(CompletedPoint::Dummy{};(WORKER_INIT_RES.0 * WORKER_INIT_RES.1) as usize)
             , index: 0
             , random_index: 0
@@ -128,7 +135,7 @@ async fn internal_behavior<A: SteadyActor>(
                     actor.try_send(&mut values_out, ZoomerScreenValues{
                         values: strip_destination_f32(c)
                         , location: (WORKER_INIT_LOC.0.to_string(), WORKER_INIT_LOC.1.to_string())
-                        , zoom_factor: WORKER_INIT_ZOOM.to_string()
+                        , zoom_factor_pot: WORKER_INIT_ZOOM_POT
                         , screen_size: WORKER_INIT_RES
                         , state_revision: 0
                     });
@@ -151,7 +158,7 @@ async fn internal_behavior<A: SteadyActor>(
     Ok(())
 }
 
-fn get_points_f32(res: (u32, u32), loc:(&str, &str), zoom: &str) -> Vec<PointF32> {
+fn get_points_f32(res: (u32, u32), loc:(&str, &str), zoom: i64) -> Vec<PointF32> {
     let mut out:Vec<PointF32> = Vec::with_capacity((res.0*res.1) as usize);
 
         for row in 0..res.1 {
@@ -162,12 +169,18 @@ fn get_points_f32(res: (u32, u32), loc:(&str, &str), zoom: &str) -> Vec<PointF32
                 let real_center:f32 = loc.0.parse().unwrap();
                 let imag_center:f32 = loc.1.parse().unwrap();
 
-                let zoom:f32 = zoom.parse().unwrap();
 
+                let zoom_factor:f32;
+
+                if zoom > 0 {
+                    zoom_factor = (1<<zoom) as f32;
+                } else {
+                    zoom_factor =  1.0 / (1<<-zoom) as f32;
+                }
 
                 let point:(f32, f32) = (
-                    (seat as f32 / significant_res as f32 - 0.5) * 4.0 / zoom
-                    , -((row as f32 / significant_res as f32 - 0.5) * 4.0 / zoom)
+                    (seat as f32 / significant_res as f32 - 0.5) * 4.0 / zoom_factor
+                    , -((row as f32 / significant_res as f32 - 0.5) * 4.0 / zoom_factor)
                 );
 
                 out.push(

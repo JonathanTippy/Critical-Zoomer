@@ -6,6 +6,8 @@ use steady_state::*;
 
 use crate::actor::window::*;
 use crate::actor::updater::*;
+use crate::actor::worker::*;
+
 use crate::action::settings::*;
 
 #[derive(Clone, Debug)]
@@ -14,17 +16,10 @@ pub(crate) struct ZoomerScreen {
     pub(crate) pixels: Vec<(u8,u8,u8)>
     , pub(crate) location: (String, String)
     , pub(crate) screen_size: (u32, u32)
-    , pub(crate) zoom_factor: String
+    , pub(crate) zoom_factor_pot: i64
     , pub(crate) state_revision: u64
 }
 
-pub(crate) struct ZoomerScreenValues {
-    pub(crate) values: Vec<(u32)>
-    , pub(crate) location: (String, String)
-    , pub(crate) screen_size: (u32, u32)
-    , pub(crate) zoom_factor: String
-    , pub(crate) state_revision: u64
-}
 
 pub(crate) struct ColorerState {
     //pub(crate) zoomer_state: ZoomerState,
@@ -71,7 +66,7 @@ async fn internal_behavior<A: SteadyActor>(
         values: vec!()
         , location: ("0".to_string(), "0".to_string())
         , screen_size: (2, 2)
-        , zoom_factor: "1".to_string()
+        , zoom_factor_pot: 1
         , state_revision: 0
         },
         bucket: vec!()
@@ -130,7 +125,7 @@ async fn internal_behavior<A: SteadyActor>(
                     , location: state.values.location.clone()
                     , screen_size: state.values.screen_size
                     , state_revision: state.values.state_revision
-                    , zoom_factor: state.values.zoom_factor.clone()
+                    , zoom_factor_pot: state.values.zoom_factor_pot.clone()
                 });
                 info!("sent colors to window");
 
