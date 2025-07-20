@@ -34,7 +34,7 @@ const RECOVER_EGUI_CRASHES:bool = false;
 //const MAX_FRAME_TIME:f64 = 1.0 / MIN_FRAME_RATE;
 const VSYNC:bool = false;
 
-pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (512, 512);
+pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (800, 480);
 
  //pub(crate) const MIN_PIXELS:u32 = 40; // min_pixels is prioritized over min_fps and should be greater than ~6
 //pub(crate) const MIN_FPS:f32 = 10.0;
@@ -53,6 +53,8 @@ pub(crate) struct ZoomerReport {
     pub(crate) time_to_xyz: Vec<(String, Duration)>
 }
 
+#[derive(Clone)]
+
 pub(crate) enum ZoomerCommand {
     SetFocus{pixel_x:u32, pixel_y:u32}
     , Zoom{pot: i8, center_relative_relative_pos: (i32, i32)} // zoom in or out
@@ -64,6 +66,8 @@ pub(crate) enum ZoomerCommand {
     , UntrackPoint{point_id:u64}
     , UntrackAllPoints
 } pub(crate) const NUMBER_OF_COMMANDS:u16=10;
+
+#[derive(Clone)]
 
 pub(crate) struct ZoomerCommandPackage {
     pub(crate) start_time: Instant
@@ -92,22 +96,22 @@ pub(crate) struct WindowState {
     //, pub(crate) sampling_resolution_multiplier: f32
     , pub(crate) timer: Instant
     , pub(crate) fps_margin: f32
-    , pub(crate) mouse_drag_start: Option<((f32, f32), (i32, i32))>
+    , pub(crate) mouse_drag_start: Option<((i32, i32), (i32, i32))>
 }
 
 /// Entry point for the window actor.
 pub async fn run(
     actor: SteadyActorShadow,
     pixels_in: SteadyRx<ZoomerScreen>,
-    state_out: SteadyTx<ZoomerUpdate>,
-    buckets_out: SteadyTx<Vec<Vec<(u8,u8,u8)>>>,
+    state_out: SteadyTx<SamplingContext>,
+    settings_out: SteadyTx<ZoomerSettingsUpdate>,
     state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
     internal_behavior(
-        actor.into_spotlight([&pixels_in], [&state_out]),
+        actor.into_spotlight([&pixels_in], [&state_out, &settings_out]),
         pixels_in,
         state_out,
-        buckets_out,
+        settings_out,
         state,
     )
     .await
@@ -117,8 +121,8 @@ pub async fn run(
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
     pixels_in: SteadyRx<ZoomerScreen>,
-    state_out: SteadyTx<ZoomerUpdate>,
-    buckets_out: SteadyTx<Vec<Vec<(u8,u8,u8)>>>,
+    state_out: SteadyTx<SamplingContext>,
+    settings_out: SteadyTx<ZoomerSettingsUpdate>,
     state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
 
@@ -131,24 +135,7 @@ async fn internal_behavior<A: SteadyActor>(
         , buffers: vec!(vec!((Color32::BLACK);(DEFAULT_WINDOW_RES.0*DEFAULT_WINDOW_RES.1) as usize))
         , id_counter: 0
         , sampling_context: SamplingContext {
-            used_screen: vec!(
-                ZoomerScreen{
-                    pixels: vec!((0,0,0);(DEFAULT_WINDOW_RES.0*DEFAULT_WINDOW_RES.1) as usize)
-                    , screen_size: (DEFAULT_WINDOW_RES.0, DEFAULT_WINDOW_RES.1)
-                    , zoom_factor_pot: 0
-                    , location: ("0".to_string(), "0".to_string())
-                    , state_revision: 0
-                }
-            ),
-            unused_screen: vec!(
-                ZoomerScreen{
-                    pixels: vec!((0,0,0);(DEFAULT_WINDOW_RES.0*DEFAULT_WINDOW_RES.1) as usize)
-                    , screen_size: (DEFAULT_WINDOW_RES.0, DEFAULT_WINDOW_RES.1)
-                    , zoom_factor_pot: 0
-                    , location: ("0".to_string(), "0".to_string())
-                    , state_revision: 1
-                }
-            )
+            screens: vec!()
             , sampling_size: (DEFAULT_WINDOW_RES.0, DEFAULT_WINDOW_RES.1)
             , objective_zoom_pot: WORKER_INIT_ZOOM_POT
             , relative_pos: (0, 0)
@@ -204,7 +191,7 @@ async fn internal_behavior<A: SteadyActor>(
         portable_actor: portable_actor.clone()
         , pixels_in: pixels_in.clone()
         , state_out: state_out.clone()
-        , buckets_out: buckets_out.clone()
+        , settings_out: settings_out.clone()
         , portable_state: portable_state.clone()
     };
 
@@ -242,8 +229,8 @@ async fn internal_behavior<A: SteadyActor>(
 struct EguiWindowPassthrough<'a, A> {
     portable_actor: Arc<Mutex<A>>,
     pixels_in: SteadyRx<ZoomerScreen>,
-    state_out: SteadyTx<ZoomerUpdate>,
-    buckets_out: SteadyTx<Vec<Vec<(u8,u8,u8)>>>,
+    state_out: SteadyTx<SamplingContext>,
+    settings_out: SteadyTx<ZoomerSettingsUpdate>,
     portable_state:Arc<Mutex<StateGuard<'a, WindowState>>>
 }
 
@@ -259,7 +246,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
         let mut actor = self.portable_actor.lock().unwrap();
         let mut pixels_in = self.pixels_in.try_lock().unwrap();
         let mut state_out = self.state_out.try_lock().unwrap();
-        let mut buckets_out = self.buckets_out.try_lock().unwrap();
+        let mut settings_out = self.settings_out.try_lock().unwrap();
         let mut state = self.portable_state.lock().unwrap();
 
         if actor.is_running(
@@ -310,20 +297,10 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             let mut sampler_buffer = Vec::with_capacity(pixels);// = //vec!(Color32::BLACK; pixels); //Vec::with_capacity(pixels);
 
 
-            if state.sampling_context.unused_screen.len() > 0 {
-                actor.try_send(&mut buckets_out, vec!(state.sampling_context.unused_screen.pop().unwrap().pixels));
-            }
-
             match actor.try_take(&mut pixels_in) {
                 Some(p) => {
                     info!("window recieved pixels");
-                    let old = state.sampling_context.used_screen.pop();
-                    state.sampling_context.used_screen.push(p);
-                    //update_pos(&state.sampling_context);
-                    actor.try_send(
-                        &mut buckets_out,
-                        vec!(old.unwrap().pixels)
-                    );
+                    update_sampling_context(&mut state.sampling_context, p);
                 }
                 None => {}
             }
@@ -332,9 +309,19 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             let command_package = parse_inputs(&ctx, &mut state, size);
 
+            let commands_parsed_time = Instant::now();
+
+            actor.try_send(&mut state_out, state.sampling_context.clone());
+
             state.sampling_context.sampling_size = (size.0 as u32, size.1 as u32);
 
-            sample(command_package, &mut sampler_buffer, &mut state.sampling_context);
+            if state.sampling_context.screens.len() > 0 {
+                sample(command_package, &mut sampler_buffer, &mut state.sampling_context);
+            } else {
+                for i in 0..pixels {
+                    sampler_buffer.push(Color32::BLACK);
+                }
+            }
 
             //info!("took {:.3}ms sampling", start.elapsed().as_secs_f64()*1000.0);
 
@@ -621,6 +608,30 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     }
                     None => {}
                 }
+                /*match info.minimized {
+                    Some(m) => {
+                        info!("minimized: {}", m);
+                    }
+                    None => {}
+                }
+                match info.focused {
+                    Some(f) => {
+                        info!("focused: {}", f);
+                    }
+                    None => {}
+                }
+                match info.maximized {
+                    Some(f) => {
+                        info!("maximized: {}", f);
+                    }
+                    None => {}
+                }
+                match info.fullscreen {
+                    Some(f) => {
+                        info!("fullscreen: {}", f);
+                    }
+                    None => {}
+                }*/
             });
 
             state.last_frame_period = Some(  (this_frame_start, Instant::now())  );
@@ -657,8 +668,8 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
             state.mouse_drag_start = Some(
                 (
                     (
-                    d.x
-                    , d.y
+                    d.x as i32
+                    , d.y as i32
                     ), (
                     state.sampling_context.relative_pos.0
                     , state.sampling_context.relative_pos.1
@@ -683,8 +694,8 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
                     //let min_size_recip = (1<<16) / min_size as i32;
 
                     let drag = (
-                        (pos.x - start.0.0) as i32// * min_size_recip
-                        , (pos.y - start.0.1) as i32// * min_size_recip
+                        pos.x as i32 - start.0.0// * min_size_recip
+                        , pos.y as i32 - start.0.1// * min_size_recip
                     );
 
                     let drag_start_pos = (start.1.0, start.1.1);
