@@ -6,10 +6,10 @@ a mandelbrot set zoomer written in rust
 
 ## Roadmap (subject to change)
 ### MVP (0.0.1)  in progress.....
-- blazing fast window exists ✔️
-- workday-based worker exists ✔️
-- window and worker communicate
-- zooming to 2^60x in real time
+- blazing fast window exists | ✔️
+- workday-based worker exists | ✔️
+- window and worker communicate | almost...
+- zooming to 2^60x in real time | 
 ### Something (0.1.0)  awaiting completiong of MVP...
 - properly restart window actor on window crash
 - settings
