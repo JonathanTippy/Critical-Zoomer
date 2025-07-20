@@ -9,14 +9,25 @@ a mandelbrot set zoomer written in rust
 - blazing fast window exists ✔️
 - workday-based worker exists ✔️
 - window and worker communicate
-### Something (0.1.0)
-- settings window
+- zooming to 2^60x in real time
+### Something (0.1.0)  awaiting completiong of MVP...
+- properly restart window actor on window crash
+- settings
 - attention
-- perturbation & other advanced methods
+- perturbation & other advanced methods (possibly derbail, possibly boundary tracing, hopefully perturperturbation)
 - multi-platform (app acts as it should at all resolutions, and on windows linux and mac, iphone and android)
 - basic polish (animations, data is stored, data is combined, app acts as it should in all cases)
-### Done (1.0.0)
-- to be decided....
+- fully use the machine (use all available cpu gpu ram and storage while making sure not to bother the user)
+- zooming to 2^3600x in real time, or if perturperturbation is possible, zooming infinitely in real time.
+### more cool stuff (0.x.x)  awaiting completiong of 0.1.0...
+- maybe eye tracker
+- maybe torrent solution sharing (if perturperturbation proves impossible)
+- maybe resource sharing across LAN
+- etc
+### (1.0.0)   awaiting completiong of 0.x.x...
+- zooming infinitely in real time
+- UX is perfect
+
 
 
 ## How to use (linux)
