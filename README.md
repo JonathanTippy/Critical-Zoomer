@@ -4,10 +4,31 @@ Artwork by Deborah Tippy
 # Critical Zoomer
 a mandelbrot set zoomer written in rust
 
-## Current state of the project
-- originally i had ambitions to make it a rival to Xaos but i didnt work on it for a long time so i fixed it up the last few days well enough that it works passably
-- not worth using for majority of fractal enthusiasts
-- really just a proof of concept
+## Roadmap (subject to change)
+### MVP (0.0.1)  in progress.....
+- blazing fast window exists | ✔️
+- workday-based worker exists | ✔️
+- window and worker communicate | almost...
+- zooming to 2^60x in real time | 
+### Something (0.1.0)  awaiting completiong of MVP...
+- properly restart window actor on window crash
+- settings
+- attention
+- perturbation & other advanced methods (possibly derbail, possibly boundary tracing, hopefully perturperturbation)
+- multi-platform (app acts as it should at all resolutions, and on windows linux and mac, iphone and android)
+- basic polish (animations, data is stored, data is combined, app acts as it should in all cases)
+- fully use the machine (use all available cpu gpu ram and storage while making sure not to bother the user)
+- zooming to 2^3600x in real time, or if perturperturbation is possible, zooming infinitely in real time.
+### more cool stuff (0.x.x)  awaiting completiong of 0.1.0...
+- maybe eye tracker
+- maybe torrent solution sharing (if perturperturbation proves impossible)
+- maybe resource sharing across LAN
+- etc
+### (1.0.0)   awaiting completiong of 0.x.x...
+- zooming infinitely in real time
+- UX is perfect
+
+
 
 ## How to use (linux)
 - install rust (go to rustlang.org)
@@ -22,11 +43,11 @@ git clone https://github.com/JonathanTippy/Critical-Zoomer
 - cargo run
 
 ## Controls
-- movement: arrow keys
-- adjust number of iterations: i to increase and o to decrease
-- adjust number of extra bits: e to increase and r to decrease
-- adjust zoom: f to zoom in and g to zoom out
+- movement: mouse drag :smiley:
+- adjust zoom: scroll :smiley:
 
-## Power of two denominator fractions (beware, mumbo jumbo ahead)
-here is a short explanation; by using power of two denominator fractions, all of the math can be done using integers. thats right; all of the mandelbrot rendering is done using integers! Here's how it works:
-You first decide how many bits you need. you will need at list enough values to uniquely identify each pixel, accounting for how far in you have zoomed (which requires additional precision), and also around 10 extra bits so your mandelbrot won't get messed up due to not enough precision. then, you convert each pixel to a numerator which fits that denominator. now, the math. we need to do a couple things: addition, and mulitplication. lets start with addition. in order to add two of these numbers, we simply add the numerators. we can do this since they have the same denomenator and therefore the ones of each numerator represent the same value. Multiplication is almost as fast, but since we're talking about a fraction we need to get fancy. we could just multiply the numerators together, but they will be squared relative to the numberator. no matter, actually this is useful; i make use of it by comparing these squares added together to the numerator of four which is two squared, because you must square values anyway if you want to get a circle. i could just accept the square but it messes up the coloring of parts outside of the set.
+## Scope
+- the mandelbrot set, tracking a given point and overlaying its path, and perhaps in the future:
+- julia sets
+- the buddhabrot
+- other degrees of the mandelbrot set
