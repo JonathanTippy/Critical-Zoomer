@@ -11,6 +11,7 @@ a mandelbrot set zoomer written in rust
 - window and worker communicate
 ### Something (0.1.0)
 - settings window
+- attention
 - perturbation & other advanced methods
 - multi-platform (app acts as it should at all resolutions, and on windows linux and mac, iphone and android)
 - basic polish (animations, data is stored, data is combined, app acts as it should in all cases)
