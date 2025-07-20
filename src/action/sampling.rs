@@ -97,9 +97,11 @@ pub(crate) fn sample(
 
     // go over the sampling size in rows and seats, and sample the
 
+    let res = context.sampling_size;
+
     let data_size = context.screens[0].screen_size.clone();
 
-    let data_len = data_size.0 * data_size.1;
+    let data_len = context.screens[0].pixels.len();
 
     let data = &context.screens[0].pixels;
 
@@ -129,6 +131,7 @@ pub(crate) fn sample(
             bucket.push(
                 sample_color(
                     data
+                    , min_side
                     , data_size
                     , data_len
                     , row
@@ -152,8 +155,9 @@ pub(crate) fn sample(
 #[inline]
 fn sample_color(
     pixels: &Vec<(u8,u8,u8)>
+    , min_side: u32
     , data_res: (u32, u32)
-    , data_len: u32
+    , data_len: usize
     , row: usize
     , seat: usize
     //, res_recip: (u32, u32)
@@ -163,18 +167,15 @@ fn sample_color(
 ) -> Color32 {
     let color =
         pixels[
-            index_from_fixed_point(
-                relative_location_to_fixed_point(
+        index_from_relative_location(
                     transform_relative_location_i32(
                         relative_location_i32_row_and_seat(seat, row)
                         , (relative_pos.0, relative_pos.1)
                         , relative_zoom_recip
                     )
-                    , min_side_recip
+                    , data_res
+                    , data_len
                 )
-                , data_res
-                , data_len
-            )
         ];
     Color32::from_rgb(color.0, color.1, color.2)
 }
@@ -194,25 +195,31 @@ fn relative_location_i32_row_and_seat(seat: usize, row: usize) -> (i32, i32) {
 }
 
 #[inline]
-fn relative_location_to_fixed_point(l: (i32, i32), min_side_recip: i64) -> (i64, i64) {
+fn index_from_relative_location(l: (i32, i32), data_res: (u32, u32), data_length: usize) -> usize {
 
-    (
-        l.0 as i64 * min_side_recip
-        , l.1 as i64 * min_side_recip
-    )
+    let i =
+        ((l.1 * data_res.0 as i32)
+            + l.0) as usize
+        ;
 
+    if i < (data_length) {i} else {
+        (i % (data_length))
+    }
 }
 
 
-#[inline]
-fn index_from_fixed_point(l: (i64, i64), data_res: (u32, u32), data_length: u32) -> usize {
+
+/*#[inline]
+fn index_from_fixed_point(l: (i64, i64), data_res: (u32, u32), data_length: u32, min_side: u32) -> usize {
 
     //let data_res = (1024, 1024);
     //let data_length = (data_res.0 * data_res.0);
 
+    //let data_res = (540, 540);
+
     let l = (
-        ((l.0 * data_res.0 as i64) >> 32) as u32
-            , ((l.1 * data_res.1 as i64) >> 32) as u32
+        ((l.0 * min_side as i64) >> 32) as u32
+            , ((l.1 * min_side as i64) >> 32) as u32
     );
 
 
@@ -228,7 +235,7 @@ fn index_from_fixed_point(l: (i64, i64), data_res: (u32, u32), data_length: u32)
         (i % (data_length as u64)) as usize
     }
 
-}
+}*/
 
 #[inline]
 fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom_recip: u32) -> (i32, i32) {
@@ -244,22 +251,29 @@ fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom_recip: u32
 pub(crate) fn update_sampling_context(context: &mut SamplingContext, screen: ZoomerScreen) {
 
 
-    /*let new_relative_location;
-    if screen.relative_zoom_of_predecessor < 0 {
+    /*let new_relative_location= (
+        context.relative_pos.0 + screen.relative_location_of_predecessor.0
+        , context.relative_pos.1 + screen.relative_location_of_predecessor.1
+    );;*/
+
+
+
+
+    /* if screen.relative_zoom_of_predecessor < 0 {
         new_relative_location = (
-            (context.relative_pos.0 << -screen.relative_zoom_of_predecessor) + screen.relative_location_of_predecessor.0
-            , (context.relative_pos.1 << -screen.relative_zoom_of_predecessor) + screen.relative_location_of_predecessor.1
+            (context.relative_pos.0 + screen.relative_location_of_predecessor.0)/2
+            , (context.relative_pos.1 + screen.relative_location_of_predecessor.1)/2
         );
     } else {
         new_relative_location = (
-            (context.relative_pos.0 >> screen.relative_zoom_of_predecessor) + screen.relative_location_of_predecessor.0
-            , (context.relative_pos.1 >> screen.relative_zoom_of_predecessor) + screen.relative_location_of_predecessor.1
+            context.relative_pos.0 + screen.relative_location_of_predecessor.0
+            , context.relative_pos.1 + screen.relative_location_of_predecessor.1
         );
-    }
+    }*/
 
-    context.relative_pos = new_relative_location;
-    context.relative_zoom_pot = (context.relative_zoom_pot as i64 - screen.relative_zoom_of_predecessor) as i8;
-*/
+    //context.relative_pos = new_relative_location;
+    //context.relative_zoom_pot = (context.relative_zoom_pot as i64 + screen.relative_zoom_of_predecessor) as i8;
+
 
     context.relative_pos = (0, 0);
     context.relative_zoom_pot = 0;

@@ -32,11 +32,12 @@ pub(crate) struct WorkerState {
 }
 
 
-pub(crate) const WORKER_INIT_RES_POT:u64 = 10;
+pub(crate) const WORKER_INIT_RES_POT:u64 = 9;
 pub(crate) const WORKER_INIT_RES:(u32, u32) = (1<<WORKER_INIT_RES_POT, 1<<WORKER_INIT_RES_POT);
 pub(crate) const WORKER_INIT_LOC:(f64, f64) = (0.0, 0.0);
-pub(crate) const WORKER_INIT_ZOOM_POT: i64 = 0;
-pub(crate) const PIXELS_PER_UNIT: u64 = 270 * (1<<(WORKER_INIT_RES_POT-8));
+pub(crate) const WORKER_INIT_ZOOM_POT: i64 = -2;
+pub(crate) const WORKER_INIT_ZOOM:f64 = if WORKER_INIT_ZOOM_POT>0 {(1<<WORKER_INIT_ZOOM_POT) as f64} else {1.0 / (1<<-WORKER_INIT_ZOOM_POT) as f64};
+pub(crate) const PIXELS_PER_UNIT: u64 = 1<<(WORKER_INIT_RES_POT);
 
 pub async fn run(
     actor: SteadyActorShadow,
@@ -141,7 +142,7 @@ async fn internal_behavior<A: SteadyActor>(
 
             let start = Instant::now();
 
-            match workday(
+            match workday (
                 state.worker_token_budget - state.workday_token_cost - state.bout_token_cost
                 , state.iteration_token_cost
                 , state.bout_token_cost
@@ -158,8 +159,8 @@ async fn internal_behavior<A: SteadyActor>(
                     actor.try_send(&mut values_out, ZoomerScreenValues{
                         values: strip_destination_f32(c)
                         , relative_location_of_predecessor: (
-                            (((state.last_loc.0 - state.current_loc.0) / PIXELS_PER_UNIT as f64) * (1<<16) as f64) as i32
-                            , (((state.last_loc.1 - state.current_loc.1) / PIXELS_PER_UNIT as f64) * (1<<16) as f64) as i32
+                            ((state.last_loc.0 - state.current_loc.0) * PIXELS_PER_UNIT as f64) as i32
+                            , ((state.last_loc.1 - state.current_loc.1) * PIXELS_PER_UNIT as f64) as i32
                         )
                         , relative_zoom_of_predecessor: state.last_zoom - state.current_zoom
                         , zoom_factor_pot: WORKER_INIT_ZOOM_POT
@@ -208,8 +209,8 @@ fn get_points_f32(res: (u32, u32), loc:(f64, f64), zoom: i64) -> Vec<PointF32> {
                 }
 
                 let point:(f32, f32) = (
-                    (real_center + ((seat as f32 / significant_res as f32 - 0.5) * 4.0 / zoom_factor) as f64) as f32
-                    , (imag_center + (-((row as f32 / significant_res as f32 - 0.5) * 4.0 / zoom_factor)) as f64) as f32
+                    (real_center + ((seat as f32 / significant_res as f32 - 0.5) / zoom_factor) as f64) as f32
+                    , (imag_center + (-((row as f32 / significant_res as f32 - 0.5) / zoom_factor)) as f64) as f32
                 );
 
                 out.push(
@@ -255,26 +256,21 @@ fn calculate_tokens(state: &mut WorkerState) {
 }
 
 fn handle_sampling_context(state: &mut WorkerState, sampling_context: SamplingContext) {
-    let mut relative_translation: (f64, f64) = (
-        sampling_context.relative_pos.0 as f64 / PIXELS_PER_UNIT as f64
-        , sampling_context.relative_pos.1 as f64 / PIXELS_PER_UNIT as f64
-    );
-    let mut relative_zoom_pot: i8 = sampling_context.relative_zoom_pot;
 
-    if !(relative_translation==(0.0,0.0) && relative_zoom_pot==0) {
+    if !(sampling_context.relative_pos==(0,0) && sampling_context.relative_zoom_pot==0) {
 
-        let objective_zoom_pot = state.last_zoom + relative_zoom_pot as i64;
+        let objective_zoom_pot = state.last_zoom + sampling_context.relative_zoom_pot as i64;
 
         let objective_translation;
-        if state.last_zoom > 0 {
+        if objective_zoom_pot > 0 {
             objective_translation = (
-                relative_translation.0 * (1 >> state.last_zoom) as f64
-                , relative_translation.1 * (1 >> state.last_zoom) as f64
+                sampling_context.relative_pos.0 as f64 / PIXELS_PER_UNIT as f64 / (1 << objective_zoom_pot) as f64
+                , sampling_context.relative_pos.1 as f64 / PIXELS_PER_UNIT as f64 / (1 << objective_zoom_pot) as f64
             );
         } else {
             objective_translation = (
-                relative_translation.0 * (1 << -state.last_zoom) as f64
-                , relative_translation.1 * (1 << -state.last_zoom) as f64
+                sampling_context.relative_pos.0 as f64 / PIXELS_PER_UNIT as f64 * (1 << -objective_zoom_pot) as f64
+                , sampling_context.relative_pos.1 as f64 / PIXELS_PER_UNIT as f64 * (1 << -objective_zoom_pot) as f64
             );
         }
 
@@ -302,7 +298,10 @@ fn handle_sampling_context(state: &mut WorkerState, sampling_context: SamplingCo
             , total_bouts_today: 0
         };
 
-        state.last_loc = new_loc;
-        state.last_zoom = objective_zoom_pot;
+        state.last_loc = state.current_loc;
+        state.last_zoom = state.current_zoom;
+
+        state.current_loc = new_loc;
+        state.current_zoom = objective_zoom_pot;
     }
 }
