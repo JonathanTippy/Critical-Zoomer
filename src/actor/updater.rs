@@ -28,17 +28,15 @@ pub(crate) struct UpdaterState {
 
 pub async fn run(
     actor: SteadyActorShadow,
-    updates_in: SteadyRx<ZoomerUpdate>,
-    updates_out_colorer: SteadyTx<ZoomerUpdate>,
-    updates_out_worker: SteadyTx<ZoomerUpdate>,
+    updates_in: SteadyRx<ZoomerSettingsUpdate>,
+    updates_out_colorer: SteadyTx<ZoomerSettingsUpdate>,
     state: SteadyState<UpdaterState>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
-        actor.into_spotlight([&updates_in], [&updates_out_colorer, &updates_out_worker]),
+        actor.into_spotlight([&updates_in], [&updates_out_colorer]),
         updates_in,
         updates_out_colorer,
-        updates_out_worker,
         state,
     )
         .await
@@ -46,23 +44,23 @@ pub async fn run(
 
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
-    updates_in: SteadyRx<ZoomerUpdate>,
-    updates_out_colorer: SteadyTx<ZoomerUpdate>,
-    updates_out_worker: SteadyTx<ZoomerUpdate>,
+    updates_in: SteadyRx<ZoomerSettingsUpdate>,
+    updates_out_colorer: SteadyTx<ZoomerSettingsUpdate>,
     state: SteadyState<UpdaterState>,
 ) -> Result<(), Box<dyn Error>> {
 
     // Lock all channels for exclusive access within this actor.
     let mut updates_in = updates_in.lock().await;
     let mut updates_out_colorer = updates_out_colorer.lock().await;
-    let mut updates_out_worker = updates_out_worker.lock().await;
     let mut state = state.lock(|| UpdaterState {
     }).await;
 
     // the updater runs at a precise rate, to control animations and stuff.
     // because of this, the code here should run extremely fast.
     // This shouldn't be hard to achieve because it won't need any n-long loops.
-
+    // This actor's main job is to simply distribute settings updates
+    // Its reason for existing, though, is to convert a changing setting
+    // into individual value settings; for example, to animate colors.
 
     let max_latency = Duration::from_millis(40);
 
@@ -75,7 +73,6 @@ async fn internal_behavior<A: SteadyActor>(
         // - A periodic timer
         await_for_any!(  //#!#//
             actor.wait_periodic(max_latency),
-            actor.wait_avail(&mut updates_in, 1),
         );
 
 

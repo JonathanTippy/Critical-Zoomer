@@ -87,15 +87,6 @@ fn build_graph(graph: &mut Graph) {
         , colorer_rx_from_updater
     ) = channel_builder.build();
 
-
-
-    // buckets channels
-
-    let (
-        window_bucket_tx_to_colorer
-        , colorer_bucket_rx_from_window
-    ) = channel_builder.build();
-
     //worker channels
 
     let (
@@ -103,11 +94,12 @@ fn build_graph(graph: &mut Graph) {
         , colorer_rx_from_worker
     ) = channel_builder.build();
 
-    let (
-        updater_tx_to_worker
-        , worker_rx_from_updater
-    ) = channel_builder.build();
+    //window to worker state update channel
 
+    let (
+        window_tx_to_worker
+        , worker_rx_from_window
+    ) = channel_builder.with_capacity(100).build();
 
 
 
@@ -139,28 +131,28 @@ fn build_graph(graph: &mut Graph) {
     let state = new_state();
     actor_builder.with_name(NAME_WINDOW)
         .build(move |context|
-            actor::window::run(context, window_rx_from_colorer.clone(), window_tx_to_updater.clone(), window_bucket_tx_to_colorer.clone(), state.clone()) //#!#//
+            actor::window::run(context, window_rx_from_colorer.clone(), window_tx_to_worker.clone(), window_tx_to_updater.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
                , SoloAct);
 
     let state = new_state();
     actor_builder.with_name(NAME_UPDATER)
         .build(move |context|
-                   actor::updater::run(context, updater_rx_from_window.clone(), updater_tx_to_colorer.clone(), updater_tx_to_worker.clone(), state.clone()) //#!#//
+                   actor::updater::run(context, updater_rx_from_window.clone(), updater_tx_to_colorer.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
                , SoloAct);
 
     let state = new_state();
     actor_builder.with_name(NAME_COLORER)
         .build(move |context|
-                   actor::colorer::run(context, colorer_rx_from_worker.clone(), colorer_bucket_rx_from_window.clone(), colorer_rx_from_updater.clone(), colorer_tx_to_window.clone(), state.clone()) //#!#//
+                   actor::colorer::run(context, colorer_rx_from_worker.clone(), colorer_rx_from_updater.clone(), colorer_tx_to_window.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
                , SoloAct);
 
     let state = new_state();
     actor_builder.with_name(NAME_WORKER)
         .build(move |context|
-                   actor::worker::run(context, worker_rx_from_updater.clone(), worker_tx_to_colorer.clone(), state.clone()) //#!#//
+                   actor::worker::run(context, worker_rx_from_window.clone(), worker_tx_to_colorer.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
                , SoloAct);
 }

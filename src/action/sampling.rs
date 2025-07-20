@@ -10,8 +10,7 @@ use crate::actor::colorer::*;
 
 #[derive(Clone, Debug)]
 pub(crate) struct SamplingContext {
-    pub(crate) used_screen: Vec<ZoomerScreen>
-    , pub(crate) unused_screen: Vec<ZoomerScreen>
+    pub(crate) screens: Vec<ZoomerScreen>
     , pub(crate) sampling_size: (u32, u32)
     , pub(crate) relative_pos: (i32, i32) // these are updated in response to commands. pos is in terms of pixels on the screen.
     , pub(crate) relative_zoom_pot: i8
@@ -98,11 +97,11 @@ pub(crate) fn sample(
 
     // go over the sampling size in rows and seats, and sample the
 
-    let data_size = context.used_screen[0].screen_size.clone();
+    let data_size = context.screens[0].screen_size.clone();
 
     let data_len = data_size.0 * data_size.1;
 
-    let data = &context.used_screen[0].pixels;
+    let data = &context.screens[0].pixels;
 
     let relative_pos = context.relative_pos;
 
@@ -239,4 +238,34 @@ fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom_recip: u32
         (((l.0 - m.0) as i64 * zoom_recip as i64) >> 16)  as i32
         , (((l.1 - m.1) as i64 * zoom_recip as i64) >> 16) as i32
     )
+}
+
+
+pub(crate) fn update_sampling_context(context: &mut SamplingContext, screen: ZoomerScreen) {
+
+
+    /*let new_relative_location;
+    if screen.relative_zoom_of_predecessor < 0 {
+        new_relative_location = (
+            (context.relative_pos.0 << -screen.relative_zoom_of_predecessor) + screen.relative_location_of_predecessor.0
+            , (context.relative_pos.1 << -screen.relative_zoom_of_predecessor) + screen.relative_location_of_predecessor.1
+        );
+    } else {
+        new_relative_location = (
+            (context.relative_pos.0 >> screen.relative_zoom_of_predecessor) + screen.relative_location_of_predecessor.0
+            , (context.relative_pos.1 >> screen.relative_zoom_of_predecessor) + screen.relative_location_of_predecessor.1
+        );
+    }
+
+    context.relative_pos = new_relative_location;
+    context.relative_zoom_pot = (context.relative_zoom_pot as i64 - screen.relative_zoom_of_predecessor) as i8;
+*/
+
+    context.relative_pos = (0, 0);
+    context.relative_zoom_pot = 0;
+
+    if context.screens.len() != 0 {
+        drop(context.screens.pop().unwrap());
+    }
+    context.screens.push(screen);
 }

@@ -178,7 +178,7 @@ pub(crate) fn workday(
         context.percent_completed = context.index as f64 / (total_points-1) as f64 * 100.0;
         Some(returned)*/
 
-        if context.workdays % 1000 == 0 {
+        if context.workdays % 20 == 0 {
             let mut returned = vec!();
             for i in 0..total_points {
                 returned.push(
