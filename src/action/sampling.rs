@@ -15,6 +15,7 @@ pub(crate) struct SamplingContext {
     , pub(crate) relative_pos: (i32, i32) // these are updated in response to commands. pos is in terms of pixels on the screen.
     , pub(crate) relative_zoom_pot: i8
     , pub(crate) objective_zoom_pot: i64
+    , pub(crate) mouse_drag_start: Option<((i32 ,i32), (i32, i32))>
     //pub(crate) world: ZoomerWorldColors
     //, pub(crate) zoom_power_base: u8
 }
@@ -78,6 +79,7 @@ pub(crate) fn sample(
             ZoomerCommand::SetZoom{factor} => {
             }
             ZoomerCommand::Move{pixels_x, pixels_y} => {
+                context.relative_pos = (context.relative_pos.0 + *pixels_x, context.relative_pos.1 + *pixels_y)
             }
             ZoomerCommand::MoveTo{x, y} => {
                 context.relative_pos =
@@ -95,7 +97,7 @@ pub(crate) fn sample(
         }
     }
 
-    // go over the sampling size in rows and seats, and sample the
+    // go over the sampling size in rows and seats, and sample the colors
 
     let res = context.sampling_size;
 
@@ -207,36 +209,6 @@ fn index_from_relative_location(l: (i32, i32), data_res: (u32, u32), data_length
     }
 }
 
-
-
-/*#[inline]
-fn index_from_fixed_point(l: (i64, i64), data_res: (u32, u32), data_length: u32, min_side: u32) -> usize {
-
-    //let data_res = (1024, 1024);
-    //let data_length = (data_res.0 * data_res.0);
-
-    //let data_res = (540, 540);
-
-    let l = (
-        ((l.0 * min_side as i64) >> 32) as u32
-            , ((l.1 * min_side as i64) >> 32) as u32
-    );
-
-
-    let i =
-        ((l.1 * data_res.0)
-            + l.0) as u64
-        ;
-
-    //info!("data length: {}, data res: {}, {}", data_length, data_res.0, data_res.1);
-    //info!("input: {}, {}\noutput: {}", l.0 as f64 / (1u64<<32) as f64, l.1 as f64 / (1u64<<32) as f64, i);
-
-    if i < (data_length as u64) {i as usize} else {
-        (i % (data_length as u64)) as usize
-    }
-
-}*/
-
 #[inline]
 fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom_recip: u32) -> (i32, i32) {
     // move + zoom
@@ -250,36 +222,39 @@ fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom_recip: u32
 
 pub(crate) fn update_sampling_context(context: &mut SamplingContext, screen: ZoomerScreen) {
 
-
-    /*let new_relative_location= (
-        context.relative_pos.0 + screen.relative_location_of_predecessor.0
-        , context.relative_pos.1 + screen.relative_location_of_predecessor.1
-    );;*/
-
-
-
-
-    /* if screen.relative_zoom_of_predecessor < 0 {
-        new_relative_location = (
-            (context.relative_pos.0 + screen.relative_location_of_predecessor.0)/2
-            , (context.relative_pos.1 + screen.relative_location_of_predecessor.1)/2
+    if context.relative_pos != (0, 0) {
+        context.relative_pos = (
+            // take the pre-existing offset, and move it to where the old data is now.
+            context.relative_pos.0 - screen.relative_location_of_predecessor.0
+            , context.relative_pos.1 - screen.relative_location_of_predecessor.1
         );
-    } else {
-        new_relative_location = (
-            context.relative_pos.0 + screen.relative_location_of_predecessor.0
-            , context.relative_pos.1 + screen.relative_location_of_predecessor.1
-        );
-    }*/
 
-    //context.relative_pos = new_relative_location;
-    //context.relative_zoom_pot = (context.relative_zoom_pot as i64 + screen.relative_zoom_of_predecessor) as i8;
+        match context.mouse_drag_start {
+            Some(d) => {
+                // take the pre-existing drag start point, and move it to where the old data is now.
 
-
-    context.relative_pos = (0, 0);
-    context.relative_zoom_pot = 0;
+                context.mouse_drag_start = Some(
+                    (
+                        (
+                            d.0.0
+                            , d.0.1
+                        ),
+                        (
+                            d.1.0 - screen.relative_location_of_predecessor.0
+                            , d.1.1 - screen.relative_location_of_predecessor.1
+                        )
+                    )
+                );
+            }
+            None => {}
+        }
+    }
 
     if context.screens.len() != 0 {
         drop(context.screens.pop().unwrap());
+        context.screens.push(screen);
+    } else {
+        context.screens.push(screen);
     }
-    context.screens.push(screen);
+
 }

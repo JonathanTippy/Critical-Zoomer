@@ -16,6 +16,7 @@ pub(crate) struct ZoomerScreenValues {
     , pub(crate) screen_size: (u32, u32)
     , pub(crate) zoom_factor_pot: i64
     , pub(crate) state_revision: u64
+    , pub(crate) quality_revision: u64
 }
 
 pub(crate) struct WorkerState {
@@ -29,6 +30,10 @@ pub(crate) struct WorkerState {
     , point_token_cost: u32
     , bout_token_cost: u32
     , workday_token_cost: u32
+    , last_relative_loc: (i32, i32)
+    , current_relative_loc: (i32, i32)
+    , state_revision_counter: u64
+    , quality_revision_counter: u64
 }
 
 
@@ -91,13 +96,17 @@ async fn internal_behavior<A: SteadyActor>(
             , total_points_today: 0
             , total_bouts_today: 0
         }
-        , worker_token_budget: 50000000
+        , worker_token_budget: 40000000
         , iteration_token_cost: 2
         , bout_token_cost: 4
         , workday_token_cost: 0
         , point_token_cost: 150
         , last_loc: (WORKER_INIT_LOC.0, WORKER_INIT_LOC.1)
         , last_zoom: WORKER_INIT_ZOOM_POT
+        , last_relative_loc: (0, 0)
+        , current_relative_loc: (0, 0)
+        , state_revision_counter: 0
+        , quality_revision_counter: 0
     }).await;
 
     let max_sleep = Duration::from_millis(1);
@@ -108,14 +117,6 @@ async fn internal_behavior<A: SteadyActor>(
         || i!(values_out.mark_closed())
     ) {
 
-        if state.current_work_context.percent_completed == 0.0 {
-            //info!("calculating tokens");
-
-            //calculate_tokens(&mut state);
-
-            //info!("calculated tokens");
-        }
-
         let working = state.current_work_context.percent_completed < 99.9999999;
         // this actor always pins its core if its doing work.
         if working {} else {
@@ -125,18 +126,18 @@ async fn internal_behavior<A: SteadyActor>(
             );
         }
 
-
-
-        let mut sampling_contexts = vec!();
-        while actor.avail_units(&mut updates_in) > 0 {
-            sampling_contexts.push(actor.try_take(&mut updates_in).expect("internal error"));
-        }
-        if sampling_contexts.len() > 0 {
-            let sampling_context = sampling_contexts.pop().unwrap();
-            drop(sampling_contexts);
-            handle_sampling_context(&mut state, sampling_context);
+        for _ in 1..actor.avail_units(&mut updates_in) {
+            drop(actor.try_take(&mut updates_in).expect("internal error"));
         }
 
+        if actor.avail_units(&mut updates_in) > 0 {
+
+            let context = actor.try_take(&mut updates_in).expect("internal error");
+            handle_sampling_context(
+                &mut state
+                , context
+            );
+        }
 
         if working {
 
@@ -156,19 +157,17 @@ async fn internal_behavior<A: SteadyActor>(
                         info!("workday completed. context is now {:.2}% done.", state.current_work_context.percent_completed);
                     }
 
+                    state.quality_revision_counter = state.quality_revision_counter + 1;
+
                     actor.try_send(&mut values_out, ZoomerScreenValues{
                         values: strip_destination_f32(c)
-                        , relative_location_of_predecessor: (
-                            ((state.last_loc.0 - state.current_loc.0) * PIXELS_PER_UNIT as f64) as i32
-                            , ((state.last_loc.1 - state.current_loc.1) * PIXELS_PER_UNIT as f64) as i32
-                        )
+                        , relative_location_of_predecessor: state.last_relative_loc
                         , relative_zoom_of_predecessor: state.last_zoom - state.current_zoom
                         , zoom_factor_pot: WORKER_INIT_ZOOM_POT
                         , screen_size: WORKER_INIT_RES
-                        , state_revision: 0
+                        , state_revision: state.state_revision_counter
+                        , quality_revision: state.quality_revision_counter
                     });
-
-
                 }
                 None => {
                     info!("workday completed. context is now {:.2}% done.", state.current_work_context.percent_completed);
@@ -250,58 +249,88 @@ fn strip_destination_f32(pts: Vec<CompletedPoint>) -> Vec<u32> {
     out
 }
 
-
 fn calculate_tokens(state: &mut WorkerState) {
 
 }
 
 fn handle_sampling_context(state: &mut WorkerState, sampling_context: SamplingContext) {
 
-    if !(sampling_context.relative_pos==(0,0) && sampling_context.relative_zoom_pot==0) {
+    if sampling_context.screens[0].state_revision == state.state_revision_counter && sampling_context.screens[0].quality_revision == state.quality_revision_counter {
 
-        let objective_zoom_pot = state.last_zoom + sampling_context.relative_zoom_pot as i64;
+        if sampling_context.relative_pos != (0, 0) {
 
-        let objective_translation;
-        if objective_zoom_pot > 0 {
-            objective_translation = (
-                sampling_context.relative_pos.0 as f64 / PIXELS_PER_UNIT as f64 / (1 << objective_zoom_pot) as f64
-                , sampling_context.relative_pos.1 as f64 / PIXELS_PER_UNIT as f64 / (1 << objective_zoom_pot) as f64
+            info!("relative pos: {}, {}", sampling_context.relative_pos.0, sampling_context.relative_pos.1);
+
+            let objective_zoom_pot = state.last_zoom;
+
+            let objective_translation = (
+                -(sampling_context.relative_pos.0 as f64 / PIXELS_PER_UNIT as f64 / WORKER_INIT_ZOOM)
+                , sampling_context.relative_pos.1 as f64 / PIXELS_PER_UNIT as f64 / WORKER_INIT_ZOOM
             );
+
+            let new_loc = (
+                state.current_loc.0 + objective_translation.0
+                , state.current_loc.1 + objective_translation.1
+            );
+
+            state.last_relative_loc = sampling_context.relative_pos;
+
+            state.current_work_context = WorkContextF32 {
+                points: get_points_f32((WORKER_INIT_RES.0, WORKER_INIT_RES.1), new_loc, objective_zoom_pot)
+                , completed_points: vec!(CompletedPoint::Dummy{};(WORKER_INIT_RES.0 * WORKER_INIT_RES.1) as usize)
+                , index: 0
+                , random_index: 0
+                , time_created: Instant::now()
+                , time_workday_started: Instant::now()
+                , percent_completed: 0.0
+                , random_map: None
+                , workdays: 0
+                , total_iterations: 0
+                , spent_tokens_today: 0
+                , total_iterations_today: 0
+                , total_points_today: 0
+                , total_bouts_today: 0
+            };
+
+
+            state.current_loc = new_loc;
+            state.current_zoom = objective_zoom_pot;
+
+            state.state_revision_counter = state.state_revision_counter + 1;
         } else {
-            objective_translation = (
-                sampling_context.relative_pos.0 as f64 / PIXELS_PER_UNIT as f64 * (1 << -objective_zoom_pot) as f64
-                , sampling_context.relative_pos.1 as f64 / PIXELS_PER_UNIT as f64 * (1 << -objective_zoom_pot) as f64
-            );
+            state.last_relative_loc = (0, 0);
         }
+    }
+}
 
 
-        let new_loc = (
-            state.last_loc.0 - objective_translation.0
-            , state.last_loc.1 + objective_translation.1
-            );
+#[cfg(test)]
+pub(crate) mod worker_tests {
 
+    use steady_state::*;
+    use super::*;
 
-        state.current_work_context = WorkContextF32 {
-            points: get_points_f32((WORKER_INIT_RES.0, WORKER_INIT_RES.1), new_loc, objective_zoom_pot)
-            , completed_points: vec!(CompletedPoint::Dummy{};(WORKER_INIT_RES.0 * WORKER_INIT_RES.1) as usize)
-            , index: 0
-            , random_index: 0
-            , time_created: Instant::now()
-            , time_workday_started: Instant::now()
-            , percent_completed: 0.0
-            , random_map: None
-            , workdays: 0
-            , total_iterations: 0
-            , spent_tokens_today: 0
-            , total_iterations_today: 0
-            , total_points_today: 0
-            , total_bouts_today: 0
-        };
+    #[test]
+    fn test_worker() -> Result<(), Box<dyn Error>> {
+        let mut graph = GraphBuilder::for_testing().build(());
+        let (values_tx, values_rx) = graph.channel_builder().build();
+        let (state_tx, state_rx) = graph.channel_builder().build();
+        let state = new_state();
 
-        state.last_loc = state.current_loc;
-        state.last_zoom = state.current_zoom;
+        graph.actor_builder().with_name("UnitTest")
+            .build(move |context| internal_behavior(
+                context
+                , state_rx.clone()
+                , values_tx.clone()
+                , state.clone()
+            ), SoloAct);
 
-        state.current_loc = new_loc;
-        state.current_zoom = objective_zoom_pot;
+        state_tx.testing_send_all(vec![], true);
+        graph.start();
+        // because shutdown waits for closed and empty, it does not happen until our test data is digested.
+        graph.request_shutdown();
+        graph.block_until_stopped(Duration::from_secs(1))?;
+        assert_steady_rx_eq_take!(&values_rx, []);
+        Ok(())
     }
 }
