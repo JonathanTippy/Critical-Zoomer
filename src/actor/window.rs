@@ -34,7 +34,7 @@ const RECOVER_EGUI_CRASHES:bool = false;
 //const MAX_FRAME_TIME:f64 = 1.0 / MIN_FRAME_RATE;
 const VSYNC:bool = false;
 
-pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (800, 480);
+pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (512, 512);
 
  //pub(crate) const MIN_PIXELS:u32 = 40; // min_pixels is prioritized over min_fps and should be greater than ~6
 //pub(crate) const MIN_FPS:f32 = 10.0;
@@ -96,7 +96,6 @@ pub(crate) struct WindowState {
     //, pub(crate) sampling_resolution_multiplier: f32
     , pub(crate) timer: Instant
     , pub(crate) fps_margin: f32
-    , pub(crate) mouse_drag_start: Option<((i32, i32), (i32, i32))>
 }
 
 /// Entry point for the window actor.
@@ -140,6 +139,7 @@ async fn internal_behavior<A: SteadyActor>(
             , objective_zoom_pot: WORKER_INIT_ZOOM_POT
             , relative_pos: (0, 0)
             , relative_zoom_pot: 0
+            , mouse_drag_start: None
             /*world: None,
             viewport_position_real: "0",
             viewport_position_imag: "0",
@@ -155,7 +155,6 @@ async fn internal_behavior<A: SteadyActor>(
         //, sampling_resolution_multiplier: 1.0
         , timer: Instant::now()
         , fps_margin: 0.0
-        , mouse_drag_start: None
     }).await;
 
     // with_decorations!!!!
@@ -293,14 +292,16 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             let size = (state.size.x as usize, state.size.y as usize);
             let pixels = size.0 * size.1;
 
-
             let mut sampler_buffer = Vec::with_capacity(pixels);// = //vec!(Color32::BLACK; pixels); //Vec::with_capacity(pixels);
-
 
             match actor.try_take(&mut pixels_in) {
                 Some(p) => {
                     info!("window recieved pixels");
-                    update_sampling_context(&mut state.sampling_context, p);
+                    //if state.sampling_context.relative_pos != (0, 0) {
+                        update_sampling_context(&mut state.sampling_context, p);
+                    //} else if state.sampling_context.screens.len() == 0 {
+                    //    update_sampling_context(&mut state.sampling_context, p);
+                    //}
                 }
                 None => {}
             }
@@ -309,14 +310,13 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             let command_package = parse_inputs(&ctx, &mut state, size);
 
-            let commands_parsed_time = Instant::now();
-
-            actor.try_send(&mut state_out, state.sampling_context.clone());
-
             state.sampling_context.sampling_size = (size.0 as u32, size.1 as u32);
 
             if state.sampling_context.screens.len() > 0 {
                 sample(command_package, &mut sampler_buffer, &mut state.sampling_context);
+                if state.sampling_context.relative_pos != (0, 0) {
+                    actor.try_send(&mut state_out, state.sampling_context.clone());
+                }
             } else {
                 for i in 0..pixels {
                     sampler_buffer.push(Color32::BLACK);
@@ -665,7 +665,7 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
         (input_state.pointer.primary_pressed() && (! input_state.pointer.button_down(egui::PointerButton::Middle)))
         || (input_state.pointer.button_pressed(egui::PointerButton::Middle) && (! input_state.pointer.primary_down())) {
             let d = input_state.pointer.latest_pos().unwrap();
-            state.mouse_drag_start = Some(
+            state.sampling_context.mouse_drag_start = Some(
                 (
                     (
                     d.x as i32
@@ -678,12 +678,12 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
             );
         }
 
-        match state.mouse_drag_start {
+        match state.sampling_context.mouse_drag_start {
             Some(start) => {
 
                 // end the current drag if appropriate
                 if (!input_state.pointer.button_down(egui::PointerButton::Primary)) && (!input_state.pointer.button_down(egui::PointerButton::Middle)) {
-                    state.mouse_drag_start = None;
+                    state.sampling_context.mouse_drag_start = None;
                 } else {
                     // execute the drag
 
@@ -694,8 +694,8 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
                     //let min_size_recip = (1<<16) / min_size as i32;
 
                     let drag = (
-                        pos.x as i32 - start.0.0// * min_size_recip
-                        , pos.y as i32 - start.0.1// * min_size_recip
+                        (pos.x as i32 - start.0.0)// * min_size_recip
+                        , (pos.y as i32 - start.0.1)// * min_size_recip
                     );
 
                     let drag_start_pos = (start.1.0, start.1.1);
@@ -740,6 +740,20 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
                 }
 
             );
+        }
+
+
+        if input_state.key_down(egui::Key::ArrowDown) {
+            returned.push(ZoomerCommand::Move{pixels_x: 0, pixels_y: -1});
+        }
+        if input_state.key_down(egui::Key::ArrowUp) {
+            returned.push(ZoomerCommand::Move{pixels_x: 0, pixels_y: 1});
+        }
+        if input_state.key_down(egui::Key::ArrowLeft) {
+            returned.push(ZoomerCommand::Move{pixels_x: 1, pixels_y: 0});
+        }
+        if input_state.key_down(egui::Key::ArrowRight) {
+            returned.push(ZoomerCommand::Move{pixels_x: -1, pixels_y: 0});
         }
     });
 
