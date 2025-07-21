@@ -47,7 +47,5 @@ git clone https://github.com/JonathanTippy/Critical-Zoomer
 - adjust zoom: scroll :smiley:
 
 ## Scope
-- the mandelbrot set, tracking a given point and overlaying its path, and perhaps in the future:
-- julia sets
-- the buddhabrot
-- other degrees of the mandelbrot set
+- the mandelbrot set, and tracking a given point and overlaying its path. (and maybe displaying a given point's julia set)
+The mandelbrot set is the only nontrivial fractal that isn't ugly.
