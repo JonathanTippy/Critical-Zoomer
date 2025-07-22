@@ -4,20 +4,16 @@ Artwork by Deborah Tippy
 # Critical Zoomer
 a mandelbrot set zoomer written in rust
 
-## Roadmap (subject to change)
-### MVP (0.0.1)  done!
+## Da plan (subject to change)
+### The MVP (0.0.1)  done!
 - blazing fast window exists | ✔️
 - workday-based worker exists | ✔️
 - window and worker communicate | ✔️
-### Something (0.1.0) ...
-- properly restart window actor on window crash
-- settings
-- attention
-- perturbation & other advanced methods (possibly derbail, possibly boundary tracing, hopefully perturperturbation)
-- multi-platform (app acts as it should at all resolutions, and on windows linux and mac, iphone and android)
-- basic polish (animations, data is stored, data is combined, app acts as it should in all cases)
-- fully use the machine (use all available cpu gpu ram and storage while making sure not to bother the user)
-- zooming to 2^3600x in real time, or if perturperturbation is possible, zooming infinitely in real time.
+### The MVP 2: electric boogaloo (0.0.2)
+- window / worker linkakge is stable during quick inputs | in progress...
+### Rember (0.0.3)
+- worker remembers just-completed work when moving or zooming
+### ? (0.0.4)
 
 
 ## How to use (linux)
