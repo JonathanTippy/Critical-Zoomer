@@ -5,12 +5,11 @@ Artwork by Deborah Tippy
 a mandelbrot set zoomer written in rust
 
 ## Roadmap (subject to change)
-### MVP (0.0.1)  in progress.....
+### MVP (0.0.1)  done!
 - blazing fast window exists | ✔️
 - workday-based worker exists | ✔️
-- window and worker communicate | almost...
-- zooming to 2^60x in real time | 
-### Something (0.1.0)  awaiting completiong of MVP...
+- window and worker communicate | ✔️
+### Something (0.1.0) ...
 - properly restart window actor on window crash
 - settings
 - attention
@@ -19,15 +18,6 @@ a mandelbrot set zoomer written in rust
 - basic polish (animations, data is stored, data is combined, app acts as it should in all cases)
 - fully use the machine (use all available cpu gpu ram and storage while making sure not to bother the user)
 - zooming to 2^3600x in real time, or if perturperturbation is possible, zooming infinitely in real time.
-### more cool stuff (0.x.x)  awaiting completiong of 0.1.0...
-- maybe eye tracker
-- maybe torrent solution sharing (if perturperturbation proves impossible)
-- maybe resource sharing across LAN
-- etc
-### (1.0.0)   awaiting completiong of 0.x.x...
-- zooming infinitely in real time
-- UX is perfect
-
 
 
 ## How to use (linux)
