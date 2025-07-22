@@ -11,7 +11,7 @@ edition = "2021"
 rug = "1.19.0"
 flume = "0.10.14"
 minifb = "0.23.0"
-steady_state     = "0.2.3"
+steady_state     = "0.2.4"
 clap             = { version = "4.5.40", features = ["derive"] }
 #num_cpus = "1.15.0"
 egui = "0.32.0"

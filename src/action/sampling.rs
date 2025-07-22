@@ -7,6 +7,7 @@ use std::cmp::min;
 
 use crate::actor::window::*;
 use crate::actor::colorer::*;
+use crate::action::utils::*;
 
 #[derive(Clone, Debug)]
 pub(crate) struct SamplingContext {
@@ -222,12 +223,31 @@ fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom_recip: u32
 
 pub(crate) fn update_sampling_context(context: &mut SamplingContext, screen: ZoomerScreen) {
 
-    if context.relative_pos != (0, 0) {
-        context.relative_pos = (
+    let mut rotten:bool = false;
+
+    if context.relative_pos != (0, 0) || context.relative_zoom_pot != 0 {
+        // only readjust stuff if unsettled, otherwise assume the update is a quality improvement
+        // for some reason the worker is retarded and sends wrong data when its just improving quality
+
+        context.relative_zoom_pot = context.relative_zoom_pot - screen.relative_zoom_of_predecessor as i8;
+
+        let relative_zoom = relative_zoom_from_pot(context.relative_zoom_pot);
+
+        let new_relative_pos = (
             // take the pre-existing offset, and move it to where the old data is now.
-            context.relative_pos.0 - screen.relative_location_of_predecessor.0
-            , context.relative_pos.1 - screen.relative_location_of_predecessor.1
+            (context.relative_pos.0 - ((screen.relative_location_of_predecessor.0 as f64 / relative_zoom) as i32)) * 99 / 100
+            , (context.relative_pos.1 - ((screen.relative_location_of_predecessor.1 as f64 / relative_zoom) as i32)) * 99 / 100
         );
+
+        if new_relative_pos.0.abs() <= context.relative_pos.0.abs() && new_relative_pos.1.abs() <= context.relative_pos.1.abs() {
+            context.relative_pos = new_relative_pos
+        } else {
+            info!("worker gave corrupted relative location, trusting");
+            info!("new relative pos is {}, {}", new_relative_pos.0, new_relative_pos.1);
+            //rotten = true;
+            context.relative_pos = new_relative_pos
+        }
+
 
         match context.mouse_drag_start {
             Some(d) => {
@@ -250,11 +270,12 @@ pub(crate) fn update_sampling_context(context: &mut SamplingContext, screen: Zoo
         }
     }
 
-    if context.screens.len() != 0 {
-        drop(context.screens.pop().unwrap());
-        context.screens.push(screen);
-    } else {
-        context.screens.push(screen);
+    if !rotten {
+        if context.screens.len() != 0 {
+            drop(context.screens.pop().unwrap());
+            context.screens.push(screen);
+        } else {
+            context.screens.push(screen);
+        }
     }
-
 }

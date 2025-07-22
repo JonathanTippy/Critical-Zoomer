@@ -17,6 +17,7 @@ pub(crate) mod action {
     pub(crate) mod settings;
     pub(crate) mod rolling;
     pub(crate) mod workday;
+    pub(crate) mod utils;
 }
 
 fn main() -> Result<(), Box<dyn Error>> {

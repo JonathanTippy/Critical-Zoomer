@@ -8,6 +8,7 @@ use crate::action::sampling::*;
 use rand::Rng;
 
 use std::cmp::*;
+use crate::action::utils::relative_zoom_from_pot;
 
 pub(crate) struct ZoomerScreenValues {
     pub(crate) values: Vec<(u32)>
@@ -16,7 +17,6 @@ pub(crate) struct ZoomerScreenValues {
     , pub(crate) screen_size: (u32, u32)
     , pub(crate) zoom_factor_pot: i64
     , pub(crate) state_revision: u64
-    , pub(crate) quality_revision: u64
 }
 
 pub(crate) struct WorkerState {
@@ -33,7 +33,8 @@ pub(crate) struct WorkerState {
     , last_relative_loc: (i32, i32)
     , current_relative_loc: (i32, i32)
     , state_revision_counter: u64
-    , quality_revision_counter: u64
+    , last_relative_zoom_pot: i8
+   // , state_revised: bool
 }
 
 
@@ -106,7 +107,8 @@ async fn internal_behavior<A: SteadyActor>(
         , last_relative_loc: (0, 0)
         , current_relative_loc: (0, 0)
         , state_revision_counter: 0
-        , quality_revision_counter: 0
+        , last_relative_zoom_pot: 0
+        //, state_revised: false
     }).await;
 
     let max_sleep = Duration::from_millis(1);
@@ -157,17 +159,16 @@ async fn internal_behavior<A: SteadyActor>(
                         info!("workday completed. context is now {:.2}% done.", state.current_work_context.percent_completed);
                     }
 
-                    state.quality_revision_counter = state.quality_revision_counter + 1;
-
                     actor.try_send(&mut values_out, ZoomerScreenValues{
                         values: strip_destination_f32(c)
                         , relative_location_of_predecessor: state.last_relative_loc
-                        , relative_zoom_of_predecessor: state.last_zoom - state.current_zoom
+                        , relative_zoom_of_predecessor: state.last_relative_zoom_pot as i64
                         , zoom_factor_pot: WORKER_INIT_ZOOM_POT
                         , screen_size: WORKER_INIT_RES
                         , state_revision: state.state_revision_counter
-                        , quality_revision: state.quality_revision_counter
                     });
+
+                    //state.state_revised = false;
                 }
                 None => {
                     info!("workday completed. context is now {:.2}% done.", state.current_work_context.percent_completed);
@@ -255,25 +256,47 @@ fn calculate_tokens(state: &mut WorkerState) {
 
 fn handle_sampling_context(state: &mut WorkerState, sampling_context: SamplingContext) {
 
-    if sampling_context.screens[0].state_revision == state.state_revision_counter && sampling_context.screens[0].quality_revision == state.quality_revision_counter {
+    if sampling_context.screens[0].state_revision == state.state_revision_counter {
 
-        if sampling_context.relative_pos != (0, 0) {
+        if sampling_context.relative_pos != (0, 0) || sampling_context.relative_zoom_pot != 0 {
 
             info!("relative pos: {}, {}", sampling_context.relative_pos.0, sampling_context.relative_pos.1);
 
-            let objective_zoom_pot = state.last_zoom;
+            let objective_zoom_pot = state.current_zoom + sampling_context.relative_zoom_pot as i64;
+
+            let zoom = relative_zoom_from_pot(state.current_zoom as i8);
+
+            let objective_zoom = relative_zoom_from_pot(objective_zoom_pot as i8);
+
+            let relative_zoom = relative_zoom_from_pot(sampling_context.relative_zoom_pot);
 
             let objective_translation = (
-                -(sampling_context.relative_pos.0 as f64 / PIXELS_PER_UNIT as f64 / WORKER_INIT_ZOOM)
-                , sampling_context.relative_pos.1 as f64 / PIXELS_PER_UNIT as f64 / WORKER_INIT_ZOOM
+                -(sampling_context.relative_pos.0 as f64 / PIXELS_PER_UNIT as f64 / objective_zoom)
+                , sampling_context.relative_pos.1 as f64 / PIXELS_PER_UNIT as f64 / objective_zoom
             );
 
-            let new_loc = (
+            let zoomed = sampling_context.relative_zoom_pot != 0;
+
+            let new_loc = if !zoomed {(
                 state.current_loc.0 + objective_translation.0
                 , state.current_loc.1 + objective_translation.1
+            )} else if sampling_context.relative_zoom_pot > 0 {(
+                state.current_loc.0 + objective_translation.0 - (2.0/(objective_zoom/WORKER_INIT_ZOOM))
+                , state.current_loc.1 + objective_translation.1 + (2.0/(objective_zoom/WORKER_INIT_ZOOM))
+            )} else {(
+                state.current_loc.0 + objective_translation.0 + (1.0/(objective_zoom/WORKER_INIT_ZOOM))
+                , state.current_loc.1 + objective_translation.1 - (1.0/(objective_zoom/WORKER_INIT_ZOOM))
+            )};
+
+            state.last_relative_loc = (
+                sampling_context.relative_pos.0
+                , sampling_context.relative_pos.1
             );
 
-            state.last_relative_loc = sampling_context.relative_pos;
+            state.last_relative_zoom_pot = sampling_context.relative_zoom_pot;
+
+
+
 
             state.current_work_context = WorkContextF32 {
                 points: get_points_f32((WORKER_INIT_RES.0, WORKER_INIT_RES.1), new_loc, objective_zoom_pot)
@@ -295,10 +318,12 @@ fn handle_sampling_context(state: &mut WorkerState, sampling_context: SamplingCo
 
             state.current_loc = new_loc;
             state.current_zoom = objective_zoom_pot;
-
             state.state_revision_counter = state.state_revision_counter + 1;
+
         } else {
             state.last_relative_loc = (0, 0);
+            state.last_relative_zoom_pot = 0;
+            state.state_revision_counter = state.state_revision_counter + 1;
         }
     }
 }

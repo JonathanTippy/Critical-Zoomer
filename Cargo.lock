@@ -1072,7 +1072,7 @@ dependencies = [
  "openssl-probe",
  "openssl-sys",
  "schannel",
- "socket2 0.5.10",
+ "socket2",
  "windows-sys 0.59.0",
 ]
 
@@ -3703,16 +3703,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "socket2"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "233504af464074f9d066d7b5416c5f9b894a5862a6506e306f7b816cdd6f1807"
-dependencies = [
- "libc",
- "windows-sys 0.59.0",
-]
-
-[[package]]
 name = "spin"
 version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3735,9 +3725,9 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "steady_state"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31cf7a72ea6bc70892d40b30cc8db54861c1810b6c4791413de32033b4940f87"
+checksum = "548b6b29f09b8f490b3c4fc163a177285293aa44b377435b1188630bb8eb7fe9"
 dependencies = [
  "aeron",
  "ahash",
@@ -3770,7 +3760,6 @@ dependencies = [
  "ringbuf",
  "serde",
  "serde_json",
- "socket2 0.6.0",
  "tempfile",
  "time",
  "uuid",

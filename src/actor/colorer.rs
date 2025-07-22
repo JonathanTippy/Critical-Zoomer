@@ -19,7 +19,6 @@ pub(crate) struct ZoomerScreen {
     , pub(crate) screen_size: (u32, u32)
     , pub(crate) zoom_factor_pot: i64
     , pub(crate) state_revision: u64
-    , pub(crate) quality_revision: u64
 }
 
 
@@ -113,7 +112,6 @@ async fn internal_behavior<A: SteadyActor>(
                     , screen_size: state.values[0].screen_size
                     , state_revision: state.values[0].state_revision
                     , zoom_factor_pot: state.values[0].zoom_factor_pot
-                    , quality_revision: state.values[0].quality_revision
                 });
                 info!("sent colors to window");
 
