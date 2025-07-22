@@ -11,7 +11,7 @@ use rand::rng;
 
 
 
-pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 4;
+pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
 
 
 
@@ -321,6 +321,11 @@ fn update_loop_check_points (point: &mut PointF32) {
     if point.iterations%(1<<23) == 0 {
         point.loop_detection_points[3] =point.z;
     }
+
+    if point.iterations%(1<<25) == 0 {
+        point.loop_detection_points[4] =point.z;
+    }
+
 }
 
 
