@@ -10,9 +10,10 @@ a mandelbrot set zoomer written in rust
 - blazing fast window exists | ✔️
 - workday-based worker exists | ✔️
 - window and worker communicate | ✔️
-- 
+  
 ### Fix the jank (0.0.2)
 - window / worker linkakge is stable during quick inputs | in progress...
+- fix drag after zoom | in progress...
 - window / worker handle resolution changes
 - fix zoom while drag
 
