@@ -27,26 +27,26 @@ pub(crate) struct WorkerState {
     , point_token_cost: u32
     , bout_token_cost: u32
     , workday_token_cost: u32
+    , worker_res: (u32, u32)
 }
 
 
-pub(crate) const WORKER_INIT_RES_POT:u64 = 9;
-pub(crate) const WORKER_INIT_RES:(u32, u32) = (1<<WORKER_INIT_RES_POT, 1<<WORKER_INIT_RES_POT);
+pub(crate) const WORKER_INIT_RES:(u32, u32) = DEFAULT_WINDOW_RES;
 pub(crate) const WORKER_INIT_LOC:(f64, f64) = (0.0, 0.0);
 pub(crate) const WORKER_INIT_ZOOM_POT: i64 = -2;
 pub(crate) const WORKER_INIT_ZOOM:f64 = if WORKER_INIT_ZOOM_POT>0 {(1<<WORKER_INIT_ZOOM_POT) as f64} else {1.0 / (1<<-WORKER_INIT_ZOOM_POT) as f64};
-pub(crate) const PIXELS_PER_UNIT: u64 = 1<<(WORKER_INIT_RES_POT);
+pub(crate) const PIXELS_PER_UNIT: u64 = 1<<(9);
 
 pub async fn run(
     actor: SteadyActorShadow,
-    transforms_in: SteadyRx<SamplingRelativeTransforms>,
+    from_sampler: SteadyRx<(SamplingRelativeTransforms, (u32, u32))>,
     values_out: SteadyTx<ZoomerScreenValues>,
     state: SteadyState<WorkerState>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
-        actor.into_spotlight([&transforms_in], [&values_out]),
-        transforms_in,
+        actor.into_spotlight([&from_sampler], [&values_out]),
+        from_sampler,
         values_out,
         state,
     )
@@ -55,11 +55,11 @@ pub async fn run(
 
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
-    transforms_in: SteadyRx<SamplingRelativeTransforms>,
+    from_sampler: SteadyRx<(SamplingRelativeTransforms, (u32, u32))>,
     values_out: SteadyTx<ZoomerScreenValues>,
     state: SteadyState<WorkerState>,
 ) -> Result<(), Box<dyn Error>> {
-    let mut transforms_in = transforms_in.lock().await;
+    let mut from_sampler = from_sampler.lock().await;
     let mut values_out = values_out.lock().await;
 
     let mut state = state.lock(|| WorkerState {
@@ -87,27 +87,28 @@ async fn internal_behavior<A: SteadyActor>(
         , bout_token_cost: 4
         , workday_token_cost: 0
         , point_token_cost: 150
+        , worker_res: WORKER_INIT_RES
     }).await;
 
-    let max_sleep = Duration::from_millis(50);
+    let max_sleep = Duration::from_millis(3);
 
-    let workday_duration = Duration::from_millis(50);
+    let workday_duration = Duration::from_millis(3);
 
     while actor.is_running(
         || i!(values_out.mark_closed())
     ) {
 
 
-        if actor.avail_units(&mut transforms_in) > 0 {
-            while actor.avail_units(&mut transforms_in) > 1 {
-                drop(actor.try_take(&mut transforms_in).expect("internal error"))
+        if actor.avail_units(&mut from_sampler) > 0 {
+            while actor.avail_units(&mut from_sampler) > 1 {
+                drop(actor.try_take(&mut from_sampler).expect("internal error"))
             };
 
-            let transforms = actor.try_take(&mut transforms_in).expect("internal error");
-            if transforms.counter > state.work_context.originating_relative_transforms.counter {
-                handle_transforms(
+            let stuff = actor.try_take(&mut from_sampler).expect("internal error");
+            if stuff.0.counter > state.work_context.originating_relative_transforms.counter {
+                handle_sampler_stuff(
                     &mut state
-                    , transforms
+                    , stuff
                 );
             }
 
@@ -120,7 +121,7 @@ async fn internal_behavior<A: SteadyActor>(
         if working {} else {
             /*await_for_any!(
                 actor.wait_periodic(max_sleep),
-                //actor.wait_avail(&mut transforms_in, 1),
+                //actor.wait_avail(&mut from_sampler, 1),
             );*/
             //std::thread::sleep(Duration::from_millis(40));
         }
@@ -147,7 +148,7 @@ async fn internal_behavior<A: SteadyActor>(
 
                     actor.try_send(&mut values_out, ZoomerScreenValues{
                         values: strip_destination_f32(c)
-                        , screen_size: WORKER_INIT_RES
+                        , screen_size: state.worker_res
                         , originating_relative_transforms: state.work_context.originating_relative_transforms.clone()
                         , complete: state.work_context.percent_completed == 100.0
                         , dummy: false
@@ -243,11 +244,14 @@ fn calculate_tokens(state: &mut WorkerState) {
 
 }
 
-fn handle_transforms(state: &mut WorkerState, transforms: SamplingRelativeTransforms) {
+fn handle_sampler_stuff(state: &mut WorkerState, stuff: (SamplingRelativeTransforms, (u32, u32))) {
+
+    let transforms = stuff.0;
 
 
-    if (transforms.pos != (0, 0)) || (transforms.zoom_pot != 0) {
+    if (transforms.pos != (0, 0)) || (transforms.zoom_pot != 0) || stuff.1 != state.worker_res {
 
+        state.worker_res = stuff.1;
         //info!("changing zoom from {} to {} based on counter number {}", state.zoom_pot, state.zoom_pot + transforms.zoom_pot, transforms.counter);
 
         let objective_zoom = zoom_from_pot(state.zoom_pot + transforms.zoom_pot);
@@ -287,8 +291,8 @@ fn handle_transforms(state: &mut WorkerState, transforms: SamplingRelativeTransf
 
 
         state.work_context = WorkContextF32 {
-            points: get_points_f32((WORKER_INIT_RES.0, WORKER_INIT_RES.1), state.loc, state.zoom_pot)
-            , completed_points: vec!(CompletedPoint::Dummy{};(WORKER_INIT_RES.0 * WORKER_INIT_RES.1) as usize)
+            points: get_points_f32(stuff.1, state.loc, state.zoom_pot)
+            , completed_points: vec!(CompletedPoint::Dummy{};(stuff.1.0 * stuff.1.1) as usize)
             , index: 0
             , random_index: 0
             , time_created: Instant::now()
