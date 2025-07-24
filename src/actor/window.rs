@@ -104,14 +104,14 @@ pub(crate) struct WindowState {
 pub async fn run(
     actor: SteadyActorShadow,
     pixels_in: SteadyRx<ZoomerScreen>,
-    transforms_out: SteadyTx<SamplingRelativeTransforms>,
+    sampler_out: SteadyTx<(SamplingRelativeTransforms, (u32, u32))>,
     settings_out: SteadyTx<ZoomerSettingsUpdate>,
     state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
     internal_behavior(
-        actor.into_spotlight([&pixels_in], [&transforms_out, &settings_out]),
+        actor.into_spotlight([&pixels_in], [&sampler_out, &settings_out]),
         pixels_in,
-        transforms_out,
+        sampler_out,
         settings_out,
         state,
     )
@@ -122,7 +122,7 @@ pub async fn run(
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
     pixels_in: SteadyRx<ZoomerScreen>,
-    transforms_out: SteadyTx<SamplingRelativeTransforms>,
+    sampler_out: SteadyTx<(SamplingRelativeTransforms, (u32, u32))>,
     settings_out: SteadyTx<ZoomerSettingsUpdate>,
     state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
@@ -188,7 +188,7 @@ async fn internal_behavior<A: SteadyActor>(
     let passthrough = EguiWindowPassthrough{
         portable_actor: portable_actor.clone()
         , pixels_in: pixels_in.clone()
-        , transforms_out: transforms_out.clone()
+        , sampler_out: sampler_out.clone()
         , settings_out: settings_out.clone()
         , portable_state: portable_state.clone()
     };
@@ -201,7 +201,7 @@ async fn internal_behavior<A: SteadyActor>(
 
 
     let mut actor = portable_actor.lock().unwrap();
-    let mut transforms_out = transforms_out.try_lock().unwrap();
+    let mut sampler_out = sampler_out.try_lock().unwrap();
     let mut pixels_in = pixels_in.try_lock().unwrap();
     let mut state = portable_state.lock().unwrap();
 
@@ -227,7 +227,7 @@ async fn internal_behavior<A: SteadyActor>(
 struct EguiWindowPassthrough<'a, A> {
     portable_actor: Arc<Mutex<A>>,
     pixels_in: SteadyRx<ZoomerScreen>,
-    transforms_out: SteadyTx<SamplingRelativeTransforms>,
+    sampler_out: SteadyTx<(SamplingRelativeTransforms, (u32, u32))>,
     settings_out: SteadyTx<ZoomerSettingsUpdate>,
     portable_state:Arc<Mutex<StateGuard<'a, WindowState>>>
 }
@@ -243,7 +243,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
         // init hybrid actor
         let mut actor = self.portable_actor.lock().unwrap();
         let mut pixels_in = self.pixels_in.try_lock().unwrap();
-        let mut transforms_out = self.transforms_out.try_lock().unwrap();
+        let mut sampler_out = self.sampler_out.try_lock().unwrap();
         let mut settings_out = self.settings_out.try_lock().unwrap();
         let mut state = self.portable_state.lock().unwrap();
 
@@ -297,7 +297,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 Some(s) => {
                     //info!("window recieved pixels");
                     update_sampling_context(&mut state, s);
-                    actor.try_send(&mut transforms_out, state.sampling_context.relative_transforms.clone());
+                    actor.try_send(&mut sampler_out, (state.sampling_context.relative_transforms.clone(), state.sampling_context.sampling_size));
                 }
                 None => {}
             }
@@ -318,7 +318,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             {
                 //info!("screen is complete, sending transform updates");
                 if state.timer2.elapsed().as_secs_f64() > 0.1 {
-                    actor.try_send(&mut transforms_out, state.sampling_context.relative_transforms.clone());
+                    actor.try_send(&mut sampler_out, state.sampling_context.relative_transforms.clone());
                     state.timer2 = Instant::now();
                 }
 
