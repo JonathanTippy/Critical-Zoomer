@@ -8,8 +8,7 @@ use std::collections::*;
 
 use rand::seq::SliceRandom;
 use rand::rng;
-
-
+use crate::action::sampling::SamplingRelativeTransforms;
 
 pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
 
@@ -31,6 +30,7 @@ pub(crate) struct WorkContextF32 {
     , pub(crate) total_bouts_today: u32
     , pub(crate) total_points_today: u32
     , pub(crate) spent_tokens_today: u32
+    , pub(crate) originating_relative_transforms: SamplingRelativeTransforms
 }
 
 
