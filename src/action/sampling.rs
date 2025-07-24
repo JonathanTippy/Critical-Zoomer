@@ -18,7 +18,7 @@ pub(crate) struct SamplingContext {
     , pub(crate) mouse_drag_start: Option<MouseDragStart>
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct SamplingRelativeTransforms {
     pub(crate) pos: (i32, i32) // this is in pixels. (pixels is pixels is pixels. (sometimes))
     , pub(crate) zoom_pot: i64 // this is evaluated after the relative position during sampling
