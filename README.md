@@ -17,7 +17,7 @@ a mandelbrot set zoomer written in rust
 - fix drag too far | ✔️
 - window / worker handle resolution changes | ✔️
 - fix zoom while drag | ✔️
-- implement home button functionality
+- implement home button functionality | ✔️
 
 ### Rember (0.0.3)
 - worker remembers just-completed work when moving or zooming
