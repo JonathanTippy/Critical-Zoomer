@@ -77,9 +77,6 @@ pub(crate) fn workday(
     context.total_points_today = 0;
     context.spent_tokens_today = 0;
 
-
-
-
     //info!("workday start");
 
     match &context.random_map {

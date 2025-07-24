@@ -274,7 +274,6 @@ pub(crate) fn update_sampling_context(state: &mut WindowState, screen: ZoomerScr
 
 
                 if state.sampling_context.screens.len() != 0 {
-
                     drop(state.sampling_context.screens.pop().unwrap());
                     state.sampling_context.screens.push(screen);
                 } else {
@@ -286,6 +285,13 @@ pub(crate) fn update_sampling_context(state: &mut WindowState, screen: ZoomerScr
 
         } else {
             state.sampling_context.relative_transforms.counter = state.sampling_context.relative_transforms.counter + 1;
+        }
+    } else if screen.complete {
+        if state.sampling_context.screens.len() != 0 {
+            drop(state.sampling_context.screens.pop().unwrap());
+            state.sampling_context.screens.push(screen);
+        } else {
+            state.sampling_context.screens.push(screen);
         }
     }
 }
