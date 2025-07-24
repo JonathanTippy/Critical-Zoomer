@@ -15,8 +15,8 @@ a mandelbrot set zoomer written in rust
 - window / worker linkakge is stable during quick inputs | ✔️
 - fix drag after zoom | ✔️
 - fix drag too far | ✔️
-- window / worker handle resolution changes | in progress...
-- fix zoom while drag
+- window / worker handle resolution changes | ✔️
+- fix zoom while drag | ✔️
 - implement home button functionality
 
 ### Rember (0.0.3)
