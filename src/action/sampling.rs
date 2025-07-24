@@ -15,6 +15,7 @@ pub(crate) struct SamplingContext {
     pub(crate) screens: Vec<ZoomerScreen>
     , pub(crate) sampling_size: (u32, u32)
     , pub(crate) relative_transforms: SamplingRelativeTransforms
+    , pub(crate) mouse_drag_start: Option<MouseDragStart>
 }
 
 #[derive(Clone, Debug)]
@@ -58,17 +59,18 @@ pub(crate) fn sample(
 
 
                 if factor > 1.0 {
+                    // adjust position based on zooming (ridiculously hard to think about)
                     context.relative_transforms.pos = (
-                        (((context.relative_transforms.pos.0 as f64) * factor as f64) - (center_relative_relative_pos.0) as f64) as i32 // + ((center_relative_relative_pos.0 - (1<<15)) as f64 / *factor as f64) as i32)
-                        , (((context.relative_transforms.pos.1 as f64) * factor as f64 ) - (center_relative_relative_pos.1) as f64) as i32 //  + ((center_relative_relative_pos.1 - (1<<15)) as f64 / *factor as f64) as i32)
+                        (((context.relative_transforms.pos.0 as f64) * factor as f64) - (center_relative_relative_pos.0) as f64) as i32
+                        , (((context.relative_transforms.pos.1 as f64) * factor as f64 ) - (center_relative_relative_pos.1) as f64) as i32
                     );
-                } else {
 
+                } else {
 
                     // adjust position based on zooming (ridiculously hard to think about)
                     context.relative_transforms.pos = (
-                        (((context.relative_transforms.pos.0 as f64) * factor as f64) + (center_relative_relative_pos.0 as f64 * (factor as f64))) as i32 // + ((center_relative_relative_pos.0 - (1<<15)) as f64 / *factor as f64) as i32)
-                        , (((context.relative_transforms.pos.1 as f64) * factor as f64 ) + (center_relative_relative_pos.1 as f64 * (factor as f64))) as i32 //  + ((center_relative_relative_pos.1 - (1<<15)) as f64 / *factor as f64) as i32)
+                        (((context.relative_transforms.pos.0 as f64) * factor as f64) + (center_relative_relative_pos.0 as f64 * (factor as f64))) as i32
+                        , (((context.relative_transforms.pos.1 as f64) * factor as f64 ) + (center_relative_relative_pos.1 as f64 * (factor as f64))) as i32
                     );
 
                     // if we are zooming out, we need to make sure we gently guide pixels to be in the proper position when they need to reach full resolution.
@@ -77,6 +79,21 @@ pub(crate) fn sample(
                         context.relative_transforms.pos.0 - context.relative_transforms.pos.0 % 2
                         , context.relative_transforms.pos.1 - context.relative_transforms.pos.1 % 2
                     );
+                }
+
+                match &context.mouse_drag_start {
+                    Some(d) => {
+                        context.mouse_drag_start = Some(
+                            MouseDragStart {
+                                screenspace_drag_start: egui::Pos2{x: center_relative_relative_pos.0 as f32, y: center_relative_relative_pos.1 as f32}
+                                , relative_transforms: SamplingRelativeTransforms {
+                                    pos: context.relative_transforms.pos
+                                    , zoom_pot: 0
+                                    , counter: 0
+                                }
+                            });
+                    }
+                    None => {}
                 }
 
             }
@@ -223,19 +240,19 @@ fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom: i64) -> (
     )
 }
 
-pub(crate) fn update_sampling_context(state: &mut WindowState, screen: ZoomerScreen) {
+pub(crate) fn update_sampling_context(context: &mut SamplingContext, screen: ZoomerScreen) {
 
-    if state.sampling_context.relative_transforms.counter == screen.originating_relative_transforms.counter {
+    if context.relative_transforms.counter == screen.originating_relative_transforms.counter {
 
         if !screen.dummy {
 
-            state.sampling_context.relative_transforms.zoom_pot =
-                state.sampling_context.relative_transforms.zoom_pot
+            context.relative_transforms.zoom_pot =
+                context.relative_transforms.zoom_pot
                     - screen.originating_relative_transforms.zoom_pot;
 
             let offset =
-                (signed_shift(screen.originating_relative_transforms.pos.0, state.sampling_context.relative_transforms.zoom_pot)
-                , signed_shift(screen.originating_relative_transforms.pos.1, state.sampling_context.relative_transforms.zoom_pot));
+                (signed_shift(screen.originating_relative_transforms.pos.0, context.relative_transforms.zoom_pot)
+                , signed_shift(screen.originating_relative_transforms.pos.1, context.relative_transforms.zoom_pot));
 
             //info!("updating relative pos to {}, {} based on counter number {}"
             //, state.sampling_context.relative_transforms.pos.0 - offset.0
@@ -245,27 +262,27 @@ pub(crate) fn update_sampling_context(state: &mut WindowState, screen: ZoomerScr
 
             //info!("updating relative zoom pot to {} based on counter number {}", state.sampling_context.relative_transforms.zoom_pot, screen.originating_relative_transforms.counter);
 
-            state.sampling_context.relative_transforms.pos = (
+            context.relative_transforms.pos = (
                 // take the pre-existing offset, and move it to where the old data is now.
-                state.sampling_context.relative_transforms.pos.0 - offset.0// as f64 / zoom) as i32
-                , state.sampling_context.relative_transforms.pos.1 - offset.1// as f64 / zoom) as i32
+                context.relative_transforms.pos.0 - offset.0// as f64 / zoom) as i32
+                , context.relative_transforms.pos.1 - offset.1// as f64 / zoom) as i32
             );
 
 
 
-            match &state.mouse_drag_start {
+            match &context.mouse_drag_start {
                 Some(d) => {
                     // take the pre-existing drag start point, and move it to where the old data is now.
 
-                    state.mouse_drag_start = Some( MouseDragStart{
+                    context.mouse_drag_start = Some( MouseDragStart{
                         screenspace_drag_start: d.screenspace_drag_start
                         , relative_transforms: SamplingRelativeTransforms{
                             pos: (
                                 d.relative_transforms.pos.0 - offset.0
                                 ,   d.relative_transforms.pos.1 - offset.1
                             )
-                            , zoom_pot: d.relative_transforms.zoom_pot
-                            , counter: state.sampling_context.relative_transforms.counter
+                            , zoom_pot: d.relative_transforms.zoom_pot - screen.originating_relative_transforms.zoom_pot
+                            , counter: context.relative_transforms.counter
                         }
                     });
                 }
@@ -273,25 +290,25 @@ pub(crate) fn update_sampling_context(state: &mut WindowState, screen: ZoomerScr
             }
 
 
-                if state.sampling_context.screens.len() != 0 {
-                    drop(state.sampling_context.screens.pop().unwrap());
-                    state.sampling_context.screens.push(screen);
+                if context.screens.len() != 0 {
+                    drop(context.screens.pop().unwrap());
+                    context.screens.push(screen);
                 } else {
-                    state.sampling_context.screens.push(screen);
+                    context.screens.push(screen);
                 }
 
             //info!("updating transform revision counter to {}", state.sampling_context.relative_transforms.counter + 1);
-            state.sampling_context.relative_transforms.counter = state.sampling_context.relative_transforms.counter + 1;
+            context.relative_transforms.counter = context.relative_transforms.counter + 1;
 
         } else {
-            state.sampling_context.relative_transforms.counter = state.sampling_context.relative_transforms.counter + 1;
+            context.relative_transforms.counter = context.relative_transforms.counter + 1;
         }
     } else if screen.complete { // override the transforms counter if the screen is complete
-        if state.sampling_context.screens.len() != 0 {
-            drop(state.sampling_context.screens.pop().unwrap());
-            state.sampling_context.screens.push(screen);
+        if context.screens.len() != 0 {
+            drop(context.screens.pop().unwrap());
+            context.screens.push(screen);
         } else {
-            state.sampling_context.screens.push(screen);
+            context.screens.push(screen);
         }
     }
 }

@@ -96,7 +96,6 @@ pub(crate) struct WindowState {
     //, pub(crate) sampling_resolution_multiplier: f32
     , pub(crate) timer: Instant
     , pub(crate) fps_margin: f32
-    , pub(crate) mouse_drag_start: Option<MouseDragStart>
     , pub(crate) timer2: Instant
 }
 
@@ -143,6 +142,7 @@ async fn internal_behavior<A: SteadyActor>(
                 , zoom_pot: 0
                 , counter: 0
             }
+            , mouse_drag_start: None
         }
         , settings_window_context: Arc::new(Mutex::new(DEFAULT_SETTINGS_WINDOW_CONTEXT))
         , settings_window_open: false
@@ -152,7 +152,7 @@ async fn internal_behavior<A: SteadyActor>(
         //, sampling_resolution_multiplier: 1.0
         , timer: Instant::now()
         , fps_margin: 0.0
-        , mouse_drag_start: None
+
         , timer2: Instant::now()
     }).await;
 
@@ -296,7 +296,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             match actor.try_take(&mut pixels_in) {
                 Some(s) => {
                     //info!("window recieved pixels");
-                    update_sampling_context(&mut state, s);
+                    update_sampling_context(&mut state.sampling_context, s);
                     actor.try_send(&mut sampler_out, (state.sampling_context.relative_transforms.clone(), state.sampling_context.sampling_size));
                 }
                 None => {}
@@ -672,7 +672,7 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
         (input_state.pointer.primary_pressed() && (! input_state.pointer.button_down(egui::PointerButton::Middle)))
         || (input_state.pointer.button_pressed(egui::PointerButton::Middle) && (! input_state.pointer.primary_down())) {
             let d = input_state.pointer.latest_pos().unwrap();
-            state.mouse_drag_start = Some(
+            state.sampling_context.mouse_drag_start = Some(
                 MouseDragStart {
                     screenspace_drag_start: d
                     , relative_transforms: state.sampling_context.relative_transforms.clone()
@@ -693,12 +693,12 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
             );*/
         }
 
-        match &state.mouse_drag_start {
+        match &state.sampling_context.mouse_drag_start {
             Some(start) => {
 
                 // end the current drag if appropriate
                 if (!input_state.pointer.button_down(egui::PointerButton::Primary)) && (!input_state.pointer.button_down(egui::PointerButton::Middle)) {
-                    state.mouse_drag_start = None;
+                    state.sampling_context.mouse_drag_start = None;
                 } else {
                     // execute the drag
 
