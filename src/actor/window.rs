@@ -583,6 +583,10 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                         // create button and get its state
                         let button_state = ui.button("🏠");
                         if button_state.clicked() {
+                            actor.try_send(&mut sampler_out, (
+                                SamplingRelativeTransforms{ pos:(0,0), zoom_pot:i64::MIN, counter:u64::MAX }
+                                , state.sampling_context.sampling_size
+                            ));
                         }
                         return button_state;
                     }

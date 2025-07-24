@@ -98,14 +98,20 @@ async fn internal_behavior<A: SteadyActor>(
         || i!(values_out.mark_closed())
     ) {
 
-
         if actor.avail_units(&mut from_sampler) > 0 {
             while actor.avail_units(&mut from_sampler) > 1 {
-                drop(actor.try_take(&mut from_sampler).expect("internal error"))
+                let stuff = actor.try_take(&mut from_sampler).expect("internal error");
+                if stuff.0 == (SamplingRelativeTransforms{ pos:(0,0), zoom_pot:i64::MIN, counter:u64::MAX }) {
+                    handle_home(&mut state, stuff.1);
+                }
+                drop(stuff);
             };
 
             let stuff = actor.try_take(&mut from_sampler).expect("internal error");
-            if stuff.0.counter > state.work_context.originating_relative_transforms.counter {
+
+            if stuff.0 == (SamplingRelativeTransforms{ pos:(0,0), zoom_pot:i64::MIN, counter:u64::MAX }) {
+                handle_home(&mut state, stuff.1);
+            } else if stuff.0.counter > state.work_context.originating_relative_transforms.counter {
                 handle_sampler_stuff(
                     &mut state
                     , stuff
@@ -242,6 +248,36 @@ fn strip_destination_f32(pts: Vec<CompletedPoint>) -> Vec<u32> {
 
 fn calculate_tokens(state: &mut WorkerState) {
 
+}
+
+fn handle_home(state: &mut WorkerState, size: (u32, u32)) {
+    *state = WorkerState {
+        loc: WORKER_INIT_LOC
+        , zoom_pot: WORKER_INIT_ZOOM_POT
+        , work_context: WorkContextF32 {
+            points: get_points_f32(size, WORKER_INIT_LOC, WORKER_INIT_ZOOM_POT)
+            , completed_points: vec!(CompletedPoint::Dummy{};(size.0 * size.1) as usize)
+            , index: 0
+            , random_index: 0
+            , time_created: Instant::now()
+            , time_workday_started: Instant::now()
+            , percent_completed: 0.0
+            , random_map: None
+            , workdays: 0
+            , total_iterations: 0
+            , spent_tokens_today: 0
+            , total_iterations_today: 0
+            , total_points_today: 0
+            , total_bouts_today: 0
+            , originating_relative_transforms: SamplingRelativeTransforms{pos: (0, 0), zoom_pot: 0, counter: 0}
+        }
+        , workday_token_budget: 40000000
+        , iteration_token_cost: 2
+        , bout_token_cost: 4
+        , workday_token_cost: 0
+        , point_token_cost: 150
+        , worker_res: WORKER_INIT_RES
+    };
 }
 
 fn handle_sampler_stuff(state: &mut WorkerState, stuff: (SamplingRelativeTransforms, (u32, u32))) {
