@@ -1,9 +1,6 @@
 use rand::Rng;
 use steady_state::*;
-
-
-
-
+use crate::action::sampling::SamplingRelativeTransforms;
 use crate::actor::window::*;
 use crate::actor::updater::*;
 use crate::actor::worker::*;
@@ -14,17 +11,14 @@ use crate::action::settings::*;
 
 pub(crate) struct ZoomerScreen {
     pub(crate) pixels: Vec<(u8,u8,u8)>
-    , pub(crate) relative_location_of_predecessor: (i32, i32)
-    , pub(crate) relative_zoom_of_predecessor: i64
     , pub(crate) screen_size: (u32, u32)
-    , pub(crate) zoom_factor_pot: i64
-    , pub(crate) state_revision: u64
+    , pub(crate) originating_relative_transforms: SamplingRelativeTransforms
+    , pub(crate) complete: bool
+    , pub(crate) dummy: bool
 }
 
 
 pub(crate) struct ColorerState {
-    //pub(crate) zoomer_state: ZoomerState,
-    //pub(crate) settings: ZoomerSettingsState,
     pub(crate) values:Vec<ZoomerScreenValues>,
 }
 
@@ -83,7 +77,7 @@ async fn internal_behavior<A: SteadyActor>(
 
         match actor.try_take(&mut values_in) {
             Some(v) => {
-                info!("recieved values");
+                //info!("recieved values");
                 if state.values.len() != 0 {
                     drop(state.values.pop().unwrap())
                 }
@@ -103,17 +97,16 @@ async fn internal_behavior<A: SteadyActor>(
                     output.push(color);
                 }
 
-                info!("done coloring");
+                //info!("done coloring");
 
                 actor.try_send(&mut screens_out, ZoomerScreen{
                     pixels: output
-                    , relative_zoom_of_predecessor: state.values[0].relative_zoom_of_predecessor
-                    , relative_location_of_predecessor: state.values[0].relative_location_of_predecessor
                     , screen_size: state.values[0].screen_size
-                    , state_revision: state.values[0].state_revision
-                    , zoom_factor_pot: state.values[0].zoom_factor_pot
+                    , originating_relative_transforms: state.values[0].originating_relative_transforms.clone()
+                    , complete: state.values[0].complete
+                    , dummy: state.values[0].dummy
                 });
-                info!("sent colors to window");
+                //info!("sent colors to window");
 
             }
             None => {}

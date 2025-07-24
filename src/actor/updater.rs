@@ -89,6 +89,6 @@ async fn internal_behavior<A: SteadyActor>(
     }
 
     // Final shutdown log, reporting all statistics.
-    info!("Computer shutting down.");
+    info!("Updater shutting down.");
     Ok(())
 }

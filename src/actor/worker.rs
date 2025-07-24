@@ -8,33 +8,25 @@ use crate::action::sampling::*;
 use rand::Rng;
 
 use std::cmp::*;
-use crate::action::utils::relative_zoom_from_pot;
+use crate::action::utils::*;
 
 pub(crate) struct ZoomerScreenValues {
     pub(crate) values: Vec<(u32)>
-    , pub(crate) relative_location_of_predecessor: (i32, i32)
-    , pub(crate) relative_zoom_of_predecessor: i64
     , pub(crate) screen_size: (u32, u32)
-    , pub(crate) zoom_factor_pot: i64
-    , pub(crate) state_revision: u64
+    , pub(crate) originating_relative_transforms: SamplingRelativeTransforms
+    , pub(crate) complete: bool
+    , pub(crate) dummy: bool
 }
 
 pub(crate) struct WorkerState {
-    current_work_context: WorkContextF32
-    , current_loc: (f64, f64)
-    , current_zoom: i64
-    , last_loc: (f64, f64)
-    , last_zoom: i64
-    , worker_token_budget: u32
+    work_context: WorkContextF32
+    , loc: (f64, f64)
+    , zoom: i64
+    , workday_token_budget: u32
     , iteration_token_cost: u32
     , point_token_cost: u32
     , bout_token_cost: u32
     , workday_token_cost: u32
-    , last_relative_loc: (i32, i32)
-    , current_relative_loc: (i32, i32)
-    , state_revision_counter: u64
-    , last_relative_zoom_pot: i8
-   // , state_revised: bool
 }
 
 
@@ -47,41 +39,33 @@ pub(crate) const PIXELS_PER_UNIT: u64 = 1<<(WORKER_INIT_RES_POT);
 
 pub async fn run(
     actor: SteadyActorShadow,
-    updates_in: SteadyRx<SamplingContext>,
+    transforms_in: SteadyRx<SamplingRelativeTransforms>,
     values_out: SteadyTx<ZoomerScreenValues>,
     state: SteadyState<WorkerState>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
-        actor.into_spotlight([&updates_in], [&values_out]),
-        updates_in,
+        actor.into_spotlight([&transforms_in], [&values_out]),
+        transforms_in,
         values_out,
         state,
     )
         .await
 }
 
-/// The core logic for the worker actor.
-/// This function implements high-throughput, cache-friendly batch processing.
-///
-/// Key performance strategies:      //#!#//
-/// - **Double-buffering**: The channel is logically split into two halves. While one half is being filled by the producer, the consumer processes the other half.
-/// - **Full-channel consumption**: The worker processes both halves (two slices) before yielding, maximizing cache line reuse and minimizing context switches.
-/// - **Pre-allocated buffers**: All batch buffers are allocated once and reused, ensuring zero-allocation hot paths.
-/// - **Mechanically sympathetic**: The design aligns with CPU cache and memory bus behavior for optimal throughput.
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
-    updates_in: SteadyRx<SamplingContext>,
+    transforms_in: SteadyRx<SamplingRelativeTransforms>,
     values_out: SteadyTx<ZoomerScreenValues>,
     state: SteadyState<WorkerState>,
 ) -> Result<(), Box<dyn Error>> {
-    let mut updates_in = updates_in.lock().await;
+    let mut transforms_in = transforms_in.lock().await;
     let mut values_out = values_out.lock().await;
 
     let mut state = state.lock(|| WorkerState {
-        current_loc: WORKER_INIT_LOC
-        , current_zoom: WORKER_INIT_ZOOM_POT
-        , current_work_context: WorkContextF32 {
+        loc: WORKER_INIT_LOC
+        , zoom: WORKER_INIT_ZOOM_POT
+        , work_context: WorkContextF32 {
             points: get_points_f32((WORKER_INIT_RES.0, WORKER_INIT_RES.1), WORKER_INIT_LOC, WORKER_INIT_ZOOM_POT)
             , completed_points: vec!(CompletedPoint::Dummy{};(WORKER_INIT_RES.0 * WORKER_INIT_RES.1) as usize)
             , index: 0
@@ -96,22 +80,16 @@ async fn internal_behavior<A: SteadyActor>(
             , total_iterations_today: 0
             , total_points_today: 0
             , total_bouts_today: 0
+            , originating_relative_transforms: SamplingRelativeTransforms{pos: (0, 0), zoom_pot: 0, counter: 0}
         }
-        , worker_token_budget: 40000000
+        , workday_token_budget: 40000000
         , iteration_token_cost: 2
         , bout_token_cost: 4
         , workday_token_cost: 0
         , point_token_cost: 150
-        , last_loc: (WORKER_INIT_LOC.0, WORKER_INIT_LOC.1)
-        , last_zoom: WORKER_INIT_ZOOM_POT
-        , last_relative_loc: (0, 0)
-        , current_relative_loc: (0, 0)
-        , state_revision_counter: 0
-        , last_relative_zoom_pot: 0
-        //, state_revised: false
     }).await;
 
-    let max_sleep = Duration::from_millis(1);
+    let max_sleep = Duration::from_millis(50);
 
     let workday_duration = Duration::from_millis(50);
 
@@ -119,26 +97,29 @@ async fn internal_behavior<A: SteadyActor>(
         || i!(values_out.mark_closed())
     ) {
 
-        let working = state.current_work_context.percent_completed < 99.9999999;
+        let working = state.work_context.percent_completed < 99.9999999;
         // this actor always pins its core if its doing work.
         if working {} else {
-            await_for_any!(
+            /*await_for_any!(
                 actor.wait_periodic(max_sleep),
-                actor.wait_avail(&mut updates_in, 1),
-            );
+                //actor.wait_avail(&mut transforms_in, 1),
+            );*/
+            //std::thread::sleep(Duration::from_millis(40));
         }
 
-        for _ in 1..actor.avail_units(&mut updates_in) {
-            drop(actor.try_take(&mut updates_in).expect("internal error"));
-        }
+        if actor.avail_units(&mut transforms_in) > 0 {
+            while actor.avail_units(&mut transforms_in) > 1 {
+                drop(actor.try_take(&mut transforms_in).expect("internal error"))
+            };
 
-        if actor.avail_units(&mut updates_in) > 0 {
+            let transforms = actor.try_take(&mut transforms_in).expect("internal error");
+            if transforms.counter > state.work_context.originating_relative_transforms.counter {
+                handle_transforms(
+                    &mut state
+                    , transforms
+                );
+            }
 
-            let context = actor.try_take(&mut updates_in).expect("internal error");
-            handle_sampling_context(
-                &mut state
-                , context
-            );
         }
 
         if working {
@@ -146,41 +127,45 @@ async fn internal_behavior<A: SteadyActor>(
             let start = Instant::now();
 
             match workday (
-                state.worker_token_budget - state.workday_token_cost - state.bout_token_cost
+                state.workday_token_budget - state.workday_token_cost - state.bout_token_cost
                 , state.iteration_token_cost
                 , state.bout_token_cost
                 , state.point_token_cost
-                ,  &mut state.current_work_context)
+                ,  &mut state.work_context)
             {
                 Some(c) => {
-                    if state.current_work_context.percent_completed == 100.0 {
-                        info!("context is done. Total time: {:.2}s\n total iterations: {}", state.current_work_context.time_created.elapsed().as_secs_f64(), state.current_work_context.total_iterations);
+                    if state.work_context.percent_completed == 100.0 {
+                        //info!("context is done. Total time: {:.2}s\n total iterations: {}", state.work_context.time_created.elapsed().as_secs_f64(), state.work_context.total_iterations);
                     } else {
-                        info!("workday completed. context is now {:.2}% done.", state.current_work_context.percent_completed);
+                        //info!("workday completed. context is now {:.2}% done.", state.work_context.percent_completed);
                     }
 
                     actor.try_send(&mut values_out, ZoomerScreenValues{
                         values: strip_destination_f32(c)
-                        , relative_location_of_predecessor: state.last_relative_loc
-                        , relative_zoom_of_predecessor: state.last_relative_zoom_pot as i64
-                        , zoom_factor_pot: WORKER_INIT_ZOOM_POT
                         , screen_size: WORKER_INIT_RES
-                        , state_revision: state.state_revision_counter
+                        , originating_relative_transforms: state.work_context.originating_relative_transforms.clone()
+                        , complete: state.work_context.percent_completed == 100.0
+                        , dummy: false
                     });
-
-                    //state.state_revised = false;
                 }
                 None => {
-                    info!("workday completed. context is now {:.2}% done.", state.current_work_context.percent_completed);
+                    //info!("workday completed. context is now {:.2}% done.", state.work_context.percent_completed);
                 }
             }
 
             let workday_length = start.elapsed();
-            info!("workday took {:.2} ms", workday_length.as_secs_f64() * 1000.0);
+            //info!("workday took {:.2} ms", workday_length.as_secs_f64() * 1000.0);
 
-            //let iteration_length = workday_length/state.worker_iteration_budget as f64;
+        } else {
+            actor.wait(Duration::from_millis(40)).await;
 
-            //state.worker_iteration_budget = (0.05 / iteration_length) as u32;
+            actor.try_send(&mut values_out, ZoomerScreenValues{
+                values: vec!()
+                , screen_size: (0, 0)
+                , originating_relative_transforms: state.work_context.originating_relative_transforms.clone()
+                , complete: true
+                , dummy: true
+            });
         }
     }
     // Final shutdown log, reporting all statistics.
@@ -228,7 +213,6 @@ fn get_points_f32(res: (u32, u32), loc:(f64, f64), zoom: i64) -> Vec<PointF32> {
                 )
             }
         }
-
     out
 }
 
@@ -254,77 +238,60 @@ fn calculate_tokens(state: &mut WorkerState) {
 
 }
 
-fn handle_sampling_context(state: &mut WorkerState, sampling_context: SamplingContext) {
-
-    if sampling_context.screens[0].state_revision == state.state_revision_counter {
-
-        if sampling_context.relative_pos != (0, 0) || sampling_context.relative_zoom_pot != 0 {
-
-            info!("relative pos: {}, {}", sampling_context.relative_pos.0, sampling_context.relative_pos.1);
-
-            let objective_zoom_pot = state.current_zoom + sampling_context.relative_zoom_pot as i64;
-
-            let zoom = relative_zoom_from_pot(state.current_zoom as i8);
-
-            let objective_zoom = relative_zoom_from_pot(objective_zoom_pot as i8);
-
-            let relative_zoom = relative_zoom_from_pot(sampling_context.relative_zoom_pot);
-
-            let objective_translation = (
-                -(sampling_context.relative_pos.0 as f64 / PIXELS_PER_UNIT as f64 / objective_zoom)
-                , sampling_context.relative_pos.1 as f64 / PIXELS_PER_UNIT as f64 / objective_zoom
-            );
-
-            let zoomed = sampling_context.relative_zoom_pot != 0;
-
-            let new_loc = if !zoomed {(
-                state.current_loc.0 + objective_translation.0
-                , state.current_loc.1 + objective_translation.1
-            )} else if sampling_context.relative_zoom_pot > 0 {(
-                state.current_loc.0 + objective_translation.0 - (2.0/(objective_zoom/WORKER_INIT_ZOOM))
-                , state.current_loc.1 + objective_translation.1 + (2.0/(objective_zoom/WORKER_INIT_ZOOM))
-            )} else {(
-                state.current_loc.0 + objective_translation.0 + (1.0/(objective_zoom/WORKER_INIT_ZOOM))
-                , state.current_loc.1 + objective_translation.1 - (1.0/(objective_zoom/WORKER_INIT_ZOOM))
-            )};
-
-            state.last_relative_loc = (
-                sampling_context.relative_pos.0
-                , sampling_context.relative_pos.1
-            );
-
-            state.last_relative_zoom_pot = sampling_context.relative_zoom_pot;
+fn handle_transforms(state: &mut WorkerState, transforms: SamplingRelativeTransforms) {
 
 
+    if (transforms.pos != (0, 0)) || (transforms.zoom_pot != 0) {
+        //info!("handling transforms {}, {}", transforms.pos.0, transforms.pos.1);
+
+        let objective_zoom_pot = state.zoom + transforms.zoom_pot;
+
+        let zoom = zoom_from_pot(state.zoom);
+
+        let objective_zoom = zoom_from_pot(objective_zoom_pot);
+
+        let relative_zoom = zoom_from_pot(transforms.zoom_pot);
+
+        let objective_translation = (
+            -(transforms.pos.0 as f64 / PIXELS_PER_UNIT as f64 / objective_zoom)
+            , transforms.pos.1 as f64 / PIXELS_PER_UNIT as f64 / objective_zoom
+        );
+
+        let zoomed = transforms.zoom_pot != 0;
+
+        let new_loc = if !zoomed {(
+            state.loc.0 + objective_translation.0
+            , state.loc.1 + objective_translation.1
+        )} else if transforms.zoom_pot > 0 {(
+            state.loc.0 + objective_translation.0 - (2.0/(objective_zoom/WORKER_INIT_ZOOM))
+            , state.loc.1 + objective_translation.1 + (2.0/(objective_zoom/WORKER_INIT_ZOOM))
+        )} else {(
+            state.loc.0 + objective_translation.0 + (1.0/(objective_zoom/WORKER_INIT_ZOOM))
+            , state.loc.1 + objective_translation.1 - (1.0/(objective_zoom/WORKER_INIT_ZOOM))
+        )};
 
 
-            state.current_work_context = WorkContextF32 {
-                points: get_points_f32((WORKER_INIT_RES.0, WORKER_INIT_RES.1), new_loc, objective_zoom_pot)
-                , completed_points: vec!(CompletedPoint::Dummy{};(WORKER_INIT_RES.0 * WORKER_INIT_RES.1) as usize)
-                , index: 0
-                , random_index: 0
-                , time_created: Instant::now()
-                , time_workday_started: Instant::now()
-                , percent_completed: 0.0
-                , random_map: None
-                , workdays: 0
-                , total_iterations: 0
-                , spent_tokens_today: 0
-                , total_iterations_today: 0
-                , total_points_today: 0
-                , total_bouts_today: 0
-            };
-
-
-            state.current_loc = new_loc;
-            state.current_zoom = objective_zoom_pot;
-            state.state_revision_counter = state.state_revision_counter + 1;
-
-        } else {
-            state.last_relative_loc = (0, 0);
-            state.last_relative_zoom_pot = 0;
-            state.state_revision_counter = state.state_revision_counter + 1;
-        }
+        state.work_context = WorkContextF32 {
+            points: get_points_f32((WORKER_INIT_RES.0, WORKER_INIT_RES.1), new_loc, objective_zoom_pot)
+            , completed_points: vec!(CompletedPoint::Dummy{};(WORKER_INIT_RES.0 * WORKER_INIT_RES.1) as usize)
+            , index: 0
+            , random_index: 0
+            , time_created: Instant::now()
+            , time_workday_started: Instant::now()
+            , percent_completed: 0.0
+            , random_map: None
+            , workdays: 0
+            , total_iterations: 0
+            , spent_tokens_today: 0
+            , total_iterations_today: 0
+            , total_points_today: 0
+            , total_bouts_today: 0
+            , originating_relative_transforms: transforms
+        };
+    state.loc = new_loc;
+    state.zoom = objective_zoom_pot;
+    } else {
+        state.work_context.originating_relative_transforms = transforms;
     }
 }
 

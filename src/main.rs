@@ -81,7 +81,7 @@ fn build_graph(graph: &mut Graph) {
     let (
         colorer_tx_to_window
         , window_rx_from_colorer
-    ) = channel_builder.build();
+    ) = channel_builder.with_capacity(1).build();
 
     let (
         updater_tx_to_colorer
@@ -100,7 +100,7 @@ fn build_graph(graph: &mut Graph) {
     let (
         window_tx_to_worker
         , worker_rx_from_window
-    ) = channel_builder.with_capacity(100).build();
+    ) = channel_builder.with_capacity(1).build();
 
 
 

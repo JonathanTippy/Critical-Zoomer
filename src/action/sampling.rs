@@ -13,12 +13,14 @@ use crate::action::utils::*;
 pub(crate) struct SamplingContext {
     pub(crate) screens: Vec<ZoomerScreen>
     , pub(crate) sampling_size: (u32, u32)
-    , pub(crate) relative_pos: (i32, i32) // these are updated in response to commands. pos is in terms of pixels on the screen.
-    , pub(crate) relative_zoom_pot: i8
-    , pub(crate) objective_zoom_pot: i64
-    , pub(crate) mouse_drag_start: Option<((i32 ,i32), (i32, i32))>
-    //pub(crate) world: ZoomerWorldColors
-    //, pub(crate) zoom_power_base: u8
+    , pub(crate) relative_transforms: SamplingRelativeTransforms
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct SamplingRelativeTransforms {
+    pub(crate) pos: (i32, i32) // this is in pixels. (pixels is pixels is pixels. (sometimes))
+    , pub(crate) zoom_pot: i64 // this is evaluated after the relative position during sampling
+    , pub(crate) counter: u64
 }
 
 pub(crate) fn sample(
@@ -48,31 +50,31 @@ pub(crate) fn sample(
                     factor =  1.0 / (1<<-*pot) as f32;
                 }
 
-                context.relative_zoom_pot =
-                    context.relative_zoom_pot + *pot;
+                context.relative_transforms.zoom_pot =
+                    context.relative_transforms.zoom_pot + *pot;
 
 
 
 
                 if factor > 1.0 {
-                    context.relative_pos = (
-                        (((context.relative_pos.0 as f64) * factor as f64) - (center_relative_relative_pos.0) as f64) as i32 // + ((center_relative_relative_pos.0 - (1<<15)) as f64 / *factor as f64) as i32)
-                        , (((context.relative_pos.1 as f64) * factor as f64 ) - (center_relative_relative_pos.1) as f64) as i32 //  + ((center_relative_relative_pos.1 - (1<<15)) as f64 / *factor as f64) as i32)
+                    context.relative_transforms.pos = (
+                        (((context.relative_transforms.pos.0 as f64) * factor as f64) - (center_relative_relative_pos.0) as f64) as i32 // + ((center_relative_relative_pos.0 - (1<<15)) as f64 / *factor as f64) as i32)
+                        , (((context.relative_transforms.pos.1 as f64) * factor as f64 ) - (center_relative_relative_pos.1) as f64) as i32 //  + ((center_relative_relative_pos.1 - (1<<15)) as f64 / *factor as f64) as i32)
                     );
                 } else {
 
 
                     // adjust position based on zooming (ridiculously hard to think about)
-                    context.relative_pos = (
-                        (((context.relative_pos.0 as f64) * factor as f64) + (center_relative_relative_pos.0 as f64 * (factor as f64))) as i32 // + ((center_relative_relative_pos.0 - (1<<15)) as f64 / *factor as f64) as i32)
-                        , (((context.relative_pos.1 as f64) * factor as f64 ) + (center_relative_relative_pos.1 as f64 * (factor as f64))) as i32 //  + ((center_relative_relative_pos.1 - (1<<15)) as f64 / *factor as f64) as i32)
+                    context.relative_transforms.pos = (
+                        (((context.relative_transforms.pos.0 as f64) * factor as f64) + (center_relative_relative_pos.0 as f64 * (factor as f64))) as i32 // + ((center_relative_relative_pos.0 - (1<<15)) as f64 / *factor as f64) as i32)
+                        , (((context.relative_transforms.pos.1 as f64) * factor as f64 ) + (center_relative_relative_pos.1 as f64 * (factor as f64))) as i32 //  + ((center_relative_relative_pos.1 - (1<<15)) as f64 / *factor as f64) as i32)
                     );
 
                     // if we are zooming out, we need to make sure we gently guide pixels to be in the proper position when they need to reach full resolution.
 
-                    context.relative_pos = (
-                        context.relative_pos.0 - context.relative_pos.0 % 2
-                        , context.relative_pos.1 - context.relative_pos.1 % 2
+                    context.relative_transforms.pos = (
+                        context.relative_transforms.pos.0 - context.relative_transforms.pos.0 % 2
+                        , context.relative_transforms.pos.1 - context.relative_transforms.pos.1 % 2
                     );
                 }
 
@@ -80,10 +82,10 @@ pub(crate) fn sample(
             ZoomerCommand::SetZoom{factor} => {
             }
             ZoomerCommand::Move{pixels_x, pixels_y} => {
-                context.relative_pos = (context.relative_pos.0 + *pixels_x, context.relative_pos.1 + *pixels_y)
+                context.relative_transforms.pos = (context.relative_transforms.pos.0 + *pixels_x, context.relative_transforms.pos.1 + *pixels_y)
             }
             ZoomerCommand::MoveTo{x, y} => {
-                context.relative_pos =
+                context.relative_transforms.pos =
                     (*x, *y);
             }
 
@@ -108,15 +110,15 @@ pub(crate) fn sample(
 
     let data = &context.screens[0].pixels;
 
-    let relative_pos = context.relative_pos;
+    let relative_pos = context.relative_transforms.pos;
 
 
     let mut factor:f64;
 
-    if context.relative_zoom_pot > 0 {
-        factor = (1<<context.relative_zoom_pot) as f64;
+    if context.relative_transforms.zoom_pot > 0 {
+        factor = (1<<context.relative_transforms.zoom_pot) as f64;
     } else {
-        factor =  1.0 / (1<<-context.relative_zoom_pot) as f64;
+        factor =  1.0 / (1<<-context.relative_transforms.zoom_pot) as f64;
     }
 
     let relative_zoom_recip = ((1.0 / factor) * ((1<<16) as f64)) as u32;
@@ -142,7 +144,7 @@ pub(crate) fn sample(
                     //, res_recip
                     , min_side_recip
                     , relative_pos
-                    , relative_zoom_recip
+                    , context.relative_transforms.zoom_pot
                 )
             );
             //i+=1;
@@ -166,7 +168,7 @@ fn sample_color(
     //, res_recip: (u32, u32)
     , min_side_recip: i64
     , relative_pos: (i32, i32)
-    , relative_zoom_recip: u32
+    , relative_zoom_pot: i64
 ) -> Color32 {
     let color =
         pixels[
@@ -174,7 +176,7 @@ fn sample_color(
                     transform_relative_location_i32(
                         relative_location_i32_row_and_seat(seat, row)
                         , (relative_pos.0, relative_pos.1)
-                        , relative_zoom_recip
+                        , relative_zoom_pot
                     )
                     , data_res
                     , data_len
@@ -201,81 +203,84 @@ fn relative_location_i32_row_and_seat(seat: usize, row: usize) -> (i32, i32) {
 fn index_from_relative_location(l: (i32, i32), data_res: (u32, u32), data_length: usize) -> usize {
 
     let i =
-        ((l.1 * data_res.0 as i32)
-            + l.0) as usize
-        ;
+        (
+            (min(l.1 as u32, data_res.1-1) * data_res.0)
+            + min(l.0 as u32, data_res.0-1)
+        ) as usize;
 
-    if i < (data_length) {i} else {
-        (i % (data_length))
-    }
+    min(i, data_length-1)
+    // ^ technically this min can be removed but somehow it makes it feel smoother
 }
 
 #[inline]
-fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom_recip: u32) -> (i32, i32) {
+fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom: i64) -> (i32, i32) {
     // move + zoom
 
     (
-        (((l.0 - m.0) as i64 * zoom_recip as i64) >> 16)  as i32
-        , (((l.1 - m.1) as i64 * zoom_recip as i64) >> 16) as i32
+        signed_shift(l.0 - m.0, -zoom)
+        , signed_shift(l.1 - m.1, -zoom)
     )
 }
 
+pub(crate) fn update_sampling_context(state: &mut WindowState, screen: ZoomerScreen) {
 
-pub(crate) fn update_sampling_context(context: &mut SamplingContext, screen: ZoomerScreen) {
+    if !screen.dummy {
 
-    let mut rotten:bool = false;
+        if state.sampling_context.relative_transforms.counter == screen.originating_relative_transforms.counter {
 
-    if context.relative_pos != (0, 0) || context.relative_zoom_pot != 0 {
-        // only readjust stuff if unsettled, otherwise assume the update is a quality improvement
-        // for some reason the worker is retarded and sends wrong data when its just improving quality
+            let screen_originating_relative_zoom = zoom_from_pot(screen.originating_relative_transforms.zoom_pot);
 
-        context.relative_zoom_pot = context.relative_zoom_pot - screen.relative_zoom_of_predecessor as i8;
+            state.sampling_context.relative_transforms.zoom_pot = state.sampling_context.relative_transforms.zoom_pot - screen.originating_relative_transforms.zoom_pot;
 
-        let relative_zoom = relative_zoom_from_pot(context.relative_zoom_pot);
+            let zoom = zoom_from_pot(state.sampling_context.relative_transforms.zoom_pot);
 
-        let new_relative_pos = (
-            // take the pre-existing offset, and move it to where the old data is now.
-            (context.relative_pos.0 - ((screen.relative_location_of_predecessor.0 as f64 / relative_zoom) as i32)) * 99 / 100
-            , (context.relative_pos.1 - ((screen.relative_location_of_predecessor.1 as f64 / relative_zoom) as i32)) * 99 / 100
-        );
+            info!("updating relative pos to {}, {} based on counter number {}"
+            , state.sampling_context.relative_transforms.pos.0 - screen.originating_relative_transforms.pos.0
+            , state.sampling_context.relative_transforms.pos.1 - screen.originating_relative_transforms.pos.1
+            , screen.originating_relative_transforms.counter
+            );
 
-        if new_relative_pos.0.abs() <= context.relative_pos.0.abs() && new_relative_pos.1.abs() <= context.relative_pos.1.abs() {
-            context.relative_pos = new_relative_pos
-        } else {
-            info!("worker gave corrupted relative location, trusting");
-            info!("new relative pos is {}, {}", new_relative_pos.0, new_relative_pos.1);
-            //rotten = true;
-            context.relative_pos = new_relative_pos
-        }
+            state.sampling_context.relative_transforms.pos = (
+                // take the pre-existing offset, and move it to where the old data is now.
+                state.sampling_context.relative_transforms.pos.0 - screen.originating_relative_transforms.pos.0// as f64 / zoom) as i32
+                , state.sampling_context.relative_transforms.pos.1 - screen.originating_relative_transforms.pos.1// as f64 / zoom) as i32
+            );
 
 
-        match context.mouse_drag_start {
-            Some(d) => {
-                // take the pre-existing drag start point, and move it to where the old data is now.
 
-                context.mouse_drag_start = Some(
-                    (
-                        (
-                            d.0.0
-                            , d.0.1
-                        ),
-                        (
-                            d.1.0 - screen.relative_location_of_predecessor.0
-                            , d.1.1 - screen.relative_location_of_predecessor.1
-                        )
-                    )
-                );
+            match &state.mouse_drag_start {
+                Some(d) => {
+                    // take the pre-existing drag start point, and move it to where the old data is now.
+
+                    state.mouse_drag_start = Some( MouseDragStart{
+                        screenspace_drag_start: d.screenspace_drag_start
+                        , relative_transforms: SamplingRelativeTransforms{
+                            pos: (
+                                d.relative_transforms.pos.0 - screen.originating_relative_transforms.pos.0
+                                ,   d.relative_transforms.pos.1 - screen.originating_relative_transforms.pos.1
+                            )
+                            , zoom_pot: d.relative_transforms.zoom_pot
+                            , counter: state.sampling_context.relative_transforms.counter
+                        }
+                    });
+                }
+                None => {}
             }
-            None => {}
-        }
-    }
 
-    if !rotten {
-        if context.screens.len() != 0 {
-            drop(context.screens.pop().unwrap());
-            context.screens.push(screen);
+            if state.sampling_context.screens.len() != 0 {
+                drop(state.sampling_context.screens.pop().unwrap());
+                state.sampling_context.screens.push(screen);
+            } else {
+                state.sampling_context.screens.push(screen);
+            }
+
+            info!("updating transform revision counter to {}", state.sampling_context.relative_transforms.counter + 1);
+            state.sampling_context.relative_transforms.counter = state.sampling_context.relative_transforms.counter + 1;
+
         } else {
-            context.screens.push(screen);
+            info!("counter mismatch; waiting for worker to catch up.")
         }
+    } else {
+        state.sampling_context.relative_transforms.counter = state.sampling_context.relative_transforms.counter + 1;
     }
 }
