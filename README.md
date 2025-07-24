@@ -12,10 +12,10 @@ a mandelbrot set zoomer written in rust
 - window and worker communicate | ✔️
   
 ### Fix the jank (0.0.2)
-- window / worker linkakge is stable during quick inputs | in progress...
-- fix drag after zoom | in progress...
-- fix drag too far | in progress...
-- window / worker handle resolution changes
+- window / worker linkakge is stable during quick inputs | ✔️
+- fix drag after zoom | ✔️
+- fix drag too far | ✔️
+- window / worker handle resolution changes | in progress...
 - fix zoom while drag
 
 ### Rember (0.0.3)
