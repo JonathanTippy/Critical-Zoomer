@@ -21,7 +21,7 @@ pub(crate) struct ZoomerScreenValues {
 pub(crate) struct WorkerState {
     work_context: WorkContextF32
     , loc: (f64, f64)
-    , zoom: i64
+    , zoom_pot: i64
     , workday_token_budget: u32
     , iteration_token_cost: u32
     , point_token_cost: u32
@@ -64,7 +64,7 @@ async fn internal_behavior<A: SteadyActor>(
 
     let mut state = state.lock(|| WorkerState {
         loc: WORKER_INIT_LOC
-        , zoom: WORKER_INIT_ZOOM_POT
+        , zoom_pot: WORKER_INIT_ZOOM_POT
         , work_context: WorkContextF32 {
             points: get_points_f32((WORKER_INIT_RES.0, WORKER_INIT_RES.1), WORKER_INIT_LOC, WORKER_INIT_ZOOM_POT)
             , completed_points: vec!(CompletedPoint::Dummy{};(WORKER_INIT_RES.0 * WORKER_INIT_RES.1) as usize)
@@ -97,15 +97,6 @@ async fn internal_behavior<A: SteadyActor>(
         || i!(values_out.mark_closed())
     ) {
 
-        let working = state.work_context.percent_completed < 99.9999999;
-        // this actor always pins its core if its doing work.
-        if working {} else {
-            /*await_for_any!(
-                actor.wait_periodic(max_sleep),
-                //actor.wait_avail(&mut transforms_in, 1),
-            );*/
-            //std::thread::sleep(Duration::from_millis(40));
-        }
 
         if actor.avail_units(&mut transforms_in) > 0 {
             while actor.avail_units(&mut transforms_in) > 1 {
@@ -121,6 +112,20 @@ async fn internal_behavior<A: SteadyActor>(
             }
 
         }
+
+
+        let working = state.work_context.percent_completed < 99.9999999;
+
+        // this actor always pins its core if its doing work.
+        if working {} else {
+            /*await_for_any!(
+                actor.wait_periodic(max_sleep),
+                //actor.wait_avail(&mut transforms_in, 1),
+            );*/
+            //std::thread::sleep(Duration::from_millis(40));
+        }
+
+
 
         if working {
 
@@ -242,15 +247,10 @@ fn handle_transforms(state: &mut WorkerState, transforms: SamplingRelativeTransf
 
 
     if (transforms.pos != (0, 0)) || (transforms.zoom_pot != 0) {
-        //info!("handling transforms {}, {}", transforms.pos.0, transforms.pos.1);
 
-        let objective_zoom_pot = state.zoom + transforms.zoom_pot;
+        info!("changing zoom from {} to {} based on counter number {}", state.zoom_pot, state.zoom_pot + transforms.zoom_pot, transforms.counter);
 
-        let zoom = zoom_from_pot(state.zoom);
-
-        let objective_zoom = zoom_from_pot(objective_zoom_pot);
-
-        let relative_zoom = zoom_from_pot(transforms.zoom_pot);
+        let objective_zoom = zoom_from_pot(state.zoom_pot + transforms.zoom_pot);
 
         let objective_translation = (
             -(transforms.pos.0 as f64 / PIXELS_PER_UNIT as f64 / objective_zoom)
@@ -259,20 +259,35 @@ fn handle_transforms(state: &mut WorkerState, transforms: SamplingRelativeTransf
 
         let zoomed = transforms.zoom_pot != 0;
 
-        let new_loc = if !zoomed {(
+        let zoom = zoom_from_pot(transforms.zoom_pot);
+
+        state.loc = (
             state.loc.0 + objective_translation.0
             , state.loc.1 + objective_translation.1
-        )} else if transforms.zoom_pot > 0 {(
-            state.loc.0 + objective_translation.0 - (2.0/(objective_zoom/WORKER_INIT_ZOOM))
-            , state.loc.1 + objective_translation.1 + (2.0/(objective_zoom/WORKER_INIT_ZOOM))
-        )} else {(
-            state.loc.0 + objective_translation.0 + (1.0/(objective_zoom/WORKER_INIT_ZOOM))
-            , state.loc.1 + objective_translation.1 - (1.0/(objective_zoom/WORKER_INIT_ZOOM))
-        )};
+        );
+
+        if transforms.zoom_pot > 0 {
+            for z in 0..transforms.zoom_pot {
+                state.loc = (
+                    state.loc.0 - (2.0/(zoom_from_pot(state.zoom_pot + z+1)/WORKER_INIT_ZOOM))
+                    , state.loc.1 + (2.0/(zoom_from_pot(state.zoom_pot + z+1)/WORKER_INIT_ZOOM))
+                )
+            }
+
+        } else if transforms.zoom_pot < 0 {
+            for z in 0..-transforms.zoom_pot {
+                state.loc = (
+                    state.loc.0 + (1.0/(zoom_from_pot(state.zoom_pot - (z+1))/WORKER_INIT_ZOOM))
+                    , state.loc.1 - (1.0/(zoom_from_pot(state.zoom_pot - (z+1))/WORKER_INIT_ZOOM))
+                )
+            }
+        }
+
+        state.zoom_pot = state.zoom_pot + transforms.zoom_pot;
 
 
         state.work_context = WorkContextF32 {
-            points: get_points_f32((WORKER_INIT_RES.0, WORKER_INIT_RES.1), new_loc, objective_zoom_pot)
+            points: get_points_f32((WORKER_INIT_RES.0, WORKER_INIT_RES.1), state.loc, state.zoom_pot)
             , completed_points: vec!(CompletedPoint::Dummy{};(WORKER_INIT_RES.0 * WORKER_INIT_RES.1) as usize)
             , index: 0
             , random_index: 0
@@ -288,8 +303,6 @@ fn handle_transforms(state: &mut WorkerState, transforms: SamplingRelativeTransf
             , total_bouts_today: 0
             , originating_relative_transforms: transforms
         };
-    state.loc = new_loc;
-    state.zoom = objective_zoom_pot;
     } else {
         state.work_context.originating_relative_transforms = transforms;
     }

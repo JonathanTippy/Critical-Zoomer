@@ -8,6 +8,7 @@ use std::cmp::min;
 use crate::actor::window::*;
 use crate::actor::colorer::*;
 use crate::action::utils::*;
+use crate::actor::worker::*;
 
 #[derive(Clone, Debug)]
 pub(crate) struct SamplingContext {
@@ -224,26 +225,30 @@ fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom: i64) -> (
 
 pub(crate) fn update_sampling_context(state: &mut WindowState, screen: ZoomerScreen) {
 
-    if !screen.dummy {
+    if state.sampling_context.relative_transforms.counter == screen.originating_relative_transforms.counter {
 
-        if state.sampling_context.relative_transforms.counter == screen.originating_relative_transforms.counter {
+        if !screen.dummy {
 
-            let screen_originating_relative_zoom = zoom_from_pot(screen.originating_relative_transforms.zoom_pot);
+            state.sampling_context.relative_transforms.zoom_pot =
+                state.sampling_context.relative_transforms.zoom_pot
+                    - screen.originating_relative_transforms.zoom_pot;
+            
+            let offset =
+                (signed_shift(screen.originating_relative_transforms.pos.0, state.sampling_context.relative_transforms.zoom_pot)
+                , signed_shift(screen.originating_relative_transforms.pos.1, state.sampling_context.relative_transforms.zoom_pot));
 
-            state.sampling_context.relative_transforms.zoom_pot = state.sampling_context.relative_transforms.zoom_pot - screen.originating_relative_transforms.zoom_pot;
+            //info!("updating relative pos to {}, {} based on counter number {}"
+            //, state.sampling_context.relative_transforms.pos.0 - offset.0
+            //, state.sampling_context.relative_transforms.pos.1 - offset.1
+            //, screen.originating_relative_transforms.counter
+            //);
 
-            let zoom = zoom_from_pot(state.sampling_context.relative_transforms.zoom_pot);
-
-            info!("updating relative pos to {}, {} based on counter number {}"
-            , state.sampling_context.relative_transforms.pos.0 - screen.originating_relative_transforms.pos.0
-            , state.sampling_context.relative_transforms.pos.1 - screen.originating_relative_transforms.pos.1
-            , screen.originating_relative_transforms.counter
-            );
+            info!("updating relative zoom pot to {} based on counter number {}", state.sampling_context.relative_transforms.zoom_pot, screen.originating_relative_transforms.counter);
 
             state.sampling_context.relative_transforms.pos = (
                 // take the pre-existing offset, and move it to where the old data is now.
-                state.sampling_context.relative_transforms.pos.0 - screen.originating_relative_transforms.pos.0// as f64 / zoom) as i32
-                , state.sampling_context.relative_transforms.pos.1 - screen.originating_relative_transforms.pos.1// as f64 / zoom) as i32
+                state.sampling_context.relative_transforms.pos.0 - offset.0// as f64 / zoom) as i32
+                , state.sampling_context.relative_transforms.pos.1 - offset.1// as f64 / zoom) as i32
             );
 
 
@@ -256,8 +261,8 @@ pub(crate) fn update_sampling_context(state: &mut WindowState, screen: ZoomerScr
                         screenspace_drag_start: d.screenspace_drag_start
                         , relative_transforms: SamplingRelativeTransforms{
                             pos: (
-                                d.relative_transforms.pos.0 - screen.originating_relative_transforms.pos.0
-                                ,   d.relative_transforms.pos.1 - screen.originating_relative_transforms.pos.1
+                                d.relative_transforms.pos.0 - offset.0
+                                ,   d.relative_transforms.pos.1 - offset.1
                             )
                             , zoom_pot: d.relative_transforms.zoom_pot
                             , counter: state.sampling_context.relative_transforms.counter
@@ -267,20 +272,20 @@ pub(crate) fn update_sampling_context(state: &mut WindowState, screen: ZoomerScr
                 None => {}
             }
 
-            if state.sampling_context.screens.len() != 0 {
-                drop(state.sampling_context.screens.pop().unwrap());
-                state.sampling_context.screens.push(screen);
-            } else {
-                state.sampling_context.screens.push(screen);
-            }
+
+                if state.sampling_context.screens.len() != 0 {
+
+                    drop(state.sampling_context.screens.pop().unwrap());
+                    state.sampling_context.screens.push(screen);
+                } else {
+                    state.sampling_context.screens.push(screen);
+                }
 
             info!("updating transform revision counter to {}", state.sampling_context.relative_transforms.counter + 1);
             state.sampling_context.relative_transforms.counter = state.sampling_context.relative_transforms.counter + 1;
 
         } else {
-            info!("counter mismatch; waiting for worker to catch up.")
+            state.sampling_context.relative_transforms.counter = state.sampling_context.relative_transforms.counter + 1;
         }
-    } else {
-        state.sampling_context.relative_transforms.counter = state.sampling_context.relative_transforms.counter + 1;
     }
 }
