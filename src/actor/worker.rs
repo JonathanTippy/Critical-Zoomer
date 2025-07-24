@@ -114,7 +114,7 @@ async fn internal_behavior<A: SteadyActor>(
         }
 
 
-        let working = state.work_context.percent_completed < 99.9999999;
+        let working = state.work_context.percent_completed < 100.0;
 
         // this actor always pins its core if its doing work.
         if working {} else {
@@ -140,9 +140,9 @@ async fn internal_behavior<A: SteadyActor>(
             {
                 Some(c) => {
                     if state.work_context.percent_completed == 100.0 {
-                        //info!("context is done. Total time: {:.2}s\n total iterations: {}", state.work_context.time_created.elapsed().as_secs_f64(), state.work_context.total_iterations);
+                        info!("context is done. Total time: {:.2}s\n total iterations: {}", state.work_context.time_created.elapsed().as_secs_f64(), state.work_context.total_iterations);
                     } else {
-                        //info!("workday completed. context is now {:.2}% done.", state.work_context.percent_completed);
+                        info!("workday completed. context is now {:.2}% done.", state.work_context.percent_completed);
                     }
 
                     actor.try_send(&mut values_out, ZoomerScreenValues{
@@ -154,12 +154,12 @@ async fn internal_behavior<A: SteadyActor>(
                     });
                 }
                 None => {
-                    //info!("workday completed. context is now {:.2}% done.", state.work_context.percent_completed);
+                    info!("workday completed. context is now {:.2}% done.", state.work_context.percent_completed);
                 }
             }
 
             let workday_length = start.elapsed();
-            //info!("workday took {:.2} ms", workday_length.as_secs_f64() * 1000.0);
+            info!("workday took {:.2} ms", workday_length.as_secs_f64() * 1000.0);
 
         } else {
             actor.wait(Duration::from_millis(40)).await;
@@ -168,7 +168,7 @@ async fn internal_behavior<A: SteadyActor>(
                 values: vec!()
                 , screen_size: (0, 0)
                 , originating_relative_transforms: state.work_context.originating_relative_transforms.clone()
-                , complete: true
+                , complete: false
                 , dummy: true
             });
         }
@@ -248,7 +248,7 @@ fn handle_transforms(state: &mut WorkerState, transforms: SamplingRelativeTransf
 
     if (transforms.pos != (0, 0)) || (transforms.zoom_pot != 0) {
 
-        info!("changing zoom from {} to {} based on counter number {}", state.zoom_pot, state.zoom_pot + transforms.zoom_pot, transforms.counter);
+        //info!("changing zoom from {} to {} based on counter number {}", state.zoom_pot, state.zoom_pot + transforms.zoom_pot, transforms.counter);
 
         let objective_zoom = zoom_from_pot(state.zoom_pot + transforms.zoom_pot);
 

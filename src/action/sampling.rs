@@ -232,7 +232,7 @@ pub(crate) fn update_sampling_context(state: &mut WindowState, screen: ZoomerScr
             state.sampling_context.relative_transforms.zoom_pot =
                 state.sampling_context.relative_transforms.zoom_pot
                     - screen.originating_relative_transforms.zoom_pot;
-            
+
             let offset =
                 (signed_shift(screen.originating_relative_transforms.pos.0, state.sampling_context.relative_transforms.zoom_pot)
                 , signed_shift(screen.originating_relative_transforms.pos.1, state.sampling_context.relative_transforms.zoom_pot));
@@ -243,7 +243,7 @@ pub(crate) fn update_sampling_context(state: &mut WindowState, screen: ZoomerScr
             //, screen.originating_relative_transforms.counter
             //);
 
-            info!("updating relative zoom pot to {} based on counter number {}", state.sampling_context.relative_transforms.zoom_pot, screen.originating_relative_transforms.counter);
+            //info!("updating relative zoom pot to {} based on counter number {}", state.sampling_context.relative_transforms.zoom_pot, screen.originating_relative_transforms.counter);
 
             state.sampling_context.relative_transforms.pos = (
                 // take the pre-existing offset, and move it to where the old data is now.
@@ -281,7 +281,7 @@ pub(crate) fn update_sampling_context(state: &mut WindowState, screen: ZoomerScr
                     state.sampling_context.screens.push(screen);
                 }
 
-            info!("updating transform revision counter to {}", state.sampling_context.relative_transforms.counter + 1);
+            //info!("updating transform revision counter to {}", state.sampling_context.relative_transforms.counter + 1);
             state.sampling_context.relative_transforms.counter = state.sampling_context.relative_transforms.counter + 1;
 
         } else {
