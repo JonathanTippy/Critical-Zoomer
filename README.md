@@ -24,26 +24,30 @@ a mandelbrot set zoomer written in rust
 - rework worker resolution and updates; add work collector after worker so worker can send updates every workday
 - sampler remembers several frames to sample from
 - etc
+
+### Gears (0.0.4)
+- results are calculated in two precision levels and if they differ the precision increases
+- i16 - i128, f32, f64, after that use rug or smth, perhaps some custom code for i256 or something may be faster than rug but eventually rug will be fastest
   
-### Settings (0.0.4)
+### Settings (0.0.5)
 - settings for coloring
 - controls settings
 - etc
 
-### Lookahead (0.0.5)
+### Lookahead (0.0.6)
 - lookahead
 
-### Data Combiner (0.0.6)
+### Data Combiner (0.0.7)
 - data combiner actor to make use of high resolutions
 - combiner can also work progressively if there is not room to store all the data
 
-### Data Interpolator (0.0.7)
+### Data Interpolator (0.0.8)
 - data interpolator to make up inbetween data when there are not enough points
 
-### Attention (0.0.8)
+### Attention (0.0.9)
 - Attention
 
-### Perturbation (0.0.9)
+### Perturbation (0.0.10)
 - perturbation
 - perturperturbation if possible
 
