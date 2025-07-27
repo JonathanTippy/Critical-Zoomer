@@ -25,7 +25,6 @@ a mandelbrot set zoomer written in rust
 - worker no longer workday based, but workshift and checks its in channel every shift
 - rework worker resolution and updates; add work collector after worker so worker can send updates every workday
 - colorer now recieves 'area representative results' which can be in, out, or edge. out filaments can be detected by differing periodicity (except cardioid corners); in filaments can be detected by differing escape time derivatives.
-- sampling remembers several iamges to sample from for lookahead and faster home
   
 ### Point tracking + Settings (0.0.4)
 - track one (draggable?) point with lines
