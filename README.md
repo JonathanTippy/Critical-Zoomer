@@ -28,7 +28,7 @@ a mandelbrot set zoomer written in rust
   
 ### Point tracking + Settings (0.0.4)
 - track one (draggable?) point with lines
-- track an area?
+- track an area? (only use case for parelelized point worker)
 - settings for coloring
 - controls settings
 - mixmap settings
@@ -49,6 +49,10 @@ a mandelbrot set zoomer written in rust
 - n point workers based on core count
 - one gpu-accelerated screen worker
 - implement resource usage settings; default to using all resources when focused, and none when unfocused.
+- Finally, in some cases and on certain hardware, there should be only one active point worker which should be the *only pinned actor*. 
+  This is to ensure that it can run at the cpu's maximum frequency. Other work should be performed mostly by the gpu anyway.
+  CPU frequencies should be monitored and cases like this handled.
+  
 
 ### Perturbation (0.0.8)
 - more precise mouse position...?
