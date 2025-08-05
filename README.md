@@ -22,12 +22,23 @@ a mandelbrot set zoomer written in rust
 
 ### Memory + Area pixels (0.0.3) refanagling...
 - worker remembers just-completed work when moving or zooming
-- worker no longer workday based, but workshift and checks its in channel every shift
-- rework worker resolution and updates; add work collector after worker so worker can send updates every workday
-- colorer now recieves 'area representative results' which can be in, out, or edge. out filaments can be detected by differing periodicity (except cardioid corners); in filaments can be detected by differing escape time derivatives.
+- worker no longer workday based, but workshift and checks its in channel every shift 
+- rework worker resolution and updates; add work collector after worker so worker can send updates at a fixed rate 
+  ARVs will at first be generated using just one point each (and in fact fewer than that) (and its neighbors for filament detection), and progressively add more points.
+  
+- colorer now recieves 'area representative results' which can be in (period), out (escape time), or edge ((standard, in filament, or out filament), (period, escape time, ratio)).
+    standard edges are just where the sample points don't all agree on in or out.
+    out filaments can be sometimes detected by differing periodicity (except cardioid corners);
+    in filaments can be sometimes detected by differing escape time derivatives.
+    Because of how unreliable this will be, it should remain an opt-in option to color filaments differently until it becomes reliable.
+    
+- can we have perfect rendering early through filament highlighting? 
+  Perhaps, however providing the option of progressively improving detail through data combination
+  (average or other methods can be used) may result in more pleasing and correct results, so the option should be available.
+  Depending on memory available, this additional work may need to be largely discarded after completion.
   
 ### Point tracking + Settings (0.0.4)
-- track one (draggable?) point with lines
+- track one (draggable?) point with lines (point worker)
 - track an area? (only use case for parelelized point worker)
 - settings for coloring
 - controls settings
@@ -39,6 +50,7 @@ a mandelbrot set zoomer written in rust
 ### Gears + Checked work (0.0.5)
 - results are calculated in two precision levels and if they differ the precision increases
 - i16 - i128, after that use rug or smth big integers. perhaps some custom code for i256 or something may be faster than rug but likely rug is best
+- worker should never get stuck on a difficult point
 
 ### Attention (0.0.6)
 - Attention (workgroup focuses on the area around the cursor)
