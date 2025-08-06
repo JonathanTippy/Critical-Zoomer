@@ -6,7 +6,7 @@ a mandelbrot set zoomer written in rust
 
 ## Da plan (subject to change)
 
-### The MVP (0.0.1)  done!
+### The MVP 0 (0.0.1)  done!
 - blazing fast window exists | ✔️
 - workday-based worker exists | ✔️
 - window and worker communicate | ✔
@@ -75,8 +75,8 @@ a mandelbrot set zoomer written in rust
 - check that relativity is followed (machinery is prepared for n-deep real time)
 - perturperturbation...? (check as deep as possible. If it checks correct, assume it remains correct.)
 
-### Polished (0.1.0)
-- everything should be extremely polished, responsive, and correct
+### The MVP 1 (0.1.0)
+- everything in all existing features should be extremely polished, responsive, and nice to use, or if that isn't possible, deleted.
 
 
 
