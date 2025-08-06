@@ -7,7 +7,8 @@ mod arg;
 // Each actor is in its own submodule for clarity and separation of concerns.
 pub(crate) mod actor {
     pub(crate) mod window;
-    pub(crate) mod worker;
+    pub(crate) mod work_controller;
+    pub(crate) mod screen_worker;
     pub(crate) mod colorer;
     pub(crate) mod updater;
 }
@@ -16,7 +17,7 @@ pub(crate) mod action {
     pub(crate) mod sampling;
     pub(crate) mod settings;
     pub(crate) mod rolling;
-    pub(crate) mod workday;
+    pub(crate) mod workshift;
     pub(crate) mod utils;
 }
 
@@ -48,7 +49,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 const NAME_WINDOW: &str = "window";
 const NAME_SETTINGS_WINDOW: &str = "settings";
 const NAME_COLORER: &str = "colorer";
-const NAME_WORKER: &str = "worker";
+const NAME_WORK_CONTROLLER: &str = "work controller";
+const NAME_SCREEN_WORKER:&str = "screen worker";
 const NAME_UPDATER: &str = "updater";
 
 
@@ -91,15 +93,29 @@ fn build_graph(graph: &mut Graph) {
     //worker channels
 
     let (
-        worker_tx_to_colorer
-        , colorer_rx_from_worker
+        work_controller_tx_to_colorer
+        , colorer_rx_from_work_controller
     ) = channel_builder.build();
 
     //window to worker state update channel
 
     let (
-        window_tx_to_worker
-        , worker_rx_from_window
+        window_tx_to_work_controller
+        , work_controller_rx_from_window
+    ) = channel_builder.with_capacity(2).build();
+
+    //work controller to worker commands channel
+
+    let (
+        work_controller_tx_to_screen_worker
+        , screen_worker_rx_from_work_controller
+    ) = channel_builder.with_capacity(2).build();
+
+    // worker to work controller responses channel
+
+    let (
+        screen_worker_tx_to_work_controller
+        , work_controller_rx_from_screen_worker
     ) = channel_builder.with_capacity(2).build();
 
 
@@ -132,7 +148,7 @@ fn build_graph(graph: &mut Graph) {
     let state = new_state();
     actor_builder.with_name(NAME_WINDOW)
         .build(move |context|
-            actor::window::run(context, window_rx_from_colorer.clone(), window_tx_to_worker.clone(), window_tx_to_updater.clone(), state.clone()) //#!#//
+            actor::window::run(context, window_rx_from_colorer.clone(), window_tx_to_work_controller.clone(), window_tx_to_updater.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
                , SoloAct);
 
@@ -146,14 +162,21 @@ fn build_graph(graph: &mut Graph) {
     let state = new_state();
     actor_builder.with_name(NAME_COLORER)
         .build(move |context|
-                   actor::colorer::run(context, colorer_rx_from_worker.clone(), colorer_rx_from_updater.clone(), colorer_tx_to_window.clone(), state.clone()) //#!#//
+                   actor::colorer::run(context, colorer_rx_from_work_controller.clone(), colorer_rx_from_updater.clone(), colorer_tx_to_window.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
                , SoloAct);
 
     let state = new_state();
-    actor_builder.with_name(NAME_WORKER)
+    actor_builder.with_name(NAME_WORK_CONTROLLER)
         .build(move |context|
-                   actor::worker::run(context, worker_rx_from_window.clone(), worker_tx_to_colorer.clone(), state.clone()) //#!#//
+                   actor::work_controller::run(context, work_controller_rx_from_window.clone(), work_controller_rx_from_screen_worker.clone(), work_controller_tx_to_colorer.clone(), work_controller_tx_to_screen_worker.clone(), state.clone()) //#!#//
+               //, MemberOf(&mut responsive_team));
+               , SoloAct);
+
+    let state = new_state();
+    actor_builder.with_name(NAME_SCREEN_WORKER)
+        .build(move |context|
+                   actor::screen_worker::run(context, screen_worker_rx_from_work_controller.clone(), screen_worker_tx_to_work_controller.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
                , SoloAct);
 }

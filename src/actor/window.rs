@@ -19,7 +19,7 @@ use std::cmp::*;
 
 use crate::actor::colorer::*;
 use crate::actor::updater::*;
-use crate::actor::worker::*;
+use crate::actor::work_controller::*;
 
 use crate::action::sampling::*;
 use crate::action::settings::*;
@@ -34,7 +34,7 @@ const RECOVER_EGUI_CRASHES:bool = false;
 //const MAX_FRAME_TIME:f64 = 1.0 / MIN_FRAME_RATE;
 const VSYNC:bool = false;
 
-pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (512, 512);
+pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (800, 480);
 
  //pub(crate) const MIN_PIXELS:u32 = 40; // min_pixels is prioritized over min_fps and should be greater than ~6
 //pub(crate) const MIN_FPS:f32 = 10.0;
@@ -140,7 +140,7 @@ async fn internal_behavior<A: SteadyActor>(
             , relative_transforms: SamplingRelativeTransforms{
                 pos: (0, 0)
                 , zoom_pot: 0
-                , counter: 0
+                , counter: 1
             }
             , mouse_drag_start: None
         }
@@ -293,13 +293,26 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             let mut sampler_buffer = Vec::with_capacity(pixels);
 
+            if state.sampling_context.screens.len() == 0 {
+                for _ in 0..pixels {sampler_buffer.push(Color32::PURPLE)};
+            }
+
             match actor.try_take(&mut pixels_in) {
                 Some(s) => {
                     //info!("window recieved pixels");
-                    update_sampling_context(&mut state.sampling_context, s);
-                    actor.try_send(&mut sampler_out, (state.sampling_context.relative_transforms.clone(), state.sampling_context.sampling_size));
+                    if s.pixels.len() == pixels {
+                        update_sampling_context(&mut state.sampling_context, s);
+                    }
                 }
                 None => {}
+            }
+
+            if state.sampling_context.relative_transforms.zoom_pot != 0
+                || state.sampling_context.relative_transforms.pos != (0, 0)
+                || state.size.x as u32 != state.sampling_context.sampling_size.0
+                || state.size.y as u32 != state.sampling_context.sampling_size.1
+            {
+                actor.try_send(&mut sampler_out, (state.sampling_context.relative_transforms.clone(), (state.size.x as u32, state.size.y as u32)));
             }
 
             // sample
@@ -308,7 +321,15 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             state.sampling_context.sampling_size = (size.0 as u32, size.1 as u32);
 
-            sample(command_package, &mut sampler_buffer, &mut state.sampling_context);
+            if state.sampling_context.screens.len() > 0 {
+                sample(command_package, &mut sampler_buffer, &mut state.sampling_context);
+            } /*else {
+                for _ in 0..pixels {
+                    sampler_buffer.push(Color32::PURPLE);
+                }
+            }*/
+
+
 
             /*if state.sampling_context.screens[0].complete
                 && (
