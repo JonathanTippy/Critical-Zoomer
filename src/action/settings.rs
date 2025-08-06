@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 
 
 
-use crate::actor::worker::*;
+use crate::actor::work_controller::*;
 use crate::action::sampling::*;
 use crate::actor::updater::*;
 use crate::actor::window::DEFAULT_WINDOW_RES;

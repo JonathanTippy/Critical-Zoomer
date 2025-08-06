@@ -3,7 +3,7 @@ use steady_state::*;
 use crate::action::sampling::SamplingRelativeTransforms;
 use crate::actor::window::*;
 use crate::actor::updater::*;
-use crate::actor::worker::*;
+use crate::actor::work_controller::*;
 
 use crate::action::settings::*;
 
@@ -13,18 +13,18 @@ pub(crate) struct ZoomerScreen {
     pub(crate) pixels: Vec<(u8,u8,u8)>
     , pub(crate) screen_size: (u32, u32)
     , pub(crate) originating_relative_transforms: SamplingRelativeTransforms
-    , pub(crate) complete: bool
     , pub(crate) dummy: bool
+    , pub(crate) complete: bool
 }
 
 
 pub(crate) struct ColorerState {
-    pub(crate) values:Vec<ZoomerScreenValues>,
+    pub(crate) values:Option<ResultsPackage>,
 }
 
 pub async fn run(
     actor: SteadyActorShadow,
-    values_in: SteadyRx<ZoomerScreenValues>,
+    values_in: SteadyRx<ResultsPackage>,
     updates_in: SteadyRx<ZoomerSettingsUpdate>,
     screens_out: SteadyTx<(ZoomerScreen)>,
     state: SteadyState<ColorerState>,
@@ -42,7 +42,7 @@ pub async fn run(
 
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
-    values_in: SteadyRx<ZoomerScreenValues>,
+    values_in: SteadyRx<ResultsPackage>,
     updates_in: SteadyRx<ZoomerSettingsUpdate>,
     screens_out: SteadyTx<ZoomerScreen>,
     state: SteadyState<ColorerState>,
@@ -52,7 +52,7 @@ async fn internal_behavior<A: SteadyActor>(
     let mut screens_out = screens_out.lock().await;
 
     let mut state = state.lock(|| ColorerState {
-        values: vec!()
+        values: None
     }).await;
 
     // Lock all channels for exclusive access within this actor.
@@ -66,7 +66,7 @@ async fn internal_behavior<A: SteadyActor>(
     ) {
         // Wait for all required conditions:
         // - A periodic timer
-        await_for_any!(  //#!#//
+        await_for_any!(//#!#//
             actor.wait_periodic(max_sleep),
             actor.wait_avail(&mut values_in, 1),
             actor.wait_avail(&mut updates_in, 1),
@@ -77,21 +77,23 @@ async fn internal_behavior<A: SteadyActor>(
 
         match actor.try_take(&mut values_in) {
             Some(v) => {
+                let mut rng = rand::thread_rng();
                 //info!("recieved values");
-                if state.values.len() != 0 {
-                    drop(state.values.pop().unwrap())
-                }
-
-                state.values.push(v);
-                let len = state.values[0].values.len();
+                state.values = Some(v);
+                let rp = state.values.as_ref().unwrap();
+                let r = &rp.results;
+                let len = r.len();
                 let mut output = vec!();
 
-                for i in 0..state.values[0].values.len() {
-                    let value = state.values[0].values[i%len];
-                    let color:(u8,u8,u8) = if value == u32::MAX {
-                        (0, 0, 0)
-                    } else {
-                        ((value * 10 % 192) as u8 + 64, (value * 10 % 192) as u8 + 64, (value * 10 % 192) as u8 + 64)
+                for i in 0..r.len() {
+                    let value = &r[i%len];
+                    let color:(u8,u8,u8) = match value {
+                        AreaRepresentativeValue::Inside{loop_period: _} => {(0, 0, 0)}
+                        AreaRepresentativeValue::Outside { escape_time: e } => {((e * 10 % 192) as u8 + 64, (e * 10 % 192) as u8 + 64, (e * 10 % 192) as u8 + 64)}
+                        AreaRepresentativeValue::Edge{} => {
+                            let r = rng.gen::<u8>();
+                            (128+(r/8), 128+(r/8), 128+(r/8))
+                        } // grey noise
                     };
                     //let color = (255, 255, 255);
                     output.push(color);
@@ -99,12 +101,13 @@ async fn internal_behavior<A: SteadyActor>(
 
                 //info!("done coloring");
 
+
                 actor.try_send(&mut screens_out, ZoomerScreen{
                     pixels: output
-                    , screen_size: state.values[0].screen_size
-                    , originating_relative_transforms: state.values[0].originating_relative_transforms.clone()
-                    , complete: state.values[0].complete
-                    , dummy: state.values[0].dummy
+                    , screen_size: state.values.as_ref().unwrap().screen_res.clone()
+                    , originating_relative_transforms:  state.values.as_ref().unwrap().originating_relative_transforms.clone()
+                    , dummy: state.values.as_ref().unwrap().dummy.clone()
+                    , complete: state.values.as_ref().unwrap().complete.clone()
                 });
                 //info!("sent colors to window");
 

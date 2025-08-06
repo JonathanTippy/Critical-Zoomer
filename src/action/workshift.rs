@@ -12,40 +12,47 @@ use crate::action::sampling::SamplingRelativeTransforms;
 
 pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
 
+#[derive(Clone)]
 
+pub(crate) enum Points {
+    F32{p:Vec<PointF32>}
+}
+#[derive(Clone)]
 
-
-pub(crate) struct WorkContextF32 {
-    pub(crate) points: Vec<PointF32>
+pub(crate) struct WorkContext {
+    pub(crate) points: Points
     , pub(crate) completed_points: Vec<CompletedPoint>
+    , pub(crate) last_update: usize
     , pub(crate) index: usize
     , pub(crate) random_index: usize
     , pub(crate) time_created: Instant
-    , pub(crate) time_workday_started: Instant
+    , pub(crate) time_workshift_started: Instant
     , pub(crate) percent_completed:f64
-    , pub(crate) random_map: Option<Vec<usize>>
-    , pub(crate) workdays: u32
+    , pub(crate) random_map: Vec<usize>
+    , pub(crate) workshifts: u32
     , pub(crate) total_iterations: u32
     , pub(crate) total_iterations_today: u32
     , pub(crate) total_bouts_today: u32
     , pub(crate) total_points_today: u32
     , pub(crate) spent_tokens_today: u32
-    , pub(crate) originating_relative_transforms: SamplingRelativeTransforms
 }
 
 
 #[derive(Clone)]
 pub(crate) enum CompletedPoint {
-    Repeats{}
+    Repeats{
+        period: u32
+    }
     , Escapes{
         escape_time: u32,
         escape_location: (f32, f32)
-    },
-    Dummy
+    }
+    , Dummy{}
 }
 
 
 //pub(crate) const SpeedTestPoint
+#[derive(Clone, Debug)]
 
 pub(crate) struct PointF32 {
     pub(crate) c: (f32, f32)
@@ -62,42 +69,52 @@ pub(crate) struct PointF32 {
 }
 
 
-pub(crate) fn workday(
+pub(crate) fn workshift(
     day_token_allowance: u32
     , iteration_token_cost: u32
     , point_token_cost: u32
     , bout_token_cost: u32
-    , context: &mut WorkContextF32
-) -> Option<Vec<CompletedPoint>> {
+    , context: &mut WorkContext
+) {
+    match context.points {
+        Points::F32{p: _} => {
+            workshift_f32(
+                day_token_allowance
+                , iteration_token_cost
+                , point_token_cost
+                , bout_token_cost
+                , context
+            )
+        }
+    }
+}
 
-    context.time_workday_started = Instant::now();
+
+pub(crate) fn workshift_f32(
+    day_token_allowance: u32
+    , iteration_token_cost: u32
+    , point_token_cost: u32
+    , bout_token_cost: u32
+    , context: &mut WorkContext
+) {
+
+    context.time_workshift_started = Instant::now();
 
     context.total_bouts_today = 0;
     context.total_iterations_today = 0;
     context.total_points_today = 0;
     context.spent_tokens_today = 0;
+    context.random_index = context.random_map[context.index];
 
-    //info!("workday start");
+    let points = match &mut context.points {
+        Points::F32 { p: p} => {p}
+    };
 
-    match &context.random_map {
-        Some(r) => {}
-        None => {
-            let mut rng = rand::rng();
-
-            let mut indices: Vec<usize> = (0..context.points.len()).collect();
-
-            // Shuffle indices randomly
-            indices.shuffle(&mut rng);
-            context.random_map = Some(indices);
-            context.random_index = context.random_map.as_ref().unwrap()[context.index];
-        }
-    }
-
-    let total_points = context.points.len();
+    let total_points = points.len();
 
     while context.index < total_points-1 && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
 
-        let point = &mut context.points[context.random_index];
+        let point = &mut points[context.random_index];
 
         let old_iterations = point.iterations;
 
@@ -108,7 +125,7 @@ pub(crate) fn workday(
         if point.done.0 || point.done.1 {
 
             let completed_point = if point.done.1 {
-                CompletedPoint::Repeats{}
+                CompletedPoint::Repeats{period: 0}
             } else {
                 CompletedPoint::Escapes {
                     escape_time: point.iterations
@@ -121,7 +138,7 @@ pub(crate) fn workday(
             context.total_iterations += point.iterations;
 
             context.index += 1;
-            context.random_index = context.random_map.as_ref().unwrap()[context.index];
+            context.random_index = context.random_map[context.random_index];
             context.total_points_today += 1
         }
 
@@ -129,81 +146,10 @@ pub(crate) fn workday(
         context.spent_tokens_today = context.total_bouts_today * bout_token_cost + context.total_points_today * point_token_cost + context.total_iterations_today * point_token_cost;
     }
 
-    if context.index == total_points-1 {
-
-        let mut returned = vec!();
-        for i in 0..total_points {
-            returned.push(
-                match context.points[i].done {
-                    (true, false) => {
-                        CompletedPoint::Escapes{
-                            escape_time: context.points[i].iterations
-                            , escape_location: context.points[i].z
-                        }
-                    }
-                    , (false, true) => {
-                        CompletedPoint::Repeats{}
-                    }
-                    , _ => {CompletedPoint::Repeats{}}//CompletedPoint::Dummy}
-                }
-            );
-        }
-        context.workdays += 1;
-        context.percent_completed = context.index as f64 / (total_points-1) as f64 * 100.0;
-        Some(returned)
-    } else {
-
-
-        /*let mut returned = vec!();
-        for i in 0..total_points {
-            returned.push(
-                match context.points[i].done {
-                    (true, false) => {
-                        CompletedPoint::Escapes{
-                            escape_time: context.points[i].iterations
-                            , escape_location: context.points[i].z
-                        }
-                    }
-                    , (false, true) => {
-                        CompletedPoint::Repeats{}
-                    }
-                    , _ => {CompletedPoint::Repeats{}}//CompletedPoint::Dummy}
-                }
-            );
-        }
-        context.workdays += 1;
-        context.percent_completed = context.index as f64 / (total_points-1) as f64 * 100.0;
-        Some(returned)*/
-
-        if context.workdays % 2 == 0 {
-            let mut returned = vec!();
-            for i in 0..total_points {
-                returned.push(
-                    match context.points[i].done {
-                        (true, false) => {
-                            CompletedPoint::Escapes{
-                                escape_time: context.points[i].iterations
-                                , escape_location: context.points[i].z
-                            }
-                        }
-                        , (false, true) => {
-                            CompletedPoint::Repeats{}
-                        }
-                        , _ => {CompletedPoint::Repeats{}}//CompletedPoint::Dummy}
-                    }
-                );
-            }
-            context.workdays += 1;
-            context.percent_completed = context.index as f64 / (total_points-1) as f64 * 100.0;
-            Some(returned)
-        } else {
-            context.workdays += 1;
-
-            context.percent_completed = context.index as f64 / (total_points-1) as f64 * 100.0;
-            None
-        }
-    }
+    context.workshifts += 1;
+    context.percent_completed = context.index as f64 / (total_points-1) as f64 * 100.0;
 }
+
 #[inline]
 fn iterate_max_n_times_f32 (point: &mut PointF32, n: u32) {
     for i in 0..n {

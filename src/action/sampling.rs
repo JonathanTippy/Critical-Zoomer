@@ -8,7 +8,7 @@ use std::cmp::min;
 use crate::actor::window::*;
 use crate::actor::colorer::*;
 use crate::action::utils::*;
-use crate::actor::worker::*;
+use crate::actor::work_controller::*;
 
 #[derive(Clone, Debug)]
 pub(crate) struct SamplingContext {
@@ -129,7 +129,6 @@ pub(crate) fn sample(
     let data = &context.screens[0].pixels;
 
     let relative_pos = context.relative_transforms.pos;
-
 
     let mut factor:f64;
 
@@ -303,12 +302,12 @@ pub(crate) fn update_sampling_context(context: &mut SamplingContext, screen: Zoo
         } else {
             context.relative_transforms.counter = context.relative_transforms.counter + 1;
         }
-    } else if screen.complete { // override the transforms counter if the screen is complete
+    } /*else if screen.complete { // override the transforms counter if the screen is complete
         if context.screens.len() != 0 {
             drop(context.screens.pop().unwrap());
             context.screens.push(screen);
         } else {
             context.screens.push(screen);
         }
-    }
+    }*/
 }
