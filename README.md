@@ -75,6 +75,8 @@ a mandelbrot set zoomer written in rust
 - check that relativity is followed (machinery is prepared for n-deep real time)
 - perturperturbation...? (check as deep as possible. If it checks correct, assume it remains correct.)
 
+### Polished (0.1.0)
+- everything should be extremely polished, responsive, and correct
 
 
 
