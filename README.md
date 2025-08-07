@@ -42,39 +42,39 @@ a mandelbrot set zoomer written in rust
 - fix zoom while drag | ✔️
 - implement home button functionality | ✔️
 
-### negative dynamic res + workgroup fanagle (0.0.3) WIP...
+### workgroup rewrite (0.0.3) WIP...
 
-- worker no longer workday based, but workshift and checks its in channel every shift ✔️
-- rework worker resolution and updates; add work collector after worker so worker can send updates at a fixed rate ✔️
-- ARVs will be generated using just one point each (and in fact fewer than that) ...
-- fix all jank
+- worker no longer workday based, but workshift and checks its in channel every shift | ✔️
+- rework worker resolution and updates; add work collector after worker so worker can send updates at a fixed rate | ✔️
+- fix all jank | ...
 
-### Memory (0.0.x)
-
-- worker remembers just-completed work when moving or zooming
-
-### Positive Dynamic Res & filament detection (0.0.x)
+### Dynamic Res & filament detection (0.0.x)
 
 - ARVs will at first be generated using just one point each (and in fact fewer than that) (and its neighbors for filament detection), and progressively add more points.
-  
+
 - colorer now recieves 'area representative values' which can be in (period), out (escape time), or edge ((standard, in filament, or out filament), (period, escape time, ratio)).
-    standard edges are just where the sample points don't all agree on in or out.
-    out filaments can be sometimes detected by differing periodicity (except cardioid corners);
-    in filaments can be sometimes detected by differing escape time derivatives.
-    Because of how unreliable this will be, it should remain an opt-in option to color filaments differently until it becomes reliable.
+  standard edges are just where the sample points don't all agree on in or out.
+  out filaments can be sometimes detected by differing periodicity (except cardioid corners);
+  in filaments can be sometimes detected by differing escape time derivatives.
+  Because of how unreliable this will be, it should remain an opt-in option to color filaments differently until it becomes reliable.
 
 - can we have perfect rendering early through filament highlighting?
   Perhaps, however providing the option of progressively improving detail through data combination
   (average or other methods can be used) may result in more pleasing and correct results, so the option should be available.
   Depending on memory available, this additional work may need to be largely discarded after completion. For now, the work will be discarded.
 
+### Memory (0.0.x)
+
+- worker remembers just-completed work when moving or zooming
+
 ### Quantified ARV Certainty (my favorite part) (0.0.x)
 
 - ARVs will contain an uncertainty score as well, which can be used in coloring.
 - The score is calculated by how much a doubling of res changes the resultant ARV values. The more change, the more uncertain.
+- edge points will require sub-filament detection to catch narrow structures
+- flat in-areas will just be large blocks
 - after no change, the pixel can be considered completed.
-- based on the combination of all uncertainty, a progress bar can be produced.
-- Likely, the coloring step will add random noise in proportion to uncertainty.
+- Likely, the coloring step will add subtle noise if uncertainty is present.
 
 ### Settings (0.0.x)
 

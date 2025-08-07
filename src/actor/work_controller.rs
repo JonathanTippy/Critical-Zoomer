@@ -107,8 +107,6 @@ async fn internal_behavior<A: SteadyActor>(
 
     let max_sleep = Duration::from_millis(50);
 
-    let workday_duration = Duration::from_millis(3);
-
     let res = state.worker_res.clone();
     let ctx = handle_home(&mut state, res);
     actor.try_send(&mut to_worker, WorkerCommand::Replace{context:ctx});
@@ -116,13 +114,11 @@ async fn internal_behavior<A: SteadyActor>(
     while actor.is_running(
         || i!(values_out.mark_closed())
     ) {
-
         state.percent_completed = (((state.completed_work.len() as f32) / ((state.worker_res.0*state.worker_res.1) as f32)) * u16::MAX as f32) as u16;
 
-        await_for_any!(  //#!#//
+        await_for_any!(
             actor.wait_periodic(max_sleep),
-            //actor.wait_avail(&mut from_worker, 1),
-            //actor.wait_avail(&mut from_sampler, 1),
+            actor.wait_avail(&mut from_sampler, 1),
         );
         while actor.avail_units(&mut from_worker) > 0 {
             let mut u = actor.try_take(&mut from_worker).unwrap();
