@@ -3,7 +3,7 @@ use steady_state::*;
 
 use std::time::{Duration, Instant};
 
-
+use std::cmp::*;
 use std::collections::*;
 
 use rand::seq::SliceRandom;
@@ -104,15 +104,18 @@ pub(crate) fn workshift_f32(
     context.total_iterations_today = 0;
     context.total_points_today = 0;
     context.spent_tokens_today = 0;
-    context.random_index = context.random_map[context.index];
 
     let points = match &mut context.points {
         Points::F32 { p: p} => {p}
     };
-
     let total_points = points.len();
+    context.random_index = context.random_map[min(context.index, total_points-1)];
 
-    while context.index < total_points-1 && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
+
+
+
+
+    while context.index < total_points && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
 
         let point = &mut points[context.random_index];
 
@@ -138,7 +141,7 @@ pub(crate) fn workshift_f32(
             context.total_iterations += point.iterations;
 
             context.index += 1;
-            context.random_index = context.random_map[context.random_index];
+            context.random_index = context.random_map[min(context.index, total_points-1)];
             context.total_points_today += 1
         }
 
@@ -147,7 +150,7 @@ pub(crate) fn workshift_f32(
     }
 
     context.workshifts += 1;
-    context.percent_completed = context.index as f64 / (total_points-1) as f64 * 100.0;
+    context.percent_completed = context.index as f64 / (total_points) as f64 * 100.0;
 }
 
 #[inline]

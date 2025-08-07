@@ -284,27 +284,25 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
 
 
-            // go fast
-
-            ctx.request_repaint();
 
             let size = (state.size.x as usize, state.size.y as usize);
             let pixels = size.0 * size.1;
 
             let mut sampler_buffer = Vec::with_capacity(pixels);
 
-            if state.sampling_context.screens.len() == 0 {
-                for _ in 0..pixels {sampler_buffer.push(Color32::PURPLE)};
-            }
-
             match actor.try_take(&mut pixels_in) {
                 Some(s) => {
                     //info!("window recieved pixels");
                     if s.pixels.len() == pixels {
                         update_sampling_context(&mut state.sampling_context, s);
+                        ctx.request_repaint()
                     }
                 }
                 None => {}
+            }
+
+            if state.sampling_context.screens.len() == 0 {
+                for _ in 0..pixels {sampler_buffer.push(Color32::PURPLE)};
             }
 
             if state.sampling_context.relative_transforms.zoom_pot != 0

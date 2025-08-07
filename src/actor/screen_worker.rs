@@ -62,17 +62,26 @@ async fn internal_behavior<A: SteadyActor>(
 
     let max_sleep = Duration::from_millis(50);
 
-    let workshift_duration = Duration::from_millis(3);
-
     while actor.is_running(
         || i!(updates_out.mark_closed())
     ) {
+
+        let working = if let Some(_) = state.work_context {true} else {false};
+
+        if working {} else {
+            await_for_any!(
+                actor.wait_periodic(max_sleep),
+                actor.wait_avail(&mut commands_in, 1),
+            );
+        }
 
         while actor.avail_units(&mut commands_in) > 0 {
             match actor.try_take(&mut commands_in).unwrap() {
                 WorkerCommand::Update => {
                     if let Some(ctx) = &mut state.work_context {
                         actor.try_send(&mut updates_out, WorkUpdate{completed_points:work_update(ctx)});
+                        if ctx.percent_completed == 100.0 {state.work_context = None;}
+                        // ^ flush context if complete
                     } else {
                         actor.try_send(&mut updates_out, WorkUpdate{completed_points:vec!()});
                     }
