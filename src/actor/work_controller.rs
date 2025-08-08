@@ -1,15 +1,12 @@
 use steady_state::*;
 
 use crate::actor::window::*;
-use crate::actor::updater::*;
 use crate::action::workshift::*;
 use crate::action::sampling::*;
 use crate::actor::screen_worker::*;
 
 
-use rand::Rng;
 
-use std::cmp::*;
 use rand::prelude::SliceRandom;
 use crate::action::utils::*;
 
@@ -104,6 +101,7 @@ async fn internal_behavior<A: SteadyActor>(
         , percent_completed: 0
         , last_relative_transforms: SamplingRelativeTransforms{pos: (0, 0), zoom_pot: 0, counter: 0}
     }).await;
+
 
     let max_sleep = Duration::from_millis(50);
 

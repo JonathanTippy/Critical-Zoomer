@@ -50,9 +50,9 @@ async fn internal_behavior<A: SteadyActor>(
 ) -> Result<(), Box<dyn Error>> {
 
     // Lock all channels for exclusive access within this actor.
-    let mut updates_in = updates_in.lock().await;
-    let mut updates_out_colorer = updates_out_colorer.lock().await;
-    let mut state = state.lock(|| UpdaterState {
+    let updates_in = updates_in.lock().await;
+    let updates_out_colorer = updates_out_colorer.lock().await;
+    let state = state.lock(|| UpdaterState {
     }).await;
 
     // the updater runs at a precise rate, to control animations and stuff.
@@ -85,7 +85,7 @@ async fn internal_behavior<A: SteadyActor>(
             , state_changes:vec!()
         };*/
 
-        let mut updated = false;
+        let updated = false;
     }
 
     // Final shutdown log, reporting all statistics.

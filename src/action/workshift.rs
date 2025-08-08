@@ -1,14 +1,9 @@
-use steady_state::*;
 
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use std::cmp::*;
-use std::collections::*;
 
-use rand::seq::SliceRandom;
-use rand::rng;
-use crate::action::sampling::SamplingRelativeTransforms;
 
 pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
 
@@ -100,17 +95,17 @@ pub(crate) fn workshift_f32(
 
     context.time_workshift_started = Instant::now();
 
+
     context.total_bouts_today = 0;
     context.total_iterations_today = 0;
     context.total_points_today = 0;
     context.spent_tokens_today = 0;
 
     let points = match &mut context.points {
-        Points::F32 { p: p} => {p}
+        Points::F32 { p} => {p}
     };
     let total_points = points.len();
     context.random_index = context.random_map[min(context.index, total_points-1)];
-    
 
     while context.index < total_points && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
 

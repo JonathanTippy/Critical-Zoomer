@@ -1,26 +1,15 @@
 use steady_state::*;
-use eframe::{egui, NativeOptions};
+use eframe::egui;
 //use eframe::Frame::raw_window_handle;
-use egui_extras;
-use winit::platform::x11::EventLoopBuilderExtX11; // For X11
+ // For X11
 //use winit::platform::wayland::EventLoopBuilderExtWayland; // For Wayland
 //use winit::platform::windows::EventLoopBuilderExtWindows; // For Windows
-use winit::event_loop::EventLoopBuilder;
-use egui::{Color32, ColorImage, TextureHandle, Vec2, Pos2, ViewportInfo, ViewportId, ViewportBuilder, WindowLevel};
-use winit::raw_window_handle::HasWindowHandle;
-use winit::dpi::PhysicalPosition;
-use std::error::Error;
-use std::fmt;
-use std::path::PathBuf;
+use egui::{Color32, Vec2, Pos2, ViewportId, WindowLevel};
 use std::sync::{Arc, Mutex};
 
 
 
 
-use crate::actor::work_controller::*;
-use crate::action::sampling::*;
-use crate::actor::updater::*;
-use crate::actor::window::DEFAULT_WINDOW_RES;
 
 const RECOVER_EGUI_CRASHES:bool = false;
 // ^ half implimented; in cases where the window is supposed to
@@ -88,13 +77,13 @@ pub(crate) fn settings (
     let state1 = state.clone();
     let state2 = state.clone();
 
-    let mut state = state.try_lock().unwrap();
+    let state = state.try_lock().unwrap();
 
     let viewport_options =
         egui::ViewportBuilder::default()
             .with_inner_size(state.size.clone());
 
-    let mut viewport_options = match state.location {
+    let viewport_options = match state.location {
         Some(l) => {viewport_options.with_position(l)}
         None => {viewport_options}
     };

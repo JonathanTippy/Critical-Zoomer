@@ -1,11 +1,9 @@
 use rand::Rng;
 use steady_state::*;
 use crate::action::sampling::SamplingRelativeTransforms;
-use crate::actor::window::*;
 use crate::actor::updater::*;
 use crate::actor::work_controller::*;
 
-use crate::action::settings::*;
 
 #[derive(Clone, Debug)]
 
@@ -26,7 +24,7 @@ pub async fn run(
     actor: SteadyActorShadow,
     values_in: SteadyRx<ResultsPackage>,
     updates_in: SteadyRx<ZoomerSettingsUpdate>,
-    screens_out: SteadyTx<(ZoomerScreen)>,
+    screens_out: SteadyTx<ZoomerScreen>,
     state: SteadyState<ColorerState>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.

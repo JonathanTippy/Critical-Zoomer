@@ -1,15 +1,9 @@
 use steady_state::*;
 
-use crate::actor::window::*;
-use crate::actor::updater::*;
 use crate::action::workshift::*;
-use crate::action::sampling::*;
 use crate::actor::work_controller::*;
 
-use rand::Rng;
 
-use std::cmp::*;
-use crate::action::utils::*;
 
 
 pub(crate) struct WorkUpdate {
@@ -96,8 +90,9 @@ async fn internal_behavior<A: SteadyActor>(
         let iteration_token_cost = state.iteration_token_cost.clone();
         let bout_token_cost = state.bout_token_cost.clone();
         let point_token_cost = state.point_token_cost.clone();
+        
 
-        if let (Some(ctx)) = (&mut state.work_context) {
+        if let Some(ctx) = &mut state.work_context {
             let start = Instant::now();
             workshift (
                 token_budget
