@@ -28,12 +28,22 @@ rayon = "1.10.0"
 
 #################################################################################################
 
-# Enable most optimization in debug mode
+# Enable no optimization in debug mode for fastest compile
+# ( use --release to test performance )
+
 [profile.dev]
-opt-level = 1
+opt-level = 0
 
 # Enable high optimizations for dependencies:
 [profile.dev.package."*"]
 opt-level = 3
 
+[lints.rust]
+unused_imports = "allow"
+dead_code = "allow"
+unused_variables = "allow"
+
+
 #################################################################################################
+
+

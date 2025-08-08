@@ -16,9 +16,9 @@ pub(crate) fn rolling_frame_calc(
 
     let start_instant = Instant::now();
 
-    let mut rolling_frame_info_10s = &mut rolling_frame_info.0;
-    let mut rolling_frame_info_1s = &mut rolling_frame_info.1;
-    let mut rolling_frame_info_100ms = &mut rolling_frame_info.2;
+    let rolling_frame_info_10s = &mut rolling_frame_info.0;
+    let rolling_frame_info_1s = &mut rolling_frame_info.1;
+    let rolling_frame_info_100ms = &mut rolling_frame_info.2;
     let window_start = rolling_frame_info.3;
 
 
@@ -85,9 +85,9 @@ pub(crate) fn rolling_frame_calc(
             let length = rolling_frame_info_10s.len() as u128;
 
             let total: (u64, Duration, Duration) =  (
-                rolling_frame_info_10s.into_iter().map(|f| { (f.1) }).sum()
-                , rolling_frame_info_10s.into_iter().map(|f| { (f.2) }).sum()
-                , rolling_frame_info_10s.into_iter().map(|f| { (f.3) }).sum()
+                rolling_frame_info_10s.into_iter().map(|f| { f.1 }).sum()
+                , rolling_frame_info_10s.into_iter().map(|f| { f.2 }).sum()
+                , rolling_frame_info_10s.into_iter().map(|f| { f.3 }).sum()
             );
 
             let average: (u64, Duration, Duration) = (
@@ -105,9 +105,9 @@ pub(crate) fn rolling_frame_calc(
             let length = rolling_frame_info_1s.len() as u128;
 
             let total: (u64, Duration, Duration) =  (
-                rolling_frame_info_1s.into_iter().map(|f| { (f.1) }).sum()
-                , rolling_frame_info_1s.into_iter().map(|f| { (f.2) }).sum()
-                , rolling_frame_info_1s.into_iter().map(|f| { (f.3) }).sum()
+                rolling_frame_info_1s.into_iter().map(|f| { f.1 }).sum()
+                , rolling_frame_info_1s.into_iter().map(|f| { f.2 }).sum()
+                , rolling_frame_info_1s.into_iter().map(|f| { f.3 }).sum()
             );
 
             let average: (u64, Duration, Duration) = (
@@ -125,9 +125,9 @@ pub(crate) fn rolling_frame_calc(
             let length = rolling_frame_info_100ms.len() as u128;
 
             let total: (u64, Duration, Duration) =  (
-                rolling_frame_info_100ms.into_iter().map(|f| { (f.1) }).sum()
-                , rolling_frame_info_100ms.into_iter().map(|f| { (f.2) }).sum()
-                , rolling_frame_info_100ms.into_iter().map(|f| { (f.3) }).sum()
+                rolling_frame_info_100ms.into_iter().map(|f| { f.1 }).sum()
+                , rolling_frame_info_100ms.into_iter().map(|f| { f.2 }).sum()
+                , rolling_frame_info_100ms.into_iter().map(|f| { f.3 }).sum()
             );
 
             let average: (u64, Duration, Duration) = (

@@ -2,13 +2,12 @@ use steady_state::*;
 
 use rand::prelude::*;
 
-use egui::{Color32, Vec2};
+use egui::Color32;
 use std::cmp::min;
 
 use crate::actor::window::*;
 use crate::actor::colorer::*;
 use crate::action::utils::*;
-use crate::actor::work_controller::*;
 
 #[derive(Clone, Debug)]
 pub(crate) struct SamplingContext {
@@ -27,12 +26,12 @@ pub(crate) struct SamplingRelativeTransforms {
 
 pub(crate) fn sample(
     mut command_package: Vec<ZoomerCommand>,
-    mut output_buffer: &mut Vec<Color32>,
-    mut sampling_context: &mut SamplingContext
+    output_buffer: &mut Vec<Color32>,
+    sampling_context: &mut SamplingContext
 ) {
 
-    let mut bucket = output_buffer;
-    let mut context = sampling_context;
+    let bucket = output_buffer;
+    let context = sampling_context;
 
     let size = context.sampling_size;
     let min_side = min(context.sampling_size.0, context.sampling_size.1);
@@ -44,7 +43,7 @@ pub(crate) fn sample(
             }
             ZoomerCommand::Zoom{pot, center_relative_relative_pos} => {
 
-                let mut factor:f32;
+                let factor:f32;
 
                 if *pot > 0 {
                     factor = (1<<*pot) as f32;
@@ -130,7 +129,7 @@ pub(crate) fn sample(
 
     let relative_pos = context.relative_transforms.pos;
 
-    let mut factor:f64;
+    let factor:f64;
 
     if context.relative_transforms.zoom_pot > 0 {
         factor = (1<<context.relative_transforms.zoom_pot) as f64;
@@ -266,6 +265,7 @@ pub(crate) fn update_sampling_context(context: &mut SamplingContext, screen: Zoo
                 context.relative_transforms.pos.0 - offset.0// as f64 / zoom) as i32
                 , context.relative_transforms.pos.1 - offset.1// as f64 / zoom) as i32
             );
+
 
 
 

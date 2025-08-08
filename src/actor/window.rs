@@ -1,17 +1,11 @@
 use steady_state::*;
 use eframe::{egui, NativeOptions};
 //use eframe::Frame::raw_window_handle;
-use egui_extras;
 use winit::platform::x11::EventLoopBuilderExtX11; // For X11
 //use winit::platform::wayland::EventLoopBuilderExtWayland; // For Wayland
 //use winit::platform::windows::EventLoopBuilderExtWindows; // For Windows
-use winit::event_loop::EventLoopBuilder;
-use egui::{Color32, ColorImage, TextureHandle, Vec2, Pos2, ViewportInfo, viewport::*};
-use winit::raw_window_handle::HasWindowHandle;
-use winit::dpi::PhysicalPosition;
+use egui::{Color32, ColorImage, TextureHandle, Vec2, Pos2, ViewportInfo};
 use std::error::Error;
-use std::fmt;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use std::collections::*;
@@ -19,7 +13,6 @@ use std::cmp::*;
 
 use crate::actor::colorer::*;
 use crate::actor::updater::*;
-use crate::actor::work_controller::*;
 
 use crate::action::sampling::*;
 use crate::action::settings::*;
@@ -119,20 +112,20 @@ pub async fn run(
 }
 
 async fn internal_behavior<A: SteadyActor>(
-    mut actor: A,
+    actor: A,
     pixels_in: SteadyRx<ZoomerScreen>,
     sampler_out: SteadyTx<(SamplingRelativeTransforms, (u32, u32))>,
     settings_out: SteadyTx<ZoomerSettingsUpdate>,
     state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
 
-    let mut portable_actor = Arc::new(Mutex::new(actor));
+    let portable_actor = Arc::new(Mutex::new(actor));
 
-    let mut state = state.lock(|| WindowState{
+    let state = state.lock(|| WindowState{
         size: egui::vec2(DEFAULT_WINDOW_RES.0 as f32, DEFAULT_WINDOW_RES.1 as f32)
         , location: None
         , last_frame_period: None
-        , buffers: vec!(vec!((Color32::BLACK);(DEFAULT_WINDOW_RES.0*DEFAULT_WINDOW_RES.1) as usize))
+        , buffers: vec!(vec!(Color32::BLACK;(DEFAULT_WINDOW_RES.0*DEFAULT_WINDOW_RES.1) as usize))
         , id_counter: 0
         , sampling_context: SamplingContext {
             screens: vec!()
@@ -164,7 +157,7 @@ async fn internal_behavior<A: SteadyActor>(
         .with_inner_size(state.size.clone())
             ;
 
-    let mut viewport_options = match state.location {
+    let viewport_options = match state.location {
         Some(l) => {viewport_options.with_position(l)}
         None => {viewport_options}
     };
@@ -183,7 +176,7 @@ async fn internal_behavior<A: SteadyActor>(
 
     };
 
-    let mut portable_state = Arc::new(Mutex::new(state));
+    let portable_state = Arc::new(Mutex::new(state));
 
     let passthrough = EguiWindowPassthrough{
         portable_actor: portable_actor.clone()
@@ -201,9 +194,9 @@ async fn internal_behavior<A: SteadyActor>(
 
 
     let mut actor = portable_actor.lock().unwrap();
-    let mut sampler_out = sampler_out.try_lock().unwrap();
-    let mut pixels_in = pixels_in.try_lock().unwrap();
-    let mut state = portable_state.lock().unwrap();
+    let sampler_out = sampler_out.try_lock().unwrap();
+    let pixels_in = pixels_in.try_lock().unwrap();
+    let state = portable_state.lock().unwrap();
 
     //println!("state size final value: {}", state.size);
 
@@ -244,8 +237,9 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
         let mut actor = self.portable_actor.lock().unwrap();
         let mut pixels_in = self.pixels_in.try_lock().unwrap();
         let mut sampler_out = self.sampler_out.try_lock().unwrap();
-        let mut settings_out = self.settings_out.try_lock().unwrap();
+        let settings_out = self.settings_out.try_lock().unwrap();
         let mut state = self.portable_state.lock().unwrap();
+
 
         if actor.is_running(
             || i!(true)
@@ -262,7 +256,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 }
             }
 
-            match (state.last_frame_period) {
+            match state.last_frame_period {
                 Some(p) => {
                     timinginfo = Some( (
                         p.0
