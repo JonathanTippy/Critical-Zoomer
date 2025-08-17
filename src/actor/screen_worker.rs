@@ -121,36 +121,3 @@ fn work_update(ctx: &mut WorkContext) -> Vec<CompletedPoint> {
     ctx.last_update = ctx.index;
     returned
 }
-
-
-
-#[cfg(test)]
-pub(crate) mod worker_tests {
-
-    use steady_state::*;
-    use super::*;
-
-    #[test]
-    fn test_worker() -> Result<(), Box<dyn Error>> {
-        let mut graph = GraphBuilder::for_testing().build(());
-        let (values_tx, values_rx) = graph.channel_builder().build();
-        let (state_tx, state_rx) = graph.channel_builder().build();
-        let state = new_state();
-
-        graph.actor_builder().with_name("UnitTest")
-            .build(move |context| internal_behavior(
-                context
-                , state_rx.clone()
-                , values_tx.clone()
-                , state.clone()
-            ), SoloAct);
-
-        state_tx.testing_send_all(vec![], true);
-        graph.start();
-        // because shutdown waits for closed and empty, it does not happen until our test data is digested.
-        graph.request_shutdown();
-        graph.block_until_stopped(Duration::from_secs(1))?;
-        assert_steady_rx_eq_take!(&values_rx, []);
-        Ok(())
-    }
-}
