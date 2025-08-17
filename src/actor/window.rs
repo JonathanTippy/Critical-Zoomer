@@ -277,7 +277,8 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             );
 
 
-
+            // make sure we run every frame
+            ctx.request_repaint();
 
             let size = (state.size.x as usize, state.size.y as usize);
             let pixels = size.0 * size.1;
@@ -289,7 +290,8 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     //info!("window recieved pixels");
                     if s.pixels.len() == pixels {
                         update_sampling_context(&mut state.sampling_context, s);
-                        ctx.request_repaint()
+                    } else {
+                        info!("pixel length mismatch. expected {} got {}", pixels, s.pixels.len())
                     }
                 }
                 None => {}
@@ -297,6 +299,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             if state.sampling_context.screens.len() == 0 {
                 for _ in 0..pixels {sampler_buffer.push(Color32::PURPLE)};
+                //actor.try_send(&mut sampler_out, (state.sampling_context.relative_transforms.clone(), (state.size.x as u32, state.size.y as u32)));
             }
 
             if state.sampling_context.relative_transforms.zoom_pot != 0

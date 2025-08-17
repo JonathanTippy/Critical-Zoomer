@@ -126,7 +126,9 @@ async fn internal_behavior<A: SteadyActor>(
             let c = state.percent_completed==u16::MAX;
             let r = determine_arvs_dummy(&state.completed_work, res);
             info!("got work update. results length is now {}", r.len());
-            actor.try_send(&mut values_out, ResultsPackage{results:r,screen_res:res,originating_relative_transforms:t,dummy:false,complete:c});
+            if r.len() == (res.0*res.1) as usize {
+                actor.try_send(&mut values_out, ResultsPackage{results:r,screen_res:res,originating_relative_transforms:t,dummy:false,complete:c});
+            }
         }
 
         if actor.avail_units(&mut from_sampler) > 0 {
@@ -223,6 +225,7 @@ fn determine_arvs_dummy(points: &Vec<CompletedPoint>, res: (u32, u32)) -> Vec<Ar
             }
         )
     }
+
     returned
 }
 
