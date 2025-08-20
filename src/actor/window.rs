@@ -27,7 +27,7 @@ const RECOVER_EGUI_CRASHES:bool = false;
 //const MAX_FRAME_TIME:f64 = 1.0 / MIN_FRAME_RATE;
 const VSYNC:bool = false;
 
-pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (800, 480);
+pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (400, 240);
 
  //pub(crate) const MIN_PIXELS:u32 = 40; // min_pixels is prioritized over min_fps and should be greater than ~6
 //pub(crate) const MIN_FPS:f32 = 10.0;
@@ -384,7 +384,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 ui.put(
                     egui::Rect::from_min_size(
                         egui::pos2(10.0, 10.0),
-                        egui::vec2(1000.0, 1000.0)
+                        egui::vec2(300.0, 240.0)
                     ),
                     |ui: &mut egui::Ui| {
                         // Set transparent background
