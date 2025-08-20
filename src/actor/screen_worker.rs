@@ -42,6 +42,9 @@ async fn internal_behavior<A: SteadyActor>(
     updates_out: SteadyTx<WorkUpdate>,
     state: SteadyState<WorkerState>,
 ) -> Result<(), Box<dyn Error>> {
+
+    actor.loglevel(LogLevel::Debug);
+
     let mut commands_in = commands_in.lock().await;
     let mut updates_out = updates_out.lock().await;
 

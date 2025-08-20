@@ -60,16 +60,28 @@ pub(crate) fn sample(
                 if factor > 1.0 {
                     // adjust position based on zooming (ridiculously hard to think about)
                     context.relative_transforms.pos = (
-                        (((context.relative_transforms.pos.0 as f64) * factor as f64) - (center_relative_relative_pos.0) as f64) as i32
-                        , (((context.relative_transforms.pos.1 as f64) * factor as f64 ) - (center_relative_relative_pos.1) as f64) as i32
+                        (
+                            ((context.relative_transforms.pos.0 as f64) * factor as f64) 
+                            - (center_relative_relative_pos.0) as f64
+                        ) as i32
+                        , (
+                            ((context.relative_transforms.pos.1 as f64) * factor as f64 ) 
+                            - (center_relative_relative_pos.1) as f64
+                        ) as i32
                     );
 
                 } else {
 
                     // adjust position based on zooming (ridiculously hard to think about)
                     context.relative_transforms.pos = (
-                        (((context.relative_transforms.pos.0 as f64) * factor as f64) + (center_relative_relative_pos.0 as f64 * (factor as f64))) as i32
-                        , (((context.relative_transforms.pos.1 as f64) * factor as f64 ) + (center_relative_relative_pos.1 as f64 * (factor as f64))) as i32
+                        (
+                            ((context.relative_transforms.pos.0 as f64) * factor as f64) 
+                            + (center_relative_relative_pos.0 as f64 * (factor as f64))
+                        ) as i32
+                        , (
+                            ((context.relative_transforms.pos.1 as f64) * factor as f64 ) 
+                            + (center_relative_relative_pos.1 as f64 * (factor as f64))
+                        ) as i32
                     );
 
                     // if we are zooming out, we need to make sure we gently guide pixels to be in the proper position when they need to reach full resolution.
@@ -84,7 +96,10 @@ pub(crate) fn sample(
                     Some(d) => {
                         context.mouse_drag_start = Some(
                             MouseDragStart {
-                                screenspace_drag_start: egui::Pos2{x: center_relative_relative_pos.0 as f32, y: center_relative_relative_pos.1 as f32}
+                                screenspace_drag_start: egui::Pos2 {
+                                    x: center_relative_relative_pos.0 as f32
+                                    , y: center_relative_relative_pos.1 as f32
+                                }
                                 , relative_transforms: SamplingRelativeTransforms {
                                     pos: context.relative_transforms.pos
                                     , zoom_pot: 0
@@ -99,7 +114,11 @@ pub(crate) fn sample(
             ZoomerCommand::SetZoom{factor} => {
             }
             ZoomerCommand::Move{pixels_x, pixels_y} => {
-                context.relative_transforms.pos = (context.relative_transforms.pos.0 + *pixels_x, context.relative_transforms.pos.1 + *pixels_y)
+                context.relative_transforms.pos = (
+                    context.relative_transforms.pos.0 
+                    + *pixels_x, context.relative_transforms.pos.1 
+                    + *pixels_y
+                )
             }
             ZoomerCommand::MoveTo{x, y} => {
                 context.relative_transforms.pos =
@@ -249,8 +268,16 @@ pub(crate) fn update_sampling_context(context: &mut SamplingContext, screen: Zoo
                     - screen.originating_relative_transforms.zoom_pot;
 
             let offset =
-                (signed_shift(screen.originating_relative_transforms.pos.0, context.relative_transforms.zoom_pot)
-                , signed_shift(screen.originating_relative_transforms.pos.1, context.relative_transforms.zoom_pot));
+            (
+                signed_shift(
+                    screen.originating_relative_transforms.pos.0
+                    , context.relative_transforms.zoom_pot
+                )
+                , signed_shift(
+                    screen.originating_relative_transforms.pos.1
+                    , context.relative_transforms.zoom_pot
+                )
+            );
 
             //info!("updating relative pos to {}, {} based on counter number {}"
             //, state.sampling_context.relative_transforms.pos.0 - offset.0

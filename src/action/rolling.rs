@@ -97,7 +97,10 @@ pub(crate) fn rolling_frame_calc(
             );
 
             let mut worst = (Duration::from_millis(0), Duration::from_millis(0));
-            rolling_frame_info_10s.into_iter().map(|f| {if f.2 > worst.0 {worst = (f.2, f.3);}}).max().unwrap();
+            rolling_frame_info_10s
+            .into_iter()
+            .map(|f| {if f.2 > worst.0 {worst = (f.2, f.3);}})
+            .max().unwrap();
 
             Some( ( average, worst ) )
         } else {None},
@@ -117,7 +120,10 @@ pub(crate) fn rolling_frame_calc(
             );
 
             let mut worst = (Duration::from_millis(0), Duration::from_millis(0));
-            rolling_frame_info_1s.into_iter().map(|f| {if f.2 > worst.0 {worst = (f.2, f.3);}}).max().unwrap();
+            rolling_frame_info_1s
+            .into_iter()
+            .map(|f| {if f.2 > worst.0 {worst = (f.2, f.3);}})
+            .max().unwrap();
 
             Some( ( average, worst ) )
         } else {None},
@@ -137,17 +143,12 @@ pub(crate) fn rolling_frame_calc(
             );
 
             let mut worst = (Duration::from_millis(0), Duration::from_millis(0));
-            rolling_frame_info_100ms.into_iter().map(|f| {if f.2 > worst.0 {worst = (f.2, f.3);}}).max().unwrap();
+            rolling_frame_info_100ms
+            .into_iter()
+            .map(|f| {if f.2 > worst.0 {worst = (f.2, f.3);}})
+            .max().unwrap();
 
             Some( ( average, worst ) )
         } else {None},
     )
-
-
-
-
-
-
-
-
 }
