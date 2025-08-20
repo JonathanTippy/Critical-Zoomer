@@ -46,7 +46,8 @@ a mandelbrot set zoomer written in rust
 
 - worker no longer workday based, but workshift and checks its in channel every shift | ✔️
 - rework worker resolution and updates; add work collector after worker so worker can send updates at a fixed rate | ✔️
-- fix all jank | ...
+- sidequest: set up debugging better | ...
+- fix all jank |
 
 ### Dynamic Res & filament detection (0.0.x)
 
