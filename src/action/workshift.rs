@@ -19,11 +19,9 @@ pub(crate) struct WorkContext {
     , pub(crate) completed_points: Vec<CompletedPoint>
     , pub(crate) last_update: usize
     , pub(crate) index: usize
-    , pub(crate) random_index: usize
     , pub(crate) time_created: Instant
     , pub(crate) time_workshift_started: Instant
     , pub(crate) percent_completed:f64
-    , pub(crate) random_map: Vec<usize>
     , pub(crate) workshifts: u32
     , pub(crate) total_iterations: u32
     , pub(crate) total_iterations_today: u32
@@ -105,11 +103,10 @@ pub(crate) fn workshift_f32(
         Points::F32 { p} => {p}
     };
     let total_points = points.len();
-    context.random_index = context.random_map[min(context.index, total_points-1)];
 
     while context.index < total_points && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
 
-        let point = &mut points[context.random_index];
+        let point = &mut points[context.index];
 
         let old_iterations = point.iterations;
 
@@ -128,12 +125,11 @@ pub(crate) fn workshift_f32(
                 }
             };
 
-            context.completed_points[context.random_index] = completed_point;
+            context.completed_points[context.index] = completed_point;
 
             context.total_iterations += point.iterations;
 
             context.index += 1;
-            context.random_index = context.random_map[min(context.index, total_points-1)];
             context.total_points_today += 1
         }
 
