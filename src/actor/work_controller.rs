@@ -31,14 +31,11 @@ pub(crate) struct ResultsPackage {
 
 pub(crate) struct WorkControllerState {
     completed_work_layers: Vec<Vec<Option<CompletedPoint>>>
-    , completed_work: Vec<CompletedPoint>
     // this vecvec contains the completed work layer by layer, or resolution by resolution.
     // for example, vec 0 contains the 4 points for res 1x1, 1 contains the additional 5 points to make res 2x2
     // vec 2 contains the additional 33 points to make res 4x4 (assuming a square POT screen)
     // this achieves dynamic res at arbitrary positions; when producing ARVs, the smallest possible square is
     // used for each ARV.
-    , mixmaps: Vec<Vec<usize>>
-    , mixmap: Vec<usize>
     // each res has its own custom sized mixmap
     // this mixmap is used by the workers to determine point order
     // work can also be done in whatever order; for example, for attention.
@@ -93,8 +90,6 @@ async fn internal_behavior<A: SteadyActor>(
     let mut state = state.lock(|| WorkControllerState {
         completed_work_layers: vec!()
         , completed_work: vec!()
-        , mixmaps: vec!()//get_mixmaps(WORKER_INIT_RES)
-        , mixmap: get_random_mixmap((WORKER_INIT_RES.0*WORKER_INIT_RES.1) as usize)
         , loc: WORKER_INIT_LOC
         , zoom_pot: WORKER_INIT_ZOOM_POT
         , worker_res: WORKER_INIT_RES
@@ -245,8 +240,6 @@ fn handle_home(state: &mut WorkControllerState, size: (u32, u32)) -> WorkContext
     *state = WorkControllerState {
         completed_work_layers: vec!()
         , completed_work: vec!()
-        , mixmaps: state.mixmaps.clone()
-        , mixmap: state.mixmap.clone()
         , percent_completed: 0
         , last_relative_transforms: SamplingRelativeTransforms{pos: (0, 0), zoom_pot: 0, counter: 1}
         , loc: WORKER_INIT_LOC
@@ -262,7 +255,6 @@ fn handle_home(state: &mut WorkControllerState, size: (u32, u32)) -> WorkContext
         , time_created: Instant::now()
         , time_workshift_started: Instant::now()
         , percent_completed: 0.0
-        , random_map: state.mixmap.clone()
         , workshifts: 0
         , total_iterations: 0
         , spent_tokens_today: 0
@@ -328,7 +320,6 @@ fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (SamplingRelativ
             , time_created: Instant::now()
             , time_workshift_started: Instant::now()
             , percent_completed: 0.0
-            , random_map: state.mixmap.clone()
             , workshifts: 0
             , total_iterations: 0
             , spent_tokens_today: 0
