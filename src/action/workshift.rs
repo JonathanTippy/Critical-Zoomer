@@ -109,7 +109,7 @@ pub(crate) fn workshift_f32(
 
     while context.index < total_points && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
 
-        let point = &mut points[context.random_index];
+        let point = &mut points[context.index];
 
         let old_iterations = point.iterations;
 
@@ -128,7 +128,7 @@ pub(crate) fn workshift_f32(
                 }
             };
 
-            context.completed_points[context.random_index] = completed_point;
+            context.completed_points.push(completed_point);
 
             context.total_iterations += point.iterations;
 

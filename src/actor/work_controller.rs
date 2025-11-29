@@ -224,7 +224,7 @@ fn determine_arvs_dummy(points: &Vec<CompletedPoint>, res: (u32, u32)) -> Vec<Ar
                     AreaRepresentativeValue::Inside{loop_period:*p}
                 }
                 CompletedPoint::Dummy{} => {
-                    AreaRepresentativeValue::Inside{loop_period:0}
+                    AreaRepresentativeValue::Outside{escape_time:2}
                 }
             }
         )
@@ -259,7 +259,7 @@ fn handle_home(state: &mut WorkControllerState, size: (u32, u32)) -> WorkContext
 
     let work_context = WorkContext {
         points: get_points_f32(size, WORKER_INIT_LOC, WORKER_INIT_ZOOM_POT)
-        , completed_points: vec!(CompletedPoint::Dummy{};(size.0 * size.1) as usize)
+        , completed_points: vec!()
         , index: 0
         , random_index: 0
         , time_created: Instant::now()
@@ -325,7 +325,7 @@ fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (SamplingRelativ
 
         let work_context = WorkContext {
             points: get_points_f32(stuff.1, state.loc, state.zoom_pot)
-            , completed_points: vec!(CompletedPoint::Dummy{};(stuff.1.0 * stuff.1.1) as usize)
+            , completed_points: vec!()
             , index: 0
             , random_index: 0
             , time_created: Instant::now()

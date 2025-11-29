@@ -47,7 +47,7 @@ a mandelbrot set zoomer written in rust
 - worker no longer workday based, but workshift and checks its in channel every shift | ✔️
 - rework worker resolution and updates; add work collector after worker so worker can send updates at a fixed rate | ✔️
 - fix work cancellation | ✔️
-- fix work skipping
+- fix work skipping | ✔️
 - fix continuous delivery
 - fix home button
 - fix screen resizing
