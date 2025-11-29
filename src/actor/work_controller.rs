@@ -118,20 +118,7 @@ async fn internal_behavior<A: SteadyActor>(
             actor.wait_periodic(max_sleep),
             actor.wait_avail(&mut from_sampler, 1),
         );
-        while actor.avail_units(&mut from_worker) > 0 {
-            let mut u = actor.try_take(&mut from_worker).unwrap();
-            state.completed_work.append(&mut u.completed_points);
-            let res = state.worker_res;
-            let t = state.last_relative_transforms.clone();
-            let c = state.percent_completed==u16::MAX;
-            let r = determine_arvs_dummy(&state.completed_work, res);
-            info!("got work update. results length is now {}", r.len());
-            if r.len() == (res.0*res.1) as usize {
-                actor.try_send(&mut values_out, ResultsPackage{results:r,screen_res:res,originating_relative_transforms:t,dummy:false,complete:c});
-            }
-        }
 
-        
         if actor.avail_units(&mut from_sampler) > 0 {
             while actor.avail_units(&mut from_sampler) > 1 {
                 let stuff = actor.try_take(&mut from_sampler).expect("internal error");
@@ -155,6 +142,22 @@ async fn internal_behavior<A: SteadyActor>(
                 };
             }
         }
+
+        if actor.avail_units(&mut from_worker) > 0 {
+            let mut u = actor.try_take(&mut from_worker).unwrap();
+            state.completed_work.append(&mut u.completed_points);
+            let res = state.worker_res;
+            let t = state.last_relative_transforms.clone();
+            let c = state.percent_completed==u16::MAX;
+            let r = determine_arvs_dummy(&state.completed_work, res);
+            info!("got work update. results length is now {}", r.len());
+            if r.len() == (res.0*res.1) as usize {
+                actor.try_send(&mut values_out, ResultsPackage{results:r,screen_res:res,originating_relative_transforms:t,dummy:false,complete:c});
+            }
+        }
+
+        
+
 
         if state.percent_completed<u16::MAX {
             actor.try_send(&mut to_worker, WorkerCommand::Update{});

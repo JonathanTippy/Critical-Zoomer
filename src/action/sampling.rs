@@ -84,7 +84,7 @@ pub(crate) fn sample(
                         ) as i32
                     );
 
-                    // if we are zooming out, we need to make sure we gently guide pixels to be in the proper position when they need to reach full resolution.
+                    // if we are zooming out, drop the smallest bit from the transform.
 
                     context.relative_transforms.pos = (
                         context.relative_transforms.pos.0 - context.relative_transforms.pos.0 % 2
