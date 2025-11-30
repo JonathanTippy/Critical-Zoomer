@@ -80,7 +80,7 @@ async fn internal_behavior<A: SteadyActor>(
                         if ctx.percent_completed == 100.0 {state.work_context = None;}
                         // ^ flush context if complete
                     } else {
-                        actor.try_send(&mut updates_out, WorkUpdate{completed_points:vec!()});
+                        //actor.try_send(&mut updates_out, WorkUpdate{completed_points:vec!()});
                     }
                 }
                 WorkerCommand::Replace{context:ctx} => {

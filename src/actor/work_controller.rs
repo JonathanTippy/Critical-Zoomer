@@ -132,7 +132,8 @@ async fn internal_behavior<A: SteadyActor>(
             let stuff = actor.try_take(&mut from_sampler).expect("internal error");
 
             if stuff.0 == (SamplingRelativeTransforms{ pos:(0,0), zoom_pot:i64::MIN, counter:u64::MAX }) {
-                handle_home(&mut state, stuff.1);
+                let ctx = handle_home(&mut state, stuff.1);
+                actor.try_send(&mut to_worker, WorkerCommand::Replace{context:ctx});
             } else if stuff.0.counter > state.last_relative_transforms.counter {
                 if let Some(ctx) = handle_sampler_stuff(
                     &mut state
