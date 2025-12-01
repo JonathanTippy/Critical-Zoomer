@@ -91,7 +91,6 @@ pub(crate) struct WindowState {
     , pub(crate) timer: Instant
     , pub(crate) fps_margin: f32
     , pub(crate) timer2: Instant
-    , pub(crate) mouse_drag_start: Option<(ObjectivePosAndZoom, Pos2)>
 }
 
 /// Entry point for the window actor.

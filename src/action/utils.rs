@@ -17,6 +17,15 @@ pub(crate) fn signed_shift(input: i32, shift: i64) -> i32 {
     }*/
 }
 
+#[inline]
+pub(crate) fn shift(input:i32, shift:i32) -> i32 {
+    if shift >= 0 {
+        input << shift as u32
+    } else {
+        input >> (-shift) as u32
+    }
+}
+
 /*#[inline]
 pub(crate) fn shift_signed_assume_left(input: i32, shift: i64) -> i32 {
     if shift >= 0 {
