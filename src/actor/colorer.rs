@@ -1,8 +1,10 @@
 use rand::Rng;
 use steady_state::*;
-use crate::action::sampling::SamplingRelativeTransforms;
+use crate::action::sampling::*;
 use crate::actor::updater::*;
 use crate::actor::work_controller::*;
+
+use crate::action::utils::*;
 
 
 #[derive(Clone, Debug)]
@@ -10,9 +12,7 @@ use crate::actor::work_controller::*;
 pub(crate) struct ZoomerScreen {
     pub(crate) pixels: Vec<(u8,u8,u8)>
     , pub(crate) screen_size: (u32, u32)
-    , pub(crate) originating_relative_transforms: SamplingRelativeTransforms
-    , pub(crate) dummy: bool
-    , pub(crate) complete: bool
+    , pub(crate) objective_location: ObjectivePosAndZoom
 }
 
 
@@ -86,12 +86,8 @@ async fn internal_behavior<A: SteadyActor>(
                 for i in 0..r.len() {
                     let value = &r[i%len];
                     let color:(u8,u8,u8) = match value {
-                        AreaRepresentativeValue::Inside{loop_period: _} => {(0, 0, 0)}
-                        AreaRepresentativeValue::Outside { escape_time: e } => {((e * 10 % 192) as u8 + 64, (e * 10 % 192) as u8 + 64, (e * 10 % 192) as u8 + 64)}
-                        AreaRepresentativeValue::Edge{} => {
-                            let r = rng.gen::<u8>();
-                            (128+(r/8), 128+(r/8), 128+(r/8))
-                        } // grey noise
+                        ScreenValue::Inside{loop_period: _} => {(0, 0, 0)}
+                        ScreenValue::Outside { escape_time: e } => {((e * 10 % 192) as u8 + 64, (e * 10 % 192) as u8 + 64, (e * 10 % 192) as u8 + 64)}
                     };
                     //let color = (255, 255, 255);
                     output.push(color);
@@ -103,7 +99,7 @@ async fn internal_behavior<A: SteadyActor>(
                 actor.try_send(&mut screens_out, ZoomerScreen{
                     pixels: output
                     , screen_size: state.values.as_ref().unwrap().screen_res.clone()
-                    , originating_relative_transforms:  state.values.as_ref().unwrap().originating_relative_transforms.clone()
+                    , objective_location:  state.values.as_ref().unwrap().originating_relative_transforms.clone()
                     , dummy: state.values.as_ref().unwrap().dummy.clone()
                     , complete: state.values.as_ref().unwrap().complete.clone()
                 });

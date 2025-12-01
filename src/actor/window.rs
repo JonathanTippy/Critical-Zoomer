@@ -11,14 +11,15 @@ use std::sync::{Arc, Mutex};
 use std::collections::*;
 use std::cmp::*;
 
+use rug::*;
+
 use crate::actor::colorer::*;
 use crate::actor::updater::*;
 
 use crate::action::sampling::*;
 use crate::action::settings::*;
 use crate::action::rolling::*;
-
-
+use crate::action::utils::*;
 
 const RECOVER_EGUI_CRASHES:bool = false;
 // ^ half implimented; in cases where the window is supposed to
@@ -50,12 +51,12 @@ pub(crate) struct ZoomerReport {
 
 pub(crate) enum ZoomerCommand {
     SetFocus{pixel_x:u32, pixel_y:u32}
-    , Zoom{pot: i64, center_relative_relative_pos: (i32, i32)} // zoom in or out
-    , SetZoom{factor: String}
-    , MoveTo{x: i32, y: i32}
+    , SetZoom{pot: i32}
+    , Zoom{pot: i32, center_screenspace_pos: (i32, i32)} // zoom in or out
     , Move{pixels_x: i32, pixels_y: i32}
-    , SetPos{real: String, imag: String}
-    , TrackPoint{point_id:u64, point_real: String, point_imag: String}
+    , MoveTo{x: IntExp, y: IntExp}
+    , SetPos{real: IntExp, imag: IntExp}
+    , TrackPoint{point_id:u64, point_real: IntExp, point_imag: IntExp}
     , UntrackPoint{point_id:u64}
     , UntrackAllPoints
 } pub(crate) const NUMBER_OF_COMMANDS:u16=10;
@@ -90,13 +91,14 @@ pub(crate) struct WindowState {
     , pub(crate) timer: Instant
     , pub(crate) fps_margin: f32
     , pub(crate) timer2: Instant
+    , pub(crate) mouse_drag_start: Option<(ObjectivePosAndZoom, Pos2)>
 }
 
 /// Entry point for the window actor.
 pub async fn run(
     actor: SteadyActorShadow,
     pixels_in: SteadyRx<ZoomerScreen>,
-    sampler_out: SteadyTx<(SamplingRelativeTransforms, (u32, u32))>,
+    sampler_out: SteadyTx<(ObjectivePosAndZoom, (u32, u32))>,
     settings_out: SteadyTx<ZoomerSettingsUpdate>,
     state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
@@ -114,7 +116,7 @@ pub async fn run(
 async fn internal_behavior<A: SteadyActor>(
     actor: A,
     pixels_in: SteadyRx<ZoomerScreen>,
-    sampler_out: SteadyTx<(SamplingRelativeTransforms, (u32, u32))>,
+    sampler_out: SteadyTx<(ObjectivePosAndZoom, (u32, u32))>,
     settings_out: SteadyTx<ZoomerSettingsUpdate>,
     state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
@@ -129,13 +131,11 @@ async fn internal_behavior<A: SteadyActor>(
         , id_counter: 0
         , sampling_context: SamplingContext {
             screens: vec!()
-            , sampling_size: (DEFAULT_WINDOW_RES.0, DEFAULT_WINDOW_RES.1)
-            , relative_transforms: SamplingRelativeTransforms{
-                pos: (0, 0)
+            , screen_size: (DEFAULT_WINDOW_RES.0, DEFAULT_WINDOW_RES.1)
+            , location: ObjectivePosAndZoom {
+                pos: (Float::with_val(1, 0), Float::with_val(1, 0))
                 , zoom_pot: 0
-                , counter: 1
             }
-            , mouse_drag_start: None
         }
         , settings_window_context: Arc::new(Mutex::new(DEFAULT_SETTINGS_WINDOW_CONTEXT))
         , settings_window_open: false
@@ -147,6 +147,7 @@ async fn internal_behavior<A: SteadyActor>(
         , fps_margin: 0.0
 
         , timer2: Instant::now()
+        , mouse_drag_start:None
     }).await;
 
     // with_decorations!!!!
@@ -220,7 +221,7 @@ async fn internal_behavior<A: SteadyActor>(
 struct EguiWindowPassthrough<'a, A> {
     portable_actor: Arc<Mutex<A>>,
     pixels_in: SteadyRx<ZoomerScreen>,
-    sampler_out: SteadyTx<(SamplingRelativeTransforms, (u32, u32))>,
+    sampler_out: SteadyTx<(ObjectivePosAndZoom, (u32, u32))>,
     settings_out: SteadyTx<ZoomerSettingsUpdate>,
     portable_state:Arc<Mutex<StateGuard<'a, WindowState>>>
 }
@@ -302,19 +303,16 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 //actor.try_send(&mut sampler_out, (state.sampling_context.relative_transforms.clone(), (state.size.x as u32, state.size.y as u32)));
             }
 
-            if state.sampling_context.relative_transforms.zoom_pot != 0
-                || state.sampling_context.relative_transforms.pos != (0, 0)
-                || state.size.x as u32 != state.sampling_context.sampling_size.0
-                || state.size.y as u32 != state.sampling_context.sampling_size.1
+            if state.sampling_context.updated
             {
-                actor.try_send(&mut sampler_out, (state.sampling_context.relative_transforms.clone(), (state.size.x as u32, state.size.y as u32)));
+                actor.try_send(&mut sampler_out, (state.sampling_context.location.clone(), (state.size.x as u32, state.size.y as u32)));
             }
 
             // sample
 
             let command_package = parse_inputs(&ctx, &mut state, size);
 
-            state.sampling_context.sampling_size = (size.0 as u32, size.1 as u32);
+            state.sampling_context.screen_size = (size.0 as u32, size.1 as u32);
 
             if state.sampling_context.screens.len() > 0 {
                 sample(command_package, &mut sampler_buffer, &mut state.sampling_context);
@@ -599,9 +597,13 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                         // create button and get its state
                         let button_state = ui.button("🏠");
                         if button_state.clicked() {
+                            state.sampling_context.location = ObjectivePosAndZoom {
+                                pos: (IntExp{val:Integer::new(),exp:0}, IntExp{val:Integer::new(),exp:0})
+                                , zoom_pot: 0
+                            };
                             actor.try_send(&mut sampler_out, (
-                                SamplingRelativeTransforms{ pos:(0,0), zoom_pot:i64::MIN, counter:u64::MAX }
-                                , state.sampling_context.sampling_size
+                                state.sampling_context.location.clone()
+                                , state.sampling_context.screen_size
                             ));
                         }
                         return button_state;
@@ -667,7 +669,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
 #[derive(Clone, Debug)]
 pub(crate) struct MouseDragStart {
-    pub(crate) relative_transforms: SamplingRelativeTransforms
+    pub(crate) objective_drag_start: ObjectivePosAndZoom
     , pub(crate) screenspace_drag_start: Pos2
 }
 
@@ -692,33 +694,19 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
         (input_state.pointer.primary_pressed() && (! input_state.pointer.button_down(egui::PointerButton::Middle)))
         || (input_state.pointer.button_pressed(egui::PointerButton::Middle) && (! input_state.pointer.primary_down())) {
             let d = input_state.pointer.latest_pos().unwrap();
-            state.sampling_context.mouse_drag_start = Some(
-                MouseDragStart {
-                    screenspace_drag_start: d
-                    , relative_transforms: state.sampling_context.relative_transforms.clone()
-                }
-            );
-
-
-
-                /*(
-                    (
-                    d.x as i32
-                    , d.y as i32
-                    ), (
-                    state.sampling_context.relative_pos.0
-                    , state.sampling_context.relative_pos.1
-                    )
+            state.mouse_drag_start = Some(
+                (state.sampling_context.location.clone()
+                 , d
                 )
-            );*/
+            );
         }
 
-        match &state.sampling_context.mouse_drag_start {
+        match &state.mouse_drag_start {
             Some(start) => {
 
                 // end the current drag if appropriate
                 if (!input_state.pointer.button_down(egui::PointerButton::Primary)) && (!input_state.pointer.button_down(egui::PointerButton::Middle)) {
-                    state.sampling_context.mouse_drag_start = None;
+                    state.mouse_drag_start = None;
                 } else {
                     // execute the drag
 
@@ -729,16 +717,23 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
                     //let min_size_recip = (1<<16) / min_size as i32;
 
                     let drag = (
-                        (pos.x as i32 - start.screenspace_drag_start.x as i32)// * min_size_recip
-                        , (pos.y as i32 - start.screenspace_drag_start.y as i32)// * min_size_recip
+                        (pos.x as i32 - start.1.x as i32)// * min_size_recip
+                        , (pos.y as i32 - start.1.y as i32)// * min_size_recip
                     );
 
-                    let drag_start_pos = start.relative_transforms.pos;
+                    let drag_start_pos = start.0.pos.clone();
+
+                    let objective_drag:(IntExp, IntExp) = (
+                        IntExp{val:Integer::from(drag.0), exp:0}
+                            .shift(state.sampling_context.location.zoom_pot)
+                        , IntExp{val:Integer::from(drag.1), exp:0}
+                            .shift(state.sampling_context.location.zoom_pot)
+                        );
 
                     returned.push(
                         ZoomerCommand::MoveTo{
-                            x: drag_start_pos.0 + drag.0
-                            , y: drag_start_pos.1 + drag.1
+                            x: drag_start_pos.0 + objective_drag.0
+                            , y: drag_start_pos.1 + objective_drag.1
                         }
                     );
                 }
@@ -764,13 +759,13 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
                     //info!("zooming in");
                     ZoomerCommand::Zoom{
                         pot: 1
-                        , center_relative_relative_pos: (c.0 as i32, c.1 as i32)
+                        , center_screenspace_pos: (c.0 as i32, c.1 as i32)
                     }
                 } else {
                     //info!("zooming out");
                     ZoomerCommand::Zoom{
                         pot: -1
-                        , center_relative_relative_pos: (c.0 as i32, c.1 as i32)
+                        , center_screenspace_pos: (c.0 as i32, c.1 as i32)
                     }
                 }
 

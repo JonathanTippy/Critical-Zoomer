@@ -15,17 +15,15 @@ pub(crate) enum WorkerCommand {
     , Replace{context: WorkContext}
 }
 
-pub(crate) enum AreaRepresentativeValue {
+pub(crate) enum ScreenValue {
     Outside{escape_time: u32}
     , Inside{loop_period: u32}
-    , Edge{}
 }
 
 pub(crate) struct ResultsPackage {
-    pub(crate) results: Vec<AreaRepresentativeValue>
+    pub(crate) results: Vec<ScreenValue>
     , pub(crate) screen_res: (u32, u32)
-    , pub(crate) originating_relative_transforms: SamplingRelativeTransforms
-    , pub(crate) dummy: bool
+    , pub(crate) location: ObjectivePosAndZoom
     , pub(crate) complete: bool
 }
 
@@ -213,19 +211,19 @@ fn get_points_f32(res: (u32, u32), loc:(f64, f64), zoom: i64) -> Points {
     Points::F32{p:out}
 }
 
-fn determine_arvs_dummy(points: &Vec<CompletedPoint>, res: (u32, u32)) -> Vec<AreaRepresentativeValue> {
+fn determine_arvs_dummy(points: &Vec<CompletedPoint>, res: (u32, u32)) -> Vec<ScreenValue> {
     let mut returned = vec!();
     for p in points {
         returned.push(
             match p {
                 CompletedPoint::Escapes{escape_time: t, escape_location: _} => {
-                    AreaRepresentativeValue::Outside{escape_time:*t}
+                    ScreenValue::Outside{escape_time:*t}
                 }
                 CompletedPoint::Repeats{period: p} => {
-                    AreaRepresentativeValue::Inside{loop_period:*p}
+                    ScreenValue::Inside{loop_period:*p}
                 }
                 CompletedPoint::Dummy{} => {
-                    AreaRepresentativeValue::Outside{escape_time:2}
+                    ScreenValue::Outside{escape_time:2}
                 }
             }
         )
