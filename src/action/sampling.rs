@@ -17,12 +17,13 @@ pub(crate) struct SamplingContext {
     , pub(crate) screen_size: (u32, u32)
     , pub(crate) location: ObjectivePosAndZoom
     , pub(crate) updated: bool
+    , pub(crate) mouse_drag_start: Option<(ObjectivePosAndZoom, Pos2)>
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ViewportLocation {
     pub(crate) pos: (i32, i32) // This is objective
-    , pub(crate) zoom_pot: i64 // this is evaluated after the relative position during sampling
+    , pub(crate) zoom_pot: i32
     , pub(crate) counter: u64
 }
 
@@ -43,74 +44,50 @@ pub(crate) fn sample(
         match command {
             ZoomerCommand::SetFocus{pixel_x, pixel_y} => {
             }
-            ZoomerCommand::Zoom{pot, center_relative_relative_pos} => {
+            ZoomerCommand::Zoom{pot, center_screenspace_pos} => {
 
-                let factor:f32;
-
-                if *pot > 0 {
-                    factor = (1<<*pot) as f32;
-                } else {
-                    factor =  1.0 / (1<<-*pot) as f32;
-                }
-
-                context.location.zoom_pot =
-                    context.location.zoom_pot + *pot;
+                let center_centered_pos = (
+                    center_screenspace_pos.0 + (context.screen_size.0/2) as i32
+                    , center_screenspace_pos.1 + (context.screen_size.1/2) as i32
+                );
 
 
+                // adjust position & zoom based on zooming in 3 steps
+                // step 1: move to zoom center
+                // step 2: zoom
+                // step 3: move back so zoom center falls on same screenspace location
 
+                context.location.pos = (
+                    context.location.pos.0
+                        + IntExp{val: Integer::from(center_centered_pos.0), exp: context.location.zoom_pot}
+                    , context.location.pos.1
+                        + IntExp{val: Integer::from(center_centered_pos.1), exp: context.location.zoom_pot }
+                );
 
-                if factor > 1.0 {
-                    // adjust position based on zooming (ridiculously hard to think about)
-                    context.location.pos = (
-                        (
-                            ((context.location.pos.0 as f64) * factor as f64)
-                            - (center_relative_relative_pos.0) as f64
-                        ) as i32
-                        , (
-                            ((context.location.pos.1 as f64) * factor as f64 )
-                            - (center_relative_relative_pos.1) as f64
-                        ) as i32
-                    );
+                context.location.zoom_pot += *pot;
 
-                } else {
+                context.location.pos = (
+                    context.location.pos.0
+                        - IntExp{val: Integer::from(center_centered_pos.0), exp: context.location.zoom_pot}
+                    , context.location.pos.1
+                        - IntExp{val: Integer::from(center_centered_pos.1), exp: context.location.zoom_pot }
+                );
 
-                    // adjust position based on zooming (ridiculously hard to think about)
-                    context.location.pos = (
-                        (
-                            ((context.location.pos.0 as f64) * factor as f64)
-                            + (center_relative_relative_pos.0 as f64 * (factor as f64))
-                        ) as i32
-                        , (
-                            ((context.location.pos.1 as f64) * factor as f64 )
-                            + (center_relative_relative_pos.1 as f64 * (factor as f64))
-                        ) as i32
-                    );
+                // reset mouse drag start to the new screenspace location
 
-                    // if we are zooming out, drop the smallest bit from the transform.
-
-                    context.location.pos = (
-                        context.location.pos.0 - context.location.pos.0 % 2
-                        , context.location.pos.1 - context.location.pos.1 % 2
-                    );
-                }
-
-                match &context.mouse_drag_start {
+                /*match &context.mouse_drag_start {
                     Some(d) => {
                         context.mouse_drag_start = Some(
-                            MouseDragStart {
-                                screenspace_drag_start: egui::Pos2 {
-                                    x: center_relative_relative_pos.0 as f32
-                                    , y: center_relative_relative_pos.1 as f32
+                            (
+                                d.0
+                                , egui::Pos2 {
+                                    x: center_screenspace_pos.0 as f32
+                                    , y: center_screenspace_pos.1 as f32
                                 }
-                                , relative_transforms: SamplingRelativeTransforms {
-                                    pos: context.location.pos
-                                    , zoom_pot: 0
-                                    , counter: 0
-                                }
-                            });
+                                ));
                     }
                     None => {}
-                }
+                }*/
 
             }
             ZoomerCommand::SetZoom{factor} => {
