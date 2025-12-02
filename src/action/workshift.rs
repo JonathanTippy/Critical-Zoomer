@@ -7,12 +7,12 @@ use std::cmp::*;
 
 pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 
 pub(crate) enum Points {
     F32{p:Vec<PointF32>}
 }
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 
 pub(crate) struct WorkContext {
     pub(crate) points: Points
@@ -33,7 +33,7 @@ pub(crate) struct WorkContext {
 }
 
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) enum CompletedPoint {
     Repeats{
         period: u32

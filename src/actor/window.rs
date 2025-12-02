@@ -15,6 +15,7 @@ use rug::*;
 
 use crate::actor::colorer::*;
 use crate::actor::updater::*;
+use crate::actor::work_controller::*;
 
 use crate::action::sampling::*;
 use crate::action::settings::*;
@@ -28,7 +29,9 @@ const RECOVER_EGUI_CRASHES:bool = false;
 //const MAX_FRAME_TIME:f64 = 1.0 / MIN_FRAME_RATE;
 const VSYNC:bool = false;
 
-pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (400, 240);
+pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (800, 640);
+
+pub(crate) const HOME_POSTION:(i32, i32, i32) = (-2, -2, -2);
 
  //pub(crate) const MIN_PIXELS:u32 = 40; // min_pixels is prioritized over min_fps and should be greater than ~6
 //pub(crate) const MIN_FPS:f32 = 10.0;
@@ -132,8 +135,8 @@ async fn internal_behavior<A: SteadyActor>(
             screens: vec!()
             , screen_size: (DEFAULT_WINDOW_RES.0, DEFAULT_WINDOW_RES.1)
             , location: ObjectivePosAndZoom {
-                pos: (IntExp::from(0), IntExp::from(0))
-                , zoom_pot: 0
+                pos: (IntExp::from(HOME_POSTION.0), IntExp::from(HOME_POSTION.1))
+                , zoom_pot: HOME_POSTION.2
             }
             , updated: true
             , mouse_drag_start:None
@@ -307,6 +310,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             if state.sampling_context.updated
             {
                 actor.try_send(&mut sampler_out, (state.sampling_context.location.clone(), (state.size.x as u32, state.size.y as u32)));
+                state.sampling_context.updated = false;
             }
 
             // sample
@@ -599,8 +603,8 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                         let button_state = ui.button("🏠");
                         if button_state.clicked() {
                             state.sampling_context.location = ObjectivePosAndZoom {
-                                pos: (IntExp{val:Integer::new(),exp:0}, IntExp{val:Integer::new(),exp:0})
-                                , zoom_pot: 0
+                                pos: (IntExp::from(HOME_POSTION.0), IntExp::from(HOME_POSTION.1))
+                                , zoom_pot: HOME_POSTION.2
                             };
                             actor.try_send(&mut sampler_out, (
                                 state.sampling_context.location.clone()
@@ -726,15 +730,17 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
 
                     let objective_drag:(IntExp, IntExp) = (
                         IntExp{val:Integer::from(drag.0), exp:0}
-                            .shift(state.sampling_context.location.zoom_pot)
+                            .shift(-state.sampling_context.location.zoom_pot)
+                            .shift(-PIXELS_PER_UNIT_POT)
                         , IntExp{val:Integer::from(drag.1), exp:0}
-                            .shift(state.sampling_context.location.zoom_pot)
+                            .shift(-state.sampling_context.location.zoom_pot)
+                            .shift(-PIXELS_PER_UNIT_POT)
                         );
 
                     returned.push(
                         ZoomerCommand::MoveTo{
-                            x: drag_start_pos.0 + objective_drag.0
-                            , y: drag_start_pos.1 + objective_drag.1
+                            x: drag_start_pos.0 - objective_drag.0
+                            , y: drag_start_pos.1 - objective_drag.1
                         }
                     );
                 }
@@ -775,16 +781,16 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
 
 
         if input_state.key_down(egui::Key::ArrowDown) {
-            returned.push(ZoomerCommand::Move{pixels_x: 0, pixels_y: -1});
-        }
-        if input_state.key_down(egui::Key::ArrowUp) {
             returned.push(ZoomerCommand::Move{pixels_x: 0, pixels_y: 1});
         }
+        if input_state.key_down(egui::Key::ArrowUp) {
+            returned.push(ZoomerCommand::Move{pixels_x: 0, pixels_y: -1});
+        }
         if input_state.key_down(egui::Key::ArrowLeft) {
-            returned.push(ZoomerCommand::Move{pixels_x: 1, pixels_y: 0});
+            returned.push(ZoomerCommand::Move{pixels_x: -1, pixels_y: 0});
         }
         if input_state.key_down(egui::Key::ArrowRight) {
-            returned.push(ZoomerCommand::Move{pixels_x: -1, pixels_y: 0});
+            returned.push(ZoomerCommand::Move{pixels_x: 1, pixels_y: 0});
         }
     });
 

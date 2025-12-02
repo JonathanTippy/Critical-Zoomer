@@ -85,6 +85,7 @@ async fn internal_behavior<A: SteadyActor>(
                 }
                 WorkerCommand::Replace{context:ctx} => {
                     state.work_context = Some(ctx);
+                    //debug!("screen worker got new context: \n{:?}", state.work_context);
                 }
             }
         }
