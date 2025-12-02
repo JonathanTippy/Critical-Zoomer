@@ -55,7 +55,7 @@ a mandelbrot set zoomer written in rust
 
 ### work saving (0.0.4) WIP...
 
-- add work collector actor
+- add work collector actor | ✔️
 - implement work saving when zooming in
 - reintroduce random work order
 - implement CD

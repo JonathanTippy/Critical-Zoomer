@@ -1,5 +1,5 @@
 use steady_state::*;
-
+use crate::action::utils::ObjectivePosAndZoom;
 use crate::action::workshift::*;
 use crate::actor::work_controller::*;
 
@@ -7,6 +7,7 @@ use crate::actor::work_controller::*;
 
 
 pub(crate) struct WorkUpdate {
+    pub(crate) frame_info: Option<ObjectivePosAndZoom>,
     pub(crate) completed_points: Vec<CompletedPoint>
 }
 
@@ -76,15 +77,15 @@ async fn internal_behavior<A: SteadyActor>(
             match actor.try_take(&mut commands_in).unwrap() {
                 WorkerCommand::Update => {
                     if let Some(ctx) = &mut state.work_context {
-                        actor.try_send(&mut updates_out, WorkUpdate{completed_points:work_update(ctx)});
-                        if ctx.percent_completed == 100.0 {state.work_context = None;}
-                        // ^ flush context if complete
-                    } else {
-                        //actor.try_send(&mut updates_out, WorkUpdate{completed_points:vec!()});
+                        actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:work_update(ctx)});
                     }
                 }
-                WorkerCommand::Replace{context:ctx} => {
+                WorkerCommand::Replace{frame_info:f, context:ctx} => {
+                    if let Some(ctx) = &mut state.work_context {
+                        actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:work_update(ctx)});
+                    }
                     state.work_context = Some(ctx);
+                    actor.try_send(&mut updates_out, WorkUpdate{frame_info:Some(f), completed_points:vec!()});
                     //debug!("screen worker got new context: \n{:?}", state.work_context);
                 }
             }
