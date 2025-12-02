@@ -67,6 +67,7 @@ pub(crate) fn sample(
 
                 context.location.zoom_pot += *pot;
 
+
                 context.location.pos = (
                     context.location.pos.0.clone()
                         - IntExp{val: Integer::from(center_screenspace_pos.0), exp: -context.location.zoom_pot}.shift(-PIXELS_PER_UNIT_POT)
@@ -76,19 +77,24 @@ pub(crate) fn sample(
 
                 // reset mouse drag start to the new screenspace location
 
-                /*match &context.mouse_drag_start {
+                match &context.mouse_drag_start {
                     Some(d) => {
                         context.mouse_drag_start = Some(
                             (
-                                d.0
-                                , egui::Pos2 {
-                                    x: center_screenspace_pos.0 as f32
-                                    , y: center_screenspace_pos.1 as f32
+                                ObjectivePosAndZoom{
+                                    pos: context.location.pos.clone()
+                                    , zoom_pot: context.location.zoom_pot
                                 }
-                                ));
+                                , egui::Pos2 {
+                                x: center_screenspace_pos.0 as f32
+                                , y: center_screenspace_pos.1 as f32
+                            }
+                            ));
                     }
                     None => {}
-                }*/
+                }
+
+
                 context.updated = true;
 
             }

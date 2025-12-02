@@ -606,10 +606,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                 pos: (IntExp::from(HOME_POSTION.0), IntExp::from(HOME_POSTION.1))
                                 , zoom_pot: HOME_POSTION.2
                             };
-                            actor.try_send(&mut sampler_out, (
-                                state.sampling_context.location.clone()
-                                , state.sampling_context.screen_size
-                            ));
+                            state.sampling_context.updated = true;
                         }
                         return button_state;
                     }
