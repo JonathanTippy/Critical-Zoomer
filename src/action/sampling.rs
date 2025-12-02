@@ -207,15 +207,15 @@ fn sample_color(
 ) -> Color32 {
     let color =
         pixels[
-        index_from_relative_location(
-                    transform_relative_location_i32(
-                        relative_location_i32_row_and_seat(seat, row)
-                        , (relative_pos.0, relative_pos.1)
-                        , relative_zoom_pot
-                    )
-                    , data_res
-                    , data_len
+            index_from_relative_location(
+                transform_relative_location_i32(
+                    relative_location_i32_row_and_seat(seat, row)
+                    , (relative_pos.0, relative_pos.1)
+                    , relative_zoom_pot
                 )
+                , data_res
+                , data_len
+            )
         ];
     Color32::from_rgb(color.0, color.1, color.2)
 }
@@ -263,13 +263,11 @@ pub(crate) fn update_sampling_context(context: &mut SamplingContext, screen: Zoo
         context.updated = false;
     }
     
-    
     if context.screens.len() != 0 {
         drop(context.screens.pop().unwrap());
         context.screens.push(screen);
     } else {
         context.screens.push(screen);
     }
-    
-    
+
 }

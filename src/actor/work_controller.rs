@@ -259,6 +259,10 @@ fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAnd
         }
     }
 
+    if state.worker_res != stuff.1 {
+        state.mixmap = get_random_mixmap((stuff.1.0*stuff.1.1) as usize)
+    }
+
     state.worker_res = stuff.1;
 
     state.loc = (
