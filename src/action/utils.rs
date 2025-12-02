@@ -151,3 +151,31 @@ impl IntExp {
         }
     }
 }
+
+
+impl From<i32> for IntExp {
+    fn from(value: i32) -> Self {
+        Self{val:Integer::from(value), exp:0}
+    }
+
+}
+
+impl Into<i32> for IntExp {
+    fn into(self) -> i32 {
+        (self.val.shift(self.exp)).to_i32_wrapping()
+    }
+}
+
+trait Shiftable {
+    fn shift(self, shift:i32) -> Self;
+}
+
+impl Shiftable for Integer {
+    fn shift(self, shift:i32) -> Self {
+        if shift >= 0 {
+            self << shift as u32
+        } else {
+            self >> (-shift) as u32
+        }
+    }
+}
