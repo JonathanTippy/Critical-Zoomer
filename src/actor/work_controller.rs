@@ -44,7 +44,7 @@ pub(crate) struct WorkControllerState {
     , zoom_pot: i64
     , worker_res: (u32, u32)
     , percent_completed: u16
-    , last_relative_transforms: SamplingRelativeTransforms
+    , last_sampler_location: ObjectivePosAndZoom
 }
 
 
@@ -56,7 +56,7 @@ pub(crate) const PIXELS_PER_UNIT: u64 = 1<<(9);
 
 pub async fn run(
     actor: SteadyActorShadow,
-    from_sampler: SteadyRx<(SamplingRelativeTransforms, (u32, u32))>,
+    from_sampler: SteadyRx<(ObjectivePosAndZoom, (u32, u32))>,
     from_worker: SteadyRx<WorkUpdate>,
     values_out: SteadyTx<ResultsPackage>,
     to_worker: SteadyTx<WorkerCommand>,
@@ -76,7 +76,7 @@ pub async fn run(
 
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
-    from_sampler: SteadyRx<(SamplingRelativeTransforms, (u32, u32))>,
+    from_sampler: SteadyRx<(ObjectivePosAndZoom, (u32, u32))>,
     from_worker: SteadyRx<WorkUpdate>,
     values_out: SteadyTx<ResultsPackage>,
     to_worker: SteadyTx<WorkerCommand>,
@@ -97,15 +97,16 @@ async fn internal_behavior<A: SteadyActor>(
         , zoom_pot: WORKER_INIT_ZOOM_POT
         , worker_res: WORKER_INIT_RES
         , percent_completed: 0
-        , last_relative_transforms: SamplingRelativeTransforms{pos: (0, 0), zoom_pot: 0, counter: 0}
+        , last_sampler_location: ObjectivePosAndZoom{pos: (IntExp::from(0), IntExp::from(0)), zoom_pot: 0}
     }).await;
 
 
     let max_sleep = Duration::from_millis(50);
 
     let res = state.worker_res.clone();
-    let ctx = handle_home(&mut state, res);
-    actor.try_send(&mut to_worker, WorkerCommand::Replace{context:ctx});
+    //let ctx = handle_sampler_stuff(&mut state, (
+    //    (IntExp::from(0), IntExp::from(0)), res));
+    //actor.try_send(&mut to_worker, WorkerCommand::Replace{context:ctx});
 
     while actor.is_running(
         || i!(values_out.mark_closed())
@@ -120,38 +121,33 @@ async fn internal_behavior<A: SteadyActor>(
         if actor.avail_units(&mut from_sampler) > 0 {
             while actor.avail_units(&mut from_sampler) > 1 {
                 let stuff = actor.try_take(&mut from_sampler).expect("internal error");
-                if stuff.0 == (SamplingRelativeTransforms{ pos:(0,0), zoom_pot:i64::MIN, counter:u64::MAX }) {
-                    let ctx = handle_home(&mut state, stuff.1);
-                    actor.try_send(&mut to_worker, WorkerCommand::Replace{context:ctx});
-                }
                 drop(stuff);
             };
 
             let stuff = actor.try_take(&mut from_sampler).expect("internal error");
 
-            if stuff.0 == (SamplingRelativeTransforms{ pos:(0,0), zoom_pot:i64::MIN, counter:u64::MAX }) {
-                let ctx = handle_home(&mut state, stuff.1);
+            if let Some(ctx) = handle_sampler_stuff(
+                &mut state
+                , stuff
+            ) {
                 actor.try_send(&mut to_worker, WorkerCommand::Replace{context:ctx});
-            } else if stuff.0.counter > state.last_relative_transforms.counter {
-                if let Some(ctx) = handle_sampler_stuff(
-                    &mut state
-                    , stuff
-                ) {
-                    actor.try_send(&mut to_worker, WorkerCommand::Replace{context:ctx});
-                };
-            }
+            };
         }
 
         if actor.avail_units(&mut from_worker) > 0 {
             let mut u = actor.try_take(&mut from_worker).unwrap();
             state.completed_work.append(&mut u.completed_points);
             let res = state.worker_res;
-            let t = state.last_relative_transforms.clone();
             let c = state.percent_completed==u16::MAX;
             let r = determine_arvs_dummy(&state.completed_work, res);
             info!("got work update. results length is now {}", r.len());
             if r.len() == (res.0*res.1) as usize {
-                actor.try_send(&mut values_out, ResultsPackage{results:r,screen_res:res,originating_relative_transforms:t,dummy:false,complete:c});
+                actor.try_send(&mut values_out, ResultsPackage{
+                    results:r
+                    ,screen_res:res
+                    ,location: state.last_sampler_location.clone()
+                    ,complete:c
+                });
             }
         }
 
@@ -243,50 +239,17 @@ fn get_random_mixmap(size: usize) -> Vec<usize> {
 }
 
 
-fn handle_home(state: &mut WorkControllerState, size: (u32, u32)) -> WorkContext {
-    *state = WorkControllerState {
-        completed_work_layers: vec!()
-        , completed_work: vec!()
-        , mixmaps: state.mixmaps.clone()
-        , mixmap: state.mixmap.clone()
-        , percent_completed: 0
-        , last_relative_transforms: SamplingRelativeTransforms{pos: (0, 0), zoom_pot: 0, counter: 1}
-        , loc: WORKER_INIT_LOC
-        , zoom_pot: WORKER_INIT_ZOOM_POT
-        , worker_res: WORKER_INIT_RES
-    };
+fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAndZoom, (u32, u32))) -> Option<WorkContext> {
 
-    let work_context = WorkContext {
-        points: get_points_f32(size, WORKER_INIT_LOC, WORKER_INIT_ZOOM_POT)
-        , completed_points: vec!()
-        , index: 0
-        , random_index: 0
-        , time_created: Instant::now()
-        , time_workshift_started: Instant::now()
-        , percent_completed: 0.0
-        , random_map: state.mixmap.clone()
-        , workshifts: 0
-        , total_iterations: 0
-        , spent_tokens_today: 0
-        , total_iterations_today: 0
-        , total_points_today: 0
-        , total_bouts_today: 0
-        , last_update: 0
-    };
-    return work_context;
-}
-
-fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (SamplingRelativeTransforms, (u32, u32))) -> Option<WorkContext> {
-
-    let transforms = stuff.0;
+    let obj = stuff.0;
 
 
-    if (transforms.pos != (0, 0)) || (transforms.zoom_pot != 0) || stuff.1 != state.worker_res {
+    if (obj != state.last_sampler_location) || stuff.1 != state.worker_res {
 
         state.worker_res = stuff.1;
         //info!("changing zoom from {} to {} based on counter number {}", state.zoom_pot, state.zoom_pot + transforms.zoom_pot, transforms.counter);
 
-        let objective_zoom = zoom_from_pot(state.zoom_pot + transforms.zoom_pot);
+        let objective_zoom = zoom_from_pot(obj.zoom_pot);
 
         let objective_translation = (
             -(transforms.pos.0 as f64 / PIXELS_PER_UNIT as f64 / objective_zoom)

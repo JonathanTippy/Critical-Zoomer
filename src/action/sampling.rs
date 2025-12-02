@@ -58,18 +58,18 @@ pub(crate) fn sample(
                 // step 3: move back so zoom center falls on same screenspace location
 
                 context.location.pos = (
-                    context.location.pos.0
+                    context.location.pos.0.clone()
                         + IntExp{val: Integer::from(center_centered_pos.0), exp: context.location.zoom_pot}
-                    , context.location.pos.1
+                    , context.location.pos.1.clone()
                         + IntExp{val: Integer::from(center_centered_pos.1), exp: context.location.zoom_pot }
                 );
 
                 context.location.zoom_pot += *pot;
 
                 context.location.pos = (
-                    context.location.pos.0
+                    context.location.pos.0.clone()
                         - IntExp{val: Integer::from(center_centered_pos.0), exp: context.location.zoom_pot}
-                    , context.location.pos.1
+                    , context.location.pos.1.clone()
                         - IntExp{val: Integer::from(center_centered_pos.1), exp: context.location.zoom_pot }
                 );
 
@@ -88,20 +88,24 @@ pub(crate) fn sample(
                     }
                     None => {}
                 }*/
+                context.updated = true;
 
             }
             ZoomerCommand::SetZoom{pot} => {
-                sampling_context.location.zoom_pot = *pot;
+                context.location.zoom_pot = *pot;
+                context.updated = true;
             }
             ZoomerCommand::Move{pixels_x, pixels_y} => {
                 context.location.pos = (
-                    context.location.pos.0 + IntExp::from(*pixels_x).shift(-context.location.zoom_pot)
-                    , context.location.pos.1 + IntExp::from(*pixels_y).shift(-context.location.zoom_pot)
-                )
+                    context.location.pos.0.clone() + IntExp::from(*pixels_x).shift(-context.location.zoom_pot)
+                    , context.location.pos.1.clone() + IntExp::from(*pixels_y).shift(-context.location.zoom_pot)
+                );
+                context.updated = true;
             }
             ZoomerCommand::MoveTo{x, y} => {
                 context.location.pos =
-                    (*x, *y);
+                    (x.clone(), y.clone());
+                context.updated = true;
             }
 
             ZoomerCommand::SetPos{real, imag} => {
@@ -126,22 +130,23 @@ pub(crate) fn sample(
     let data = &context.screens[0].pixels;
 
     let relative_pos = (
-        context.location.pos.0 - context.screens[0].objective_location.pos.0
-        , context.location.pos.1 - context.screens[0].objective_location.pos.1
+        context.location.pos.0.clone() - context.screens[0].objective_location.pos.0.clone()
+        , context.location.pos.1.clone() - context.screens[0].objective_location.pos.1.clone()
     );
 
-    let relative_pos_in_pixels = (
-        relative_pos 
+    let relative_pos_in_pixels:(i32, i32) = (
+        relative_pos.0.shift(context.location.zoom_pot).into()
+, relative_pos.1.shift(context.location.zoom_pot).into()
+        );
 
-        )
     let relative_zoom = context.location.zoom_pot - context.screens[0].objective_location.zoom_pot;
 
     let factor:f64;
 
-    if context.location.zoom_pot > 0 {
-        factor = (1<<context.location.zoom_pot) as f64;
+    if relative_zoom > 0 {
+        factor = (1<<relative_zoom) as f64;
     } else {
-        factor =  1.0 / (1<<-context.location.zoom_pot) as f64;
+        factor =  1.0 / (1<<-relative_zoom) as f64;
     }
 
     let relative_zoom_recip = ((1.0 / factor) * ((1<<16) as f64)) as u32;
@@ -166,8 +171,8 @@ pub(crate) fn sample(
                     , seat
                     //, res_recip
                     , min_side_recip
-                    , relative_pos
-                    , context.location.zoom_pot
+                    , relative_pos_in_pixels
+                    , relative_zoom as i64
                 )
             );
             //i+=1;
@@ -247,82 +252,17 @@ fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom: i64) -> (
 
 pub(crate) fn update_sampling_context(context: &mut SamplingContext, screen: ZoomerScreen) {
 
-    if context.location.counter == screen.originating_relative_transforms.counter {
-
-        if !screen.dummy {
-
-            context.location.zoom_pot =
-                context.location.zoom_pot
-                    - screen.originating_relative_transforms.zoom_pot;
-
-            let offset =
-            (
-                signed_shift(
-                    screen.originating_relative_transforms.pos.0
-                    , context.location.zoom_pot
-                )
-                , signed_shift(
-                    screen.originating_relative_transforms.pos.1
-                    , context.location.zoom_pot
-                )
-            );
-
-            //info!("updating relative pos to {}, {} based on counter number {}"
-            //, state.sampling_context.relative_transforms.pos.0 - offset.0
-            //, state.sampling_context.relative_transforms.pos.1 - offset.1
-            //, screen.originating_relative_transforms.counter
-            //);
-
-            //info!("updating relative zoom pot to {} based on counter number {}", state.sampling_context.relative_transforms.zoom_pot, screen.originating_relative_transforms.counter);
-
-            context.location.pos = (
-                // take the pre-existing offset, and move it to where the old data is now.
-                context.location.pos.0 - offset.0 // as f64 / zoom) as i32
-                , context.location.pos.1 - offset.1 // as f64 / zoom) as i32
-            );
-
-
-
-
-            match &context.mouse_drag_start {
-                Some(d) => {
-                    // take the pre-existing drag start point, and move it to where the old data is now.
-
-                    context.mouse_drag_start = Some( MouseDragStart{
-                        screenspace_drag_start: d.screenspace_drag_start
-                        , relative_transforms: SamplingRelativeTransforms{
-                            pos: (
-                                d.relative_transforms.pos.0 - offset.0
-                                ,   d.relative_transforms.pos.1 - offset.1
-                            )
-                            , zoom_pot: d.relative_transforms.zoom_pot - screen.originating_relative_transforms.zoom_pot
-                            , counter: context.location.counter
-                        }
-                    });
-                }
-                None => {}
-            }
-
-
-                if context.screens.len() != 0 {
-                    drop(context.screens.pop().unwrap());
-                    context.screens.push(screen);
-                } else {
-                    context.screens.push(screen);
-                }
-
-            //info!("updating transform revision counter to {}", state.sampling_context.relative_transforms.counter + 1);
-            context.location.counter = context.location.counter + 1;
-
-        } else {
-            context.location.counter = context.location.counter + 1;
-        }
-    } /*else if screen.complete { // override the transforms counter if the screen is complete
-        if context.screens.len() != 0 {
-            drop(context.screens.pop().unwrap());
-            context.screens.push(screen);
-        } else {
-            context.screens.push(screen);
-        }
-    }*/
+    if context.location == screen.objective_location {
+        context.updated = false;
+    }
+    
+    
+    if context.screens.len() != 0 {
+        drop(context.screens.pop().unwrap());
+        context.screens.push(screen);
+    } else {
+        context.screens.push(screen);
+    }
+    
+    
 }

@@ -132,9 +132,11 @@ async fn internal_behavior<A: SteadyActor>(
             screens: vec!()
             , screen_size: (DEFAULT_WINDOW_RES.0, DEFAULT_WINDOW_RES.1)
             , location: ObjectivePosAndZoom {
-                pos: (Float::with_val(1, 0), Float::with_val(1, 0))
+                pos: (IntExp::from(0), IntExp::from(0))
                 , zoom_pot: 0
             }
+            , updated: true
+            , mouse_drag_start:None
         }
         , settings_window_context: Arc::new(Mutex::new(DEFAULT_SETTINGS_WINDOW_CONTEXT))
         , settings_window_open: false
@@ -146,7 +148,7 @@ async fn internal_behavior<A: SteadyActor>(
         , fps_margin: 0.0
 
         , timer2: Instant::now()
-        , mouse_drag_start:None
+
     }).await;
 
     // with_decorations!!!!
