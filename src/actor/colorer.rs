@@ -2,9 +2,10 @@ use rand::Rng;
 use steady_state::*;
 use crate::action::sampling::*;
 use crate::actor::updater::*;
-use crate::actor::work_controller::*;
 
 use crate::action::utils::*;
+
+use crate::actor::work_collector::*;
 
 
 #[derive(Clone, Debug)]

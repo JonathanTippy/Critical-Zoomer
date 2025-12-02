@@ -12,19 +12,12 @@ use crate::action::utils::*;
 
 pub(crate) enum WorkerCommand {
     Update
-    , Replace{context: WorkContext}
+    , Replace{frame_info: ObjectivePosAndZoom, context: WorkContext}
 }
 
 pub(crate) enum ScreenValue {
     Outside{escape_time: u32}
     , Inside{loop_period: u32}
-}
-
-pub(crate) struct ResultsPackage {
-    pub(crate) results: Vec<ScreenValue>
-    , pub(crate) screen_res: (u32, u32)
-    , pub(crate) location: ObjectivePosAndZoom
-    , pub(crate) complete: bool
 }
 
 pub(crate) struct WorkControllerState {
@@ -65,17 +58,13 @@ pub(crate) const PIXELS_PER_UNIT: u64 = 1<<(PIXELS_PER_UNIT_POT);
 pub async fn run(
     actor: SteadyActorShadow,
     from_sampler: SteadyRx<(ObjectivePosAndZoom, (u32, u32))>,
-    from_worker: SteadyRx<WorkUpdate>,
-    values_out: SteadyTx<ResultsPackage>,
     to_worker: SteadyTx<WorkerCommand>,
     state: SteadyState<WorkControllerState>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
-        actor.into_spotlight([&from_sampler, &from_worker], [&values_out, &to_worker]),
+        actor.into_spotlight([&from_sampler], [&to_worker]),
         from_sampler,
-        from_worker,
-        values_out,
         to_worker,
         state,
     )
@@ -85,15 +74,11 @@ pub async fn run(
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
     from_sampler: SteadyRx<(ObjectivePosAndZoom, (u32, u32))>,
-    from_worker: SteadyRx<WorkUpdate>,
-    values_out: SteadyTx<ResultsPackage>,
     to_worker: SteadyTx<WorkerCommand>,
     state: SteadyState<WorkControllerState>,
 ) -> Result<(), Box<dyn Error>> {
 
     let mut from_sampler = from_sampler.lock().await;
-    let mut values_out = values_out.lock().await;
-    let mut from_worker = from_worker.lock().await;
     let mut to_worker = to_worker.lock().await;
 
     let mut state = state.lock(|| WorkControllerState {
@@ -117,7 +102,7 @@ async fn internal_behavior<A: SteadyActor>(
     //actor.try_send(&mut to_worker, WorkerCommand::Replace{context:ctx});
 
     while actor.is_running(
-        || i!(values_out.mark_closed())
+        || i!(to_worker.mark_closed())
     ) {
         state.percent_completed = (((state.completed_work.len() as f32) / ((state.worker_res.0*state.worker_res.1) as f32)) * u16::MAX as f32) as u16;
 
@@ -136,31 +121,11 @@ async fn internal_behavior<A: SteadyActor>(
 
             if let Some(ctx) = handle_sampler_stuff(
                 &mut state
-                , stuff
+                , stuff.clone()
             ) {
-                actor.try_send(&mut to_worker, WorkerCommand::Replace{context:ctx});
+                actor.try_send(&mut to_worker, WorkerCommand::Replace{frame_info: stuff.0, context:ctx});
             };
         }
-
-        if actor.avail_units(&mut from_worker) > 0 {
-            let mut u = actor.try_take(&mut from_worker).unwrap();
-            state.completed_work.append(&mut u.completed_points);
-            let res = state.worker_res;
-            let c = state.percent_completed==u16::MAX;
-            let r = determine_arvs_dummy(&state.completed_work, res);
-            info!("got work update. results length is now {}", r.len());
-            if r.len() == (res.0*res.1) as usize {
-                actor.try_send(&mut values_out, ResultsPackage{
-                    results:r
-                    ,screen_res:res
-                    ,location: state.last_sampler_location.clone().expect("WC recieved work from worker but somehow don't have a sampler location")
-                    ,complete:c
-                });
-            }
-        }
-
-        
-
 
         if state.percent_completed<u16::MAX {
             actor.try_send(&mut to_worker, WorkerCommand::Update{});

@@ -29,7 +29,7 @@ const RECOVER_EGUI_CRASHES:bool = false;
 //const MAX_FRAME_TIME:f64 = 1.0 / MIN_FRAME_RATE;
 const VSYNC:bool = false;
 
-pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (800, 640);
+pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (800, 480);
 
 pub(crate) const HOME_POSTION:(i32, i32, i32) = (-2, -2, -2);
 

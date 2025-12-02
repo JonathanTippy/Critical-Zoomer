@@ -11,6 +11,7 @@ pub(crate) mod actor {
     pub(crate) mod screen_worker;
     pub(crate) mod colorer;
     pub(crate) mod updater;
+    pub(crate) mod work_collector;
 }
 
 pub(crate) mod action {
@@ -52,7 +53,7 @@ const NAME_COLORER: &str = "colorer";
 const NAME_WORK_CONTROLLER: &str = "work controller";
 const NAME_SCREEN_WORKER:&str = "screen worker";
 const NAME_UPDATER: &str = "updater";
-
+const NAME_WORK_COLLECTOR: &str = "work collector";
 
 fn build_graph(graph: &mut Graph) {
     // Channel builder is configured with advanced telemetry and alerting features.
@@ -90,12 +91,7 @@ fn build_graph(graph: &mut Graph) {
         , colorer_rx_from_updater
     ) = channel_builder.build();
 
-    //worker channels
 
-    let (
-        work_controller_tx_to_colorer
-        , colorer_rx_from_work_controller
-    ) = channel_builder.build();
 
     //window to worker state update channel
 
@@ -111,15 +107,19 @@ fn build_graph(graph: &mut Graph) {
         , screen_worker_rx_from_work_controller
     ) = channel_builder.with_capacity(2).build();
 
-    // worker to work controller responses channel
+    // worker to work collector responses channel
 
     let (
-        screen_worker_tx_to_work_controller
-        , work_controller_rx_from_screen_worker
+        screen_worker_tx_to_work_collector
+        , work_collector_rx_from_screen_worker
     ) = channel_builder.with_capacity(2).build();
 
+    // work collector to colorer chanel
 
-
+    let (
+        work_collector_tx_to_colorer
+        , colorer_rx_from_work_collector
+    ) = channel_builder.build();
 
 
 
@@ -162,21 +162,28 @@ fn build_graph(graph: &mut Graph) {
     let state = new_state();
     actor_builder.with_name(NAME_COLORER)
         .build(move |context|
-                   actor::colorer::run(context, colorer_rx_from_work_controller.clone(), colorer_rx_from_updater.clone(), colorer_tx_to_window.clone(), state.clone()) //#!#//
+                   actor::colorer::run(context, colorer_rx_from_work_collector.clone(), colorer_rx_from_updater.clone(), colorer_tx_to_window.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
                , SoloAct);
 
     let state = new_state();
     actor_builder.with_name(NAME_WORK_CONTROLLER)
         .build(move |context|
-                   actor::work_controller::run(context, work_controller_rx_from_window.clone(), work_controller_rx_from_screen_worker.clone(), work_controller_tx_to_colorer.clone(), work_controller_tx_to_screen_worker.clone(), state.clone()) //#!#//
+                   actor::work_controller::run(context, work_controller_rx_from_window.clone(), work_controller_tx_to_screen_worker.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
                , SoloAct);
 
     let state = new_state();
     actor_builder.with_name(NAME_SCREEN_WORKER)
         .build(move |context|
-                   actor::screen_worker::run(context, screen_worker_rx_from_work_controller.clone(), screen_worker_tx_to_work_controller.clone(), state.clone()) //#!#//
+                   actor::screen_worker::run(context, screen_worker_rx_from_work_controller.clone(), screen_worker_tx_to_work_collector.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
                , SoloAct);
+
+    let state = new_state();
+    actor_builder.with_name(NAME_WORK_COLLECTOR)
+        .build(move |context|
+            actor::work_collector::run(context, work_collector_rx_from_screen_worker.clone(), work_collector_tx_to_colorer.clone(), state.clone())
+            , SoloAct
+        );
 }
