@@ -31,8 +31,8 @@ a mandelbrot set zoomer written in rust
 ### The MVP 0 (0.0.1)  done!
 - blazing fast window exists | ✔️
 - workday-based worker exists | ✔️
-- window and worker communicate | ✔
-- ️no iteration count; all results are always calculated completely until escape or loop.
+- window and worker communicate | ✔️
+- ️no iteration count; all results are always calculated completely until escape or loop. | ✔️
   
 ### Fix the jank (0.0.2) done!
 - window / worker linkakge is stable during quick inputs | ✔️
@@ -51,7 +51,8 @@ a mandelbrot set zoomer written in rust
 - rewrite WC / window linkage | ✔️
 - fix zoom while drag | ✔️
 - fix home button | ✔️
-- fix screen resizing
+- fix screen resizing | ✔️
+- fix work can get stuck | ...
 
 ### work saving (0.0.4)
 

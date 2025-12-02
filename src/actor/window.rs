@@ -381,6 +381,8 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
                 ui.image((handle.id(), available_size));
 
+                state.size = available_size;
+
                 //info!("took {:.3}ms", start.elapsed().as_secs_f64()*1000.0);
 
                 // Add a transparent text block in the top-left corner for debug info
@@ -617,21 +619,31 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     state.settings_window_open = !result.will_close;
                 }
             });
-
+            //println!("hi 1");
             // save current window position and size
+            /*
             ctx.input(|input_state| {
+                //println!("hi 2");
                 let info:ViewportInfo = input_state.raw.viewports.get(&input_state.raw.viewport_id).unwrap().clone();
                 match info.outer_rect {
-                    Some(r) => { state.location = Some(r.min); }
+                    Some(r) => {
+                        println!("hi 11");
+                        state.location = Some(r.min);
+                    }
                     None => {}
                 }
                 match info.inner_rect {
                     Some(r) => {
+                        println!("hi 3");
                         state.size = r.size();
-                        //state.sampling_state.window_res.0 = r.size().x as u32;
-                        //state.sampling_state.window_res.0 = r.size().y as u32;
+                        state.sampling_context.screen_size.0 = r.size().x as u32;
+                        state.sampling_context.screen_size.1 = r.size().y as u32;
+                        state.sampling_context.updated = true;
+                        println!("changed res to {}x{}", r.size().x, r.size().y);
                     }
-                    None => {}
+                    None => {
+                        //println!("hi 4");
+                    }
                 }
                 /*match info.minimized {
                     Some(m) => {
@@ -657,7 +669,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     }
                     None => {}
                 }*/
-            });
+            });*/
 
             state.last_frame_period = Some(  (this_frame_start, Instant::now())  );
 
