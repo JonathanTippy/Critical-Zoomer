@@ -10,6 +10,7 @@ use crate::actor::colorer::*;
 use crate::action::utils::*;
 
 use rug::{Float, Integer};
+use crate::actor::work_controller::PIXELS_PER_UNIT_POT;
 
 #[derive(Clone, Debug)]
 pub(crate) struct SamplingContext {
@@ -46,10 +47,10 @@ pub(crate) fn sample(
             }
             ZoomerCommand::Zoom{pot, center_screenspace_pos} => {
 
-                let center_centered_pos = (
+                /*let center_centered_pos = (
                     center_screenspace_pos.0 + (context.screen_size.0/2) as i32
                     , center_screenspace_pos.1 + (context.screen_size.1/2) as i32
-                );
+                );*/
 
 
                 // adjust position & zoom based on zooming in 3 steps
@@ -59,18 +60,18 @@ pub(crate) fn sample(
 
                 context.location.pos = (
                     context.location.pos.0.clone()
-                        + IntExp{val: Integer::from(center_centered_pos.0), exp: context.location.zoom_pot}
+                        + IntExp{val: Integer::from(center_screenspace_pos.0), exp: -context.location.zoom_pot}.shift(-PIXELS_PER_UNIT_POT)
                     , context.location.pos.1.clone()
-                        + IntExp{val: Integer::from(center_centered_pos.1), exp: context.location.zoom_pot }
+                        + IntExp{val: Integer::from(center_screenspace_pos.1), exp: -context.location.zoom_pot }.shift(-PIXELS_PER_UNIT_POT)
                 );
 
                 context.location.zoom_pot += *pot;
 
                 context.location.pos = (
                     context.location.pos.0.clone()
-                        - IntExp{val: Integer::from(center_centered_pos.0), exp: context.location.zoom_pot}
+                        - IntExp{val: Integer::from(center_screenspace_pos.0), exp: -context.location.zoom_pot}.shift(-PIXELS_PER_UNIT_POT)
                     , context.location.pos.1.clone()
-                        - IntExp{val: Integer::from(center_centered_pos.1), exp: context.location.zoom_pot }
+                        - IntExp{val: Integer::from(center_screenspace_pos.1), exp: -context.location.zoom_pot }.shift(-PIXELS_PER_UNIT_POT)
                 );
 
                 // reset mouse drag start to the new screenspace location
@@ -97,8 +98,8 @@ pub(crate) fn sample(
             }
             ZoomerCommand::Move{pixels_x, pixels_y} => {
                 context.location.pos = (
-                    context.location.pos.0.clone() + IntExp::from(*pixels_x).shift(-context.location.zoom_pot)
-                    , context.location.pos.1.clone() + IntExp::from(*pixels_y).shift(-context.location.zoom_pot)
+                    context.location.pos.0.clone() + IntExp::from(*pixels_x).shift(-context.location.zoom_pot).shift(-PIXELS_PER_UNIT_POT)
+                    , context.location.pos.1.clone() + IntExp::from(*pixels_y).shift(-context.location.zoom_pot).shift(-PIXELS_PER_UNIT_POT)
                 );
                 context.updated = true;
             }
@@ -130,13 +131,13 @@ pub(crate) fn sample(
     let data = &context.screens[0].pixels;
 
     let relative_pos = (
-        context.location.pos.0.clone() - context.screens[0].objective_location.pos.0.clone()
-        , context.location.pos.1.clone() - context.screens[0].objective_location.pos.1.clone()
+        context.screens[0].objective_location.pos.0.clone()-context.location.pos.0.clone()
+        , context.screens[0].objective_location.pos.1.clone()-context.location.pos.1.clone()
     );
 
     let relative_pos_in_pixels:(i32, i32) = (
-        relative_pos.0.shift(context.location.zoom_pot).into()
-, relative_pos.1.shift(context.location.zoom_pot).into()
+        relative_pos.0.shift(context.location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
+, relative_pos.1.shift(context.location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
         );
 
     let relative_zoom = context.location.zoom_pot - context.screens[0].objective_location.zoom_pot;

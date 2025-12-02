@@ -44,7 +44,7 @@ pub(crate) struct WorkControllerState {
     , zoom_pot: i64
     , worker_res: (u32, u32)
     , percent_completed: u16
-    , last_sampler_location: ObjectivePosAndZoom
+    , last_sampler_location: Option<ObjectivePosAndZoom>
 }
 
 
@@ -52,7 +52,15 @@ pub(crate) const WORKER_INIT_RES:(u32, u32) = DEFAULT_WINDOW_RES;
 pub(crate) const WORKER_INIT_LOC:(f64, f64) = (0.0, 0.0);
 pub(crate) const WORKER_INIT_ZOOM_POT: i64 = -2;
 pub(crate) const WORKER_INIT_ZOOM:f64 = if WORKER_INIT_ZOOM_POT>0 {(1<<WORKER_INIT_ZOOM_POT) as f64} else {1.0 / (1<<-WORKER_INIT_ZOOM_POT) as f64};
-pub(crate) const PIXELS_PER_UNIT: u64 = 1<<(9);
+
+pub(crate) const PIXELS_PER_UNIT_POT:i32 = 9;
+pub(crate) const PIXELS_PER_UNIT: u64 = 1<<(PIXELS_PER_UNIT_POT);
+
+
+
+
+
+
 
 pub async fn run(
     actor: SteadyActorShadow,
@@ -97,7 +105,7 @@ async fn internal_behavior<A: SteadyActor>(
         , zoom_pot: WORKER_INIT_ZOOM_POT
         , worker_res: WORKER_INIT_RES
         , percent_completed: 0
-        , last_sampler_location: ObjectivePosAndZoom{pos: (IntExp::from(0), IntExp::from(0)), zoom_pot: 0}
+        , last_sampler_location: None
     }).await;
 
 
@@ -145,7 +153,7 @@ async fn internal_behavior<A: SteadyActor>(
                 actor.try_send(&mut values_out, ResultsPackage{
                     results:r
                     ,screen_res:res
-                    ,location: state.last_sampler_location.clone()
+                    ,location: state.last_sampler_location.clone().expect("WC recieved work from worker but somehow don't have a sampler location")
                     ,complete:c
                 });
             }
@@ -185,8 +193,10 @@ fn get_points_f32(res: (u32, u32), loc:(f64, f64), zoom: i64) -> Points {
                 }
 
                 let point:(f32, f32) = (
-                    (real_center + ((seat as f32 / significant_res as f32 - 0.5) / zoom_factor) as f64) as f32
-                    , (imag_center + (-((row as f32 / significant_res as f32 - 0.5) / zoom_factor)) as f64) as f32
+                    /*(real_center + ((seat as f32 / significant_res as f32 - 0.5) / zoom_factor) as f64) as f32
+                    , (imag_center + (-((row as f32 / significant_res as f32 - 0.5) / zoom_factor)) as f64) as f32*/
+                    (real_center + ((seat as f32 / significant_res as f32) / zoom_factor) as f64) as f32
+                    , (imag_center + (-((row as f32 / significant_res as f32) / zoom_factor)) as f64) as f32
                 );
 
                 out.push(
@@ -243,70 +253,45 @@ fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAnd
 
     let obj = stuff.0;
 
-
-    if (obj != state.last_sampler_location) || stuff.1 != state.worker_res {
-
-        state.worker_res = stuff.1;
-        //info!("changing zoom from {} to {} based on counter number {}", state.zoom_pot, state.zoom_pot + transforms.zoom_pot, transforms.counter);
-
-        let objective_zoom = zoom_from_pot(obj.zoom_pot);
-
-        let objective_translation = (
-            -(transforms.pos.0 as f64 / PIXELS_PER_UNIT as f64 / objective_zoom)
-            , transforms.pos.1 as f64 / PIXELS_PER_UNIT as f64 / objective_zoom
-        );
-
-        let zoomed = transforms.zoom_pot != 0;
-
-        let zoom = zoom_from_pot(transforms.zoom_pot);
-
-        state.loc = (
-            state.loc.0 + objective_translation.0
-            , state.loc.1 + objective_translation.1
-        );
-
-        if transforms.zoom_pot > 0 {
-            for z in 0..transforms.zoom_pot {
-                state.loc = (
-                    state.loc.0 - (2.0/(zoom_from_pot(state.zoom_pot + z+1)/WORKER_INIT_ZOOM))
-                    , state.loc.1 + (2.0/(zoom_from_pot(state.zoom_pot + z+1)/WORKER_INIT_ZOOM))
-                )
-            }
-
-        } else if transforms.zoom_pot < 0 {
-            for z in 0..-transforms.zoom_pot {
-                state.loc = (
-                    state.loc.0 + (1.0/(zoom_from_pot(state.zoom_pot - (z+1))/WORKER_INIT_ZOOM))
-                    , state.loc.1 - (1.0/(zoom_from_pot(state.zoom_pot - (z+1))/WORKER_INIT_ZOOM))
-                )
-            }
+    if let Some(loc) = state.last_sampler_location.clone() {
+        if !((obj != loc) || stuff.1 != state.worker_res) {
+            return None
         }
-
-        state.zoom_pot = state.zoom_pot + transforms.zoom_pot;
-
-
-        let work_context = WorkContext {
-            points: get_points_f32(stuff.1, state.loc, state.zoom_pot)
-            , completed_points: vec!()
-            , index: 0
-            , random_index: 0
-            , time_created: Instant::now()
-            , time_workshift_started: Instant::now()
-            , percent_completed: 0.0
-            , random_map: state.mixmap.clone()
-            , workshifts: 0
-            , total_iterations: 0
-            , spent_tokens_today: 0
-            , total_iterations_today: 0
-            , total_points_today: 0
-            , total_bouts_today: 0
-            , last_update: 0
-        };
-        state.last_relative_transforms = transforms;
-        state.completed_work = vec!();
-        return Some(work_context);
-    } else {
-        state.last_relative_transforms = transforms;
-        return None;
     }
+
+    state.worker_res = stuff.1;
+
+    state.loc = (
+        obj.pos.0.clone().into()
+        , obj.pos.1.clone().into()
+    );
+
+    state.loc = (
+        state.loc.0
+        , -state.loc.1
+        );
+
+    state.zoom_pot = obj.zoom_pot as i64;
+
+
+    let work_context = WorkContext {
+        points: get_points_f32(stuff.1, state.loc, state.zoom_pot)
+        , completed_points: vec!()
+        , index: 0
+        , random_index: 0
+        , time_created: Instant::now()
+        , time_workshift_started: Instant::now()
+        , percent_completed: 0.0
+        , random_map: state.mixmap.clone()
+        , workshifts: 0
+        , total_iterations: 0
+        , spent_tokens_today: 0
+        , total_iterations_today: 0
+        , total_points_today: 0
+        , total_bouts_today: 0
+        , last_update: 0
+    };
+    state.last_sampler_location = Some(obj);
+    state.completed_work = vec!();
+    Some(work_context)
 }

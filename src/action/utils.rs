@@ -166,6 +166,12 @@ impl Into<i32> for IntExp {
     }
 }
 
+impl Into<f64> for IntExp {
+    fn into(self) -> f64 {
+        self.val.to_f64() * 1.0.shift(self.exp)
+    }
+}
+
 trait Shiftable {
     fn shift(self, shift:i32) -> Self;
 }
@@ -177,5 +183,11 @@ impl Shiftable for Integer {
         } else {
             self >> (-shift) as u32
         }
+    }
+}
+
+impl Shiftable for f64 {
+    fn shift(self, shift:i32) -> Self {
+        self * zoom_from_pot(shift)
     }
 }
