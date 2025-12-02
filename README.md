@@ -42,7 +42,7 @@ a mandelbrot set zoomer written in rust
 - fix zoom while drag | ✔️
 - implement home button functionality | ✔️
 
-### workgroup rewrite (0.0.3) WIP...
+### workgroup rewrite (0.0.3) done!
 
 - worker no longer workday based, but workshift and checks its in channel every shift | ✔️
 - rework worker resolution and updates; add work collector after worker so worker can send updates at a fixed rate | ✔️
@@ -52,13 +52,13 @@ a mandelbrot set zoomer written in rust
 - fix zoom while drag | ✔️
 - fix home button | ✔️
 - fix screen resizing | ✔️
-- fix work can get stuck | ...
 
-### work saving (0.0.4)
+### work saving (0.0.4) WIP...
 
 - add work collector actor
 - implement work saving when zooming in
 - reintroduce random work order
 - implement CD
+- fix work can get stuck
 
 
