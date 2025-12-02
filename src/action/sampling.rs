@@ -13,7 +13,7 @@ use rug::{Float, Integer};
 
 #[derive(Clone, Debug)]
 pub(crate) struct SamplingContext {
-    pub(crate) screen: Option<ZoomerScreen>
+    pub(crate) screens: Vec<ZoomerScreen>
     , pub(crate) screen_size: (u32, u32)
     , pub(crate) location: ObjectivePosAndZoom
     , pub(crate) updated: bool
@@ -90,13 +90,13 @@ pub(crate) fn sample(
                 }*/
 
             }
-            ZoomerCommand::SetZoom{factor} => {
+            ZoomerCommand::SetZoom{pot} => {
+                sampling_context.location.zoom_pot = *pot;
             }
             ZoomerCommand::Move{pixels_x, pixels_y} => {
                 context.location.pos = (
-                    context.location.pos.0
-                    + *pixels_x, context.location.pos.1
-                    + *pixels_y
+                    context.location.pos.0 + IntExp::from(*pixels_x).shift(-context.location.zoom_pot)
+                    , context.location.pos.1 + IntExp::from(*pixels_y).shift(-context.location.zoom_pot)
                 )
             }
             ZoomerCommand::MoveTo{x, y} => {
@@ -125,7 +125,16 @@ pub(crate) fn sample(
 
     let data = &context.screens[0].pixels;
 
-    let relative_pos = context.location.pos;
+    let relative_pos = (
+        context.location.pos.0 - context.screens[0].objective_location.pos.0
+        , context.location.pos.1 - context.screens[0].objective_location.pos.1
+    );
+
+    let relative_pos_in_pixels = (
+        relative_pos 
+
+        )
+    let relative_zoom = context.location.zoom_pot - context.screens[0].objective_location.zoom_pot;
 
     let factor:f64;
 

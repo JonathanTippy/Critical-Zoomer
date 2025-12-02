@@ -693,19 +693,19 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
         (input_state.pointer.primary_pressed() && (! input_state.pointer.button_down(egui::PointerButton::Middle)))
         || (input_state.pointer.button_pressed(egui::PointerButton::Middle) && (! input_state.pointer.primary_down())) {
             let d = input_state.pointer.latest_pos().unwrap();
-            state.mouse_drag_start = Some(
+            state.sampling_context.mouse_drag_start = Some(
                 (state.sampling_context.location.clone()
                  , d
                 )
             );
         }
 
-        match &state.mouse_drag_start {
+        match &state.sampling_context.mouse_drag_start {
             Some(start) => {
 
                 // end the current drag if appropriate
                 if (!input_state.pointer.button_down(egui::PointerButton::Primary)) && (!input_state.pointer.button_down(egui::PointerButton::Middle)) {
-                    state.mouse_drag_start = None;
+                    state.sampling_context.mouse_drag_start = None;
                 } else {
                     // execute the drag
 
