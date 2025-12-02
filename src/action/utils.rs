@@ -3,7 +3,7 @@ use std::cmp::*;
 use std::ops::*;
 
 #[inline]
-pub(crate) fn zoom_from_pot(zoom: i64) -> f64 {
+pub(crate) fn zoom_from_pot(zoom: i32) -> f64 {
     if zoom > 0 {(1 << zoom) as f64} else {1.0 / (1<<-zoom) as f64}
 }
 

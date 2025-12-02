@@ -99,9 +99,7 @@ async fn internal_behavior<A: SteadyActor>(
                 actor.try_send(&mut screens_out, ZoomerScreen{
                     pixels: output
                     , screen_size: state.values.as_ref().unwrap().screen_res.clone()
-                    , objective_location:  state.values.as_ref().unwrap().originating_relative_transforms.clone()
-                    , dummy: state.values.as_ref().unwrap().dummy.clone()
-                    , complete: state.values.as_ref().unwrap().complete.clone()
+                    , objective_location:  state.values.as_ref().unwrap().location.clone()
                 });
                 //info!("sent colors to window");
 
