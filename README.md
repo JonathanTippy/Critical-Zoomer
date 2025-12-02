@@ -49,8 +49,8 @@ a mandelbrot set zoomer written in rust
 - fix work cancellation | ✔️
 - fix work skipping | ✔️
 - rewrite WC / window linkage | ✔️
-- fix zoom while drag
-- fix home button 
+- fix zoom while drag | ✔️
+- fix home button | ✔️
 - fix screen resizing
 
 ### work saving (0.0.4)
