@@ -222,7 +222,7 @@ fn sample_color(
 
 
 #[inline]
-fn relative_location_i32_row_and_seat(seat: usize, row: usize) -> (i32, i32) {
+pub(crate) fn relative_location_i32_row_and_seat(seat: usize, row: usize) -> (i32, i32) {
 
     let seat = seat as u32;
     let row = row as u32;
@@ -235,7 +235,7 @@ fn relative_location_i32_row_and_seat(seat: usize, row: usize) -> (i32, i32) {
 }
 
 #[inline]
-fn index_from_relative_location(l: (i32, i32), data_res: (u32, u32), data_length: usize) -> usize {
+pub(crate) fn index_from_relative_location(l: (i32, i32), data_res: (u32, u32), data_length: usize) -> usize {
 
     let i =
         (
@@ -248,7 +248,7 @@ fn index_from_relative_location(l: (i32, i32), data_res: (u32, u32), data_length
 }
 
 #[inline]
-fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom: i64) -> (i32, i32) {
+pub(crate) fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom: i64) -> (i32, i32) {
     // move + zoom
 
     (

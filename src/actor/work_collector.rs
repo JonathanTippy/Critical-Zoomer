@@ -1,3 +1,4 @@
+use eframe::epaint::Color32;
 use steady_state::*;
 
 use crate::actor::window::*;
@@ -27,24 +28,8 @@ pub(crate) struct ResultsPackage {
     , pub(crate) complete: bool
 }
 
-pub(crate) struct WorkControllerState {
-    completed_work_layers: Vec<Vec<Option<CompletedPoint>>>
-    , completed_work: Vec<CompletedPoint>
-    // this vecvec contains the completed work layer by layer, or resolution by resolution.
-    // for example, vec 0 contains the 4 points for res 1x1, 1 contains the additional 5 points to make res 2x2
-    // vec 2 contains the additional 33 points to make res 4x4 (assuming a square POT screen)
-    // this achieves dynamic res at arbitrary positions; when producing ARVs, the smallest possible square is
-    // used for each ARV.
-    , mixmaps: Vec<Vec<usize>>
-    , mixmap: Vec<usize>
-    // each res has its own custom sized mixmap
-    // this mixmap is used by the workers to determine point order
-    // work can also be done in whatever order; for example, for attention.
-    , loc: (f64, f64)
-    , zoom_pot: i64
-    , worker_res: (u32, u32)
-    , percent_completed: u16
-    , last_sampler_location: Option<ObjectivePosAndZoom>
+pub(crate) struct WorkCollectorState {
+    completed_work: Option<ResultsPackage>
 }
 
 
@@ -58,15 +43,11 @@ pub(crate) const PIXELS_PER_UNIT: u64 = 1<<(PIXELS_PER_UNIT_POT);
 
 
 
-
-
-
-
 pub async fn run(
     actor: SteadyActorShadow,
     from_worker: SteadyRx<WorkUpdate>,
     values_out: SteadyTx<ResultsPackage>,
-    state: SteadyState<WorkControllerState>,
+    state: SteadyState<WorkCollectorState>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
@@ -82,22 +63,14 @@ async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
     from_worker: SteadyRx<WorkUpdate>,
     values_out: SteadyTx<ResultsPackage>,
-    state: SteadyState<WorkControllerState>,
+    state: SteadyState<WorkCollectorState>,
 ) -> Result<(), Box<dyn Error>> {
 
     let mut values_out = values_out.lock().await;
     let mut from_worker = from_worker.lock().await;
 
-    let mut state = state.lock(|| WorkControllerState {
-        completed_work_layers: vec!()
-        , completed_work: vec!()
-        , mixmaps: vec!()//get_mixmaps(WORKER_INIT_RES)
-        , mixmap: get_random_mixmap((WORKER_INIT_RES.0*WORKER_INIT_RES.1) as usize)
-        , loc: WORKER_INIT_LOC
-        , zoom_pot: WORKER_INIT_ZOOM_POT
-        , worker_res: WORKER_INIT_RES
-        , percent_completed: 0
-        , last_sampler_location: None
+    let mut state = state.lock(|| WorkCollectorState {
+        completed_work: None
     }).await;
 
     let max_sleep = Duration::from_millis(50);
@@ -110,12 +83,19 @@ async fn internal_behavior<A: SteadyActor>(
     while actor.is_running(
         || i!(values_out.mark_closed())
     ) {
-        state.percent_completed = (((state.completed_work.len() as f32) / ((state.worker_res.0*state.worker_res.1) as f32)) * u16::MAX as f32) as u16;
+        let percent_completed = 0;
+
+        if let Some(w) = state.completed_work {
+
+        }
+
 
         if actor.avail_units(&mut from_worker) > 0 {
             let mut u = actor.try_take(&mut from_worker).unwrap();
 
             if let Some(f) = u.frame_info {
+
+
                 state.completed_work = vec!();
                 state.last_sampler_location = Some(f);
             }
@@ -172,4 +152,60 @@ fn get_random_mixmap(size: usize) -> Vec<usize> {
     // Shuffle indices randomly
     indices.shuffle(&mut rng);
     indices
+}
+
+fn overlay_results(
+    old_results: &mut Vec<CompletedPoint>
+    , old_results_obj: ObjectivePosAndZoom
+    , new_results: &mut Vec<CompletedPoint>
+    , new_results_obj: ObjectivePosAndZoom
+) {
+    for row in 0..size.1 as usize {
+        for seat in 0..size.0 as usize {
+            bucket.push(
+                crate::action::sampling::sample_color(
+                    data
+                    , min_side
+                    , data_size
+                    , data_len
+                    , row
+                    , seat
+                    //, res_recip
+                    , min_side_recip
+                    , relative_pos_in_pixels
+                    , relative_zoom as i64
+                )
+            );
+            //i+=1;
+        }
+    }
+}
+
+
+#[inline]
+fn sample_value(
+    pixels: &Vec<CompletedPoint>
+    , min_side: u32
+    , data_res: (u32, u32)
+    , data_len: usize
+    , row: usize
+    , seat: usize
+    //, res_recip: (u32, u32)
+    , min_side_recip: i64
+    , relative_pos: (i32, i32)
+    , relative_zoom_pot: i64
+) -> CompletedPoint {
+    let color =
+        pixels[
+            index_from_relative_location(
+                transform_relative_location_i32(
+                    relative_location_i32_row_and_seat(seat, row)
+                    , (relative_pos.0, relative_pos.1)
+                    , relative_zoom_pot
+                )
+                , data_res
+                , data_len
+            )
+            ].clone();
+    color
 }
