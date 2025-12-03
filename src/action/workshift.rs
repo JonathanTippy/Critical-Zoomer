@@ -3,7 +3,7 @@
 use std::time::Instant;
 
 use std::cmp::*;
-
+use crate::action::utils::ObjectivePosAndZoom;
 
 pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
 

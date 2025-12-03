@@ -49,12 +49,6 @@ pub(crate) const WORKER_INIT_ZOOM:f64 = if WORKER_INIT_ZOOM_POT>0 {(1<<WORKER_IN
 pub(crate) const PIXELS_PER_UNIT_POT:i32 = 9;
 pub(crate) const PIXELS_PER_UNIT: u64 = 1<<(PIXELS_PER_UNIT_POT);
 
-
-
-
-
-
-
 pub async fn run(
     actor: SteadyActorShadow,
     from_sampler: SteadyRx<(ObjectivePosAndZoom, (u32, u32))>,

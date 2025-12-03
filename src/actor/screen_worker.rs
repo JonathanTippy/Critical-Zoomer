@@ -76,13 +76,23 @@ async fn internal_behavior<A: SteadyActor>(
         while actor.avail_units(&mut commands_in) > 0 {
             match actor.try_take(&mut commands_in).unwrap() {
                 WorkerCommand::Update => {
+
+
+
+
                     if let Some(ctx) = &mut state.work_context {
-                        actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:work_update(ctx)});
+                        let c = work_update(ctx);
+                        if c.len() > 0 {
+                            actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:c});
+                        }
                     }
                 }
                 WorkerCommand::Replace{frame_info:f, context:ctx} => {
                     if let Some(ctx) = &mut state.work_context {
-                        actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:work_update(ctx)});
+                        let c = work_update(ctx);
+                        if c.len() > 0 {
+                            actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:work_update(ctx)});
+                        }
                     }
                     state.work_context = Some(ctx);
                     actor.try_send(&mut updates_out, WorkUpdate{frame_info:Some(f), completed_points:vec!()});
