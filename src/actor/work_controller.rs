@@ -12,13 +12,9 @@ use crate::action::utils::*;
 
 pub(crate) enum WorkerCommand {
     Update
-    , Replace{frame_info: ObjectivePosAndZoom, context: WorkContext}
+    , Replace{frame_info: (ObjectivePosAndZoom, (u32, u32)), context: WorkContext}
 }
 
-pub(crate) enum ScreenValue {
-    Outside{escape_time: u32}
-    , Inside{loop_period: u32}
-}
 
 pub(crate) struct WorkControllerState {
     completed_work_layers: Vec<Vec<Option<CompletedPoint>>>
@@ -117,7 +113,7 @@ async fn internal_behavior<A: SteadyActor>(
                 &mut state
                 , stuff.clone()
             ) {
-                actor.try_send(&mut to_worker, WorkerCommand::Replace{frame_info: stuff.0, context:ctx});
+                actor.try_send(&mut to_worker, WorkerCommand::Replace{frame_info: (stuff.0, stuff.1), context:ctx});
             };
         }
 
@@ -176,26 +172,6 @@ fn get_points_f32(res: (u32, u32), loc:(f64, f64), zoom: i64) -> Points {
     Points::F32{p:out}
 }
 
-fn determine_arvs_dummy(points: &Vec<CompletedPoint>, res: (u32, u32)) -> Vec<ScreenValue> {
-    let mut returned = vec!();
-    for p in points {
-        returned.push(
-            match p {
-                CompletedPoint::Escapes{escape_time: t, escape_location: _} => {
-                    ScreenValue::Outside{escape_time:*t}
-                }
-                CompletedPoint::Repeats{period: p} => {
-                    ScreenValue::Inside{loop_period:*p}
-                }
-                CompletedPoint::Dummy{} => {
-                    ScreenValue::Outside{escape_time:2}
-                }
-            }
-        )
-    }
-
-    returned
-}
 
 fn get_random_mixmap(size: usize) -> Vec<usize> {
     let mut rng = rand::rng();

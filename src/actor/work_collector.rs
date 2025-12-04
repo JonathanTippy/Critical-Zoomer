@@ -7,7 +7,6 @@ use crate::action::sampling::*;
 use crate::actor::screen_worker::*;
 
 
-
 use rand::prelude::SliceRandom;
 use crate::action::utils::*;
 
@@ -15,11 +14,13 @@ pub(crate) enum WorkerCommand {
     Update
     , Replace{context: WorkContext}
 }
+#[derive(Clone, Debug)]
 
 pub(crate) enum ScreenValue {
     Outside{escape_time: u32}
     , Inside{loop_period: u32}
 }
+#[derive(Clone, Debug)]
 
 pub(crate) struct ResultsPackage {
     pub(crate) results: Vec<ScreenValue>
@@ -29,7 +30,7 @@ pub(crate) struct ResultsPackage {
 }
 
 pub(crate) struct WorkCollectorState {
-    completed_work: Option<ResultsPackage>
+    completed_work: Vec<ResultsPackage>
 }
 
 
@@ -70,81 +71,120 @@ async fn internal_behavior<A: SteadyActor>(
     let mut from_worker = from_worker.lock().await;
 
     let mut state = state.lock(|| WorkCollectorState {
-        completed_work: None
-        , worker_res: (u32, u32)
-        , percent_completed:u16
+        completed_work: vec!()
     }).await;
 
     let max_sleep = Duration::from_millis(50);
 
-    let res = state.worker_res.clone();
-    //let ctx = handle_sampler_stuff(&mut state, (
-    //    (IntExp::from(0), IntExp::from(0)), res));
-    //actor.try_send(&mut to_worker, WorkerCommand::Replace{context:ctx});
+
+
 
     while actor.is_running(
         || i!(values_out.mark_closed())
     ) {
-        let percent_completed = 0;
-
-        if let Some(w) = state.completed_work {
-
-        }
-
-
         if actor.avail_units(&mut from_worker) > 0 {
-            let mut u = actor.try_take(&mut from_worker).unwrap();
-
-            if let Some(f) = u.frame_info {
-
-
-                state.completed_work = vec!();
-                state.last_sampler_location = Some(f);
-            }
-
-            state.completed_work.append(&mut u.completed_points);
-            let res = state.worker_res;
-            let c = state.percent_completed==u16::MAX;
-            let r = determine_arvs_dummy(&state.completed_work, res);
-            info!("got work update. results length is now {}", r.len());
-            if r.len() == (res.0*res.1) as usize {
-                actor.try_send(&mut values_out, ResultsPackage{
-                    results:r
-                    ,screen_res:res
-                    ,location: state.last_sampler_location.clone().expect("WC recieved work from worker but somehow don't have a sampler location")
-                    ,complete:c
-                });
+            let U =actor.try_take(&mut from_worker).expect("work update seemed available but wasn't...");
+            if state.completed_work.len() > 0 {
+                if let Some(f) = U.frame_info {
+                    state.completed_work[0] = sample_old_values(&state.completed_work[0], f.0, f.1);
+                } else {
+                    let j = U.completed_points.1;
+                    let l = U.completed_points.0.len();
+                    let vs = get_values_from_points(U.completed_points.0);
+                    for i in j..j+l {
+                        if i-j < vs.len() && i < state.completed_work[0].results.len() {
+                            state.completed_work[0].results[i] = vs[i-j].clone();
+                        }
+                    }
+                    actor.try_send(&mut values_out, state.completed_work[0].clone());
+                }
+            } else {
+                let f = U.frame_info.expect("work collector recieved an initial work update without any info");
+                state.completed_work.push(
+                    ResultsPackage {
+                        results: vec![ScreenValue::Inside{loop_period: 0}; (f.1.0 * f.1.1) as usize]
+                        , screen_res: f.1
+                        , location: f.0
+                        , complete: false
+                    }
+                );
+                for p in U.completed_points.0 {
+                    state.completed_work[0].results.push(get_value_from_point(p));
+                }
             }
         }
-
     }
     // Final shutdown log, reporting all statistics.
     info!("Computer shutting down.");
     Ok(())
 }
 
+fn sample_old_values(old_package: &ResultsPackage, new_location: ObjectivePosAndZoom, new_res: (u32, u32)) -> ResultsPackage {
+    let mut returned = ResultsPackage{
+        results: vec!()
+        , screen_res: new_res
+        , location: new_location.clone()
+        , complete: false
+    };
 
+    let old_size = old_package.screen_res.0 * old_package.screen_res.1;
 
-fn determine_arvs_dummy(points: &Vec<CompletedPoint>, res: (u32, u32)) -> Vec<ScreenValue> {
-    let mut returned = vec!();
-    for p in points {
-        returned.push(
-            match p {
-                CompletedPoint::Escapes{escape_time: t, escape_location: _} => {
-                    ScreenValue::Outside{escape_time:*t}
-                }
-                CompletedPoint::Repeats{period: p} => {
-                    ScreenValue::Inside{loop_period:*p}
-                }
-                CompletedPoint::Dummy{} => {
-                    ScreenValue::Outside{escape_time:2}
-                }
-            }
-        )
+    let relative_pos = (
+        old_package.location.pos.0.clone()-new_location.pos.0.clone()
+        , old_package.location.pos.1.clone()-new_location.pos.1.clone()
+    );
+
+    let relative_pos_in_pixels:(i32, i32) = (
+        relative_pos.0.shift(new_location.zoom_pot).shift(crate::actor::work_controller::PIXELS_PER_UNIT_POT).into()
+        , relative_pos.1.shift(new_location.zoom_pot).shift(crate::actor::work_controller::PIXELS_PER_UNIT_POT).into()
+    );
+
+    let relative_zoom = new_location.zoom_pot - old_package.location.zoom_pot;
+
+    for row in 0..new_res.1 as usize {
+        for seat in 0..new_res.0 as usize {
+            returned.results.push(
+                sample_value(
+                    &old_package.results
+                    , old_package.screen_res
+                    , old_size as usize
+                    , row
+                    , seat
+                    , relative_pos_in_pixels
+                    , relative_zoom as i64
+                )
+            );
+            //i+=1;
+        }
     }
-
     returned
 }
+
+
+fn get_values_from_points(ps: Vec<CompletedPoint>) -> Vec<ScreenValue> {
+    let mut returned = vec!();
+    for p in ps {
+        returned.push(get_value_from_point(p));
+    }
+    returned
+}
+
+fn get_value_from_point(p: CompletedPoint) -> ScreenValue {
+    match p {
+        CompletedPoint::Escapes{escape_time: t, escape_location: _} => {
+            ScreenValue::Outside{escape_time:t}
+        }
+        CompletedPoint::Repeats{period: p} => {
+            ScreenValue::Inside{loop_period:p}
+        }
+        CompletedPoint::Dummy{} => {
+            panic!("completed point was not completed");
+            ScreenValue::Outside{escape_time:2}
+        }
+}
+}
+
+
 
 fn get_random_mixmap(size: usize) -> Vec<usize> {
     let mut rng = rand::rng();
@@ -156,47 +196,19 @@ fn get_random_mixmap(size: usize) -> Vec<usize> {
     indices
 }
 
-fn overlay_results(
-    old_results: &mut Vec<CompletedPoint>
-    , old_results_obj: ObjectivePosAndZoom
-    , new_results: &mut Vec<CompletedPoint>
-    , new_results_obj: ObjectivePosAndZoom
-) {
-    for row in 0..size.1 as usize {
-        for seat in 0..size.0 as usize {
-            bucket.push(
-                crate::action::sampling::sample_color(
-                    data
-                    , min_side
-                    , data_size
-                    , data_len
-                    , row
-                    , seat
-                    //, res_recip
-                    , min_side_recip
-                    , relative_pos_in_pixels
-                    , relative_zoom as i64
-                )
-            );
-            //i+=1;
-        }
-    }
-}
+
 
 
 #[inline]
 fn sample_value(
-    pixels: &Vec<CompletedPoint>
-    , min_side: u32
+    pixels: &Vec<ScreenValue>
     , data_res: (u32, u32)
     , data_len: usize
     , row: usize
     , seat: usize
-    //, res_recip: (u32, u32)
-    , min_side_recip: i64
     , relative_pos: (i32, i32)
     , relative_zoom_pot: i64
-) -> CompletedPoint {
+) -> ScreenValue {
     let color =
         pixels[
             index_from_relative_location(
