@@ -7,8 +7,8 @@ use crate::actor::work_controller::*;
 
 
 pub(crate) struct WorkUpdate {
-    pub(crate) frame_info: Option<ObjectivePosAndZoom>,
-    pub(crate) completed_points: Vec<CompletedPoint>
+    pub(crate) frame_info: Option<(ObjectivePosAndZoom, (u32, u32))>,
+    pub(crate) completed_points: (Vec<CompletedPoint>, usize)
 }
 
 #[derive(Clone)]
@@ -82,7 +82,7 @@ async fn internal_behavior<A: SteadyActor>(
 
                     if let Some(ctx) = &mut state.work_context {
                         let c = work_update(ctx);
-                        if c.len() > 0 {
+                        if c.0.len() > 0 {
                             actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:c});
                         }
                     }
@@ -90,12 +90,12 @@ async fn internal_behavior<A: SteadyActor>(
                 WorkerCommand::Replace{frame_info:f, context:ctx} => {
                     if let Some(ctx) = &mut state.work_context {
                         let c = work_update(ctx);
-                        if c.len() > 0 {
+                        if c.0.len() > 0 {
                             actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:work_update(ctx)});
                         }
                     }
                     state.work_context = Some(ctx);
-                    actor.try_send(&mut updates_out, WorkUpdate{frame_info:Some(f), completed_points:vec!()});
+                    actor.try_send(&mut updates_out, WorkUpdate{frame_info:Some(f), completed_points:(vec!(), 0)});
                     //debug!("screen worker got new context: \n{:?}", state.work_context);
                 }
             }
@@ -128,11 +128,12 @@ fn calculate_tokens(state: &mut WorkerState) {
 
 }
 
-fn work_update(ctx: &mut WorkContext) -> Vec<CompletedPoint> {
+fn work_update(ctx: &mut WorkContext) -> (Vec<CompletedPoint>, usize) {
+    let update_start = ctx.last_update;
     let mut returned = vec!();
     for i in ctx.last_update..ctx.index {
         returned.push(ctx.completed_points[i].clone());
     }
     ctx.last_update = ctx.index;
-    returned
+    (returned, update_start)
 }
