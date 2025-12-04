@@ -1,7 +1,7 @@
 
 
 use std::time::Instant;
-
+use std::collections::HashSet;
 use std::cmp::*;
 use crate::action::utils::ObjectivePosAndZoom;
 
@@ -16,7 +16,7 @@ pub(crate) enum Points {
 
 pub(crate) struct WorkContext {
     pub(crate) points: Points
-    , pub(crate) completed_points: Vec<CompletedPoint>
+    , pub(crate) completed_points: Vec<(CompletedPoint, usize)>
     , pub(crate) last_update: usize
     , pub(crate) index: usize
     , pub(crate) random_index: usize
@@ -30,6 +30,8 @@ pub(crate) struct WorkContext {
     , pub(crate) total_bouts_today: u32
     , pub(crate) total_points_today: u32
     , pub(crate) spent_tokens_today: u32
+    , pub(crate) already_done: Vec<usize>
+    , pub(crate) already_done_hashset: HashSet<usize>
 }
 
 
@@ -109,7 +111,15 @@ pub(crate) fn workshift_f32(
 
     while context.index < total_points && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
 
+        while context.already_done_hashset.contains(&context.index) {
+            context.index += 1;
+        }
+
+        if context.index >= total_points {break}
+
         let point = &mut points[context.index];
+
+
 
         let old_iterations = point.iterations;
 
@@ -118,6 +128,9 @@ pub(crate) fn workshift_f32(
         context.total_iterations_today += point.iterations - old_iterations;
 
         if point.done.0 || point.done.1 {
+
+            context.already_done.push(context.index);
+            context.already_done_hashset.insert(context.index);
 
             let completed_point = if point.done.1 {
                 CompletedPoint::Repeats{period: 0}
@@ -128,11 +141,12 @@ pub(crate) fn workshift_f32(
                 }
             };
 
-            context.completed_points.push(completed_point);
+            context.completed_points.push((completed_point, context.index));
 
             context.total_iterations += point.iterations;
 
             context.index += 1;
+
             context.random_index = context.random_map[min(context.index, total_points-1)];
             context.total_points_today += 1
         }
