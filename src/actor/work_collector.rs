@@ -88,13 +88,18 @@ async fn internal_behavior<A: SteadyActor>(
                 if let Some(f) = U.frame_info {
                     state.completed_work[0] = sample_old_values(&state.completed_work[0], f.0, f.1);
                 } else {
-                    let j = U.completed_points.1;
-                    let l = U.completed_points.0.len();
-                    let vs = get_values_from_points(U.completed_points.0);
-                    for i in j..j+l {
+                    //let j = U.completed_points;
+                    let l = U.completed_points.len();
+                    //
+                    /*for i in j..j+l {
                         if i-j < vs.len() && i < state.completed_work[0].results.len() {
                             state.completed_work[0].results[i] = vs[i-j].clone();
                         }
+                    }*/
+                    let vs = get_values_from_points(U.completed_points);
+                    for i in 0..l {
+                        let W = vs[i].clone();
+                        state.completed_work[0].results[W.1] = W.0;
                     }
                     actor.try_send(&mut values_out, state.completed_work[0].clone());
                 }
@@ -108,9 +113,13 @@ async fn internal_behavior<A: SteadyActor>(
                         , complete: false
                     }
                 );
-                for p in U.completed_points.0 {
-                    state.completed_work[0].results.push(get_value_from_point(p));
+                let l = U.completed_points.len();
+                let vs = get_values_from_points(U.completed_points);
+                for i in 0..l {
+                    let W = vs[i].clone();
+                    state.completed_work[0].results[W.1] = W.0;
                 }
+                actor.try_send(&mut values_out, state.completed_work[0].clone());
             }
         }
     }
@@ -161,10 +170,10 @@ fn sample_old_values(old_package: &ResultsPackage, new_location: ObjectivePosAnd
 }
 
 
-fn get_values_from_points(ps: Vec<CompletedPoint>) -> Vec<ScreenValue> {
+fn get_values_from_points(ps: Vec<(CompletedPoint, usize)>) -> Vec<(ScreenValue, usize)> {
     let mut returned = vec!();
     for p in ps {
-        returned.push(get_value_from_point(p));
+        returned.push((get_value_from_point(p.0), p.1));
     }
     returned
 }

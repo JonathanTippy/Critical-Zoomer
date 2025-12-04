@@ -1,5 +1,6 @@
 use steady_state::*;
 
+use std::collections::HashSet;
 use crate::actor::window::*;
 use crate::action::workshift::*;
 use crate::action::sampling::*;
@@ -17,18 +18,7 @@ pub(crate) enum WorkerCommand {
 
 
 pub(crate) struct WorkControllerState {
-    completed_work_layers: Vec<Vec<Option<CompletedPoint>>>
-    , completed_work: Vec<CompletedPoint>
-    // this vecvec contains the completed work layer by layer, or resolution by resolution.
-    // for example, vec 0 contains the 4 points for res 1x1, 1 contains the additional 5 points to make res 2x2
-    // vec 2 contains the additional 33 points to make res 4x4 (assuming a square POT screen)
-    // this achieves dynamic res at arbitrary positions; when producing ARVs, the smallest possible square is
-    // used for each ARV.
-    , mixmaps: Vec<Vec<usize>>
-    , mixmap: Vec<usize>
-    // each res has its own custom sized mixmap
-    // this mixmap is used by the workers to determine point order
-    // work can also be done in whatever order; for example, for attention.
+    mixmap: Vec<usize>
     , loc: (f64, f64)
     , zoom_pot: i64
     , worker_res: (u32, u32)
@@ -72,10 +62,7 @@ async fn internal_behavior<A: SteadyActor>(
     let mut to_worker = to_worker.lock().await;
 
     let mut state = state.lock(|| WorkControllerState {
-        completed_work_layers: vec!()
-        , completed_work: vec!()
-        , mixmaps: vec!()//get_mixmaps(WORKER_INIT_RES)
-        , mixmap: get_random_mixmap((WORKER_INIT_RES.0*WORKER_INIT_RES.1) as usize)
+        mixmap: get_random_mixmap((WORKER_INIT_RES.0*WORKER_INIT_RES.1) as usize)
         , loc: WORKER_INIT_LOC
         , zoom_pot: WORKER_INIT_ZOOM_POT
         , worker_res: WORKER_INIT_RES
@@ -94,7 +81,6 @@ async fn internal_behavior<A: SteadyActor>(
     while actor.is_running(
         || i!(to_worker.mark_closed())
     ) {
-        state.percent_completed = (((state.completed_work.len() as f32) / ((state.worker_res.0*state.worker_res.1) as f32)) * u16::MAX as f32) as u16;
 
         await_for_any!(
             actor.wait_periodic(max_sleep),
@@ -229,8 +215,9 @@ fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAnd
         , total_points_today: 0
         , total_bouts_today: 0
         , last_update: 0
+        , already_done: vec!()
+        , already_done_hashset: HashSet::new()
     };
     state.last_sampler_location = Some(obj);
-    state.completed_work = vec!();
     Some(work_context)
 }
