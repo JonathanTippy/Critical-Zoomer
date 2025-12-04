@@ -71,6 +71,8 @@ async fn internal_behavior<A: SteadyActor>(
 
     let mut state = state.lock(|| WorkCollectorState {
         completed_work: None
+        , worker_res: (u32, u32)
+        , percent_completed:u16
     }).await;
 
     let max_sleep = Duration::from_millis(50);
