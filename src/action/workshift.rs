@@ -9,7 +9,7 @@ pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
 #[derive(Clone, Debug)]
 
 pub(crate) enum Points {
-    F32{p:Vec<PointF32>}
+    f64{p:Vec<Pointf64>}
 }
 #[derive(Clone, Debug)]
 
@@ -41,8 +41,8 @@ pub(crate) enum CompletedPoint {
     }
     , Escapes{
         escape_time: u32
-        , escape_location: (f32, f32)
-        , start_location: (f32, f32)
+        , escape_location: (f64, f64)
+        , start_location: (f64, f64)
     }
     , Dummy{}
 }
@@ -51,16 +51,16 @@ pub(crate) enum CompletedPoint {
 //pub(crate) const SpeedTestPoint
 #[derive(Clone, Debug)]
 
-pub(crate) struct PointF32 {
-    pub(crate) c: (f32, f32)
-    , pub(crate) z: (f32, f32)
-    , pub(crate) real_squared: f32
-    , pub(crate) imag_squared: f32
-    , pub(crate) real_imag: f32
+pub(crate) struct Pointf64 {
+    pub(crate) c: (f64, f64)
+    , pub(crate) z: (f64, f64)
+    , pub(crate) real_squared: f64
+    , pub(crate) imag_squared: f64
+    , pub(crate) real_imag: f64
     , pub(crate) iterations: u32
     // if this isn't updated enough, you will take longer to realize loops.
     // If its updated too often, you will not be able to realize long loops.
-    , pub(crate) loop_detection_points: [(f32, f32);NUMBER_OF_LOOP_CHECK_POINTS]
+    , pub(crate) loop_detection_points: [(f64, f64);NUMBER_OF_LOOP_CHECK_POINTS]
     , pub(crate) done: (bool, bool)
 }
 
@@ -73,8 +73,8 @@ pub(crate) fn workshift(
     , context: &mut WorkContext
 ) {
     match context.points {
-        Points::F32{p: _} => {
-            workshift_f32(
+        Points::f64{p: _} => {
+            workshift_f64(
                 day_token_allowance
                 , iteration_token_cost
                 , point_token_cost
@@ -86,7 +86,7 @@ pub(crate) fn workshift(
 }
 
 
-pub(crate) fn workshift_f32(
+pub(crate) fn workshift_f64(
     day_token_allowance: u32
     , iteration_token_cost: u32
     , point_token_cost: u32
@@ -103,7 +103,7 @@ pub(crate) fn workshift_f32(
     context.spent_tokens_today = 0;
 
     let points = match &mut context.points {
-        Points::F32 { p} => {p}
+        Points::f64 { p} => {p}
     };
     let total_points = points.len();
     context.random_index = context.random_map[min(context.index, total_points-1)];
@@ -122,7 +122,7 @@ pub(crate) fn workshift_f32(
 
         let old_iterations = point.iterations;
 
-        iterate_max_n_times_f32(point, 4.0, 1000);
+        iterate_max_n_times_f64(point, 4.0, 1000);
 
         context.total_iterations_today += point.iterations - old_iterations;
 
@@ -160,22 +160,22 @@ pub(crate) fn workshift_f32(
 }
 
 #[inline]
-pub(crate) fn iterate_max_n_times_f32 (point: &mut PointF32, r_squared:f32, n: u32) {
+pub(crate) fn iterate_max_n_times_f64 (point: &mut Pointf64, r_squared:f64, n: u32) {
     for i in 0..n {
-        update_point_results_f32(point);
-        point.done.0 = bailout_point_f32(point, r_squared);
+        update_point_results_f64(point);
+        point.done.0 = bailout_point_f64(point, r_squared);
         if !(point.done.0 || point.done.1) {
-            iterate_f32(point);
+            iterate_f64(point);
         } else {
             break;
         }
-        point.done.1 = loop_check_point_f32(point);
+        point.done.1 = loop_check_point_f64(point);
         update_loop_check_points(point);
     }
 }
 
 #[inline]
-pub(crate) fn iterate_f32 (point: &mut PointF32) {
+pub(crate) fn iterate_f64 (point: &mut Pointf64) {
     // move z
     point.z = (
         point.real_squared - point.imag_squared + point.c.0
@@ -185,7 +185,7 @@ pub(crate) fn iterate_f32 (point: &mut PointF32) {
 }
 
 #[inline]
-pub(crate) fn bailout_point_f32 (point: & PointF32, r_squared:f32) -> bool {
+pub(crate) fn bailout_point_f64 (point: & Pointf64, r_squared:f64) -> bool {
     // checks
 
     point.real_squared + point.imag_squared > r_squared
@@ -193,7 +193,7 @@ pub(crate) fn bailout_point_f32 (point: & PointF32, r_squared:f32) -> bool {
 }
 
 #[inline]
-fn loop_check_point_f32 (point: & PointF32) -> bool {
+fn loop_check_point_f64 (point: & Pointf64) -> bool {
     // checks
     let mut looped = false;
     for loop_check_point in &point.loop_detection_points {
@@ -203,7 +203,7 @@ fn loop_check_point_f32 (point: & PointF32) -> bool {
 }
 
 #[inline]
-fn update_loop_check_points (point: &mut PointF32) {
+fn update_loop_check_points (point: &mut Pointf64) {
     /*point.last_point = point.z;
     if point.iterations%(1000) == 0 {
         point.loop_detection_points[0] = point.z;
@@ -282,7 +282,7 @@ fn update_loop_check_points (point: &mut PointF32) {
 
 
 #[inline]
-fn update_point_results_f32(point: &mut PointF32) {
+fn update_point_results_f64(point: &mut Pointf64) {
     // update values
     point.real_squared = point.z.0 * point.z.0;
     point.imag_squared = point.z.1 * point.z.1;
