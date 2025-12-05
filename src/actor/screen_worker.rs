@@ -94,7 +94,7 @@ async fn internal_behavior<A: SteadyActor>(
                             actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:U});
                         }
 
-                        let old_size = old_frame_info.1.0 * old_frame_info.1.1;
+                        /*let old_size = old_frame_info.1.0 * old_frame_info.1.1;
 
                         let relative_pos = (
                             old_frame_info.0.pos.0.clone()-frame_info.0.pos.0.clone()
@@ -124,9 +124,9 @@ async fn internal_behavior<A: SteadyActor>(
                         }
                         for A in new_ctx.already_done.clone() {
                             new_ctx.already_done_hashset.insert(A);
-                        }
+                        }*/
 
-                        state.work_context = Some((new_ctx, frame_info.clone()));
+                        state.work_context = Some((ctx, frame_info.clone()));
                         actor.try_send(&mut updates_out, WorkUpdate{frame_info:Some(frame_info), completed_points:vec!()});
 
                     } else {
@@ -193,7 +193,11 @@ fn transform_index(
         , relative_zoom_pot
     );
 
-    if l.0 <= out_data_res.0 as i32 && l.0 > 0 && l.1 > 0 && l.1 <= out_data_res.1 as i32 {
+    if l.0 <= (out_data_res.0-1) as i32
+        && l.0 > 0
+        && l.1 > 0
+        && l.1 <= (out_data_res.1-1) as i32
+    {
         Some(index_from_relative_location(
             l
             , out_data_res
@@ -208,7 +212,7 @@ fn transform_index(
 pub(crate) fn relative_location_from_index(data_res: (u32, u32), index: usize) -> (i32, i32) {
 
     (
-        index as i32 % data_res.0 as i32
-        , index as i32 / data_res.1 as i32
+        index as i32 % (data_res.0) as i32
+        , index as i32 / (data_res.1) as i32
         )
 }

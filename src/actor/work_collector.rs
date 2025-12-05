@@ -180,7 +180,7 @@ fn get_values_from_points(ps: Vec<(CompletedPoint, usize)>) -> Vec<(ScreenValue,
 
 fn get_value_from_point(p: CompletedPoint) -> ScreenValue {
     match p {
-        CompletedPoint::Escapes{escape_time: t, escape_location: _} => {
+        CompletedPoint::Escapes{escape_time: t, escape_location: _, start_location: _} => {
             ScreenValue::Outside{escape_time:t}
         }
         CompletedPoint::Repeats{period: p} => {
