@@ -113,8 +113,8 @@ async fn internal_behavior<A: SteadyActor>(
     Ok(())
 }
 
-fn get_points_f64(res: (u32, u32), loc:(f64, f64), zoom: i64) -> Points {
-    let mut out:Vec<Pointf64> = Vec::with_capacity((res.0*res.1) as usize);
+fn get_points_f32(res: (u32, u32), loc:(f64, f64), zoom: i64) -> Points {
+    let mut out:Vec<PointF32> = Vec::with_capacity((res.0*res.1) as usize);
 
         for row in 0..res.1 {
             for seat in 0..res.0 {
@@ -133,15 +133,15 @@ fn get_points_f64(res: (u32, u32), loc:(f64, f64), zoom: i64) -> Points {
                     zoom_factor =  1.0 / ((1<<-zoom) as f32);
                 }
 
-                let point:(f64, f64) = (
-                    /*(real_center + ((seat as f64 / significant_res as f64 - 0.5) / zoom_factor) as f64) as f64
-                    , (imag_center + (-((row as f64 / significant_res as f64 - 0.5) / zoom_factor)) as f64) as f64*/
-                    (real_center + ((seat as f64 / significant_res as f64) / zoom_factor as f64) as f64) as f64
-                    , (imag_center + (-((row as f64 / significant_res as f64) / zoom_factor  as f64)) as f64) as f64
+                let point:(f32, f32) = (
+                    /*(real_center + ((seat as f32 / significant_res as f32 - 0.5) / zoom_factor) as f64) as f32
+                    , (imag_center + (-((row as f32 / significant_res as f32 - 0.5) / zoom_factor)) as f64) as f32*/
+                    (real_center + ((seat as f32 / significant_res as f32) / zoom_factor) as f64) as f32
+                    , (imag_center + (-((row as f32 / significant_res as f32) / zoom_factor)) as f64) as f32
                 );
 
                 out.push(
-                    Pointf64{
+                    PointF32{
                         c: point
                         , z: point
                         , real_squared: 0.0
@@ -155,7 +155,7 @@ fn get_points_f64(res: (u32, u32), loc:(f64, f64), zoom: i64) -> Points {
                 )
             }
         }
-    Points::f64{p:out}
+    Points::F32{p:out}
 }
 
 
@@ -200,7 +200,7 @@ fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAnd
 
 
     let work_context = WorkContext {
-        points: get_points_f64(stuff.1, state.loc, state.zoom_pot)
+        points: get_points_f32(stuff.1, state.loc, state.zoom_pot)
         , completed_points: vec!()
         , index: 0
         , random_index: 0

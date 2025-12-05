@@ -149,7 +149,7 @@ fn get_value_from_point(p: &CompletedPoint, r: f32) -> ScreenValue {
 
             //let r:f32 = 256.0;
             let r_squared = r*r;
-            let mut p = Pointf64{
+            let mut p = PointF32{
                 c: *c
                 , z: *z
                 , real_squared: z.0 * z.0
@@ -161,8 +161,8 @@ fn get_value_from_point(p: &CompletedPoint, r: f32) -> ScreenValue {
                 };
 
             let mut count = 0;
-            while !bailout_point_f64(&p, r_squared as f64) && count < limit {
-                iterate_f64(&mut p);
+            while !bailout_point_f32(&p, r_squared) && count < limit {
+                iterate_f32(&mut p);
                 count+=1;
             }
             ScreenValue::Outside{escape_time: p.iterations}
