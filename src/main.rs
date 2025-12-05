@@ -116,14 +116,24 @@ fn build_graph(graph: &mut Graph) {
         , work_collector_rx_from_screen_worker
     ) = channel_builder.with_capacity(2).build();
 
-    // work collector to colorer chanel
+    // work collector to escaper chanel
 
     let (
-        work_collector_tx_to_colorer
-        , colorer_rx_from_work_collector
+        work_collector_tx_to_escaper
+        , escaper_rx_from_work_collector
     ) = channel_builder.build();
 
+    // escaper to colorer channel
 
+    let (
+        escaper_tx_to_colorer
+        , colorer_rx_from_escaper
+    ) = channel_builder.build();
+
+    let (
+        updater_tx_to_escaper
+        , escaper_rx_from_updater
+    ) = channel_builder.build();
 
     // The actor builder is configured to collect thread/core info and load metrics.
     // - with_thread_info: enables reporting of OS thread and CPU core (requires core_affinity feature in Cargo.toml)
@@ -157,14 +167,14 @@ fn build_graph(graph: &mut Graph) {
     let state = new_state();
     actor_builder.with_name(NAME_UPDATER)
         .build(move |context|
-                   actor::updater::run(context, updater_rx_from_window.clone(), updater_tx_to_colorer.clone(), state.clone()) //#!#//
+                   actor::updater::run(context, updater_rx_from_window.clone(), updater_tx_to_colorer.clone(), updater_tx_to_escaper.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
                , SoloAct);
 
     let state = new_state();
     actor_builder.with_name(NAME_COLORER)
         .build(move |context|
-                   actor::colorer::run(context, colorer_rx_from_work_collector.clone(), colorer_rx_from_updater.clone(), colorer_tx_to_window.clone(), state.clone()) //#!#//
+                   actor::colorer::run(context, colorer_rx_from_escaper.clone(), colorer_rx_from_updater.clone(), colorer_tx_to_window.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
                , SoloAct);
 
@@ -185,7 +195,14 @@ fn build_graph(graph: &mut Graph) {
     let state = new_state();
     actor_builder.with_name(NAME_WORK_COLLECTOR)
         .build(move |context|
-            actor::work_collector::run(context, work_collector_rx_from_screen_worker.clone(), work_collector_tx_to_colorer.clone(), state.clone())
+            actor::work_collector::run(context, work_collector_rx_from_screen_worker.clone(), work_collector_tx_to_escaper.clone(), state.clone())
             , SoloAct
+        );
+
+    let state = new_state();
+    actor_builder.with_name(NAME_ESCAPER)
+        .build(move |context|
+                   actor::escaper::run(context, escaper_rx_from_work_collector.clone(), escaper_rx_from_updater.clone(), escaper_tx_to_colorer.clone(), state.clone())
+               , SoloAct
         );
 }

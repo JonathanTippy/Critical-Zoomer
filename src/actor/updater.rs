@@ -30,6 +30,7 @@ pub async fn run(
     actor: SteadyActorShadow,
     updates_in: SteadyRx<ZoomerSettingsUpdate>,
     updates_out_colorer: SteadyTx<ZoomerSettingsUpdate>,
+    updated_out_escaper: SteadyTx<ZoomerSettingsUpdate>,
     state: SteadyState<UpdaterState>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
@@ -37,6 +38,7 @@ pub async fn run(
         actor.into_spotlight([&updates_in], [&updates_out_colorer]),
         updates_in,
         updates_out_colorer,
+        updated_out_escaper,
         state,
     )
         .await
@@ -46,12 +48,14 @@ async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
     updates_in: SteadyRx<ZoomerSettingsUpdate>,
     updates_out_colorer: SteadyTx<ZoomerSettingsUpdate>,
+    updates_out_escaper: SteadyTx<ZoomerSettingsUpdate>,
     state: SteadyState<UpdaterState>,
 ) -> Result<(), Box<dyn Error>> {
 
     // Lock all channels for exclusive access within this actor.
     let updates_in = updates_in.lock().await;
     let updates_out_colorer = updates_out_colorer.lock().await;
+    let updates_out_escaper = updates_out_escaper.lock().await;
     let state = state.lock(|| UpdaterState {
     }).await;
 

@@ -7,6 +7,7 @@ use crate::action::utils::*;
 
 use crate::actor::work_collector::*;
 
+use crate::actor::escaper::*;
 
 #[derive(Clone, Debug)]
 
@@ -18,12 +19,12 @@ pub(crate) struct ZoomerScreen {
 
 
 pub(crate) struct ColorerState {
-    pub(crate) values:Option<ResultsPackage>,
+    pub(crate) values:Option<ZoomerValuesScreen>,
 }
 
 pub async fn run(
     actor: SteadyActorShadow,
-    values_in: SteadyRx<ResultsPackage>,
+    values_in: SteadyRx<ZoomerValuesScreen>,
     updates_in: SteadyRx<ZoomerSettingsUpdate>,
     screens_out: SteadyTx<ZoomerScreen>,
     state: SteadyState<ColorerState>,
@@ -41,7 +42,7 @@ pub async fn run(
 
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
-    values_in: SteadyRx<ResultsPackage>,
+    values_in: SteadyRx<ZoomerValuesScreen>,
     updates_in: SteadyRx<ZoomerSettingsUpdate>,
     screens_out: SteadyTx<ZoomerScreen>,
     state: SteadyState<ColorerState>,
@@ -56,7 +57,7 @@ async fn internal_behavior<A: SteadyActor>(
 
     // Lock all channels for exclusive access within this actor.
 
-    let max_sleep = Duration::from_millis(100);
+    let max_sleep = Duration::from_millis(50);
 
     // Main processing loop.
     // The actor runs until all input channels are closed and empty, and the output channel is closed.
@@ -80,7 +81,7 @@ async fn internal_behavior<A: SteadyActor>(
                 info!("recieved values");
                 state.values = Some(v);
                 let rp = state.values.as_ref().unwrap();
-                let r = &rp.results;
+                let r = &rp.values;
                 let len = r.len();
                 let mut output = vec!();
 
@@ -99,8 +100,8 @@ async fn internal_behavior<A: SteadyActor>(
 
                 actor.try_send(&mut screens_out, ZoomerScreen{
                     pixels: output
-                    , screen_size: state.values.as_ref().unwrap().screen_res.clone()
-                    , objective_location:  state.values.as_ref().unwrap().location.clone()
+                    , screen_size: state.values.as_ref().unwrap().screen_size.clone()
+                    , objective_location:  state.values.as_ref().unwrap().objective_location.clone()
                 });
                 //info!("sent colors to window");
 

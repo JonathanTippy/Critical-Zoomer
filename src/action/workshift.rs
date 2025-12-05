@@ -41,8 +41,8 @@ pub(crate) enum CompletedPoint {
     }
     , Escapes{
         escape_time: u32
-        , escape_location: (i16, i16)
-        , start_location: (i16, i16)
+        , escape_location: (f32, f32)
+        , start_location: (f32, f32)
     }
     , Dummy{}
 }
@@ -61,7 +61,6 @@ pub(crate) struct PointF32 {
     // if this isn't updated enough, you will take longer to realize loops.
     // If its updated too often, you will not be able to realize long loops.
     , pub(crate) loop_detection_points: [(f32, f32);NUMBER_OF_LOOP_CHECK_POINTS]
-    , pub(crate) last_point: (f32, f32)
     , pub(crate) done: (bool, bool)
 }
 
@@ -123,7 +122,7 @@ pub(crate) fn workshift_f32(
 
         let old_iterations = point.iterations;
 
-        iterate_max_n_times_f32(point, 1000);
+        iterate_max_n_times_f32(point, 4.0, 1000);
 
         context.total_iterations_today += point.iterations - old_iterations;
 
@@ -137,8 +136,8 @@ pub(crate) fn workshift_f32(
             } else {
                 CompletedPoint::Escapes {
                     escape_time: point.iterations
-                    , escape_location: (f32_to_i16(point.z.0), f32_to_i16(point.z.1))
-                    , start_location: (f32_to_i16(point.c.0), f32_to_i16(point.c.1))
+                    , escape_location: point.z
+                    , start_location: point.c
                 }
             };
 
@@ -161,13 +160,12 @@ pub(crate) fn workshift_f32(
 }
 
 #[inline]
-fn iterate_max_n_times_f32 (point: &mut PointF32, n: u32) {
+pub(crate) fn iterate_max_n_times_f32 (point: &mut PointF32, r_squared:f32, n: u32) {
     for i in 0..n {
         update_point_results_f32(point);
-        point.done.0 = bailout_point_f32(point);
+        point.done.0 = bailout_point_f32(point, r_squared);
         if !(point.done.0 || point.done.1) {
             iterate_f32(point);
-            point.iterations+=1;
         } else {
             break;
         }
@@ -177,19 +175,20 @@ fn iterate_max_n_times_f32 (point: &mut PointF32, n: u32) {
 }
 
 #[inline]
-fn iterate_f32 (point: &mut PointF32) {
+pub(crate) fn iterate_f32 (point: &mut PointF32) {
     // move z
     point.z = (
         point.real_squared - point.imag_squared + point.c.0
         , 2.0 * point.real_imag + point.c.1
     );
+    point.iterations+=1;
 }
 
 #[inline]
-fn bailout_point_f32 (point: & PointF32) -> bool {
+pub(crate) fn bailout_point_f32 (point: & PointF32, r_squared:f32) -> bool {
     // checks
 
-    point.real_squared + point.imag_squared > 4.0
+    point.real_squared + point.imag_squared > r_squared
 
 }
 
