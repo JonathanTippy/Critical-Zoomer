@@ -169,7 +169,6 @@ fn get_random_mixmap(size: usize) -> Vec<usize> {
     indices
 }
 
-
 fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAndZoom, (u32, u32))) -> Option<WorkContext> {
 
     let obj = stuff.0;
