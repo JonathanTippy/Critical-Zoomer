@@ -12,6 +12,7 @@ pub(crate) mod actor {
     pub(crate) mod colorer;
     pub(crate) mod updater;
     pub(crate) mod work_collector;
+    pub(crate) mod escaper;
 }
 
 pub(crate) mod action {
@@ -54,6 +55,7 @@ const NAME_WORK_CONTROLLER: &str = "work controller";
 const NAME_SCREEN_WORKER:&str = "screen worker";
 const NAME_UPDATER: &str = "updater";
 const NAME_WORK_COLLECTOR: &str = "work collector";
+const NAME_ESCAPER: &str = "point escaper";
 
 fn build_graph(graph: &mut Graph) {
     // Channel builder is configured with advanced telemetry and alerting features.

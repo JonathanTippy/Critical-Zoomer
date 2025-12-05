@@ -3,8 +3,7 @@
 use std::time::Instant;
 use std::collections::HashSet;
 use std::cmp::*;
-use crate::action::utils::ObjectivePosAndZoom;
-
+use crate::action::utils::*;
 pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
 
 #[derive(Clone, Debug)]
@@ -41,8 +40,9 @@ pub(crate) enum CompletedPoint {
         period: u32
     }
     , Escapes{
-        escape_time: u32,
-        escape_location: (f32, f32)
+        escape_time: u32
+        , escape_location: (i16, i16)
+        , start_location: (i16, i16)
     }
     , Dummy{}
 }
@@ -111,9 +111,9 @@ pub(crate) fn workshift_f32(
 
     while context.index < total_points && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
 
-        while context.already_done_hashset.contains(&context.index) {
-            context.index += 1;
-        }
+        //while context.already_done_hashset.contains(&context.index) {
+        //    context.index += 1;
+        //}
 
         if context.index >= total_points {break}
 
@@ -129,15 +129,16 @@ pub(crate) fn workshift_f32(
 
         if point.done.0 || point.done.1 {
 
-            context.already_done.push(context.index);
-            context.already_done_hashset.insert(context.index);
+            //context.already_done.push(context.index);
+            //context.already_done_hashset.insert(context.index);
 
             let completed_point = if point.done.1 {
                 CompletedPoint::Repeats{period: 0}
             } else {
                 CompletedPoint::Escapes {
                     escape_time: point.iterations
-                    , escape_location: point.z
+                    , escape_location: (f32_to_i16(point.z.0), f32_to_i16(point.z.1))
+                    , start_location: (f32_to_i16(point.c.0), f32_to_i16(point.c.1))
                 }
             };
 
