@@ -156,7 +156,7 @@ fn get_value_from_point(p: &CompletedPoint, r: f32) -> ScreenValue {
                 , imag_squared: z.1 * z.1
                 , iterations: t.clone()
                 , real_imag: z.0 * z.1
-                , loop_detection_points: [(0.0, 0.0);NUMBER_OF_LOOP_CHECK_POINTS]
+                , loop_detection_points: [(0.0, 0.0);5]
                 , done: (false, false)
                 };
 
