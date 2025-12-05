@@ -23,7 +23,7 @@ pub(crate) enum ScreenValue {
 #[derive(Clone, Debug)]
 
 pub(crate) struct ResultsPackage {
-    pub(crate) results: Vec<ScreenValue>
+    pub(crate) results: Vec<CompletedPoint>
     , pub(crate) screen_res: (u32, u32)
     , pub(crate) location: ObjectivePosAndZoom
     , pub(crate) complete: bool
@@ -47,14 +47,14 @@ pub(crate) const PIXELS_PER_UNIT: u64 = 1<<(PIXELS_PER_UNIT_POT);
 pub async fn run(
     actor: SteadyActorShadow,
     from_worker: SteadyRx<WorkUpdate>,
-    values_out: SteadyTx<ResultsPackage>,
+    points_out: SteadyTx<ResultsPackage>,
     state: SteadyState<WorkCollectorState>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
-        actor.into_spotlight([&from_worker], [&values_out]),
+        actor.into_spotlight([&from_worker], [&points_out]),
         from_worker,
-        values_out,
+        points_out,
         state,
     )
         .await
@@ -107,7 +107,7 @@ async fn internal_behavior<A: SteadyActor>(
                 let f = U.frame_info.expect("work collector recieved an initial work update without any info");
                 state.completed_work.push(
                     ResultsPackage {
-                        results: vec![ScreenValue::Inside{loop_period: 0}; (f.1.0 * f.1.1) as usize]
+                        results: vec![CompletedPoint::Dummy{}; (f.1.0 * f.1.1) as usize]
                         , screen_res: f.1
                         , location: f.0
                         , complete: false
@@ -170,28 +170,15 @@ fn sample_old_values(old_package: &ResultsPackage, new_location: ObjectivePosAnd
 }
 
 
-fn get_values_from_points(ps: Vec<(CompletedPoint, usize)>) -> Vec<(ScreenValue, usize)> {
+fn get_values_from_points(ps: Vec<(CompletedPoint, usize)>) -> Vec<(CompletedPoint, usize)> {
     let mut returned = vec!();
     for p in ps {
-        returned.push((get_value_from_point(p.0), p.1));
+        returned.push(((p.0), p.1));
     }
     returned
 }
 
-fn get_value_from_point(p: CompletedPoint) -> ScreenValue {
-    match p {
-        CompletedPoint::Escapes{escape_time: t, escape_location: _, start_location: _} => {
-            ScreenValue::Outside{escape_time:t}
-        }
-        CompletedPoint::Repeats{period: p} => {
-            ScreenValue::Inside{loop_period:p}
-        }
-        CompletedPoint::Dummy{} => {
-            panic!("completed point was not completed");
-            ScreenValue::Outside{escape_time:2}
-        }
-}
-}
+
 
 
 
@@ -210,14 +197,14 @@ fn get_random_mixmap(size: usize) -> Vec<usize> {
 
 #[inline]
 fn sample_value(
-    pixels: &Vec<ScreenValue>
+    pixels: &Vec<CompletedPoint>
     , data_res: (u32, u32)
     , data_len: usize
     , row: usize
     , seat: usize
     , relative_pos: (i32, i32)
     , relative_zoom_pot: i64
-) -> ScreenValue {
+) -> CompletedPoint {
     let color =
         pixels[
             index_from_relative_location(

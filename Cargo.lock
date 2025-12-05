@@ -3750,9 +3750,9 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "steady_state"
-version = "0.2.4"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "548b6b29f09b8f490b3c4fc163a177285293aa44b377435b1188630bb8eb7fe9"
+checksum = "08e94e30ac9c3ad6c59d20e315ca8cb63eb353c1869a4ae0722ad0f10d869fd6"
 dependencies = [
  "aeron",
  "ahash",
@@ -3785,6 +3785,7 @@ dependencies = [
  "ringbuf",
  "serde",
  "serde_json",
+ "socket2",
  "tempfile",
  "time",
  "uuid",
