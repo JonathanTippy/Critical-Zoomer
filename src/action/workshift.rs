@@ -4,7 +4,7 @@ use std::time::Instant;
 use std::collections::HashSet;
 use std::cmp::*;
 use crate::action::utils::*;
-pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
+pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 7;
 
 #[derive(Clone, Debug)]
 
@@ -24,7 +24,7 @@ pub(crate) struct WorkContext {
     , pub(crate) percent_completed:f64
     , pub(crate) random_map: Vec<usize>
     , pub(crate) workshifts: u32
-    , pub(crate) total_iterations: u32
+    , pub(crate) total_iterations: u64
     , pub(crate) total_iterations_today: u32
     , pub(crate) total_bouts_today: u32
     , pub(crate) total_points_today: u32
@@ -37,10 +37,10 @@ pub(crate) struct WorkContext {
 #[derive(Clone, Debug)]
 pub(crate) enum CompletedPoint {
     Repeats{
-        period: u32
+        period: u64
     }
     , Escapes{
-        escape_time: u32
+        escape_time: u64
         , escape_location: (f64, f64)
         , start_location: (f64, f64)
     }
@@ -57,7 +57,7 @@ pub(crate) struct Pointf64 {
     , pub(crate) real_squared: f64
     , pub(crate) imag_squared: f64
     , pub(crate) real_imag: f64
-    , pub(crate) iterations: u32
+    , pub(crate) iterations: u64
     // if this isn't updated enough, you will take longer to realize loops.
     // If its updated too often, you will not be able to realize long loops.
     , pub(crate) loop_detection_points: [(f64, f64);NUMBER_OF_LOOP_CHECK_POINTS]
@@ -124,7 +124,7 @@ pub(crate) fn workshift_f64(
 
         iterate_max_n_times_f64(point, 4.0, 1000);
 
-        context.total_iterations_today += point.iterations - old_iterations;
+        context.total_iterations_today += (point.iterations - old_iterations) as u32;
 
         if point.done.0 || point.done.1 {
 
@@ -276,6 +276,14 @@ fn update_loop_check_points (point: &mut Pointf64) {
 
     if point.iterations%(1<<25) == 0 {
         point.loop_detection_points[4] =point.z;
+    }
+
+    if point.iterations%(1<<30) == 0 {
+        point.loop_detection_points[5] =point.z;
+    }
+
+    if point.iterations%(1<<32) == 0 {
+        point.loop_detection_points[6] =point.z;
     }
 
 }

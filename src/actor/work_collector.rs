@@ -17,8 +17,8 @@ pub(crate) enum WorkerCommand {
 #[derive(Clone, Debug)]
 
 pub(crate) enum ScreenValue {
-    Outside{escape_time: u32}
-    , Inside{loop_period: u32}
+    Outside{escape_time: u64}
+    , Inside{loop_period: u64}
 }
 #[derive(Clone, Debug)]
 
