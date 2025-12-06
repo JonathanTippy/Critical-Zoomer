@@ -91,13 +91,19 @@ async fn internal_behavior<A: SteadyActor>(
         info!("radius: {}", radius);
 
 
-        match actor.try_take(&mut values_in) {
-            Some(v) => {
-                let mut rng = rand::thread_rng();
-                info!("recieved values");
-                state.values = Some(v);
+        if actor.avail_units(&mut values_in) > 0 {
+            while actor.avail_units(&mut values_in) > 1 {
+                let stuff = actor.try_take(&mut values_in).expect("internal error");
+                drop(stuff);
+            };
+            match actor.try_take(&mut values_in) {
+                Some(v) => {
+                    let mut rng = rand::thread_rng();
+                    info!("recieved values");
+                    state.values = Some(v);
+                }
+                None => {}
             }
-            None => {}
         }
 
         if let Some(v) = &state.values {
@@ -141,7 +147,7 @@ fn get_value_from_point(p: &CompletedPoint, r: f32) -> ScreenValue {
                 , i16_to_f32(c.1)
             );*/
 
-            let limit = 100;
+            let limit = 10;
 
             //let r:f32 = 256.0;
             let r_squared = r*r;

@@ -12,8 +12,7 @@ use rand::prelude::SliceRandom;
 use crate::action::utils::*;
 
 pub(crate) enum WorkerCommand {
-    Update
-    , Replace{frame_info: (ObjectivePosAndZoom, (u32, u32)), context: WorkContext}
+    Replace{frame_info: (ObjectivePosAndZoom, (u32, u32)), context: WorkContext}
 }
 
 
@@ -102,11 +101,6 @@ async fn internal_behavior<A: SteadyActor>(
                 actor.try_send(&mut to_worker, WorkerCommand::Replace{frame_info: (stuff.0, stuff.1), context:ctx});
             };
         }
-
-        if state.percent_completed<u16::MAX {
-            actor.try_send(&mut to_worker, WorkerCommand::Update{});
-        }
-
     }
     // Final shutdown log, reporting all statistics.
     info!("Computer shutting down.");

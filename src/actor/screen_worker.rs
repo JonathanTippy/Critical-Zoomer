@@ -22,6 +22,7 @@ pub(crate) struct WorkerState {
     , point_token_cost: u32
     , bout_token_cost: u32
     , workshift_token_cost: u32
+    , total_workshifts: u32
 }
 
 pub async fn run(
@@ -54,11 +55,12 @@ async fn internal_behavior<A: SteadyActor>(
 
     let mut state = state.lock(|| WorkerState {
         work_context: None
-        , workshift_token_budget: 1000000
+        , workshift_token_budget: 16000000
         , iteration_token_cost: 2
         , bout_token_cost: 4
         , workshift_token_cost: 0
         , point_token_cost: 150
+        , total_workshifts: 0
     }).await;
 
     let max_sleep = Duration::from_millis(50);
@@ -67,7 +69,10 @@ async fn internal_behavior<A: SteadyActor>(
         || i!(updates_out.mark_closed())
     ) {
 
-        let working = if let Some(_) = state.work_context {true} else {false};
+        let working = match &state.work_context {
+            Some(ctx) => {ctx.0.percent_completed < 100.0}
+            , None => {false}
+        };
 
         if working {} else {
             await_for_any!(
@@ -76,16 +81,15 @@ async fn internal_behavior<A: SteadyActor>(
             );
         }
 
-        while actor.avail_units(&mut commands_in) > 0 {
+        if actor.avail_units(&mut commands_in) > 0 {
+
+            while actor.avail_units(&mut commands_in) > 1 {
+                let stuff = actor.try_take(&mut commands_in).expect("internal error");
+                drop(stuff);
+            };
+
             match actor.try_take(&mut commands_in).unwrap() {
-                WorkerCommand::Update => {
-                    if let Some(ctx) = &mut state.work_context {
-                        let c = work_update(&mut ctx.0);
-                        if c.len() > 0 {
-                            actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:c});
-                        }
-                    }
-                }
+
                 WorkerCommand::Replace{frame_info: frame_info, context:ctx} => {
                     if let Some((old_ctx, old_frame_info)) = &mut state.work_context {
                         let U = work_update(old_ctx);
@@ -93,38 +97,6 @@ async fn internal_behavior<A: SteadyActor>(
                         if U.len() > 0 {
                             actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:U});
                         }
-
-                        /*let old_size = old_frame_info.1.0 * old_frame_info.1.1;
-
-                        let relative_pos = (
-                            old_frame_info.0.pos.0.clone()-frame_info.0.pos.0.clone()
-                            , old_frame_info.0.pos.1.clone()-frame_info.0.pos.1.clone()
-                        );
-
-                        let relative_pos_in_pixels:(i32, i32) = (
-                            relative_pos.0.shift(frame_info.0.zoom_pot).shift(crate::actor::work_controller::PIXELS_PER_UNIT_POT).into()
-                            , relative_pos.1.shift(frame_info.0.zoom_pot).shift(crate::actor::work_controller::PIXELS_PER_UNIT_POT).into()
-                        );
-
-                        let relative_zoom = frame_info.0.zoom_pot - old_frame_info.0.zoom_pot;
-
-                        let mut new_ctx = ctx;
-
-                        for A in old_ctx.already_done.clone() {
-                            if let Some(a) = transform_index(
-                                A
-                                , old_frame_info.1
-                                , frame_info.1
-                                , old_size as usize
-                                , relative_pos_in_pixels
-                                , relative_zoom as i64
-                            ) {
-                                new_ctx.already_done.push(a);
-                            }
-                        }
-                        for A in new_ctx.already_done.clone() {
-                            new_ctx.already_done_hashset.insert(A);
-                        }*/
 
                         state.work_context = Some((ctx, frame_info.clone()));
                         actor.try_send(&mut updates_out, WorkUpdate{frame_info:Some(frame_info), completed_points:vec!()});
@@ -134,7 +106,6 @@ async fn internal_behavior<A: SteadyActor>(
                         actor.try_send(&mut updates_out, WorkUpdate{frame_info:Some(frame_info), completed_points:vec!()});
                         //debug!("screen worker got new context: \n{:?}", state.work_context);
                     }
-
                 }
             }
         }
@@ -146,7 +117,7 @@ async fn internal_behavior<A: SteadyActor>(
         
 
         if let Some(ctx) = &mut state.work_context {
-            let start = Instant::now();
+            //let start = Instant::now();
             workshift (
                 token_budget
                 , iteration_token_cost
@@ -154,7 +125,18 @@ async fn internal_behavior<A: SteadyActor>(
                 , point_token_cost
                 , &mut ctx.0
             );
+            state.total_workshifts+=1;
             //info!("workday completed. took {}ms.", start.elapsed().as_millis());
+        }
+
+
+        if state.total_workshifts % 1 == 0 {
+            if let Some(ctx) = &mut state.work_context {
+                let c = work_update(&mut ctx.0);
+                if c.len() > 0 {
+                    actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:c});
+                }
+            }
         }
     }
     // Final shutdown log, reporting all statistics.

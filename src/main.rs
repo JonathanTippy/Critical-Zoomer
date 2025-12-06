@@ -71,7 +71,7 @@ fn build_graph(graph: &mut Graph) {
         .with_filled_trigger(Trigger::AvgAbove(Filled::p60()), AlertColor::Orange)
         // Track average message rate for each channel
         .with_avg_rate()
-        .with_capacity(2);
+        .with_capacity(50);
 
     // Channel capacities are set extremely large for high-throughput, batch-friendly operation.
     // - Heartbeat channel: moderate size for timing signals
@@ -86,7 +86,7 @@ fn build_graph(graph: &mut Graph) {
     let (
         colorer_tx_to_window
         , window_rx_from_colorer
-    ) = channel_builder.with_capacity(2).build();
+    ) = channel_builder.with_capacity(50).build();
 
     let (
         updater_tx_to_colorer
@@ -100,21 +100,21 @@ fn build_graph(graph: &mut Graph) {
     let (
         window_tx_to_work_controller
         , work_controller_rx_from_window
-    ) = channel_builder.with_capacity(2).build();
+    ) = channel_builder.with_capacity(50).build();
 
     //work controller to worker commands channel
 
     let (
         work_controller_tx_to_screen_worker
         , screen_worker_rx_from_work_controller
-    ) = channel_builder.with_capacity(2).build();
+    ) = channel_builder.with_capacity(50).build();
 
     // worker to work collector responses channel
 
     let (
         screen_worker_tx_to_work_collector
         , work_collector_rx_from_screen_worker
-    ) = channel_builder.with_capacity(2).build();
+    ) = channel_builder.with_capacity(50).build();
 
     // work collector to escaper chanel
 
