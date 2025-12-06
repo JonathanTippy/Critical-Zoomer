@@ -86,7 +86,7 @@ async fn internal_behavior<A: SteadyActor>(
 
         let elapsed = state.start.elapsed().as_millis();
 
-        let radius:f64 = 2.0 + (((elapsed % 1000) as f64 / 1000.0) * 2.0);
+        let radius:f64 = 2.0 + (((elapsed % 10000) as f64 / 10000.0) * 2.0);
         //let radius = 2.0;
         info!("radius: {}", radius);
 
@@ -147,7 +147,7 @@ fn get_value_from_point(p: &CompletedPoint, r: f32) -> ScreenValue {
                 , i16_to_f32(c.1)
             );*/
 
-            let limit = 10;
+            let limit = 1000;
 
             //let r:f32 = 256.0;
             let r_squared = r*r;
