@@ -6,7 +6,7 @@ use crate::action::workshift::*;
 use crate::action::sampling::*;
 use crate::actor::screen_worker::*;
 
-
+use std::cmp::*;
 
 use rand::prelude::SliceRandom;
 use crate::action::utils::*;
@@ -113,7 +113,7 @@ fn get_points_f32(res: (u32, u32), loc:(f64, f64), zoom: i64) -> Points {
         for row in 0..res.1 {
             for seat in 0..res.0 {
 
-                let significant_res = PIXELS_PER_UNIT;//min(res.0, res.1);
+                let significant_res = min(res.0, res.1);
 
                 let real_center:f64 = loc.0;
                 let imag_center:f64 = loc.1;
@@ -128,10 +128,10 @@ fn get_points_f32(res: (u32, u32), loc:(f64, f64), zoom: i64) -> Points {
                 }
 
                 let point:(f32, f32) = (
-                    /*(real_center + ((seat as f32 / significant_res as f32 - 0.5) / zoom_factor) as f64) as f32
-                    , (imag_center + (-((row as f32 / significant_res as f32 - 0.5) / zoom_factor)) as f64) as f32*/
-                    (real_center + ((seat as f32 / significant_res as f32) / zoom_factor) as f64) as f32
-                    , (imag_center + (-((row as f32 / significant_res as f32) / zoom_factor)) as f64) as f32
+                    (real_center + ((seat as f32 / significant_res as f32 - 0.5) / zoom_factor) as f64) as f32
+                    , (imag_center + (-((row as f32 / significant_res as f32 - 0.5) / zoom_factor)) as f64) as f32
+                    /*(real_center + ((seat as f32 / significant_res as f32) / zoom_factor) as f64) as f32
+                    , (imag_center + (-((row as f32 / significant_res as f32) / zoom_factor)) as f64) as f32*/
                 );
 
                 out.push(

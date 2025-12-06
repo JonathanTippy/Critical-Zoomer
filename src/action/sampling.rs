@@ -3,7 +3,7 @@ use steady_state::*;
 use rand::prelude::*;
 
 use egui::{Color32, Pos2};
-use std::cmp::min;
+use std::cmp::*;
 
 use crate::actor::window::*;
 use crate::actor::colorer::*;
@@ -129,6 +129,8 @@ pub(crate) fn sample(
     // go over the sampling size in rows and seats, and sample the colors
 
     let res = context.screen_size;
+
+    //let significant_res = min(res.0, res.1);
 
     let data_size = context.screens[0].screen_size.clone();
 
