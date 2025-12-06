@@ -53,14 +53,14 @@ a mandelbrot set zoomer written in rust
 - fix home button | ✔️
 - fix screen resizing | ✔️
 
-### work saving (0.0.4) WIP...
+### work saving (0.0.4) done! (for now)
 
 - add work collector actor | ✔️
 - implement work saving when zooming in | ✔️
 - implement CD | ✔️
-- work saving when moving | ...
-- fix pixel offsets
-- fix zoom too far
 
 ### perturbation + series approximation (0.0.5)
+ 
+- implement perturbation
+- fix zoom too far
 

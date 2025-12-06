@@ -31,8 +31,7 @@ pub(crate) struct ResultsPackage {
 
 pub(crate) struct WorkCollectorState {
     completed_work: Option<ResultsPackage>
-    , old_work: Option<ResultsPackage>
-    , initial_work: Option<ResultsPackage>
+    , surrounding_work: Option<ResultsPackage>
 }
 
 
@@ -74,8 +73,7 @@ async fn internal_behavior<A: SteadyActor>(
 
     let mut state = state.lock(|| WorkCollectorState {
         completed_work: None
-        , old_work: None
-        , initial_work: None
+        , surrounding_work: None
     }).await;
 
     let max_sleep = Duration::from_millis(50);
@@ -94,6 +92,13 @@ async fn internal_behavior<A: SteadyActor>(
 
         if actor.avail_units(&mut from_worker) > 0 {
             let U =actor.try_take(&mut from_worker).expect("work update seemed available but wasn't...");
+
+            if let Some(surrounding_work) = &mut state.surrounding_work {
+                if let Some(mut f) = U.frame_info.clone() {
+                    f.0.zoom_pot -= 1;
+                    *surrounding_work = sample_old_values(&surrounding_work, f.0, f.1);
+                }
+            }
 
             if let Some(completed_work) = &mut state.completed_work {
                 if let Some(f) = U.frame_info {
