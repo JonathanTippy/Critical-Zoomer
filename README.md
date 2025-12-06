@@ -56,10 +56,10 @@ a mandelbrot set zoomer written in rust
 ### work saving (0.0.4) WIP...
 
 - add work collector actor | ✔️
-- implement work saving when zooming in | ...
-- implement work saving when moving |
-- reintroduce random work order
+- implement work saving when zooming in | ✔️
+- reintroduce random work order | ✔️
 - implement CD | ✔️
-- fix work can get stuck
-
-
+- fix weird offset issue | ...
+- fix random wrong points
+- fix mirages
+- fix drag issue
