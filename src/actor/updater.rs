@@ -30,15 +30,15 @@ pub async fn run(
     actor: SteadyActorShadow,
     updates_in: SteadyRx<ZoomerSettingsUpdate>,
     updates_out_colorer: SteadyTx<ZoomerSettingsUpdate>,
-    updated_out_escaper: SteadyTx<ZoomerSettingsUpdate>,
+    updates_out_escaper: SteadyTx<ZoomerSettingsUpdate>,
     state: SteadyState<UpdaterState>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
-        actor.into_spotlight([&updates_in], [&updates_out_colorer]),
+        actor.into_spotlight([&updates_in], [&updates_out_colorer, &updates_out_escaper]),
         updates_in,
         updates_out_colorer,
-        updated_out_escaper,
+        updates_out_escaper,
         state,
     )
         .await

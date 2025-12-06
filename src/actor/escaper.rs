@@ -93,8 +93,6 @@ async fn internal_behavior<A: SteadyActor>(
 
         match actor.try_take(&mut values_in) {
             Some(v) => {
-
-
                 let mut rng = rand::thread_rng();
                 info!("recieved values");
                 state.values = Some(v);
@@ -124,9 +122,6 @@ async fn internal_behavior<A: SteadyActor>(
             });
             //info!("sent colors to window");
         }
-
-
-
     }
 
     // Final shutdown log, reporting all statistics.

@@ -30,7 +30,8 @@ pub(crate) struct ResultsPackage {
 }
 
 pub(crate) struct WorkCollectorState {
-    completed_work: Vec<ResultsPackage>
+    completed_work: Option<ResultsPackage>
+    , old_work: Option<ResultsPackage>
 }
 
 
@@ -71,7 +72,8 @@ async fn internal_behavior<A: SteadyActor>(
     let mut from_worker = from_worker.lock().await;
 
     let mut state = state.lock(|| WorkCollectorState {
-        completed_work: vec!()
+        completed_work: None
+        , old_work: None
     }).await;
 
     let max_sleep = Duration::from_millis(50);
@@ -82,15 +84,22 @@ async fn internal_behavior<A: SteadyActor>(
     while actor.is_running(
         || i!(values_out.mark_closed())
     ) {
+
+        await_for_any!(//#!#//
+            actor.wait_periodic(max_sleep),
+            actor.wait_avail(&mut from_worker, 1),
+        );
+
         if actor.avail_units(&mut from_worker) > 0 {
             let U =actor.try_take(&mut from_worker).expect("work update seemed available but wasn't...");
-            if state.completed_work.len() > 0 {
+            if let Some(completed_work) = &mut state.completed_work {
                 if let Some(f) = U.frame_info {
-                    state.completed_work[0] = sample_old_values(&state.completed_work[0], f.0, f.1);
+                    *completed_work = sample_old_values(&completed_work, f.0, f.1);
+                    state.old_work = Some(state.completed_work.take().unwrap());
                 } else {
                     //let j = U.completed_points;
                     let l = U.completed_points.len();
-                    //
+                    
                     /*for i in j..j+l {
                         if i-j < vs.len() && i < state.completed_work[0].results.len() {
                             state.completed_work[0].results[i] = vs[i-j].clone();
@@ -99,13 +108,13 @@ async fn internal_behavior<A: SteadyActor>(
                     let vs = U.completed_points;
                     for i in 0..l {
                         let W = vs[i].clone();
-                        state.completed_work[0].results[W.1] = W.0;
+                        completed_work.results[W.1] = W.0;
                     }
-                    actor.try_send(&mut values_out, state.completed_work[0].clone());
+                    actor.try_send(&mut values_out, completed_work.clone());
                 }
             } else {
                 let f = U.frame_info.expect("work collector recieved an initial work update without any info");
-                state.completed_work.push(
+                state.completed_work = Some(
                     ResultsPackage {
                         results: vec![CompletedPoint::Dummy{}; (f.1.0 * f.1.1) as usize]
                         , screen_res: f.1
@@ -113,13 +122,16 @@ async fn internal_behavior<A: SteadyActor>(
                         , complete: false
                     }
                 );
-                let l = U.completed_points.len();
-                let vs = U.completed_points;
-                for i in 0..l {
-                    let W = vs[i].clone();
-                    state.completed_work[0].results[W.1] = W.0;
+                if let Some(completed_work) = &mut state.completed_work {
+                    let l = U.completed_points.len();
+                    let vs = U.completed_points;
+                    for i in 0..l {
+                        let W = vs[i].clone();
+                        completed_work.results[W.1] = W.0;
+                    }
+                    actor.try_send(&mut values_out, completed_work.clone());
                 }
-                actor.try_send(&mut values_out, state.completed_work[0].clone());
+
             }
         }
     }
