@@ -57,9 +57,10 @@ a mandelbrot set zoomer written in rust
 
 - add work collector actor | ✔️
 - implement work saving when zooming in | ✔️
-- reintroduce random work order | ✔️
 - implement CD | ✔️
-- work saving when moving
+- work saving when moving | ...
+- fix pixel offsets
+- fix zoom too far
 
 ### perturbation + series approximation (0.0.5)
 
