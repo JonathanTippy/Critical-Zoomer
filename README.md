@@ -59,12 +59,7 @@ a mandelbrot set zoomer written in rust
 - implement work saving when zooming in | ✔️
 - reintroduce random work order | ✔️
 - implement CD | ✔️
-- fix weird offset issue | ...
-- fix random wrong points
-- fix mirages
-- fix drag issue
-- fix zoom too far
-- optimize
+- work saving when moving
 
 ### perturbation + series approximation (0.0.5)
 
