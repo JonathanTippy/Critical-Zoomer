@@ -31,8 +31,7 @@ pub(crate) struct ResultsPackage {
 
 pub(crate) struct WorkCollectorState {
     completed_work: Option<ResultsPackage>
-    , old_work: Option<ResultsPackage>
-    , initial_work: Option<ResultsPackage>
+    , surrounding_work: Option<ResultsPackage>
 }
 
 
@@ -74,8 +73,7 @@ async fn internal_behavior<A: SteadyActor>(
 
     let mut state = state.lock(|| WorkCollectorState {
         completed_work: None
-        , old_work: None
-        , initial_work: None
+        , surrounding_work: None
     }).await;
 
     let max_sleep = Duration::from_millis(50);
