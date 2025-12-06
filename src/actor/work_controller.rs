@@ -61,7 +61,7 @@ async fn internal_behavior<A: SteadyActor>(
     let mut to_worker = to_worker.lock().await;
 
     let mut state = state.lock(|| WorkControllerState {
-        mixmap: get_random_mixmap((WORKER_INIT_RES.0*WORKER_INIT_RES.1) as usize)
+        mixmap: get_interlaced_mixmap(WORKER_INIT_RES, (WORKER_INIT_RES.0*WORKER_INIT_RES.1) as usize)
         , loc: WORKER_INIT_LOC
         , zoom_pot: WORKER_INIT_ZOOM_POT
         , worker_res: WORKER_INIT_RES
@@ -163,6 +163,23 @@ fn get_random_mixmap(size: usize) -> Vec<usize> {
     indices
 }
 
+fn get_interlaced_mixmap(res:(u32, u32), size:usize) -> Vec<usize> {
+    let mut rng = rand::rng();
+
+    let mut row_indices:Vec<usize> = (0..res.1 as usize).collect();
+    row_indices.shuffle(&mut rng);
+
+    let mut indices: Vec<usize> = (0..size).collect();
+    for mut index in &mut indices {
+        *index = *index % res.0 as usize
+        +
+        row_indices[(*index / res.0 as usize)]
+        * res.0 as usize
+
+    }
+    indices
+}
+
 
 fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAndZoom, (u32, u32))) -> Option<WorkContext> {
 
@@ -175,7 +192,7 @@ fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAnd
     }
 
     if state.worker_res != stuff.1 {
-        state.mixmap = get_random_mixmap((stuff.1.0*stuff.1.1) as usize)
+        state.mixmap = get_interlaced_mixmap(stuff.1, (stuff.1.0*stuff.1.1) as usize)
     }
 
     state.worker_res = stuff.1;
