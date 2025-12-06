@@ -95,11 +95,10 @@ async fn internal_behavior<A: SteadyActor>(
             if let Some(completed_work) = &mut state.completed_work {
                 if let Some(f) = U.frame_info {
                     *completed_work = sample_old_values(&completed_work, f.0, f.1);
-                    state.old_work = Some(state.completed_work.take().unwrap());
                 } else {
                     //let j = U.completed_points;
                     let l = U.completed_points.len();
-                    
+
                     /*for i in j..j+l {
                         if i-j < vs.len() && i < state.completed_work[0].results.len() {
                             state.completed_work[0].results[i] = vs[i-j].clone();
