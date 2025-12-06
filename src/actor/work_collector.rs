@@ -96,7 +96,7 @@ async fn internal_behavior<A: SteadyActor>(
                             state.completed_work[0].results[i] = vs[i-j].clone();
                         }
                     }*/
-                    let vs = get_values_from_points(U.completed_points);
+                    let vs = U.completed_points;
                     for i in 0..l {
                         let W = vs[i].clone();
                         state.completed_work[0].results[W.1] = W.0;
@@ -114,7 +114,7 @@ async fn internal_behavior<A: SteadyActor>(
                     }
                 );
                 let l = U.completed_points.len();
-                let vs = get_values_from_points(U.completed_points);
+                let vs = U.completed_points;
                 for i in 0..l {
                     let W = vs[i].clone();
                     state.completed_work[0].results[W.1] = W.0;
@@ -138,6 +138,8 @@ fn sample_old_values(old_package: &ResultsPackage, new_location: ObjectivePosAnd
 
     let old_size = old_package.screen_res.0 * old_package.screen_res.1;
 
+    //let old_package_pixel_width = old_package.location.zoom_pot
+
     let relative_pos = (
         old_package.location.pos.0.clone()-new_location.pos.0.clone()
         , old_package.location.pos.1.clone()-new_location.pos.1.clone()
@@ -149,6 +151,11 @@ fn sample_old_values(old_package: &ResultsPackage, new_location: ObjectivePosAnd
     );
 
     let relative_zoom = new_location.zoom_pot - old_package.location.zoom_pot;
+
+    /*let relative_pos_in_pixels = (
+        relative_pos_in_pixels.0 - shift(1, relative_zoom-1)
+        , relative_pos_in_pixels.1 - shift(1, relative_zoom-1)
+    );*/
 
     for row in 0..new_res.1 as usize {
         for seat in 0..new_res.0 as usize {
@@ -170,13 +177,13 @@ fn sample_old_values(old_package: &ResultsPackage, new_location: ObjectivePosAnd
 }
 
 
-fn get_values_from_points(ps: Vec<(CompletedPoint, usize)>) -> Vec<(CompletedPoint, usize)> {
+/*fn get_values_from_points(ps: Vec<(CompletedPoint, usize)>) -> Vec<(CompletedPoint, usize)> {
     let mut returned = vec!();
     for p in ps {
         returned.push(((p.0), p.1));
     }
     returned
-}
+}*/
 
 
 

@@ -148,6 +148,11 @@ pub(crate) fn sample(
 
     let relative_zoom = context.location.zoom_pot - context.screens[0].objective_location.zoom_pot;
 
+    /*let relative_pos_in_pixels = (
+        relative_pos_in_pixels.0 + shift(1, relative_zoom-1)
+        , relative_pos_in_pixels.1 + shift(1, relative_zoom-1)
+    );*/
+
     let factor:f64;
 
     if relative_zoom > 0 {

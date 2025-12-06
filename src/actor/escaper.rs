@@ -87,6 +87,7 @@ async fn internal_behavior<A: SteadyActor>(
         let elapsed = state.start.elapsed().as_millis();
 
         let radius:f64 = 2.0 + (((elapsed % 1000) as f64 / 1000.0) * 2.0);
+        //let radius = 2.0;
         info!("radius: {}", radius);
 
 
@@ -101,7 +102,7 @@ async fn internal_behavior<A: SteadyActor>(
             None => {}
         }
 
-        if let Some(v) = state.values.clone() {
+        if let Some(v) = &state.values {
             //let rp = v
             let r = &v.results;
             let len = r.len();
@@ -118,7 +119,7 @@ async fn internal_behavior<A: SteadyActor>(
 
             actor.try_send(&mut screens_out, ZoomerValuesScreen{
                 values: output
-                , screen_size: v.screen_res.clone()
+                , screen_size: v.screen_res
                 , objective_location:  v.location.clone()
             });
             //info!("sent colors to window");
