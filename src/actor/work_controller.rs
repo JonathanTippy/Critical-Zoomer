@@ -71,7 +71,7 @@ async fn internal_behavior<A: SteadyActor>(
     }).await;
 
 
-    let max_sleep = Duration::from_millis(50);
+    let max_sleep = Duration::from_millis(10);
 
     let res = state.worker_res.clone();
     //let ctx = handle_sampler_stuff(&mut state, (
@@ -148,9 +148,9 @@ fn get_points_f32(res: (u32, u32), loc:(f64, f64), zoom: i64) -> Points {
                         , imag_squared: 0.0
                         , real_imag: 0.0
                         , iterations: 0
-                        , loop_detection_points: [(0.0, 0.0); NUMBER_OF_LOOP_CHECK_POINTS]
-                        , done: (false, false)
-                        //, last_point: (0.0, 0.0)
+                        , loop_detection_points: [((0.0, 0.0), 0); NUMBER_OF_LOOP_CHECK_POINTS]
+                        , done: (false, (false, 0))
+                        , delivered: false
                     }
                 )
             }
@@ -217,6 +217,7 @@ fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAnd
         , last_update: 0
         , already_done: vec!()
         , already_done_hashset: HashSet::new()
+        , completed: 0
     };
     state.last_sampler_location = Some(obj);
     Some(work_context)
