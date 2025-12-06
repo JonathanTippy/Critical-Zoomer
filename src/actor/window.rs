@@ -31,9 +31,7 @@ const VSYNC:bool = false;
 
 pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (800, 480);
 
-pub(crate) const HOME_POSTION:(i32, i32, i32) = (0, 0, -2);
-// -2 zoom should mean its zoomed out by 4x, so shows -4 to 4.
-
+pub(crate) const HOME_POSTION:(i32, i32, i32) = (-2, -2, -2);
 
  //pub(crate) const MIN_PIXELS:u32 = 40; // min_pixels is prioritized over min_fps and should be greater than ~6
 //pub(crate) const MIN_FPS:f32 = 10.0;
