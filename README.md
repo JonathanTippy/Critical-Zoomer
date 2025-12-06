@@ -63,3 +63,8 @@ a mandelbrot set zoomer written in rust
 - fix random wrong points
 - fix mirages
 - fix drag issue
+- fix zoom too far
+- optimize
+
+### perturbation + series approximation (0.0.5)
+
