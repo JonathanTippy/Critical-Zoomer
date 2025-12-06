@@ -31,6 +31,7 @@ pub(crate) struct WorkContext {
     , pub(crate) spent_tokens_today: u32
     , pub(crate) already_done: Vec<usize>
     , pub(crate) already_done_hashset: HashSet<usize>
+    , pub(crate) completed: u32
 }
 
 
@@ -60,8 +61,9 @@ pub(crate) struct PointF32 {
     , pub(crate) iterations: u32
     // if this isn't updated enough, you will take longer to realize loops.
     // If its updated too often, you will not be able to realize long loops.
-    , pub(crate) loop_detection_points: [(f32, f32);NUMBER_OF_LOOP_CHECK_POINTS]
-    , pub(crate) done: (bool, bool)
+    , pub(crate) loop_detection_points: [((f32, f32), u64);NUMBER_OF_LOOP_CHECK_POINTS]
+    , pub(crate) done: (bool, (bool, u64))
+    , pub(crate) delivered: bool
 }
 
 
@@ -108,7 +110,7 @@ pub(crate) fn workshift_f32(
     let total_points = points.len();
     context.random_index = context.random_map[min(context.index, total_points-1)];
 
-    while context.index < total_points && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
+    while context.completed < total_points as u32 && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
 
         //while context.already_done_hashset.contains(&context.index) {
         //    context.index += 1;
@@ -116,23 +118,21 @@ pub(crate) fn workshift_f32(
 
         if context.index >= total_points {break}
 
-        let point = &mut points[context.index];
-
-
+        let point = &mut points[context.random_index];
 
         let old_iterations = point.iterations;
 
         iterate_max_n_times_f32(point, 4.0, 1000);
 
-        context.total_iterations_today += point.iterations - old_iterations;
+        if point.done.0 || point.done.1.0 && !point.delivered {
 
-        if point.done.0 || point.done.1 {
-
+            context.completed+=1;
+            point.delivered = true;
             //context.already_done.push(context.index);
             //context.already_done_hashset.insert(context.index);
 
-            let completed_point = if point.done.1 {
-                CompletedPoint::Repeats{period: 0}
+            let completed_point = if point.done.1.0 {
+                CompletedPoint::Repeats{period: point.iterations - point.done.1.1 as u32}
             } else {
                 CompletedPoint::Escapes {
                     escape_time: point.iterations
@@ -141,7 +141,7 @@ pub(crate) fn workshift_f32(
                 }
             };
 
-            context.completed_points.push((completed_point, context.index));
+            context.completed_points.push((completed_point, context.random_index));
 
             context.total_iterations += point.iterations;
 
@@ -151,8 +151,15 @@ pub(crate) fn workshift_f32(
             context.total_points_today += 1
         }
 
+        context.total_iterations_today += point.iterations - old_iterations;
+
         context.total_bouts_today += 1;
         context.spent_tokens_today = context.total_bouts_today * bout_token_cost + context.total_points_today * point_token_cost + context.total_iterations_today * point_token_cost;
+        //context.index += 1;
+        /*if context.index >= total_points {
+            context.index = 0;
+        }*/
+        context.random_index = context.random_map[min(context.index, total_points-1)];
     }
 
     context.workshifts += 1;
@@ -164,12 +171,15 @@ pub(crate) fn iterate_max_n_times_f32 (point: &mut PointF32, r_squared:f32, n: u
     for i in 0..n {
         update_point_results_f32(point);
         point.done.0 = bailout_point_f32(point, r_squared);
-        if !(point.done.0 || point.done.1) {
+        if !(point.done.0 || point.done.1.0) {
             iterate_f32(point);
         } else {
             break;
         }
-        point.done.1 = loop_check_point_f32(point);
+        if let Some(l) = loop_check_point_f32(point) {
+            point.done.1.0 = true;
+            point.done.1.1 = l;
+        };
         update_loop_check_points(point);
     }
 }
@@ -193,13 +203,23 @@ pub(crate) fn bailout_point_f32 (point: & PointF32, r_squared:f32) -> bool {
 }
 
 #[inline]
-fn loop_check_point_f32 (point: & PointF32) -> bool {
+fn loop_check_point_f32 (point: & PointF32) -> Option<u64> {
     // checks
+    let mut it = 0;
     let mut looped = false;
     for loop_check_point in &point.loop_detection_points {
-        looped = looped || point.z == *loop_check_point;
+        let l = point.z == loop_check_point.0;
+        looped = looped || l;
+        if l {
+            it = loop_check_point.1;
+        }
     }
-    looped// || point.z == point.last_point
+    //looped// || point.z == point.last_point
+    if looped {
+        Some(it)
+    } else {
+        None
+    }
 }
 
 #[inline]
@@ -259,23 +279,23 @@ fn update_loop_check_points (point: &mut PointF32) {
     //point.last_point = point.z;
 
     if point.iterations%(1<<1) == 0 {
-        point.loop_detection_points[0] = point.z;
+        point.loop_detection_points[0] = (point.z, point.iterations as u64);
     }
 
     if point.iterations%(1<<8) == 0 {
-        point.loop_detection_points[1] = point.z;
+        point.loop_detection_points[1] = (point.z, point.iterations as u64);
     }
 
     if point.iterations%(1<<14) == 0 {
-        point.loop_detection_points[2] = point.z;
+        point.loop_detection_points[2] = (point.z, point.iterations as u64);
     }
 
     if point.iterations%(1<<23) == 0 {
-        point.loop_detection_points[3] =point.z;
+        point.loop_detection_points[3] = (point.z, point.iterations as u64);
     }
 
     if point.iterations%(1<<25) == 0 {
-        point.loop_detection_points[4] =point.z;
+        point.loop_detection_points[4] = (point.z, point.iterations as u64);
     }
 
 }

@@ -80,30 +80,31 @@ async fn internal_behavior<A: SteadyActor>(
                 let mut rng = rand::thread_rng();
                 info!("recieved values");
                 state.values = Some(v);
-                let rp = state.values.as_ref().unwrap();
-                let r = &rp.values;
-                let len = r.len();
-                let mut output = vec!();
+                if let Some(v) = state.values.clone() {
+                    let r = &v.values;
+                    let len = r.len();
+                    let mut output = vec!();
 
-                for i in 0..r.len() {
-                    let value = &r[i%len];
-                    let color:(u8,u8,u8) = match value {
-                        ScreenValue::Inside{loop_period: _} => {(0, 0, 0)}
-                        ScreenValue::Outside { escape_time: e } => {((e * 10 % 192) as u8 + 64, (e * 10 % 192) as u8 + 64, (e * 10 % 192) as u8 + 64)}
-                    };
-                    //let color = (255, 255, 255);
-                    output.push(color);
+                    for i in 0..r.len() {
+                        let value = &r[i%len];
+                        let color:(u8,u8,u8) = match value {
+                            ScreenValue::Inside{loop_period: p} => {((p*50%255) as u8, 0, 0)}
+                            ScreenValue::Outside { escape_time: e } => {((e * 10 % 192) as u8 + 64, (e * 10 % 192) as u8 + 64, (e * 10 % 192) as u8 + 64)}
+                        };
+                        //let color = (255, 255, 255);
+                        output.push(color);
+                    }
+
+                    info!("done coloring. result is {} pixels long.", output.len());
+
+
+                    actor.try_send(&mut screens_out, ZoomerScreen{
+                        pixels: output
+                        , screen_size: v.screen_size.clone()
+                        , objective_location: v.objective_location.clone()
+                    });
+                    //info!("sent colors to window");
                 }
-
-                info!("done coloring. result is {} pixels long.", output.len());
-
-
-                actor.try_send(&mut screens_out, ZoomerScreen{
-                    pixels: output
-                    , screen_size: state.values.as_ref().unwrap().screen_size.clone()
-                    , objective_location:  state.values.as_ref().unwrap().objective_location.clone()
-                });
-                //info!("sent colors to window");
 
             }
             None => {}
