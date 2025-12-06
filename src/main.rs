@@ -33,7 +33,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Build the actor graph with all channels and actors, using the parsed arguments.
     let mut graph = GraphBuilder::default()
-        //.with_telemtry_production_rate_ms(200)
+        .with_telemtry_production_rate_ms(200)
         .build(cli_args);
 
     // Construct the full actor pipeline and channel topology.
@@ -64,14 +64,14 @@ fn build_graph(graph: &mut Graph) {
     // - Real-time average rate tracking
     let channel_builder = graph.channel_builder()
         // Smoother rates over a longer window
-        //.with_compute_refresh_window_floor(Duration::from_secs(4),Duration::from_secs(24))
+        .with_compute_refresh_window_floor(Duration::from_secs(4),Duration::from_secs(24))
         // Red alert if channel is >90% full on average (critical congestion)
         .with_filled_trigger(Trigger::AvgAbove(Filled::p90()), AlertColor::Red)
         // Orange alert if channel is >60% full on average (early warning)
         .with_filled_trigger(Trigger::AvgAbove(Filled::p60()), AlertColor::Orange)
         // Track average message rate for each channel
         .with_avg_rate()
-        .with_capacity(100);
+        .with_capacity(2);
 
     // Channel capacities are set extremely large for high-throughput, batch-friendly operation.
     // - Heartbeat channel: moderate size for timing signals
@@ -86,7 +86,7 @@ fn build_graph(graph: &mut Graph) {
     let (
         colorer_tx_to_window
         , window_rx_from_colorer
-    ) = channel_builder.build();
+    ) = channel_builder.with_capacity(2).build();
 
     let (
         updater_tx_to_colorer
@@ -100,21 +100,21 @@ fn build_graph(graph: &mut Graph) {
     let (
         window_tx_to_work_controller
         , work_controller_rx_from_window
-    ) = channel_builder.build();
+    ) = channel_builder.with_capacity(2).build();
 
     //work controller to worker commands channel
 
     let (
         work_controller_tx_to_screen_worker
         , screen_worker_rx_from_work_controller
-    ) = channel_builder.build();
+    ) = channel_builder.with_capacity(2).build();
 
     // worker to work collector responses channel
 
     let (
         screen_worker_tx_to_work_collector
         , work_collector_rx_from_screen_worker
-    ) = channel_builder.build();
+    ) = channel_builder.with_capacity(2).build();
 
     // work collector to escaper chanel
 

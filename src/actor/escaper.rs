@@ -15,7 +15,6 @@ pub(crate) struct ZoomerScreen {
     , pub(crate) screen_size: (u32, u32)
     , pub(crate) objective_location: ObjectivePosAndZoom
 }
-#[derive(Clone, Debug)]
 
 pub(crate) struct ZoomerValuesScreen {
     pub(crate) values: Vec<ScreenValue>
@@ -88,7 +87,6 @@ async fn internal_behavior<A: SteadyActor>(
         let elapsed = state.start.elapsed().as_millis();
 
         let radius:f64 = 2.0 + (((elapsed % 1000) as f64 / 1000.0) * 2.0);
-        //let radius = 2.0;
         info!("radius: {}", radius);
 
 
@@ -99,33 +97,32 @@ async fn internal_behavior<A: SteadyActor>(
                 let mut rng = rand::thread_rng();
                 info!("recieved values");
                 state.values = Some(v);
-                if let Some(v) = state.values.clone() {
-                    //let rp = v
-                    let r = &v.results;
-                    let len = r.len();
-                    let mut output = vec!();
-
-                    for i in 0..r.len() {
-                        let point = &r[i%len];
-                        let value = get_value_from_point(point, radius as f32);
-                        output.push(value);
-                    }
-
-                    info!("done escaping. result is {} pixels long.", output.len());
-
-
-                    actor.try_send(&mut screens_out, ZoomerValuesScreen{
-                        values: output
-                        , screen_size: v.screen_res.clone()
-                        , objective_location:  v.location.clone()
-                    });
-                    //info!("sent colors to window");
-                }
             }
             None => {}
         }
 
+        if let Some(v) = state.values.clone() {
+            //let rp = v
+            let r = &v.results;
+            let len = r.len();
+            let mut output = vec!();
 
+            for i in 0..r.len() {
+                let point = &r[i%len];
+                let value = get_value_from_point(point, radius as f32);
+                output.push(value);
+            }
+
+            info!("done escaping. result is {} pixels long.", output.len());
+
+
+            actor.try_send(&mut screens_out, ZoomerValuesScreen{
+                values: output
+                , screen_size: v.screen_res.clone()
+                , objective_location:  v.location.clone()
+            });
+            //info!("sent colors to window");
+        }
 
 
 
@@ -148,7 +145,7 @@ fn get_value_from_point(p: &CompletedPoint, r: f32) -> ScreenValue {
                 , i16_to_f32(c.1)
             );*/
 
-            let limit = 0;//10000;
+            let limit = 100;
 
             //let r:f32 = 256.0;
             let r_squared = r*r;
@@ -159,9 +156,8 @@ fn get_value_from_point(p: &CompletedPoint, r: f32) -> ScreenValue {
                 , imag_squared: z.1 * z.1
                 , iterations: t.clone()
                 , real_imag: z.0 * z.1
-                , loop_detection_points: [((0.0, 0.0),0);5]
-                , done: (false, (false, 0))
-                , delivered: false
+                , loop_detection_points: [(0.0, 0.0);5]
+                , done: (false, false)
                 };
 
             let mut count = 0;
