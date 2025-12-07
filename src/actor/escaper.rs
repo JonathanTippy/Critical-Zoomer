@@ -86,7 +86,19 @@ async fn internal_behavior<A: SteadyActor>(
 
         let elapsed = state.start.elapsed().as_millis();
 
-        let radius:f64 = 2.0 + (((elapsed % 10000) as f64 / 10000.0) * 2.0);
+        //let radius:f64 = 2.0 + (((elapsed % 10000) as f64 / 10000.0) * 4.0);
+
+        let r_1:f64 = 2.0;
+        let r_2:f64 = 2.0f64.powf(32.0);
+        let t_p = 10000;
+        let t = ((elapsed % t_p) as f64 / t_p as f64);
+        let t_pi = t * 6.28;
+        let t_sin = (t_pi.sin() + 1.0)/2.0;
+        let r_diff:f64 = r_2-r_1;
+        let radius = (r_1-1.0) + 2.0f64.powf(
+            r_diff.log(2.0) * t_sin
+        );
+
         //let radius = 2.0;
         //info!("radius: {}", radius);
 
@@ -147,8 +159,6 @@ fn get_value_from_point(p: &CompletedPoint, r: f32) -> ScreenValue {
                 , i16_to_f32(c.1)
             );*/
 
-            let limit = 1000;
-
             //let r:f32 = 256.0;
             let r_squared = r*r;
             let mut p = PointF32{
@@ -162,10 +172,9 @@ fn get_value_from_point(p: &CompletedPoint, r: f32) -> ScreenValue {
                 , done: (false, false)
                 };
 
-            let mut count = 0;
-            while !bailout_point_f32(&p, r_squared) && count < limit {
+            while !bailout_point_f32(&p, r_squared) {
                 iterate_f32(&mut p);
-                count+=1;
+                update_point_results_f32(&mut p);
             }
             ScreenValue::Outside{escape_time: p.iterations}
 
