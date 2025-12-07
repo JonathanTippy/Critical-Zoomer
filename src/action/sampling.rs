@@ -277,9 +277,9 @@ pub(crate) fn update_sampling_context(context: &mut SamplingContext, screen: Zoo
         context.updated = false;
     }
     
-    if let Some(old_screen) = context.screen.take() {
+    /*if let Some(old_screen) = context.screen.take() {
         drop(old_screen);
-    }
+    }*/
     context.screen = Some(screen);
 
 }

@@ -282,7 +282,7 @@ fn update_loop_check_points (point: &mut PointF32) {
 
 
 #[inline]
-fn update_point_results_f32(point: &mut PointF32) {
+pub(crate) fn update_point_results_f32(point: &mut PointF32) {
     // update values
     point.real_squared = point.z.0 * point.z.0;
     point.imag_squared = point.z.1 * point.z.1;
