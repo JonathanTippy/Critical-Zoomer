@@ -132,7 +132,7 @@ async fn internal_behavior<A: SteadyActor>(
         , buffers: vec!(vec!(Color32::BLACK;(DEFAULT_WINDOW_RES.0*DEFAULT_WINDOW_RES.1) as usize))
         , id_counter: 0
         , sampling_context: SamplingContext {
-            screens: vec!()
+            screen: None
             , screen_size: (DEFAULT_WINDOW_RES.0, DEFAULT_WINDOW_RES.1)
             , location: ObjectivePosAndZoom {
                 pos: (IntExp::from(HOME_POSTION.0), IntExp::from(HOME_POSTION.1))
@@ -292,17 +292,18 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             match actor.try_take(&mut pixels_in) {
                 Some(s) => {
+                    update_sampling_context(&mut state.sampling_context, s);
                     //info!("window recieved pixels");
-                    if s.pixels.len() == pixels {
+                    /*if s.pixels.len() == pixels {
                         update_sampling_context(&mut state.sampling_context, s);
                     } else {
                         info!("pixel length mismatch. expected {} got {}", pixels, s.pixels.len())
-                    }
+                    }*/
                 }
                 None => {}
             }
 
-            if state.sampling_context.screens.len() == 0 {
+            if state.sampling_context.screen.is_none() {
                 for _ in 0..pixels {sampler_buffer.push(Color32::PURPLE)};
                 //actor.try_send(&mut sampler_out, (state.sampling_context.relative_transforms.clone(), (state.size.x as u32, state.size.y as u32)));
             }
@@ -319,7 +320,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             state.sampling_context.screen_size = (size.0 as u32, size.1 as u32);
 
-            if state.sampling_context.screens.len() > 0 {
+            if state.sampling_context.screen.is_some() {
                 sample(command_package, &mut sampler_buffer, &mut state.sampling_context);
             } /*else {
                 for _ in 0..pixels {

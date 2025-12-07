@@ -88,7 +88,7 @@ async fn internal_behavior<A: SteadyActor>(
 
         let radius:f64 = 2.0 + (((elapsed % 10000) as f64 / 10000.0) * 2.0);
         //let radius = 2.0;
-        info!("radius: {}", radius);
+        //info!("radius: {}", radius);
 
 
         if actor.avail_units(&mut values_in) > 0 {
@@ -99,7 +99,7 @@ async fn internal_behavior<A: SteadyActor>(
             match actor.try_take(&mut values_in) {
                 Some(v) => {
                     let mut rng = rand::thread_rng();
-                    info!("recieved values");
+                    //info!("recieved values");
                     state.values = Some(v);
                 }
                 None => {}
@@ -118,7 +118,7 @@ async fn internal_behavior<A: SteadyActor>(
                 output.push(value);
             }
 
-            info!("done escaping. result is {} pixels long.", output.len());
+            //info!("done escaping. result is {} pixels long.", output.len());
 
 
             actor.try_send(&mut screens_out, ZoomerValuesScreen{

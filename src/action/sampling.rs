@@ -14,7 +14,7 @@ use crate::actor::work_controller::PIXELS_PER_UNIT_POT;
 
 #[derive(Clone, Debug)]
 pub(crate) struct SamplingContext {
-    pub(crate) screens: Vec<ZoomerScreen>
+    pub(crate) screen: Option<ZoomerScreen>
     , pub(crate) screen_size: (u32, u32)
     , pub(crate) location: ObjectivePosAndZoom
     , pub(crate) updated: bool
@@ -126,68 +126,77 @@ pub(crate) fn sample(
         }
     }
 
-    // go over the sampling size in rows and seats, and sample the colors
 
-    let res = context.screen_size;
+    if let Some(current_screen) = &context.screen {
+        // go over the sampling size in rows and seats, and sample the colors
 
-    let data_size = context.screens[0].screen_size.clone();
-
-    let data_len = context.screens[0].pixels.len();
-
-    let data = &context.screens[0].pixels;
-
-    let relative_pos = (
-        context.screens[0].objective_location.pos.0.clone()-context.location.pos.0.clone()
-        , context.screens[0].objective_location.pos.1.clone()-context.location.pos.1.clone()
+        info!("zoom: {}, location: {} + {}i"
+        , current_screen.objective_location.zoom_pot
+        , current_screen.objective_location.pos.0
+        , current_screen.objective_location.pos.1
     );
 
-    let relative_pos_in_pixels:(i32, i32) = (
-        relative_pos.0.shift(context.location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
-, relative_pos.1.shift(context.location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
+        let res = context.screen_size;
+
+        let data_size = current_screen.screen_size.clone();
+
+        let data_len = current_screen.pixels.len();
+
+        let data = &current_screen.pixels;
+
+        let relative_pos = (
+            current_screen.objective_location.pos.0.clone()-context.location.pos.0.clone()
+            , current_screen.objective_location.pos.1.clone()-context.location.pos.1.clone()
         );
 
-    let relative_zoom = context.location.zoom_pot - context.screens[0].objective_location.zoom_pot;
+        let relative_pos_in_pixels:(i32, i32) = (
+            relative_pos.0.shift(context.location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
+            , relative_pos.1.shift(context.location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
+        );
 
-    /*let relative_pos_in_pixels = (
-        relative_pos_in_pixels.0 + shift(1, relative_zoom-1)
-        , relative_pos_in_pixels.1 + shift(1, relative_zoom-1)
-    );*/
+        let relative_zoom = context.location.zoom_pot - current_screen.objective_location.zoom_pot;
 
-    let factor:f64;
+        /*let relative_pos_in_pixels = (
+            relative_pos_in_pixels.0 + shift(1, relative_zoom-1)
+            , relative_pos_in_pixels.1 + shift(1, relative_zoom-1)
+        );*/
 
-    if relative_zoom > 0 {
-        factor = (1<<relative_zoom) as f64;
-    } else {
-        factor =  1.0 / (1<<-relative_zoom) as f64;
-    }
+        let factor:f64;
 
-    let relative_zoom_recip = ((1.0 / factor) * ((1<<16) as f64)) as u32;
+        if relative_zoom > 0 {
+            factor = (1<<relative_zoom) as f64;
+        } else {
+            factor =  1.0 / (1<<-relative_zoom) as f64;
+        }
 
-    let min_side_recip = (1<<32) / (min_side as i64);
-    //let res_recip = (     (1<<16) / size.0,    (1<<16) / size.1    );
+        let relative_zoom_recip = ((1.0 / factor) * ((1<<16) as f64)) as u32;
+
+        let min_side_recip = (1<<32) / (min_side as i64);
+        //let res_recip = (     (1<<16) / size.0,    (1<<16) / size.1    );
 
 
-    //info!("data res: {}, {}", data_size.0, data_size.1);
+        //info!("data res: {}, {}", data_size.0, data_size.1);
 
 
-    //let mut i = 0;
-    for row in 0..size.1 as usize {
-        for seat in 0..size.0 as usize {
-            bucket.push(
-                sample_color(
-                    data
-                    , min_side
-                    , data_size
-                    , data_len
-                    , row
-                    , seat
-                    //, res_recip
-                    , min_side_recip
-                    , relative_pos_in_pixels
-                    , relative_zoom as i64
-                )
-            );
-            //i+=1;
+        //let mut i = 0;
+        for row in 0..size.1 as usize {
+            for seat in 0..size.0 as usize {
+                bucket.push(
+                    sample_color(
+                        data
+                        , min_side
+                        , data_size
+                        , data_len
+                        , row
+                        , seat
+                        //, res_recip
+                        , min_side_recip
+                        , relative_pos_in_pixels
+                        , relative_zoom as i64
+                    )
+                );
+                //i+=1;
+            }
         }
     }
 }
@@ -268,11 +277,9 @@ pub(crate) fn update_sampling_context(context: &mut SamplingContext, screen: Zoo
         context.updated = false;
     }
     
-    if context.screens.len() != 0 {
-        drop(context.screens.pop().unwrap());
-        context.screens.push(screen);
-    } else {
-        context.screens.push(screen);
+    if let Some(old_screen) = context.screen.take() {
+        drop(old_screen);
     }
+    context.screen = Some(screen);
 
 }
