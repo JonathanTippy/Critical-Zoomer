@@ -83,7 +83,7 @@ async fn internal_behavior<A: SteadyActor>(
             match actor.try_take(&mut values_in) {
                 Some(v) => {
                     let mut rng = rand::thread_rng();
-                    info!("recieved values");
+                    //info!("recieved values");
                     state.values = Some(v);
                     let rp = state.values.as_ref().unwrap();
                     let r = &rp.values;
@@ -100,7 +100,7 @@ async fn internal_behavior<A: SteadyActor>(
                         output.push(color);
                     }
 
-                    info!("done coloring. result is {} pixels long.", output.len());
+                    //info!("done coloring. result is {} pixels long.", output.len());
 
 
                     actor.try_send(&mut screens_out, ZoomerScreen{
