@@ -1,10 +1,19 @@
 
 
 use std::time::Instant;
-use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::cmp::*;
 use crate::action::utils::*;
 pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
+
+
+
+pub(crate) enum WorkerState {
+    ScreenEdge
+    , FillingOut
+    , FillingIn
+}
+
 
 #[derive(Clone, Debug)]
 
@@ -29,8 +38,11 @@ pub(crate) struct WorkContext {
     , pub(crate) total_bouts_today: u32
     , pub(crate) total_points_today: u32
     , pub(crate) spent_tokens_today: u32
-    , pub(crate) already_done: Vec<usize>
-    , pub(crate) already_done_hashset: HashSet<usize>
+    , pub(crate) count_completed: usize
+    , pub(crate) res: (u32, u32)
+    , pub(crate) screen_edge_queue: VecDeque<usize>
+    , pub(crate) filling_out_queue: VecDeque<usize>
+    , pub(crate) filling_in_queue: VecDeque<usize>
 }
 
 
@@ -62,6 +74,7 @@ pub(crate) struct PointF32 {
     // If its updated too often, you will not be able to realize long loops.
     , pub(crate) loop_detection_points: [(f32, f32);NUMBER_OF_LOOP_CHECK_POINTS]
     , pub(crate) done: (bool, bool)
+    , pub(crate) delivered: bool
 }
 
 
@@ -108,23 +121,46 @@ pub(crate) fn workshift_f32(
     let total_points = points.len();
     context.random_index = context.random_map[min(context.index, total_points-1)];
 
-    while context.index < total_points && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
-
-        //while context.already_done_hashset.contains(&context.index) {
-        //    context.index += 1;
-        //}
+    while context.count_completed < total_points && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
 
         if context.index >= total_points {break}
 
-        let point = &mut points[context.index];
 
 
+        let (index, state) = if context.screen_edge_queue.len()>0 {
+            (context.screen_edge_queue.pop_front().unwrap(), WorkerState::ScreenEdge)
+        } else if context.filling_out_queue.len()>0 {
+            (context.filling_out_queue.pop_front().unwrap(), WorkerState::FillingOut)
+        } else if context.filling_in_queue.len()>0 {
+            (context.filling_in_queue.pop_front().unwrap(), WorkerState::FillingIn)
+        } else {break;};
+
+        let point = context.points.p[index];
 
         let old_iterations = point.iterations;
 
         iterate_max_n_times_f32(point, 4.0, 1000);
 
         context.total_iterations_today += point.iterations - old_iterations;
+
+        match context.worker_state {
+            WorkerState::FillingIn{index_queue: &mut q} => {
+
+                let completed_point = CompletedPoint::Repeats{period: 0};
+
+                context.completed_points.push((completed_point, context.random_index));
+                point.delivered = true;
+                context.total_points_today += 1;
+
+                q.push_end(context.index + 1);
+                q.push_end(context.index - 1);
+                q.push_end(context.index + context.res.0 as usize);
+                q.push_end(context.index - context.res.0 as usize);
+
+                continue;
+            }
+            _ => {}
+        }
 
         if point.done.0 || point.done.1 {
 
@@ -141,15 +177,34 @@ pub(crate) fn workshift_f32(
                 }
             };
 
-            context.completed_points.push((completed_point, context.index));
+            context.completed_points.push((completed_point, context.random_index));
+            point.delivered = true;
 
             context.total_iterations += point.iterations;
 
-            context.index += 1;
+            context.total_points_today += 1;
 
-            context.random_index = context.random_map[min(context.index, total_points-1)];
-            context.total_points_today += 1
+            match context.worker_state {
+                WorkerState::FillingOut{index_queue: &mut q} => {
+                    if point.done.0 {
+                        q.push_end(context.index + 1);
+                        q.push_end(context.index - 1);
+                        q.push_end(context.index + context.res.0 as usize);
+                        q.push_end(context.index - context.res.0 as usize);
+                    }
+                }
+                _ => {}
+            }
+
         }
+
+
+        context.index += 1;
+        context.random_index = context.random_map[min(context.index, total_points-1)];
+
+
+
+
 
         context.total_bouts_today += 1;
         context.spent_tokens_today = context.total_bouts_today * bout_token_cost + context.total_points_today * point_token_cost + context.total_iterations_today * point_token_cost;
