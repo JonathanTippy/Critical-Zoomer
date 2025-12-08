@@ -64,7 +64,7 @@ async fn internal_behavior<A: SteadyActor>(
 
     // Lock all channels for exclusive access within this actor.
 
-    let max_sleep = Duration::from_millis(50);
+    let max_sleep = Duration::from_millis(8);
 
 
 
@@ -89,18 +89,24 @@ async fn internal_behavior<A: SteadyActor>(
         //let radius:f64 = 2.0 + (((elapsed % 10000) as f64 / 10000.0) * 4.0);
 
         let r_1:f64 = 2.0;
-        let r_2:f64 = 2.0f64.powf(32.0);
+        let r_2:f64 = 2.0f64.powf(8.0);
         let t_p = 10000;
         let t = ((elapsed % t_p) as f64 / t_p as f64);
         let t_pi = t * 6.28;
         let t_sin = (t_pi.sin() + 1.0)/2.0;
-        let r_diff:f64 = r_2-r_1;
+
+
+        /*let r_diff:f64 = r_2-r_1;
         let radius = (r_1-1.0) + 2.0f64.powf(
             r_diff.log(2.0) * t_sin
-        );
+        );*/
 
-        //let radius = 2.0;
-        //info!("radius: {}", radius);
+        // correct from first principles: linear motion in log(log(radius))
+        let loglog_r1 = (r_1.ln()).ln();
+        let loglog_r2 = (r_2.ln()).ln();
+        let loglog_r = loglog_r1 + (loglog_r2 - loglog_r1) * t_sin;
+        let radius = (loglog_r.exp()).exp();
+
 
 
         if actor.avail_units(&mut values_in) > 0 {
