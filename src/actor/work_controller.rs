@@ -226,7 +226,8 @@ fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAnd
         , total_points_today: 0
         , total_bouts_today: 0
         , last_update: 0
-        , worker_state: WorkerState::Default
+        , already_done: vec!()
+        , already_done_hashset: HashSet::new()
     };
     state.last_sampler_location = Some(obj);
     Some(work_context)
