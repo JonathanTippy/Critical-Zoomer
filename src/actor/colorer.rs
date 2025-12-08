@@ -57,7 +57,7 @@ async fn internal_behavior<A: SteadyActor>(
 
     // Lock all channels for exclusive access within this actor.
 
-    let max_sleep = Duration::from_millis(50);
+    let max_sleep = Duration::from_millis(8);
 
     // Main processing loop.
     // The actor runs until all input channels are closed and empty, and the output channel is closed.
@@ -90,11 +90,25 @@ async fn internal_behavior<A: SteadyActor>(
                     let len = r.len();
                     let mut output = vec!();
 
+                    let bright:f64 = 128.0;
+                    let dim:f64 = 64.0;
+                    let brim:f64 = bright-dim;
+
                     for i in 0..r.len() {
                         let value = &r[i%len];
                         let color:(u8,u8,u8) = match value {
                             ScreenValue::Inside{loop_period: _} => {(0, 0, 0)}
-                            ScreenValue::Outside { escape_time: e } => {((e * 10 % 192) as u8 + 64, (e * 10 % 192) as u8 + 64, (e * 10 % 192) as u8 + 64)}
+                            ScreenValue::Outside { escape_time: e } => {
+
+                                let m = (*e as f64 % 10.0)/10.0;
+                                let m_pi = m * 6.28;
+                                let e_sin = (m_pi.sin() + 1.0)/2.0;
+
+
+                                let b =
+                                    (e_sin * brim+dim) as u8;
+                                (b,b,b)
+                            }
                         };
                         //let color = (255, 255, 255);
                         output.push(color);
