@@ -6,7 +6,7 @@ use crate::action::workshift::*;
 use crate::action::sampling::*;
 use crate::actor::screen_worker::*;
 
-
+use std::collections::VecDeque;
 
 use rand::prelude::SliceRandom;
 use crate::action::utils::*;
@@ -210,6 +210,23 @@ fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAnd
     state.zoom_pot = obj.zoom_pot as i64;
 
 
+    let mut edges:VecDeque<(i32, i32)> = VecDeque::new();
+
+    for row in 0..state.worker_res.1 {
+        for seat in 0..state.worker_res.0 {
+            if row == 0
+                || seat == 0
+                || row == state.worker_res.1-1
+                || seat == state.worker_res.0-1 {
+                edges.push_back((seat as i32, row as i32));
+            }
+        }
+    }
+
+    let start = edges.pop_front().unwrap();
+
+    //println!("edges: {:?}", edges);
+
     let work_context = WorkContext {
         points: get_points_f32(stuff.1, state.loc, state.zoom_pot)
         , completed_points: vec!()
@@ -226,8 +243,13 @@ fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAnd
         , total_points_today: 0
         , total_bouts_today: 0
         , last_update: 0
-        , already_done: vec!()
-        , already_done_hashset: HashSet::new()
+        , edge_pos_queue: edges
+        , out_pos_queue: VecDeque::new()
+        , in_pos_queue: VecDeque::new()
+        , completed: 0
+        , res: state.worker_res
+        , pos: start
+        , step: Step::Edge
     };
     state.last_sampler_location = Some(obj);
     Some(work_context)

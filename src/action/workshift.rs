@@ -1,10 +1,15 @@
 
 
 use std::time::Instant;
-use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::cmp::*;
 use crate::action::utils::*;
 pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
+#[derive(Clone, Debug)]
+
+pub(crate) enum Step {
+    Edge, Out, In
+}
 
 #[derive(Clone, Debug)]
 
@@ -29,8 +34,13 @@ pub(crate) struct WorkContext {
     , pub(crate) total_bouts_today: u32
     , pub(crate) total_points_today: u32
     , pub(crate) spent_tokens_today: u32
-    , pub(crate) already_done: Vec<usize>
-    , pub(crate) already_done_hashset: HashSet<usize>
+    , pub(crate) edge_pos_queue: VecDeque<(i32, i32)>
+    , pub(crate) out_pos_queue: VecDeque<(i32, i32)>
+    , pub(crate) in_pos_queue: VecDeque<(i32, i32)>
+    , pub(crate) res: (u32, u32)
+    , pub(crate) completed: usize
+    , pub(crate) pos: (i32, i32)
+    , pub(crate) step: Step
 }
 
 
@@ -108,17 +118,58 @@ pub(crate) fn workshift_f32(
     let total_points = points.len();
     context.random_index = context.random_map[min(context.index, total_points-1)];
 
-    while context.index < total_points && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
-
-        //while context.already_done_hashset.contains(&context.index) {
-        //    context.index += 1;
-        //}
-
-        if context.index >= total_points {break}
-
-        let point = &mut points[context.index];
+    while context.completed < total_points && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
 
 
+
+
+        let step:Step;
+
+
+
+        let len = points.len();
+
+        let mut incomplete_neighbors:Vec<(i32, i32)> = vec![];
+
+        let p = context.pos;
+
+        let neighbors = [
+            (p.0, p.1 + 1)
+            , (p.0, p.1 - 1)
+            , (p.0 + 1, p.1)
+            , (p.0 - 1, p.1)
+        ];
+        for n in neighbors {
+            if
+            n.0 > 0
+                && n.1 > 0
+                && n.0 < context.res.0 as i32 -2
+                && n.1 < context.res.1 as i32 -2
+            {
+                let i = index_from_pos(n.0,n.1, context.res.0);
+                if ! (points[i].done.0 || points[i].done.1)  {
+                    incomplete_neighbors.push(n);
+                }
+            }
+        }
+
+        let index = index_from_pos(p.0,p.1, context.res.0);
+        let point = &mut points[index];
+
+        match context.step {
+            Step::In => {
+                point.done.1 = true;
+                let completed_point = CompletedPoint::Repeats{period: 0};
+                context.completed_points.push((completed_point, context.index));
+                context.total_points_today += 1;
+                for i in incomplete_neighbors {
+                    context.in_pos_queue.push_back(i);
+                }
+                context.completed+=1;
+                continue;
+            }
+            _ => {}
+        }
 
         let old_iterations = point.iterations;
 
@@ -128,12 +179,17 @@ pub(crate) fn workshift_f32(
 
         if point.done.0 || point.done.1 {
 
-            //context.already_done.push(context.index);
-            //context.already_done_hashset.insert(context.index);
+            context.completed+=1;
 
             let completed_point = if point.done.1 {
+                for i in incomplete_neighbors {
+                    context.in_pos_queue.push_back(i);
+                }
                 CompletedPoint::Repeats{period: 0}
             } else {
+                for i in incomplete_neighbors {
+                    context.out_pos_queue.push_back(i);
+                }
                 CompletedPoint::Escapes {
                     escape_time: point.iterations
                     , escape_location: point.z
@@ -141,14 +197,26 @@ pub(crate) fn workshift_f32(
                 }
             };
 
-            context.completed_points.push((completed_point, context.index));
+            context.completed_points.push((completed_point, index));
 
             context.total_iterations += point.iterations;
 
-            context.index += 1;
+            context.index+=1;
 
             context.random_index = context.random_map[min(context.index, total_points-1)];
-            context.total_points_today += 1
+            context.total_points_today += 1;
+
+            context.pos = if context.edge_pos_queue.len()>0  {
+                context.step = Step::Edge;
+                context.edge_pos_queue.pop_front().unwrap()
+            } else if context.out_pos_queue.len()>0{
+                context.step = Step::Out;
+                context.out_pos_queue.pop_front().unwrap()
+            } else if context.in_pos_queue.len()>0 {
+                context.step = Step::In;
+                println!("ran out of out points");
+                context.in_pos_queue.pop_front().unwrap()
+            } else {break;};
         }
 
         context.total_bouts_today += 1;
@@ -287,4 +355,8 @@ pub(crate) fn update_point_results_f32(point: &mut PointF32) {
     point.real_squared = point.z.0 * point.z.0;
     point.imag_squared = point.z.1 * point.z.1;
     point.real_imag = point.z.0 * point.z.1;
+}
+
+pub(crate) fn index_from_pos(x:i32, y:i32, width:u32) -> usize {
+    (x + y * width as i32) as usize
 }
