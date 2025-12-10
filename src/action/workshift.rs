@@ -118,7 +118,7 @@ pub(crate) fn workshift_f32(
     let total_points = points.len();
     context.random_index = context.random_map[min(context.index, total_points-1)];
 
-    while context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
+    while context.completed < total_points && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
 
 
 
@@ -143,8 +143,8 @@ pub(crate) fn workshift_f32(
             if
             n.0 > 0
                 && n.1 > 0
-                && n.0 < context.res.0 as i32 -1
-                && n.1 < context.res.1 as i32 -1
+                && n.0 < context.res.0 as i32 -2
+                && n.1 < context.res.1 as i32 -2
             {
                 let i = index_from_pos(n.0,n.1, context.res.0);
                 if ! (points[i].done.0 || points[i].done.1)  {
@@ -201,7 +201,7 @@ pub(crate) fn workshift_f32(
 
             context.total_iterations += point.iterations;
 
-            //context.index+=1;
+            context.index+=1;
 
             context.random_index = context.random_map[min(context.index, total_points-1)];
             context.total_points_today += 1;
@@ -211,22 +211,10 @@ pub(crate) fn workshift_f32(
                 context.edge_pos_queue.pop_front().unwrap()
             } else if context.out_pos_queue.len()>0{
                 context.step = Step::Out;
-                //println!("completed edge");
-                let mut p = context.out_pos_queue.pop_front().unwrap();
-                let i = index_from_pos(p.0, p.1, context.res.0);
-                let mut point = &points[i];
-                while (point.done.0 || point.done.1) && context.out_pos_queue.len()>0 {
-                    p =context.out_pos_queue.pop_front().unwrap();
-                    let i = index_from_pos(p.0, p.1, context.res.0);
-                    point = &points[i];
-                }
-                if (point.done.0 || point.done.1) {
-                    break;
-                } else {p}
-
+                context.out_pos_queue.pop_front().unwrap()
             } else if context.in_pos_queue.len()>0 {
                 context.step = Step::In;
-                //println!("ran out of out points");
+                println!("ran out of out points");
                 context.in_pos_queue.pop_front().unwrap()
             } else {break;};
         }
@@ -370,5 +358,5 @@ pub(crate) fn update_point_results_f32(point: &mut PointF32) {
 }
 
 pub(crate) fn index_from_pos(x:i32, y:i32, width:u32) -> usize {
-    (x + (y * width as i32)) as usize
+    (x + y * width as i32) as usize
 }
