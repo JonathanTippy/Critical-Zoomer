@@ -33,7 +33,7 @@ pub(crate) struct WorkContext {
     , pub(crate) total_points_today: u32
     , pub(crate) spent_tokens_today: u32
     , pub(crate) res: (u32, u32)
-    , pub(crate) edge_poses: Vec<(i32, i32)>
+    , pub(crate) edge_poses: VecDeque<(i32, i32)>
     , pub(crate) out_queue: VecDeque<(i32, i32)>
     , pub(crate) in_queue: VecDeque<(i32, i32)>
 }
@@ -124,15 +124,15 @@ pub(crate) fn workshift_f32(
 
 
         let (pos, step) =
-            if context.workshifts> 10 {if context.out_queue.len()>0{
+            if context.workshifts > 1 {if context.out_queue.len()>0{
             (&context.out_queue[0], Step::Out)
         } else if context.edge_poses.len()>0 {
-            (&context.edge_poses[context.edge_poses.len()-1], Step::Edge)
+            (&context.edge_poses[0], Step::Edge)
         } else if context.in_queue.len()>0 {
             (&context.in_queue[0], Step::In)
         } else {context.index = total_points-1; break;}} else {
                 if context.edge_poses.len()>0 {
-                    (&context.edge_poses[context.edge_poses.len()-1], Step::Edge)
+                    (&context.edge_poses[0], Step::Edge)
                 } else if context.out_queue.len()>0{
                     (&context.out_queue[0], Step::Out)
                 } else if context.in_queue.len()>0 {
@@ -152,7 +152,7 @@ pub(crate) fn workshift_f32(
                     let _ =  context.out_queue.pop_front();
                 }
                 Step::Edge => {
-                    let _ = context.edge_poses.pop();
+                    let _ = context.edge_poses.pop_front();
                 }
                 Step::In => {
                     let _ =  context.in_queue.pop_front();
@@ -175,7 +175,15 @@ pub(crate) fn workshift_f32(
 
         let old_iterations = point.iterations;
 
-        iterate_max_n_times_f32(point, 4.0, 1000);
+        match step {
+            Step::Edge => {
+                iterate_max_n_times_f32(point, 4.0, 10000);
+            }
+            Step::Out => {
+                iterate_max_n_times_f32(point, 4.0, 10);
+            }
+            _ => {}
+        }
 
         context.total_iterations_today += point.iterations - old_iterations;
 
@@ -192,7 +200,7 @@ pub(crate) fn workshift_f32(
                     let _ =  context.out_queue.pop_front();
                 }
                 Step::Edge => {
-                    let _ = context.edge_poses.pop();
+                    let _ = context.edge_poses.pop_front();
                 }
                 _ => {}
             }
@@ -219,6 +227,24 @@ pub(crate) fn workshift_f32(
 
             context.random_index = context.random_map[min(context.index, total_points-1)];
             context.total_points_today += 1
+        } else {
+            match step {
+                Step::Out => {
+                    let pos = context.out_queue.pop_front().unwrap();
+                    context.out_queue.push_back(pos);
+                    continue;
+                }
+                Step::Edge => {
+                    let pos = context.edge_poses.pop_front().unwrap();
+                    context.edge_poses.push_back(pos);
+                    let completed_point = {
+                        CompletedPoint::Repeats{period: 0}
+                    };
+                    context.completed_points.push((completed_point, index));
+                    continue;
+                }
+                _ => {}
+            }
         }
 
         context.total_bouts_today += 1;

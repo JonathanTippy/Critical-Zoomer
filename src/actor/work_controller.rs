@@ -209,24 +209,24 @@ fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAnd
 
     state.zoom_pot = obj.zoom_pot as i64;
 
-    let mut edges = vec!();
+    let mut edges = VecDeque::new();
     let res = state.worker_res;
     for i in 0..(res.0-2) as i32 {
-        edges.push((i, 0))
+        edges.push_back((i, 0))
     }
     for i in 0..(res.1-2) as i32 {
-        edges.push(((res.0-1) as i32, i))
+        edges.push_back(((res.0-1) as i32, i))
     }
     for i in 0..(res.0-2) as i32 {
-        edges.push((i , (res.1-1) as i32))
+        edges.push_back((i , (res.1-1) as i32))
     }
     for i in 0..(res.1-2) as i32 {
-        edges.push((0, i))
+        edges.push_back((0, i))
     }
 
     let mut rng = rand::rng();
     // Shuffle edges randomly
-    edges.shuffle(&mut rng);
+    //edges.shuffle(&mut rng);
 
     let work_context = WorkContext {
         points: get_points_f32(stuff.1, state.loc, state.zoom_pot)
