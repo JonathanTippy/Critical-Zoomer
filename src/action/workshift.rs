@@ -177,7 +177,7 @@ pub(crate) fn workshift_f32(
 
         match step {
             Step::Edge => {
-                iterate_max_n_times_f32(point, 4.0, 10000);
+                iterate_max_n_times_f32(point, 4.0, 1000);
             }
             Step::Out => {
                 iterate_max_n_times_f32(point, 4.0, 10);
