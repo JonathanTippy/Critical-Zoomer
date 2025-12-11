@@ -3,7 +3,7 @@ use steady_state::*;
 use rand::prelude::*;
 
 use egui::{Color32, Pos2};
-use std::cmp::min;
+use std::cmp::*;
 
 use crate::actor::window::*;
 use crate::actor::colorer::*;
@@ -251,13 +251,21 @@ pub(crate) fn relative_location_i32_row_and_seat(seat: usize, row: usize) -> (i3
 #[inline]
 pub(crate) fn index_from_relative_location(l: (i32, i32), data_res: (u32, u32), data_length: usize) -> usize {
 
+    let normalized_l = (
+        max(min(l.0, (data_res.0-1) as i32), 0)
+        , max(min(l.1, (data_res.1-1) as i32), 0)
+        );
+
+
     let i =
         (
-            (min(l.1 as u32, data_res.1-1) * data_res.0)
-            + min(l.0 as u32, data_res.0-1)
+            (normalized_l.1 as u32 * data_res.0)
+            + normalized_l.0 as u32
         ) as usize;
 
-    min(i, data_length-1)
+
+
+    i
     // ^ technically this min can be removed but somehow it makes it feel smoother
 }
 
