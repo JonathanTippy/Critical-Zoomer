@@ -176,6 +176,7 @@ fn get_value_from_point(p: &CompletedPoint, r: f32) -> ScreenValue {
                 , real_imag: z.0 * z.1
                 , loop_detection_points: [(0.0, 0.0);5]
                 , done: (false, false)
+                , delivered: false
                 };
 
             while !bailout_point_f32(&p, r_squared) {
