@@ -116,7 +116,7 @@ pub(crate) fn workshift_f32(
 
         if context.index >= total_points {break}
 
-        let point = &mut points[total_points-1-context.index];
+        let point = &mut points[context.index];
 
 
 
@@ -141,7 +141,7 @@ pub(crate) fn workshift_f32(
                 }
             };
 
-            context.completed_points.push((completed_point, total_points-1-context.index));
+            context.completed_points.push((completed_point, context.index));
 
             context.total_iterations += point.iterations;
 

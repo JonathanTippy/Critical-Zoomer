@@ -256,17 +256,13 @@ pub(crate) fn index_from_relative_location(l: (i32, i32), data_res: (u32, u32), 
         , max(min(l.1, (data_res.1-1) as i32), 0)
         );
 
-
     let i =
         (
             (normalized_l.1 as u32 * data_res.0)
             + normalized_l.0 as u32
         ) as usize;
 
-
-
     i
-    // ^ technically this min can be removed but somehow it makes it feel smoother
 }
 
 #[inline]
