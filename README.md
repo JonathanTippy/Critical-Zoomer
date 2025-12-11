@@ -59,7 +59,12 @@ a mandelbrot set zoomer written in rust
 - implement work saving when zooming in | ✔️
 - implement CD | ✔️
 
-### perturbation + series approximation (0.0.5)
+### work saving 2 + flood fill (0.0.5) done!
+
+- work saving when moving | ✔️
+- flood fill out points | ✔️
+
+### perturbation + series approximation (0.0.6)
  
 - implement perturbation
 - fix zoom too far
