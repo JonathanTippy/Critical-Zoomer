@@ -1,7 +1,7 @@
 
 
 use std::time::Instant;
-use std::collections::HashSet;
+use std::collections::*;
 use std::cmp::*;
 use crate::action::utils::*;
 pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
@@ -29,6 +29,10 @@ pub(crate) struct WorkContext {
     , pub(crate) total_bouts_today: u32
     , pub(crate) total_points_today: u32
     , pub(crate) spent_tokens_today: u32
+    , pub(crate) res: (u32, u32)
+    , pub(crate) edge_poses: Vec<(i32, i32)>
+    , pub(crate) out_queue: VecDeque<(i32, i32)>
+    , pub(crate) in_queue: VecDeque<(i32, i32)>
 }
 
 
@@ -112,9 +116,18 @@ pub(crate) fn workshift_f32(
         //    context.index += 1;
         //}
 
-        if context.index >= total_points {break}
 
-        let point = &mut points[context.index];
+        let pos = if context.out_queue.len()>0 {
+            &context.out_queue[0]
+        } else if context.edge_poses.len()>0{
+            &context.edge_poses[0]
+        } else if context.in_queue.len()>0 {
+            &context.in_queue[0]
+        } else {context.index = total_points-1; break;};
+
+        let index = index_from_pos(pos, context.res.0);
+
+        let point = &mut points[index];
 
 
 
@@ -144,6 +157,8 @@ pub(crate) fn workshift_f32(
             context.total_iterations += point.iterations;
 
             context.index += 1;
+
+
 
             context.random_index = context.random_map[min(context.index, total_points-1)];
             context.total_points_today += 1
@@ -285,4 +300,24 @@ pub(crate) fn update_point_results_f32(point: &mut PointF32) {
     point.real_squared = point.z.0 * point.z.0;
     point.imag_squared = point.z.1 * point.z.1;
     point.real_imag = point.z.0 * point.z.1;
+}
+
+#[inline]
+pub(crate) fn index_from_pos(pos:&(i32, i32), wid:u32) -> usize {
+    (pos.0 + pos.1*wid as i32) as usize
+}
+
+pub(crate) fn queue_incomplete_neighbors(pos:&(i32, i32), points: &Vec<PointF32>, queue: &mut VecDeque<(i32, i32)>) {
+    let neighbors: [(i32, i32);4] = [
+        (pos.0+1, pos.1)
+        , (pos.0-1, pos.1)
+        , (pos.0, pos.1+1)
+        , (pos.0, pos.1-1)
+    ];
+    for neighbor in neighbors {
+        let index = index_from_pos(neighbor,);
+        if !(points[neighbor].done.0 || points[neighbor].done.1) {
+
+        }
+    }
 }
