@@ -68,6 +68,7 @@ pub(crate) struct PointF32 {
     , pub(crate) loop_detection_points: [(f32, f32);NUMBER_OF_LOOP_CHECK_POINTS]
     , pub(crate) done: (bool, bool)
     , pub(crate) delivered: bool
+    , pub(crate) escaped_time: Option<u32>
 }
 
 
@@ -175,15 +176,19 @@ pub(crate) fn workshift_f32(
 
         let old_iterations = point.iterations;
 
-        match step {
-            Step::Edge => {
-                iterate_max_n_times_f32(point, 4.0, 1000);
+        /*if let Some(t) = point.escaped_time {
+            let warp = (t-point.iterations)/2;
+            if !timewarp_n_iterations(point, 4.0, warp) {
+                point.escaped_time = Some(point.iterations + warp)
             }
-            Step::Out => {
-                iterate_max_n_times_f32(point, 4.0, 10);
+        } else {
+            let warp = min(point.iterations/2, 100000);
+            if !timewarp_n_iterations(point, 4.0, warp) {
+                point.escaped_time = Some(point.iterations + warp);
             }
-            _ => {}
-        }
+        }*/
+
+        iterate_max_n_times_f32(point, 4.0, 1000);
 
         context.total_iterations_today += point.iterations - old_iterations;
 
@@ -270,6 +275,22 @@ pub(crate) fn iterate_max_n_times_f32 (point: &mut PointF32, r_squared:f32, n: u
     }
 }
 
+
+#[inline]
+pub(crate) fn timewarp_n_iterations (point: &mut PointF32, r_squared:f32, n: u32) -> bool {
+
+    let backup = point.clone();
+    for i in 0..n {
+        update_point_results_f32(point);
+        iterate_f32(point);
+    }
+    if bailout_point_f32(point, r_squared) || !point.real_squared.is_finite() || !point.imag_squared.is_finite() {
+        *point = backup; false
+    } else {
+
+        true
+    }
+}
 #[inline]
 pub(crate) fn iterate_f32 (point: &mut PointF32) {
     // move z
@@ -285,7 +306,6 @@ pub(crate) fn bailout_point_f32 (point: & PointF32, r_squared:f32) -> bool {
     // checks
 
     point.real_squared + point.imag_squared > r_squared
-
 }
 
 #[inline]
