@@ -145,6 +145,7 @@ fn get_points_f32(res: (u32, u32), loc:(f64, f64), zoom: i64) -> Points {
                         , loop_detection_points: [(0.0, 0.0); NUMBER_OF_LOOP_CHECK_POINTS]
                         , done: (false, false)
                         , delivered: false
+                        , escaped_time: None
                     }
                 )
             }
