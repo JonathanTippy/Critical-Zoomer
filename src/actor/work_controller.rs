@@ -1,6 +1,6 @@
 use steady_state::*;
 
-use std::collections::HashSet;
+use std::collections::*;
 use crate::actor::window::*;
 use crate::action::workshift::*;
 use crate::action::sampling::*;
@@ -144,7 +144,7 @@ fn get_points_f32(res: (u32, u32), loc:(f64, f64), zoom: i64) -> Points {
                         , iterations: 0
                         , loop_detection_points: [(0.0, 0.0); NUMBER_OF_LOOP_CHECK_POINTS]
                         , done: (false, false)
-                        //, last_point: (0.0, 0.0)
+                        , delivered: false
                     }
                 )
             }
@@ -209,6 +209,24 @@ fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAnd
 
     state.zoom_pot = obj.zoom_pot as i64;
 
+    let mut edges = vec!();
+    let res = state.worker_res;
+    for i in 0..(res.0-2) as i32 {
+        edges.push((i, 0))
+    }
+    for i in 0..(res.1-2) as i32 {
+        edges.push(((res.0-1) as i32, i))
+    }
+    for i in 0..(res.0-2) as i32 {
+        edges.push((i , (res.1-1) as i32))
+    }
+    for i in 0..(res.1-2) as i32 {
+        edges.push((0, i))
+    }
+
+    let mut rng = rand::rng();
+    // Shuffle edges randomly
+    edges.shuffle(&mut rng);
 
     let work_context = WorkContext {
         points: get_points_f32(stuff.1, state.loc, state.zoom_pot)
@@ -226,6 +244,10 @@ fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAnd
         , total_points_today: 0
         , total_bouts_today: 0
         , last_update: 0
+        , res: state.worker_res
+        , edge_poses: edges
+        , out_queue: VecDeque::new()
+        , in_queue: VecDeque::new()
     };
     state.last_sampler_location = Some(obj);
     Some(work_context)

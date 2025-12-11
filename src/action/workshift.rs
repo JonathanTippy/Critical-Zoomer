@@ -7,6 +7,9 @@ use crate::action::utils::*;
 pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
 
 #[derive(Clone, Debug)]
+pub(crate) enum Step {Edge, In, Out}
+
+#[derive(Clone, Debug)]
 
 pub(crate) enum Points {
     F32{p:Vec<PointF32>}
@@ -64,6 +67,7 @@ pub(crate) struct PointF32 {
     // If its updated too often, you will not be able to realize long loops.
     , pub(crate) loop_detection_points: [(f32, f32);NUMBER_OF_LOOP_CHECK_POINTS]
     , pub(crate) done: (bool, bool)
+    , pub(crate) delivered: bool
 }
 
 
@@ -117,18 +121,56 @@ pub(crate) fn workshift_f32(
         //}
 
 
-        let pos = if context.out_queue.len()>0 {
-            &context.out_queue[0]
-        } else if context.edge_poses.len()>0{
-            &context.edge_poses[0]
+
+
+        let (pos, step) =
+            if context.workshifts> 10 {if context.out_queue.len()>0{
+            (&context.out_queue[0], Step::Out)
+        } else if context.edge_poses.len()>0 {
+            (&context.edge_poses[context.edge_poses.len()-1], Step::Edge)
         } else if context.in_queue.len()>0 {
-            &context.in_queue[0]
-        } else {context.index = total_points-1; break;};
+            (&context.in_queue[0], Step::In)
+        } else {context.index = total_points-1; break;}} else {
+                if context.edge_poses.len()>0 {
+                    (&context.edge_poses[context.edge_poses.len()-1], Step::Edge)
+                } else if context.out_queue.len()>0{
+                    (&context.out_queue[0], Step::Out)
+                } else if context.in_queue.len()>0 {
+            (&context.in_queue[0], Step::In)
+        } else {context.index = total_points-1; break;
+            }};
 
         let index = index_from_pos(pos, context.res.0);
 
         let point = &mut points[index];
 
+        let pos = pos.clone();
+
+        if point.delivered {
+            match step {
+                Step::Out => {
+                    let _ =  context.out_queue.pop_front();
+                }
+                Step::Edge => {
+                    let _ = context.edge_poses.pop();
+                }
+                Step::In => {
+                    let _ =  context.in_queue.pop_front();
+
+                }
+            }
+            continue;
+        }
+
+        match step {
+            Step::In => {
+                point.delivered = true;
+                context.completed_points.push((CompletedPoint::Repeats{period: 0}, index));
+                queue_incomplete_neighbors(&pos, context.res, points, &mut context.in_queue);
+                continue;
+            }
+            _ => {}
+        }
 
 
         let old_iterations = point.iterations;
@@ -141,22 +183,37 @@ pub(crate) fn workshift_f32(
 
             //context.already_done.push(context.index);
             //context.already_done_hashset.insert(context.index);
+            context.total_iterations += point.iterations;
 
+
+
+            match step {
+                Step::Out => {
+                    let _ =  context.out_queue.pop_front();
+                }
+                Step::Edge => {
+                    let _ = context.edge_poses.pop();
+                }
+                _ => {}
+            }
+
+            point.delivered = true;
             let completed_point = if point.done.1 {
+                queue_incomplete_neighbors(&pos, context.res, points, &mut context.in_queue);
                 CompletedPoint::Repeats{period: 0}
             } else {
-                CompletedPoint::Escapes {
+                let result = CompletedPoint::Escapes {
                     escape_time: point.iterations
                     , escape_location: point.z
                     , start_location: point.c
-                }
+                };
+                queue_incomplete_neighbors(&pos, context.res, points, &mut context.out_queue);
+                result
             };
 
-            context.completed_points.push((completed_point, context.index));
+            context.completed_points.push((completed_point, index));
 
-            context.total_iterations += point.iterations;
-
-            context.index += 1;
+            //context.index += 1;
 
 
 
@@ -307,17 +364,26 @@ pub(crate) fn index_from_pos(pos:&(i32, i32), wid:u32) -> usize {
     (pos.0 + pos.1*wid as i32) as usize
 }
 
-pub(crate) fn queue_incomplete_neighbors(pos:&(i32, i32), points: &Vec<PointF32>, queue: &mut VecDeque<(i32, i32)>) {
+pub(crate) fn queue_incomplete_neighbors(pos:&(i32, i32), res: (u32, u32), points: &Vec<PointF32>, queue: &mut VecDeque<(i32, i32)>) {
+
+    let wid = res.0;
+
     let neighbors: [(i32, i32);4] = [
         (pos.0+1, pos.1)
         , (pos.0-1, pos.1)
         , (pos.0, pos.1+1)
         , (pos.0, pos.1-1)
     ];
-    for neighbor in neighbors {
-        let index = index_from_pos(neighbor,);
-        if !(points[neighbor].done.0 || points[neighbor].done.1) {
+    for n in neighbors {
 
+        if (
+            n.0 > 0 && n.0 < res.0 as i32 - 1
+            && n.1 > 0 && n.1 < res.1 as i32 - 1
+            ) {
+            let index = index_from_pos(&n, wid);
+            if !(points[index].done.0 || points[index].done.1) {
+                queue.push_back(n);
+            }
         }
     }
 }
