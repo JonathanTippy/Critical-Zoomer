@@ -29,8 +29,6 @@ pub(crate) struct WorkContext {
     , pub(crate) total_bouts_today: u32
     , pub(crate) total_points_today: u32
     , pub(crate) spent_tokens_today: u32
-    , pub(crate) already_done: Vec<usize>
-    , pub(crate) already_done_hashset: HashSet<usize>
 }
 
 
