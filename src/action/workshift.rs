@@ -109,9 +109,13 @@ pub(crate) fn workshift_f32(
     context.total_points_today = 0;
     context.spent_tokens_today = 0;
 
+
     let points = match &mut context.points {
         Points::F32 { p} => {p}
     };
+    let episilon = (points[0].c.0 - points[1].c.0).abs() / 16.0;
+
+
     let total_points = points.len();
     context.random_index = context.random_map[min(context.index, total_points-1)];
 
@@ -157,7 +161,6 @@ pub(crate) fn workshift_f32(
                 }
                 Step::In => {
                     let _ =  context.in_queue.pop_front();
-
                 }
             }
             continue;
@@ -179,16 +182,18 @@ pub(crate) fn workshift_f32(
         /*if let Some(t) = point.escaped_time {
             let warp = (t-point.iterations)/2;
             if !timewarp_n_iterations(point, 4.0, warp) {
-                point.escaped_time = Some(point.iterations + warp)
+                point.escaped_time = Some(point.iterations + warp);
+                context.total_iterations_today+=warp;
             }
         } else {
-            let warp = min(point.iterations/2, 100000);
+            let warp = min(point.iterations/2, 1000);
             if !timewarp_n_iterations(point, 4.0, warp) {
                 point.escaped_time = Some(point.iterations + warp);
+                context.total_iterations_today+=warp;
             }
         }*/
+        iterate_max_n_times_f32(point, 4.0, episilon, 1000);
 
-        iterate_max_n_times_f32(point, 4.0, 1000);
 
         context.total_iterations_today += point.iterations - old_iterations;
 
@@ -261,7 +266,7 @@ pub(crate) fn workshift_f32(
 }
 
 #[inline]
-pub(crate) fn iterate_max_n_times_f32 (point: &mut PointF32, r_squared:f32, n: u32) {
+pub(crate) fn iterate_max_n_times_f32 (point: &mut PointF32, r_squared:f32, epsilon:f32, n: u32) {
     for i in 0..n {
         update_point_results_f32(point);
         point.done.0 = bailout_point_f32(point, r_squared);
@@ -270,7 +275,7 @@ pub(crate) fn iterate_max_n_times_f32 (point: &mut PointF32, r_squared:f32, n: u
         } else {
             break;
         }
-        point.done.1 = loop_check_point_f32(point);
+        point.done.1 = loop_check_point_f32(point, epsilon);
         update_loop_check_points(point);
     }
 }
@@ -291,7 +296,7 @@ pub(crate) fn timewarp_n_iterations (point: &mut PointF32, r_squared:f32, n: u32
         true
     }
 }
-#[inline]
+#[inline(always)]
 pub(crate) fn iterate_f32 (point: &mut PointF32) {
     // move z
     point.z = (
@@ -301,24 +306,30 @@ pub(crate) fn iterate_f32 (point: &mut PointF32) {
     point.iterations+=1;
 }
 
-#[inline]
+#[inline(always)]
 pub(crate) fn bailout_point_f32 (point: & PointF32, r_squared:f32) -> bool {
     // checks
 
     point.real_squared + point.imag_squared > r_squared
 }
 
-#[inline]
-fn loop_check_point_f32 (point: & PointF32) -> bool {
+#[inline(always)]
+fn points_near (z1: (f32, f32), z2: (f32, f32), e: f32) -> bool {
+    z1.0 >= (z2.0 - e) && z1.0 <= (z2.0 + e)
+    && z1.1 >= (z2.1 - e) && z1.1 <= (z2.1 + e)
+}
+
+#[inline(always)]
+fn loop_check_point_f32 (point: & PointF32, epsilon:f32) -> bool {
     // checks
     let mut looped = false;
     for loop_check_point in &point.loop_detection_points {
-        looped = looped || point.z == *loop_check_point;
+        looped = looped || points_near(point.z, *loop_check_point, epsilon);
     }
     looped// || point.z == point.last_point
 }
 
-#[inline]
+#[inline(always)]
 fn update_loop_check_points (point: &mut PointF32) {
     /*point.last_point = point.z;
     if point.iterations%(1000) == 0 {
