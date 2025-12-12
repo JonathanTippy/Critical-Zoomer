@@ -119,13 +119,8 @@ pub(crate) fn workshift_f32(
     let total_points = points.len();
     context.random_index = context.random_map[min(context.index, total_points-1)];
 
-    while context.index < total_points && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
 
-        //while context.already_done_hashset.contains(&context.index) {
-        //    context.index += 1;
-        //}
-
-
+    while context.time_workshift_started.elapsed().as_millis()<10{//while context.index < total_points && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
 
 
         let (pos, step) =

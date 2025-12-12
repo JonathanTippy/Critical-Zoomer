@@ -72,7 +72,7 @@ fn build_graph(graph: &mut Graph) {
         .with_filled_trigger(Trigger::AvgAbove(Filled::p60()), AlertColor::Orange)
         // Track average message rate for each channel
         .with_avg_rate()
-        .with_capacity(50);
+        .with_capacity(2);
 
     // Channel capacities are set extremely large for high-throughput, batch-friendly operation.
     // - Heartbeat channel: moderate size for timing signals
@@ -82,17 +82,17 @@ fn build_graph(graph: &mut Graph) {
     let (
         window_tx_to_updater
         , updater_rx_from_window
-    ) = channel_builder.build();
+    ) = channel_builder.with_capacity(2).build();
 
     let (
         colorer_tx_to_window
         , window_rx_from_colorer
-    ) = channel_builder.with_capacity(50).build();
+    ) = channel_builder.with_capacity(2).build();
 
     let (
         updater_tx_to_colorer
         , colorer_rx_from_updater
-    ) = channel_builder.build();
+    ) = channel_builder.with_capacity(2).build();
 
 
 
@@ -108,7 +108,7 @@ fn build_graph(graph: &mut Graph) {
     let (
         work_controller_tx_to_screen_worker
         , screen_worker_rx_from_work_controller
-    ) = channel_builder.with_capacity(50).build();
+    ) = channel_builder.with_capacity(2).build();
 
     // worker to work collector responses channel
 
@@ -122,19 +122,19 @@ fn build_graph(graph: &mut Graph) {
     let (
         work_collector_tx_to_escaper
         , escaper_rx_from_work_collector
-    ) = channel_builder.build();
+    ) = channel_builder.with_capacity(2).build();
 
     // escaper to colorer channel
 
     let (
         escaper_tx_to_colorer
         , colorer_rx_from_escaper
-    ) = channel_builder.build();
+    ) = channel_builder.with_capacity(2).build();
 
     let (
         updater_tx_to_escaper
         , escaper_rx_from_updater
-    ) = channel_builder.build();
+    ) = channel_builder.with_capacity(2).build();
 
     // The actor builder is configured to collect thread/core info and load metrics.
     // - with_thread_info: enables reporting of OS thread and CPU core (requires core_affinity feature in Cargo.toml)
