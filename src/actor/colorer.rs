@@ -80,7 +80,7 @@ async fn internal_behavior<A: SteadyActor>(
 
         let u_1:f64 = 10.0;
         let u_2:f64 = 100.0;
-        let t_p = 100000;
+        let t_p = 10000;
         let t = ((elapsed % t_p) as f64 / t_p as f64);
         let t_pi = t * 6.28;
         let t_sin = (t_pi.sin() + 1.0)/2.0;
@@ -91,6 +91,8 @@ async fn internal_behavior<A: SteadyActor>(
         let loglog_u2 = (u_2.ln()).ln();
         let loglog_u = loglog_u1 + (loglog_u2 - loglog_u1) * t_sin;
         let u = (loglog_u.exp()).exp();
+
+        let u = 25.0;
 
         // do stuff
 
@@ -125,7 +127,7 @@ async fn internal_behavior<A: SteadyActor>(
                     ScreenValue::Outside { escape_time: e } => {
 
                         let m = (*e as f64 % u)/u;
-                        let m_pi = m * 6.28;
+                        let m_pi = m * 6.28 + t_pi;
                         let e_sin = (m_pi.sin() + 1.0)/2.0;
 
 
