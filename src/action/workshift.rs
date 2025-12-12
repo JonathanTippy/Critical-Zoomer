@@ -124,7 +124,7 @@ pub(crate) fn workshift_f32(
 
 
         let (pos, step) =
-            if context.workshifts > 1 {if context.out_queue.len()>0{
+            if context.workshifts > 2 {if context.out_queue.len()>0{
             (&context.out_queue[0], Step::Out)
         } else if context.edge_poses.len()>0 {
             (&context.edge_poses[0], Step::Edge)
