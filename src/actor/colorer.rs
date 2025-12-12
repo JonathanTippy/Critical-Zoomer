@@ -20,6 +20,7 @@ pub(crate) struct ZoomerScreen {
 
 pub(crate) struct ColorerState {
     pub(crate) values:Option<ZoomerValuesScreen>,
+    pub(crate) start:Instant
 }
 
 pub async fn run(
@@ -52,7 +53,8 @@ async fn internal_behavior<A: SteadyActor>(
     let mut screens_out = screens_out.lock().await;
 
     let mut state = state.lock(|| ColorerState {
-        values: None
+        values: None,
+        start: Instant::now()
     }).await;
 
     // Lock all channels for exclusive access within this actor.
@@ -72,6 +74,23 @@ async fn internal_behavior<A: SteadyActor>(
             actor.wait_avail(&mut updates_in, 1),
         );
 
+        let elapsed = state.start.elapsed().as_millis();
+
+        //let radius:f64 = 2.0 + (((elapsed % 10000) as f64 / 10000.0) * 4.0);
+
+        let u_1:f64 = 10.0;
+        let u_2:f64 = 100.0;
+        let t_p = 100000;
+        let t = ((elapsed % t_p) as f64 / t_p as f64);
+        let t_pi = t * 6.28;
+        let t_sin = (t_pi.sin() + 1.0)/2.0;
+
+        //let u = u_1 + t_sin * (u_2 - u_1);
+
+        let loglog_u1 = (u_1.ln()).ln();
+        let loglog_u2 = (u_2.ln()).ln();
+        let loglog_u = loglog_u1 + (loglog_u2 - loglog_u1) * t_sin;
+        let u = (loglog_u.exp()).exp();
 
         // do stuff
 
@@ -85,48 +104,49 @@ async fn internal_behavior<A: SteadyActor>(
                     let mut rng = rand::thread_rng();
                     //info!("recieved values");
                     state.values = Some(v);
-                    let rp = state.values.as_ref().unwrap();
-                    let r = &rp.values;
-                    let len = r.len();
-                    let mut output = vec!();
-
-                    let bright:f64 = 128.0;
-                    let dim:f64 = 64.0;
-                    let brim:f64 = bright-dim;
-
-                    for i in 0..r.len() {
-                        let value = &r[i%len];
-                        let color:(u8,u8,u8) = match value {
-                            ScreenValue::Inside{loop_period: _} => {(0, 0, 0)}
-                            ScreenValue::Outside { escape_time: e } => {
-
-                                let m = (*e as f64 % 10.0)/10.0;
-                                let m_pi = m * 6.28;
-                                let e_sin = (m_pi.sin() + 1.0)/2.0;
-
-
-                                let b =
-                                    (e_sin * brim+dim) as u8;
-                                (b,b,b)
-                            }
-                        };
-                        //let color = (255, 255, 255);
-                        output.push(color);
-                    }
-
-                    //info!("done coloring. result is {} pixels long.", output.len());
-
-
-                    actor.try_send(&mut screens_out, ZoomerScreen{
-                        pixels: output
-                        , screen_size: state.values.as_ref().unwrap().screen_size.clone()
-                        , objective_location:  state.values.as_ref().unwrap().objective_location.clone()
-                    });
-                    //info!("sent colors to window");
-
                 }
                 None => {}
             }
+        }
+
+        if let Some(v) = &mut state.values {
+            let r = &v.values;
+            let len = r.len();
+            let mut output = vec!();
+
+            let bright:f64 = 128.0;
+            let dim:f64 = 64.0;
+            let brim:f64 = bright-dim;
+
+            for i in 0..r.len() {
+                let value = &r[i%len];
+                let color:(u8,u8,u8) = match value {
+                    ScreenValue::Inside{loop_period: _} => {(0, 0, 0)}
+                    ScreenValue::Outside { escape_time: e } => {
+
+                        let m = (*e as f64 % u)/u;
+                        let m_pi = m * 6.28;
+                        let e_sin = (m_pi.sin() + 1.0)/2.0;
+
+
+                        let b =
+                            (e_sin * brim+dim) as u8;
+                        (b,b,b)
+                    }
+                };
+                //let color = (255, 255, 255);
+                output.push(color);
+            }
+
+            //info!("done coloring. result is {} pixels long.", output.len());
+
+
+            actor.try_send(&mut screens_out, ZoomerScreen{
+                pixels: output
+                , screen_size: v.screen_size.clone()
+                , objective_location:  v.objective_location.clone()
+            });
+            //info!("sent colors to window");
         }
 
 
