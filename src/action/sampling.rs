@@ -58,21 +58,28 @@ pub(crate) fn sample(
                 // step 2: zoom
                 // step 3: move back so zoom center falls on same screenspace location
 
+                let pixel_width = IntExp{val: Integer::from(1), exp:-context.location.zoom_pot}.shift(-PIXELS_PER_UNIT_POT);
+
                 context.location.pos = (
                     context.location.pos.0.clone()
                         + IntExp{val: Integer::from(center_screenspace_pos.0), exp: -context.location.zoom_pot}.shift(-PIXELS_PER_UNIT_POT)
+                        - (pixel_width.clone() >> 1)
                     , context.location.pos.1.clone()
                         + IntExp{val: Integer::from(center_screenspace_pos.1), exp: -context.location.zoom_pot }.shift(-PIXELS_PER_UNIT_POT)
+                        - (pixel_width.clone() >> 1)
                 );
 
                 context.location.zoom_pot += *pot;
 
+                let pixel_width = IntExp{val: Integer::from(1), exp:-context.location.zoom_pot}.shift(-PIXELS_PER_UNIT_POT);
 
                 context.location.pos = (
                     context.location.pos.0.clone()
                         - IntExp{val: Integer::from(center_screenspace_pos.0), exp: -context.location.zoom_pot}.shift(-PIXELS_PER_UNIT_POT)
+                        + (pixel_width.clone() >> 1)
                     , context.location.pos.1.clone()
                         - IntExp{val: Integer::from(center_screenspace_pos.1), exp: -context.location.zoom_pot }.shift(-PIXELS_PER_UNIT_POT)
+                        + (pixel_width.clone() >> 1)
                 );
 
                 // reset mouse drag start to the new screenspace location
