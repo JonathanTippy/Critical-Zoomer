@@ -83,10 +83,10 @@ async fn internal_behavior<A: SteadyActor>(
 
         if actor.avail_units(&mut commands_in) > 0 {
 
-            /*while actor.avail_units(&mut commands_in) > 1 {
+            while actor.avail_units(&mut commands_in) > 1 {
                 let stuff = actor.try_take(&mut commands_in).expect("internal error");
                 drop(stuff);
-            };*/
+            };
 
             match actor.try_take(&mut commands_in).unwrap() {
 
