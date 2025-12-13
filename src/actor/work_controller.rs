@@ -142,7 +142,7 @@ fn get_points_f32(res: (u32, u32), loc:(f64, f64), zoom: i64) -> Points {
                         , imag_squared: 0.0
                         , real_imag: 0.0
                         , iterations: 0
-                        , loop_detection_points: [(0.0, 0.0); NUMBER_OF_LOOP_CHECK_POINTS]
+                        , loop_detection_point: (point, 1)
                         , done: (false, false)
                         , delivered: false
                         , escaped_time: None
@@ -251,6 +251,7 @@ fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAnd
         , edge_poses: edges
         , out_queue: VecDeque::new()
         , in_queue: VecDeque::new()
+        , current_max_iterations: u32::MAX
     };
     state.last_sampler_location = Some(obj);
     Some(work_context)

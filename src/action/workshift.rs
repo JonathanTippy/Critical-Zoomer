@@ -3,6 +3,7 @@
 use std::time::Instant;
 use std::collections::*;
 use std::cmp::*;
+use rand::prelude::SliceRandom;
 use crate::action::utils::*;
 pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
 
@@ -36,6 +37,7 @@ pub(crate) struct WorkContext {
     , pub(crate) edge_poses: VecDeque<(i32, i32)>
     , pub(crate) out_queue: VecDeque<(i32, i32)>
     , pub(crate) in_queue: VecDeque<(i32, i32)>
+    , pub(crate) current_max_iterations: u32
 }
 
 
@@ -65,7 +67,7 @@ pub(crate) struct PointF32 {
     , pub(crate) iterations: u32
     // if this isn't updated enough, you will take longer to realize loops.
     // If its updated too often, you will not be able to realize long loops.
-    , pub(crate) loop_detection_points: [(f32, f32);NUMBER_OF_LOOP_CHECK_POINTS]
+    , pub(crate) loop_detection_point: ((f32, f32), u32)
     , pub(crate) done: (bool, bool)
     , pub(crate) delivered: bool
     , pub(crate) escaped_time: Option<u32>
@@ -113,32 +115,24 @@ pub(crate) fn workshift_f32(
     let points = match &mut context.points {
         Points::F32 { p} => {p}
     };
-    let episilon = (points[0].c.0 - points[1].c.0).abs() / 16.0;
+    let episilon = (points[0].c.0 - points[1].c.0).abs() / 128.0;
 
 
     let total_points = points.len();
     context.random_index = context.random_map[min(context.index, total_points-1)];
 
 
-    while context.time_workshift_started.elapsed().as_millis()<50{//while context.index < total_points && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
+    while context.time_workshift_started.elapsed().as_millis()<10{//while context.index < total_points && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
 
 
-        let (pos, step) =
-            if context.workshifts > 2 {if context.out_queue.len()>0{
+        let (pos, step) = if context.out_queue.len()>0{
             (&context.out_queue[0], Step::Out)
         } else if context.edge_poses.len()>0 {
             (&context.edge_poses[0], Step::Edge)
         } else if context.in_queue.len()>0 {
             (&context.in_queue[0], Step::In)
-        } else {context.index = total_points-1; break;}} else {
-                if context.edge_poses.len()>0 {
-                    (&context.edge_poses[0], Step::Edge)
-                } else if context.out_queue.len()>0{
-                    (&context.out_queue[0], Step::Out)
-                } else if context.in_queue.len()>0 {
-            (&context.in_queue[0], Step::In)
         } else {context.index = total_points-1; break;
-            }};
+        };
 
         let index = index_from_pos(pos, context.res.0);
 
@@ -161,6 +155,17 @@ pub(crate) fn workshift_f32(
             continue;
         }
 
+        if point.iterations > context.current_max_iterations {
+            match step {
+                Step::Out => {
+                    let pos = context.out_queue.pop_front().unwrap();
+                    context.out_queue.push_back(pos);
+                    continue;
+                }
+                _ => {}
+            }
+        }
+
         match step {
             Step::In => {
                 point.delivered = true;
@@ -175,28 +180,37 @@ pub(crate) fn workshift_f32(
         let old_iterations = point.iterations;
 
         /*if let Some(t) = point.escaped_time {
-            let warp = (t-point.iterations)/2;
+            let warp = min((t-point.iterations)/2, 100);
             if !timewarp_n_iterations(point, 4.0, warp) {
                 point.escaped_time = Some(point.iterations + warp);
                 context.total_iterations_today+=warp;
+                iterate_max_n_times_f32(point, 4.0, episilon, 1000);
             }
         } else {
-            let warp = min(point.iterations/2, 1000);
+            let warp = min(point.iterations/2, 100);
             if !timewarp_n_iterations(point, 4.0, warp) {
                 point.escaped_time = Some(point.iterations + warp);
                 context.total_iterations_today+=warp;
+                iterate_max_n_times_f32(point, 4.0, episilon, 1000);
             }
         }*/
 
-        match step {
+        iterate_max_n_times_f32(point, 4.0, episilon, 1000);
+
+
+        /*match step {
             Step::Edge => {
-                iterate_max_n_times_f32(point, 4.0, episilon, 100);
+                iterate_max_n_times_f32(point, 4.0, episilon, 10000);
             }
             Step::Out => {
-                iterate_max_n_times_f32(point, 4.0, episilon, 1000);
+                let velocity:usize = (context.out_queue.len() as isize - context.previous_out_queue_length as isize).abs() as usize;
+                if velocity == 0 {
+                    timewarp_n_iterations(point, 4.0, 1000);
+                }
+                iterate_max_n_times_f32(point, 4.0, episilon, 100);
             }
             _ => {}
-        }
+        }*/
 
 
         context.total_iterations_today += point.iterations - old_iterations;
@@ -218,6 +232,7 @@ pub(crate) fn workshift_f32(
                 }
                 _ => {}
             }
+            context.current_max_iterations=max(context.current_max_iterations,((point.iterations as f64).powf(1.1)) as u32);
 
             point.delivered = true;
             let completed_point = if point.done.1 {
@@ -254,7 +269,7 @@ pub(crate) fn workshift_f32(
                     let completed_point = {
                         CompletedPoint::Repeats{period: 0}
                     };
-                    context.completed_points.push((completed_point, index));
+                    //context.completed_points.push((completed_point, index));
                     continue;
                 }
                 _ => {}
@@ -293,7 +308,7 @@ pub(crate) fn timewarp_n_iterations (point: &mut PointF32, r_squared:f32, n: u32
         update_point_results_f32(point);
         iterate_f32(point);
     }
-    if bailout_point_f32(point, r_squared) || !point.real_squared.is_finite() || !point.imag_squared.is_finite() {
+    if bailout_point_f32(point, r_squared) || (!point.real_squared.is_finite()) || (!point.imag_squared.is_finite()) {
         *point = backup; false
     } else {
 
@@ -325,90 +340,18 @@ fn points_near (z1: (f32, f32), z2: (f32, f32), e: f32) -> bool {
 
 #[inline(always)]
 fn loop_check_point_f32 (point: & PointF32, epsilon:f32) -> bool {
-    // checks
-    let mut looped = false;
-    for loop_check_point in &point.loop_detection_points {
-        looped = looped || points_near(point.z, *loop_check_point, epsilon);
-    }
-    looped// || point.z == point.last_point
+    points_near(point.z, point.loop_detection_point.0, epsilon)
 }
 
 #[inline(always)]
 fn update_loop_check_points (point: &mut PointF32) {
-    /*point.last_point = point.z;
-    if point.iterations%(1000) == 0 {
-        point.loop_detection_points[0] = point.z;
-    }
-    if point.iterations%(5000) == 0 {
-        point.loop_detection_points[1] = point.z;
-    }
-    if point.iterations%(10000) == 0 {
-        point.loop_detection_points[2] = point.z;
-    }
-    if point.iterations%(50000) == 0 {
-        point.loop_detection_points[3] = point.z;
-    }
-    if point.iterations%(100000) == 0 {
-        point.loop_detection_points[4] =point.z;
-    }
-    if point.iterations%(500000) == 0 {
-        point.loop_detection_points[5] = point.z;
-    }
-    if point.iterations%(1000000) == 0 {
-        point.loop_detection_points[6] = point.z;
-    }
-    if point.iterations%(5000000) == 0 {
-        point.loop_detection_points[7] = point.z;
-    }
-    if point.iterations%(10000000) == 0 {
-        point.loop_detection_points[8] =  point.z;
-    }
-    if point.iterations%(50000000) == 0 {
-        point.loop_detection_points[9] = point.z;
-    }*/
 
-   /* point.last_point = point.z;
-    if point.iterations%(1000) == 0 {
-        point.loop_detection_points[0] = point.z;
-    }
-    if point.iterations%(10000) == 0 {
-        point.loop_detection_points[1] = point.z;
-    }
-
-    if point.iterations%(100000) == 0 {
-        point.loop_detection_points[2] =point.z;
-    }
-
-    if point.iterations%(1000000) == 0 {
-        point.loop_detection_points[3] = point.z;
-    }
-
-    if point.iterations%(10000000) == 0 {
-        point.loop_detection_points[4] =  point.z;
-    }*/
 
     //point.last_point = point.z;
 
-    if point.iterations%(1<<1) == 0 {
-        point.loop_detection_points[0] = point.z;
+    if point.iterations == point.loop_detection_point.1 << 1 {
+        point.loop_detection_point = (point.z, point.iterations);
     }
-
-    if point.iterations%(1<<8) == 0 {
-        point.loop_detection_points[1] = point.z;
-    }
-
-    if point.iterations%(1<<14) == 0 {
-        point.loop_detection_points[2] = point.z;
-    }
-
-    if point.iterations%(1<<23) == 0 {
-        point.loop_detection_points[3] =point.z;
-    }
-
-    if point.iterations%(1<<25) == 0 {
-        point.loop_detection_points[4] =point.z;
-    }
-
 }
 
 
@@ -429,12 +372,17 @@ pub(crate) fn queue_incomplete_neighbors(pos:&(i32, i32), res: (u32, u32), point
 
     let wid = res.0;
 
-    let neighbors: [(i32, i32);4] = [
+    //let mut rng = rand::rng();
+
+
+    let mut neighbors: [(i32, i32);4] = [
         (pos.0+1, pos.1)
         , (pos.0-1, pos.1)
         , (pos.0, pos.1+1)
         , (pos.0, pos.1-1)
     ];
+    //neighbors.shuffle(&mut rng);
+
     for n in neighbors {
 
         if (
