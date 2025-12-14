@@ -10,6 +10,10 @@ use crate::actor::screen_worker::*;
 use rand::prelude::SliceRandom;
 use crate::action::utils::*;
 
+pub(crate) enum WorkerCommand {
+    Update
+    , Replace{context: WorkContext}
+}
 
 #[derive(Clone, Debug)]
 
