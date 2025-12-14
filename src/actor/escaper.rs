@@ -224,9 +224,9 @@ fn get_value_from_point(p: &CompletedPoint, r: f32, pos:(i32, i32), points: &Vec
                 , period: 0
             };
 
-            while !bailout_point(&p, r_squared) {
-                iterate(&mut p);
-                update_point_results(&mut p);
+            while !bailout_point_f32(&p, r_squared) {
+                iterate_f32(&mut p);
+                update_point_results_f32(&mut p);
             }
 
             ScreenValue::Outside{escape_time: p.iterations, in_filament: filament}

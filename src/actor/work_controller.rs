@@ -11,8 +11,8 @@ use crate::actor::screen_worker::*;
 use rand::prelude::SliceRandom;
 use crate::action::utils::*;
 
-pub(crate) enum WorkerCommand<T: Floaty> {
-    Replace{frame_info: (ObjectivePosAndZoom, (u32, u32)), context: WorkContext<T>}
+pub(crate) enum WorkerCommand {
+    Replace{frame_info: (ObjectivePosAndZoom, (u32, u32)), context: WorkContext}
 }
 
 
@@ -34,10 +34,10 @@ pub(crate) const WORKER_INIT_ZOOM:f64 = if WORKER_INIT_ZOOM_POT>0 {(1<<WORKER_IN
 pub(crate) const PIXELS_PER_UNIT_POT:i32 = 9;
 pub(crate) const PIXELS_PER_UNIT: u64 = 1<<(PIXELS_PER_UNIT_POT);
 
-pub async fn run<T:Floaty>(
+pub async fn run(
     actor: SteadyActorShadow,
     from_sampler: SteadyRx<(ObjectivePosAndZoom, (u32, u32))>,
-    to_worker: SteadyTx<WorkerCommand<T>>,
+    to_worker: SteadyTx<WorkerCommand>,
     state: SteadyState<WorkControllerState>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
@@ -50,10 +50,10 @@ pub async fn run<T:Floaty>(
         .await
 }
 
-async fn internal_behavior<A: SteadyActor, T: Floaty>(
+async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
     from_sampler: SteadyRx<(ObjectivePosAndZoom, (u32, u32))>,
-    to_worker: SteadyTx<WorkerCommand<T>>,
+    to_worker: SteadyTx<WorkerCommand>,
     state: SteadyState<WorkControllerState>,
 ) -> Result<(), Box<dyn Error>> {
 
@@ -108,7 +108,7 @@ async fn internal_behavior<A: SteadyActor, T: Floaty>(
     Ok(())
 }
 
-fn get_points_f32(res: (u32, u32), loc:(f64, f64), zoom: i64) -> Points<f32> {
+fn get_points_f32(res: (u32, u32), loc:(f64, f64), zoom: i64) -> Points {
     let mut out:Vec<PointF32> = Vec::with_capacity((res.0*res.1) as usize);
 
         for row in 0..res.1 {
@@ -151,7 +151,7 @@ fn get_points_f32(res: (u32, u32), loc:(f64, f64), zoom: i64) -> Points<f32> {
                 )
             }
         }
-    Points::Floaty{p:out}
+    Points::F32{p:out}
 }
 
 
@@ -183,7 +183,7 @@ fn get_interlaced_mixmap(res:(u32, u32), size:usize) -> Vec<usize> {
 }
 
 
-fn handle_sampler_stuff<T:Floaty>(state: &mut WorkControllerState, stuff: (ObjectivePosAndZoom, (u32, u32))) -> Option<WorkContext<T>> {
+fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAndZoom, (u32, u32))) -> Option<WorkContext> {
 
     let obj = stuff.0;
 
