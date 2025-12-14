@@ -12,7 +12,7 @@ use rand::prelude::SliceRandom;
 use crate::action::utils::*;
 
 pub(crate) enum WorkerCommand {
-    Replace{frame_info: (ObjectivePosAndZoom, (u32, u32))}
+    Replace{frame_info: (ObjectivePosAndZoom, (u32, u32)), context: WorkContext}
 }
 
 
@@ -95,11 +95,11 @@ async fn internal_behavior<A: SteadyActor>(
 
             let stuff = actor.try_take(&mut from_sampler).expect("internal error");
 
-            if handle_sampler_stuff(
+            if let Some(ctx) = handle_sampler_stuff(
                 &mut state
                 , stuff.clone()
             ) {
-                actor.try_send(&mut to_worker, WorkerCommand::Replace{frame_info: (stuff.0, stuff.1)});
+                actor.try_send(&mut to_worker, WorkerCommand::Replace{frame_info: (stuff.0, stuff.1), context:ctx});
             };
         }
     }
@@ -108,19 +108,88 @@ async fn internal_behavior<A: SteadyActor>(
     Ok(())
 }
 
+fn get_points_f32(res: (u32, u32), loc:(f64, f64), zoom: i64) -> Points {
+    let mut out:Vec<PointF32> = Vec::with_capacity((res.0*res.1) as usize);
+
+        for row in 0..res.1 {
+            for seat in 0..res.0 {
+
+                let significant_res = PIXELS_PER_UNIT;//min(res.0, res.1);
+
+                let real_center:f64 = loc.0;
+                let imag_center:f64 = loc.1;
 
 
+                let zoom_factor:f32;
+
+                if zoom > 0 {
+                    zoom_factor = (1<<zoom) as f32;
+                } else {
+                    zoom_factor =  1.0 / ((1<<-zoom) as f32);
+                }
+
+                let point:(f32, f32) = (
+                    /*(real_center + ((seat as f32 / significant_res as f32 - 0.5) / zoom_factor) as f64) as f32
+                    , (imag_center + (-((row as f32 / significant_res as f32 - 0.5) / zoom_factor)) as f64) as f32*/
+                    (real_center + ((seat as f32 / significant_res as f32) / zoom_factor) as f64) as f32
+                    , (imag_center + (-((row as f32 / significant_res as f32) / zoom_factor)) as f64) as f32
+                );
+
+                out.push(
+                    PointF32{
+                        c: point
+                        , z: point
+                        , real_squared: 0.0
+                        , imag_squared: 0.0
+                        , real_imag: 0.0
+                        , iterations: 0
+                        , loop_detection_point: (point, 1)
+                        , done: (false, false)
+                        , delivered: false
+                        , period: 0
+                    }
+                )
+            }
+        }
+    Points::F32{p:out}
+}
 
 
+fn get_random_mixmap(size: usize) -> Vec<usize> {
+    let mut rng = rand::rng();
+
+    let mut indices: Vec<usize> = (0..size).collect();
+
+    // Shuffle indices randomly
+    indices.shuffle(&mut rng);
+    indices
+}
+
+fn get_interlaced_mixmap(res:(u32, u32), size:usize) -> Vec<usize> {
+    let mut rng = rand::rng();
+
+    let mut row_indices:Vec<usize> = (0..res.1 as usize).collect();
+    row_indices.shuffle(&mut rng);
+
+    let mut indices: Vec<usize> = (0..size).collect();
+    for mut index in &mut indices {
+        *index = *index % res.0 as usize
+        +
+        row_indices[(*index / res.0 as usize)]
+        * res.0 as usize
+
+    }
+    indices
+}
 
 
-fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAndZoom, (u32, u32))) -> bool {
+fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAndZoom, (u32, u32))) -> Option<WorkContext> {
 
     let obj = stuff.0;
 
     if let Some(loc) = state.last_sampler_location.clone() {
         if !((obj != loc) || stuff.1 != state.worker_res) {
-            return false
+            return None
         }
     }
 
@@ -161,7 +230,28 @@ fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAnd
     // Shuffle edges randomly
     edges.shuffle(&mut rng);
 
-    
+    let work_context = WorkContext {
+        points: get_points_f32(stuff.1, state.loc, state.zoom_pot)
+        , completed_points: vec!()
+        , index: 0
+        , random_index: 0
+        , time_created: Instant::now()
+        , time_workshift_started: Instant::now()
+        , percent_completed: 0.0
+        , random_map: state.mixmap.clone()
+        , workshifts: 0
+        , total_iterations: 0
+        , spent_tokens_today: 0
+        , total_iterations_today: 0
+        , total_points_today: 0
+        , total_bouts_today: 0
+        , last_update: 0
+        , res: state.worker_res
+        , scredge_poses: VecDeque::from(edges)
+        , edge_queue: VecDeque::new()
+        , out_queue: VecDeque::new()
+        , in_queue: VecDeque::new()
+    };
     state.last_sampler_location = Some(obj);
-    true
+    Some(work_context)
 }
