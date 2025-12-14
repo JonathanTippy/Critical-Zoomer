@@ -15,8 +15,8 @@ pub(crate) struct WorkUpdate {
 }
 
 #[derive(Clone)]
-pub(crate) struct WorkerState {
-    work_context: Option<(WorkContext, (ObjectivePosAndZoom, (u32, u32)))>
+pub(crate) struct WorkerState<T: Floaty> {
+    work_context: Option<(WorkContext<T>, (ObjectivePosAndZoom, (u32, u32)))>
     , workshift_token_budget: u32
     , iteration_token_cost: u32
     , point_token_cost: u32
@@ -25,11 +25,11 @@ pub(crate) struct WorkerState {
     , total_workshifts: u32
 }
 
-pub async fn run(
+pub async fn run<T: Floaty>(
     actor: SteadyActorShadow,
-    commands_in: SteadyRx<WorkerCommand>,
+    commands_in: SteadyRx<WorkerCommand<T>>,
     updates_out: SteadyTx<WorkUpdate>,
-    state: SteadyState<WorkerState>,
+    state: SteadyState<WorkerState<T>>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
@@ -41,11 +41,11 @@ pub async fn run(
         .await
 }
 
-async fn internal_behavior<A: SteadyActor>(
+async fn internal_behavior<A: SteadyActor, T:Floaty>(
     mut actor: A,
-    commands_in: SteadyRx<WorkerCommand>,
+    commands_in: SteadyRx<WorkerCommand<T>>,
     updates_out: SteadyTx<WorkUpdate>,
-    state: SteadyState<WorkerState>,
+    state: SteadyState<WorkerState<T>>,
 ) -> Result<(), Box<dyn Error>> {
 
     actor.loglevel(LogLevel::Debug);
@@ -145,11 +145,7 @@ async fn internal_behavior<A: SteadyActor>(
     Ok(())
 }
 
-fn calculate_tokens(state: &mut WorkerState) {
-
-}
-
-fn work_update(ctx: &mut WorkContext) -> Vec<(CompletedPoint, usize)> {
+fn work_update<T: Floaty>(ctx: &mut WorkContext<T>) -> Vec<(CompletedPoint, usize)> {
     let update_start = ctx.last_update;
     let mut returned = vec!();
     returned.append(&mut ctx.completed_points);
