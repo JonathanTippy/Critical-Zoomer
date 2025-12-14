@@ -1,6 +1,4 @@
 use std::cmp::min;
-use std::collections::VecDeque;
-use rand::prelude::SliceRandom;
 use steady_state::*;
 use crate::action::sampling::{index_from_relative_location, relative_location_i32_row_and_seat, transform_relative_location_i32};
 use crate::action::utils::ObjectivePosAndZoom;
@@ -92,59 +90,7 @@ async fn internal_behavior<A: SteadyActor>(
 
             match actor.try_take(&mut commands_in).unwrap() {
 
-                WorkerCommand::Replace{frame_info: frame_info} => {
-
-                    let loc:(f64, f64) = (
-                        frame_info.0.pos.0.clone().into()
-                        , frame_info.0.pos.1.clone().into()
-                    );
-
-                    let loc = (
-                        loc.0
-                        , -loc.1
-                    );
-
-                    let mut edges = Vec::new();
-                    let res = frame_info.1;
-                    for i in 0..(res.0-1) as i32 {
-                        edges.push((i, 0))
-                    }
-                    for i in 0..(res.1-1) as i32 {
-                        edges.push(((res.0-1) as i32, i))
-                    }
-                    for i in 0..(res.0) as i32 {
-                        edges.push((i , (res.1-1) as i32))
-                    }
-                    for i in 1..(res.1-1) as i32 {
-                        edges.push((0, i))
-                    }
-
-                    let mut rng = rand::rng();
-                    // Shuffle edges randomly
-                    edges.shuffle(&mut rng);
-
-                    let ctx = WorkContext {
-                        points: get_points_f32(frame_info.1, loc, frame_info.0.zoom_pot as i64)
-                        , completed_points: vec!()
-                        , index: 0
-                        , random_index: 0
-                        , time_created: Instant::now()
-                        , time_workshift_started: Instant::now()
-                        , percent_completed: 0.0
-                        , random_map: state.mixmap.clone()
-                        , workshifts: 0
-                        , total_iterations: 0
-                        , spent_tokens_today: 0
-                        , total_iterations_today: 0
-                        , total_points_today: 0
-                        , total_bouts_today: 0
-                        , last_update: 0
-                        , res: frame_info.1
-                        , scredge_poses: VecDeque::from(edges)
-                        , edge_queue: VecDeque::new()
-                        , out_queue: VecDeque::new()
-                        , in_queue: VecDeque::new()
-                    };
+                WorkerCommand::Replace{frame_info: frame_info, context:ctx} => {
                     if let Some((old_ctx, old_frame_info)) = &mut state.work_context {
                         let U = work_update(old_ctx);
 
@@ -252,77 +198,4 @@ pub(crate) fn relative_location_from_index(data_res: (u32, u32), index: usize) -
         index as i32 % (data_res.0) as i32
         , index as i32 / (data_res.1) as i32
         )
-}
-
-fn get_points_f32(res: (u32, u32), loc:(f64, f64), zoom: i64) -> Points {
-    let mut out:Vec<PointF32> = Vec::with_capacity((res.0*res.1) as usize);
-
-    for row in 0..res.1 {
-        for seat in 0..res.0 {
-
-            let significant_res = PIXELS_PER_UNIT;//min(res.0, res.1);
-
-            let real_center:f64 = loc.0;
-            let imag_center:f64 = loc.1;
-
-
-            let zoom_factor:f32;
-
-            if zoom > 0 {
-                zoom_factor = (1<<zoom) as f32;
-            } else {
-                zoom_factor =  1.0 / ((1<<-zoom) as f32);
-            }
-
-            let point:(f32, f32) = (
-                /*(real_center + ((seat as f32 / significant_res as f32 - 0.5) / zoom_factor) as f64) as f32
-                , (imag_center + (-((row as f32 / significant_res as f32 - 0.5) / zoom_factor)) as f64) as f32*/
-                (real_center + ((seat as f32 / significant_res as f32) / zoom_factor) as f64) as f32
-                , (imag_center + (-((row as f32 / significant_res as f32) / zoom_factor)) as f64) as f32
-            );
-
-            out.push(
-                PointF32{
-                    c: point
-                    , z: point
-                    , real_squared: 0.0
-                    , imag_squared: 0.0
-                    , real_imag: 0.0
-                    , iterations: 0
-                    , loop_detection_point: (point, 1)
-                    , done: (false, false)
-                    , delivered: false
-                    , period: 0
-                }
-            )
-        }
-    }
-    Points::F32{p:out}
-}
-
-fn get_random_mixmap(size: usize) -> Vec<usize> {
-    let mut rng = rand::rng();
-
-    let mut indices: Vec<usize> = (0..size).collect();
-
-    // Shuffle indices randomly
-    indices.shuffle(&mut rng);
-    indices
-}
-
-fn get_interlaced_mixmap(res:(u32, u32), size:usize) -> Vec<usize> {
-    let mut rng = rand::rng();
-
-    let mut row_indices:Vec<usize> = (0..res.1 as usize).collect();
-    row_indices.shuffle(&mut rng);
-
-    let mut indices: Vec<usize> = (0..size).collect();
-    for mut index in &mut indices {
-        *index = *index % res.0 as usize
-            +
-            row_indices[(*index / res.0 as usize)]
-                * res.0 as usize
-
-    }
-    indices
 }
