@@ -193,11 +193,11 @@ impl Shiftable for f64 {
 }
 
 pub(crate) fn f32_to_i16(input: f32) -> i16 {
-    let p = input * (2<<12) as f32;
+    let p = input * (2<<12) as f64;
     p as i16
 }
 
 pub(crate) fn i16_to_f32(input: i16) -> f32 {
-    let p:f32 = input as f32 / (2<<12) as f32;
+    let p:f64 = input as f64 / (2<<12) as f64;
     p
 }

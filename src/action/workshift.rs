@@ -401,7 +401,7 @@ pub(crate) fn workshift_f32(
 }
 
 #[inline]
-pub(crate) fn iterate_max_n_times_f32 (point: &mut PointF32, r_squared:f32, epsilon:f32, n: u32) {
+pub(crate) fn iterate_max_n_times_f32 (point: &mut PointF32, r_squared:f64, epsilon:f64, n: u32) {
     for i in 0..n {
         update_point_results_f32(point);
         point.done.0 = bailout_point_f32(point, r_squared) || (!point.real_squared.is_finite()) || (!point.imag_squared.is_finite());
@@ -417,7 +417,7 @@ pub(crate) fn iterate_max_n_times_f32 (point: &mut PointF32, r_squared:f32, epsi
 
 
 #[inline]
-pub(crate) fn timewarp_n_iterations (point: &mut PointF32, r_squared:f32, n: u32) -> bool {
+pub(crate) fn timewarp_n_iterations (point: &mut PointF32, r_squared:f64, n: u32) -> bool {
 
 
     let c = point.c.clone();
@@ -468,7 +468,7 @@ pub(crate) fn iterate_f32 (point: &mut PointF32) {
 }
 
 #[inline(always)]
-pub(crate) fn bailout_point_f32 (point: & PointF32, r_squared:f32) -> bool {
+pub(crate) fn bailout_point_f32 (point: & PointF32, r_squared:f64) -> bool {
     // checks
 
     point.real_squared + point.imag_squared > r_squared
@@ -481,7 +481,7 @@ fn points_near (z1: (f32, f32), z2: (f32, f32), e: f32) -> bool {
 }
 
 #[inline(always)]
-fn loop_check_point_f32 (point: & PointF32, epsilon:f32) -> bool {
+fn loop_check_point_f32 (point: & PointF32, epsilon:f64) -> bool {
     points_near(point.z, point.loop_detection_point.0, epsilon)
 }
 
@@ -493,7 +493,7 @@ fn update_loop_check_points (point: &mut PointF32) {
     }
 }
 
-fn determine_period (point: &mut PointF32, epsilon:f32) -> bool {
+fn determine_period (point: &mut PointF32, epsilon:f64) -> bool {
     let max_period = 1000;
 
     timewarp_n_iterations(point, 4.0, 1000);
