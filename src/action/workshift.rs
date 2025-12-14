@@ -7,7 +7,7 @@ use crate::action::utils::*;
 pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
 
 #[derive(Clone, Debug)]
-pub(crate) enum Step {Edge, In, Out}
+pub(crate) enum Step {Scredge, In, Out, Edge, Random}
 
 #[derive(Clone, Debug)]
 
@@ -33,9 +33,10 @@ pub(crate) struct WorkContext {
     , pub(crate) total_points_today: u32
     , pub(crate) spent_tokens_today: u32
     , pub(crate) res: (u32, u32)
-    , pub(crate) edge_poses: VecDeque<(i32, i32)>
-    , pub(crate) out_queue: VecDeque<(i32, i32)>
-    , pub(crate) in_queue: VecDeque<(i32, i32)>
+    , pub(crate) scredge_poses: VecDeque<(i32, i32)>
+    , pub(crate) edge_queue: VecDeque<((i32, i32), u32)>
+    , pub(crate) out_queue: VecDeque<((i32, i32), u32)>
+    , pub(crate) in_queue: VecDeque<((i32, i32), u32)>
 }
 
 
@@ -65,10 +66,10 @@ pub(crate) struct PointF32 {
     , pub(crate) iterations: u32
     // if this isn't updated enough, you will take longer to realize loops.
     // If its updated too often, you will not be able to realize long loops.
-    , pub(crate) loop_detection_points: [(f32, f32);NUMBER_OF_LOOP_CHECK_POINTS]
+    , pub(crate) loop_detection_point: ((f32, f32), u32)
     , pub(crate) done: (bool, bool)
     , pub(crate) delivered: bool
-    , pub(crate) escaped_time: Option<u32>
+    , pub(crate) period: u32
 }
 
 
@@ -113,7 +114,7 @@ pub(crate) fn workshift_f32(
     let points = match &mut context.points {
         Points::F32 { p} => {p}
     };
-    let episilon = (points[0].c.0 - points[1].c.0).abs() / 16.0;
+    let episilon = (points[0].c.0 - points[1].c.0).abs() / 64.0;
 
 
     let total_points = points.len();
@@ -123,22 +124,81 @@ pub(crate) fn workshift_f32(
     while context.time_workshift_started.elapsed().as_millis()<10{//while context.index < total_points && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
 
 
-        let (pos, step) =
-            if context.workshifts > 1 {if context.out_queue.len()>0{
-            (&context.out_queue[0], Step::Out)
-        } else if context.edge_poses.len()>0 {
-            (&context.edge_poses[0], Step::Edge)
-        } else if context.in_queue.len()>0 {
-            (&context.in_queue[0], Step::In)
-        } else {context.index = total_points-1; break;}} else {
-                if context.edge_poses.len()>0 {
-                    (&context.edge_poses[0], Step::Edge)
+        let (pos, step) = match context.workshifts%5 {
+            0 => {
+                if context.workshifts == 0 {
+                    if context.scredge_poses.len()>0 {
+                        (&context.scredge_poses[0], Step::Scredge)
+                    } else if context.edge_queue.len()>0 {
+                        (&context.edge_queue[0].0, Step::Edge)
+                    } else if context.out_queue.len()>0{
+                        (&context.out_queue[0].0, Step::Out)
+                    } else if context.in_queue.len()>0 {
+                        (&context.in_queue[0].0, Step::In)
+                    } else {context.index = total_points-1; break;
+                    }
+                } else {
+                    if context.edge_queue.len()>0 {
+                        (&context.edge_queue[0].0, Step::Edge)
+                    } else if context.out_queue.len()>0{
+                        (&context.out_queue[0].0, Step::Out)
+                    } else if context.scredge_poses.len()>0 {
+                        (&context.scredge_poses[0], Step::Scredge)
+                    } else if context.in_queue.len()>0 {
+                        (&context.in_queue[0].0, Step::In)
+                    } else {context.index = total_points-1; break;
+                    }
+                }
+            }
+            1 => {
+                if context.edge_queue.len()>0 {
+                    (&context.edge_queue[0].0, Step::Edge)
                 } else if context.out_queue.len()>0{
-                    (&context.out_queue[0], Step::Out)
+                    (&context.out_queue[0].0, Step::Out)
+                } else if context.scredge_poses.len()>0 {
+                    (&context.scredge_poses[0], Step::Scredge)
                 } else if context.in_queue.len()>0 {
-            (&context.in_queue[0], Step::In)
-        } else {context.index = total_points-1; break;
-            }};
+                    (&context.in_queue[0].0, Step::In)
+                } else {context.index = total_points-1; break;}
+            }
+            2 =>{
+                if context.out_queue.len()>0{
+                    (&context.out_queue[0].0, Step::Out)
+                } else if context.edge_queue.len()>0 {
+                    (&context.edge_queue[0].0, Step::Edge)
+                } else if context.scredge_poses.len()>0 {
+                    (&context.scredge_poses[0], Step::Scredge)
+                } else if context.in_queue.len()>0 {
+                    (&context.in_queue[0].0, Step::In)
+                } else {context.index = total_points-1; break;
+                }
+            }
+            3 =>{
+                if context.edge_queue.len()>0 {
+                    (&context.edge_queue[0].0, Step::Edge)
+                } else if context.out_queue.len()>0{
+                    (&context.out_queue[0].0, Step::Out)
+                } else if context.scredge_poses.len()>0 {
+                    (&context.scredge_poses[0], Step::Scredge)
+                } else if context.in_queue.len()>0 {
+                    (&context.in_queue[0].0, Step::In)
+                } else {context.index = total_points-1; break;}
+            }
+
+            4 => {
+                //(&pos_from_index(context.random_index, context.res.0), Step::Random)
+                if context.edge_queue.len()>0 {
+                    (&context.edge_queue[0].0, Step::Edge)
+                } else if context.out_queue.len()>0{
+                    (&context.out_queue[0].0, Step::Out)
+                } else   if context.scredge_poses.len()>0 {
+                    (&context.scredge_poses[0], Step::Scredge)
+                } else if context.in_queue.len()>0 {
+                    (&context.in_queue[0].0, Step::In)
+                } else {context.index = total_points-1; break;}
+            }
+            _ => {break}
+        };
 
         let index = index_from_pos(pos, context.res.0);
 
@@ -151,28 +211,85 @@ pub(crate) fn workshift_f32(
                 Step::Out => {
                     let _ =  context.out_queue.pop_front();
                 }
-                Step::Edge => {
-                    let _ = context.edge_poses.pop_front();
+                Step::Scredge => {
+                    let _ = context.scredge_poses.pop_front();
                 }
                 Step::In => {
                     let _ =  context.in_queue.pop_front();
+                }
+                Step::Edge => {
+                    let _ =  context.edge_queue.pop_front();
+                }
+                Step::Random => {
+                    context.index += 1;
+                    context.random_index = context.random_map[min(context.index, total_points-1)];
                 }
             }
             continue;
         }
 
-        match step {
-            Step::In => {
-                point.delivered = true;
-                context.completed_points.push((CompletedPoint::Repeats{period: 0}, index));
-                queue_incomplete_neighbors(&pos, context.res, points, &mut context.in_queue);
-                continue;
+        //if context.workshifts > 100 {
+            match step {
+                Step::In => {
+                    point.period = context.in_queue[0].1;
+                    context.completed_points.push((CompletedPoint::Repeats{period: context.in_queue[0].1}, index));
+                    point.delivered = true;
+                    queue_incomplete_neighbors_in(&pos, context.res, points, &mut context.in_queue);
+                    let _ =  context.in_queue.pop_front();
+                    continue;
+                }
+                _ => {}
             }
-            _ => {}
-        }
+        //}
+
 
 
         let old_iterations = point.iterations;
+
+        match step {
+            Step::Scredge => {
+                iterate_max_n_times_f32(point, 4.0, episilon, 1000);
+            }
+            Step::Random => {
+                iterate_max_n_times_f32(point, 4.0, episilon, 1000);
+            }
+            Step::Out => {
+                let difficulty = context.out_queue[0].1;
+                let eta = difficulty as i32 - point.iterations as i32;
+                if eta > 2000 {
+                    let warp = min(eta/2, 1000000);
+                    if !timewarp_n_iterations(point, 4.0, warp as u32) {
+                        context.out_queue[0].1 = 0;
+                    };
+                } else {
+                    iterate_max_n_times_f32(point, 4.0, episilon, 100);
+                }
+            }
+            Step::In => {
+                let difficulty = context.in_queue[0].1;
+                let eta = difficulty as i32 - point.iterations as i32;
+                if eta > 2000 {
+                    let warp = min(eta/2, 1000000);
+                    if !timewarp_n_iterations(point, 4.0, warp as u32) {
+                        context.in_queue[0].1 = 0;
+                    };
+                } else {
+                    iterate_max_n_times_f32(point, 4.0, episilon, 100);
+                }
+            }
+            Step::Edge => {
+                let difficulty = context.edge_queue[0].1;
+                let eta = difficulty as i32 - point.iterations as i32;
+                if eta > 2000 {
+                    let warp = min(eta/2, 10000000);
+                    if !timewarp_n_iterations(point, 4.0, warp as u32) {
+                        context.edge_queue[0].1 = 0;
+                    };
+                } else {
+                    iterate_max_n_times_f32(point, 4.0, episilon, 100);
+                }
+            }
+        }
 
         /*if let Some(t) = point.escaped_time {
             let warp = (t-point.iterations)/2;
@@ -187,7 +304,7 @@ pub(crate) fn workshift_f32(
                 context.total_iterations_today+=warp;
             }
         }*/
-        iterate_max_n_times_f32(point, 4.0, episilon, 1000);
+
 
 
         context.total_iterations_today += point.iterations - old_iterations;
@@ -204,16 +321,36 @@ pub(crate) fn workshift_f32(
                 Step::Out => {
                     let _ =  context.out_queue.pop_front();
                 }
-                Step::Edge => {
-                    let _ = context.edge_poses.pop_front();
+                Step::Scredge => {
+                    let _ = context.scredge_poses.pop_front();
                 }
-                _ => {}
+                Step::In => {
+                    let _ =  context.in_queue.pop_front();
+                }
+                Step::Edge => {
+                    let _ =  context.edge_queue.pop_front();
+                }
+                Step::Random => {
+                    context.index += 1;
+                    context.random_index = context.random_map[min(context.index, total_points-1)];
+                }
             }
 
             point.delivered = true;
+
+
+
             let completed_point = if point.done.1 {
-                queue_incomplete_neighbors(&pos, context.res, points, &mut context.in_queue);
-                CompletedPoint::Repeats{period: 0}
+                let raw_period = point.iterations-point.loop_detection_point.1;
+                let returned = if determine_period(point, episilon) {
+                    point.period = point.iterations-point.loop_detection_point.1;
+                    CompletedPoint::Repeats{period: point.period}
+                } else {
+                    point.period = raw_period;
+                    CompletedPoint::Repeats{period: point.period}
+                };
+                queue_incomplete_neighbors_in(&pos, context.res, points, &mut context.in_queue);
+                returned
             } else {
                 let result = CompletedPoint::Escapes {
                     escape_time: point.iterations
@@ -223,14 +360,14 @@ pub(crate) fn workshift_f32(
                 queue_incomplete_neighbors(&pos, context.res, points, &mut context.out_queue);
                 result
             };
+            if let Some(e) = point_is_edge(&pos, context.res, points) {
+                //context.edge_queue.clear();
+                queue_incomplete_neighbors_of_edge(&e.0, &e.1, context.res, points, &mut context.edge_queue);
+            }
 
             context.completed_points.push((completed_point, index));
 
-            //context.index += 1;
 
-
-
-            context.random_index = context.random_map[min(context.index, total_points-1)];
             context.total_points_today += 1
         } else {
             match step {
@@ -239,11 +376,16 @@ pub(crate) fn workshift_f32(
                     context.out_queue.push_back(pos);
                     continue;
                 }
-                Step::Edge => {
-                    let pos = context.edge_poses.pop_front().unwrap();
-                    context.edge_poses.push_back(pos);
+                /*Step::In => {
+                    let pos = context.in_queue.pop_front().unwrap();
+                    context.in_queue.push_back(pos);
+                    continue;
+                }*/
+                Step::Scredge => {
+                    //let pos = context.scredge_poses.pop_front().unwrap();
+                    //context.scredge_poses.push_back(pos);
                     let completed_point = {
-                        CompletedPoint::Repeats{period: 0}
+                        CompletedPoint::Repeats{period: point.iterations-point.loop_detection_point.1}
                     };
                     context.completed_points.push((completed_point, index));
                     continue;
@@ -264,7 +406,7 @@ pub(crate) fn workshift_f32(
 pub(crate) fn iterate_max_n_times_f32 (point: &mut PointF32, r_squared:f32, epsilon:f32, n: u32) {
     for i in 0..n {
         update_point_results_f32(point);
-        point.done.0 = bailout_point_f32(point, r_squared);
+        point.done.0 = bailout_point_f32(point, r_squared) || (!point.real_squared.is_finite()) || (!point.imag_squared.is_finite());
         if !(point.done.0 || point.done.1) {
             iterate_f32(point);
         } else {
@@ -279,15 +421,24 @@ pub(crate) fn iterate_max_n_times_f32 (point: &mut PointF32, r_squared:f32, epsi
 #[inline]
 pub(crate) fn timewarp_n_iterations (point: &mut PointF32, r_squared:f32, n: u32) -> bool {
 
-    let backup = point.clone();
-    for i in 0..n {
-        update_point_results_f32(point);
-        iterate_f32(point);
+    assert!(n>=1000);
+
+    let c = point.c.clone();
+    let mut z = point.z.clone();
+    for _ in 0..n {
+        z = (
+            z.0 * z.0 - z.1 * z.1 + c.0
+            , 2.0 * z.0 * z.1 + c.1
+        );
     }
-    if bailout_point_f32(point, r_squared) || !point.real_squared.is_finite() || !point.imag_squared.is_finite() {
+
+    let backup = point.clone();
+    point.z = z; update_point_results_f32(point);
+
+    if bailout_point_f32(point, r_squared) || (!point.real_squared.is_finite()) || (!point.imag_squared.is_finite()) {
         *point = backup; false
     } else {
-
+        point.iterations+=n;
         true
     }
 }
@@ -316,92 +467,32 @@ fn points_near (z1: (f32, f32), z2: (f32, f32), e: f32) -> bool {
 
 #[inline(always)]
 fn loop_check_point_f32 (point: & PointF32, epsilon:f32) -> bool {
-    // checks
-    let mut looped = false;
-    for loop_check_point in &point.loop_detection_points {
-        looped = looped || points_near(point.z, *loop_check_point, epsilon);
-    }
-    looped// || point.z == point.last_point
+    points_near(point.z, point.loop_detection_point.0, epsilon)
 }
 
 #[inline(always)]
 fn update_loop_check_points (point: &mut PointF32) {
-    /*point.last_point = point.z;
-    if point.iterations%(1000) == 0 {
-        point.loop_detection_points[0] = point.z;
-    }
-    if point.iterations%(5000) == 0 {
-        point.loop_detection_points[1] = point.z;
-    }
-    if point.iterations%(10000) == 0 {
-        point.loop_detection_points[2] = point.z;
-    }
-    if point.iterations%(50000) == 0 {
-        point.loop_detection_points[3] = point.z;
-    }
-    if point.iterations%(100000) == 0 {
-        point.loop_detection_points[4] =point.z;
-    }
-    if point.iterations%(500000) == 0 {
-        point.loop_detection_points[5] = point.z;
-    }
-    if point.iterations%(1000000) == 0 {
-        point.loop_detection_points[6] = point.z;
-    }
-    if point.iterations%(5000000) == 0 {
-        point.loop_detection_points[7] = point.z;
-    }
-    if point.iterations%(10000000) == 0 {
-        point.loop_detection_points[8] =  point.z;
-    }
-    if point.iterations%(50000000) == 0 {
-        point.loop_detection_points[9] = point.z;
-    }*/
 
-   /* point.last_point = point.z;
-    if point.iterations%(1000) == 0 {
-        point.loop_detection_points[0] = point.z;
+    if point.iterations >= point.loop_detection_point.1 << 1 {
+        point.loop_detection_point = (point.z, point.iterations);
     }
-    if point.iterations%(10000) == 0 {
-        point.loop_detection_points[1] = point.z;
-    }
-
-    if point.iterations%(100000) == 0 {
-        point.loop_detection_points[2] =point.z;
-    }
-
-    if point.iterations%(1000000) == 0 {
-        point.loop_detection_points[3] = point.z;
-    }
-
-    if point.iterations%(10000000) == 0 {
-        point.loop_detection_points[4] =  point.z;
-    }*/
-
-    //point.last_point = point.z;
-
-    if point.iterations%(1<<1) == 0 {
-        point.loop_detection_points[0] = point.z;
-    }
-
-    if point.iterations%(1<<8) == 0 {
-        point.loop_detection_points[1] = point.z;
-    }
-
-    if point.iterations%(1<<14) == 0 {
-        point.loop_detection_points[2] = point.z;
-    }
-
-    if point.iterations%(1<<23) == 0 {
-        point.loop_detection_points[3] =point.z;
-    }
-
-    if point.iterations%(1<<25) == 0 {
-        point.loop_detection_points[4] =point.z;
-    }
-
 }
 
+fn determine_period (point: &mut PointF32, epsilon:f32) -> bool {
+    let max_period = 1000;
+
+    timewarp_n_iterations(point, 4.0, 1000);
+
+    point.loop_detection_point = (point.z, point.iterations);
+    for _ in 0..max_period {
+        update_point_results_f32(point);
+        iterate_f32(point);
+        if loop_check_point_f32(point, 0.0001) {
+            return true
+        }
+    }
+    return false
+}
 
 #[inline]
 pub(crate) fn update_point_results_f32(point: &mut PointF32) {
@@ -416,7 +507,13 @@ pub(crate) fn index_from_pos(pos:&(i32, i32), wid:u32) -> usize {
     (pos.0 + pos.1*wid as i32) as usize
 }
 
-pub(crate) fn queue_incomplete_neighbors(pos:&(i32, i32), res: (u32, u32), points: &Vec<PointF32>, queue: &mut VecDeque<(i32, i32)>) {
+pub(crate) fn pos_from_index(i: usize, wid:u32) -> (i32, i32) {
+    (i as i32 % wid as i32, i as i32/wid as i32)
+}
+
+pub(crate) fn queue_incomplete_neighbors(pos:&(i32, i32), res: (u32, u32), points: &Vec<PointF32>, queue: &mut VecDeque<((i32, i32), u32)>) {
+
+    let difficulty = points[index_from_pos(pos, res.0)].iterations;
 
     let wid = res.0;
 
@@ -429,12 +526,155 @@ pub(crate) fn queue_incomplete_neighbors(pos:&(i32, i32), res: (u32, u32), point
     for n in neighbors {
 
         if (
-            n.0 > 0 && n.0 < res.0 as i32 - 1
-            && n.1 > 0 && n.1 < res.1 as i32 - 1
+            n.0 >= 0 && n.0 <= res.0 as i32 - 1
+            && n.1 >= 0 && n.1 <= res.1 as i32 - 1
             ) {
             let index = index_from_pos(&n, wid);
             if !(points[index].done.0 || points[index].done.1) {
-                queue.push_back(n);
+                queue.push_back((n, difficulty));
+            }
+        }
+    }
+}
+
+pub(crate) fn queue_incomplete_neighbors_in(pos:&(i32, i32), res: (u32, u32), points: &Vec<PointF32>, queue: &mut VecDeque<((i32, i32), u32)>) {
+
+    let period = points[index_from_pos(&pos, res.0)].period;
+
+    let wid = res.0;
+
+    let neighbors: [(i32, i32);4] = [
+        (pos.0+1, pos.1)
+        , (pos.0-1, pos.1)
+        , (pos.0, pos.1+1)
+        , (pos.0, pos.1-1)
+    ];
+    for n in neighbors {
+
+        if (
+            n.0 >= 0 && n.0 <= res.0 as i32 - 1
+                && n.1 >= 0 && n.1 <= res.1 as i32 - 1
+        ) {
+            let index = index_from_pos(&n, wid);
+            if !(points[index].done.0 || points[index].done.1) {
+                queue.push_back((n, period));
+            }
+        }
+    }
+}
+
+pub(crate) fn point_is_edge(pos:&(i32, i32), res: (u32, u32), points: &Vec<PointF32>) -> Option<((i32, i32), (i32, i32))> {
+    let neighbors: [(i32, i32);4] = [
+        (pos.0+1, pos.1)
+        , (pos.0-1, pos.1)
+        , (pos.0, pos.1+1)
+        , (pos.0, pos.1-1)
+    ];
+
+    let index = index_from_pos(&pos, res.0);
+    for n in neighbors {
+
+        if (
+            n.0 >= 0 && n.0 <= res.0 as i32 - 1
+                && n.1 >= 0 && n.1 <= res.1 as i32 - 1
+        ) {
+            let nindex = index_from_pos(&n, res.0);
+            if (points[index].done.0 || points[index].done.1)
+                && (points[nindex].done.0 || points[nindex].done.1)
+            {
+                if points[index].done != points[nindex].done {
+                    return Some((*pos, n));
+                } else if points[index].done.1 == true {
+                    if points[index].period!=points[nindex].period {
+                        return Some((*pos, n));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+pub(crate) fn queue_incomplete_neighbors_of_edge(pos1:&(i32, i32), pos2:&(i32, i32), res: (u32, u32), points: &Vec<PointF32>, queue: &mut VecDeque<((i32, i32), u32)>) {
+
+    let difficulty = points[index_from_pos(pos1, res.0)].iterations;
+
+    let wid = res.0;
+
+    let neighbors: [(i32, i32);10] = if (pos1.0 - pos2.0).abs()==1 { // horizontal
+        if pos1.0>pos2.0 { // pos1 more right
+            [
+                (pos1.0+1, pos1.1)
+                , (pos2.0-1, pos2.1)
+                , (pos1.0+1, pos1.1+1)
+                , (pos1.0+1, pos1.1-1)
+                , (pos2.0-1, pos2.1+1)
+                , (pos2.0-1, pos2.1-1)
+                , (pos1.0, pos1.1+1)
+                , (pos1.0, pos1.1-1)
+                , (pos2.0, pos2.1+1)
+                , (pos2.0, pos2.1-1)
+            ]
+        } else { // pos2 more right
+            [
+                (pos2.0+1, pos2.1)
+                , (pos1.0-1, pos1.1)
+                , (pos2.0+1, pos2.1+1)
+                , (pos2.0+1, pos2.1-1)
+                , (pos1.0-1, pos1.1+1)
+                , (pos1.0-1, pos1.1-1)
+                , (pos2.0, pos2.1+1)
+                , (pos2.0, pos2.1-1)
+                , (pos1.0, pos1.1+1)
+                , (pos1.0, pos1.1-1)
+            ]
+        }
+    } else { // vertical
+        if pos1.0>pos2.0 { // pos1 higher
+            [
+                (pos1.0, pos1.1+1)
+                , (pos2.0, pos2.1-1)
+                , (pos1.0+1, pos1.1+1)
+                , (pos1.0-1, pos1.1+1)
+
+                , (pos2.0+1, pos2.1-1)
+                , (pos2.0-1, pos2.1-1)
+                , (pos1.0+1, pos1.1)
+                , (pos1.0-1, pos1.1)
+                , (pos2.0+1, pos2.1)
+                , (pos2.0-1, pos2.1)
+            ]
+        } else { // pos2 higher
+            [
+                (pos2.0, pos2.1+1)
+                , (pos1.0, pos1.1-1)
+                , (pos2.0+1, pos2.1+1)
+                , (pos2.0-1, pos2.1+1)
+                , (pos1.0+1, pos1.1-1)
+                , (pos1.0-1, pos1.1-1)
+                , (pos1.0+1, pos1.1)
+                , (pos1.0-1, pos1.1)
+                , (pos2.0+1, pos2.1)
+                , (pos2.0-1, pos2.1)
+            ]
+        }
+    };
+
+    /*let neighbors: [(i32, i32);4] = [
+        (pos.0+1, pos.1)
+        , (pos.0-1, pos.1)
+        , (pos.0, pos.1+1)
+        , (pos.0, pos.1-1)
+    ];*/
+    for n in neighbors {
+
+        if (
+            n.0 >= 0 && n.0 <= res.0 as i32 - 1
+                && n.1 >= 0 && n.1 <= res.1 as i32 - 1
+        ) {
+            let index = index_from_pos(&n, wid);
+            if !(points[index].done.0 || points[index].done.1) {
+                queue.push_front((n, difficulty));
             }
         }
     }

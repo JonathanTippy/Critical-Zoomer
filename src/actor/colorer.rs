@@ -123,7 +123,9 @@ async fn internal_behavior<A: SteadyActor>(
             for i in 0..r.len() {
                 let value = &r[i%len];
                 let color:(u8,u8,u8) = match value {
-                    ScreenValue::Inside{loop_period: _} => {(0, 0, 0)}
+                    ScreenValue::Inside{loop_period: p} => {
+                        ((p*10) as u8, 0, 0)
+                    }
                     ScreenValue::Outside { escape_time: e } => {
 
                         let m = (*e as f64 % u)/u;
