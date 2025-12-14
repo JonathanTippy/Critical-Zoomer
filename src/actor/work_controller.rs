@@ -120,19 +120,19 @@ fn get_points_f32(res: (u32, u32), loc:(f64, f64), zoom: i64) -> Points {
                 let imag_center:f64 = loc.1;
 
 
-                let zoom_factor:f32;
+                let zoom_factor:f64;
 
                 if zoom > 0 {
-                    zoom_factor = (1<<zoom) as f32;
+                    zoom_factor = (1<<zoom) as f64;
                 } else {
-                    zoom_factor =  1.0 / ((1<<-zoom) as f32);
+                    zoom_factor =  1.0 / ((1<<-zoom) as f64);
                 }
 
                 let point:(f32, f32) = (
-                    /*(real_center + ((seat as f32 / significant_res as f32 - 0.5) / zoom_factor) as f64) as f32
-                    , (imag_center + (-((row as f32 / significant_res as f32 - 0.5) / zoom_factor)) as f64) as f32*/
-                    (real_center + ((seat as f32 / significant_res as f32) / zoom_factor) as f64) as f32
-                    , (imag_center + (-((row as f32 / significant_res as f32) / zoom_factor)) as f64) as f32
+                    /*(real_center + ((seat as f64 / significant_res as f64 - 0.5) / zoom_factor) as f64) as f64
+                    , (imag_center + (-((row as f64 / significant_res as f64 - 0.5) / zoom_factor)) as f64) as f64*/
+                    (real_center + ((seat as f64 / significant_res as f64) / zoom_factor) as f64) as f64
+                    , (imag_center + (-((row as f64 / significant_res as f64) / zoom_factor)) as f64) as f64
                 );
 
                 out.push(
