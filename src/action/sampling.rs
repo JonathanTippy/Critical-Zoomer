@@ -93,8 +93,8 @@ pub(crate) fn sample(
                                     , zoom_pot: context.location.zoom_pot
                                 }
                                 , egui::Pos2 {
-                                x: center_screenspace_pos.0 as f64
-                                , y: center_screenspace_pos.1 as f64
+                                x: center_screenspace_pos.0 as f32
+                                , y: center_screenspace_pos.1 as f32
                             }
                             ));
                     }

@@ -140,7 +140,7 @@ async fn internal_behavior<A: SteadyActor>(
             for i in 0..r.len() {
                 let point = &r[i%len];
                 let pos = pos_from_index(i, v.screen_res.0);
-                let value = get_value_from_point(point, radius as f64, pos, &r, v.screen_res);
+                let value = get_value_from_point(point, radius as f32, pos, &r, v.screen_res);
                 output.push(value);
             }
 
@@ -262,7 +262,7 @@ fn get_value_from_point(p: &CompletedPoint, r: f32, pos:(i32, i32), points: &Vec
                 }
             }
 
-            let avg_derivative = ((sum.0 as f64) / 2.0, (sum.1 as f64)/2.0);
+            let avg_derivative = ((sum.0 as f32) / 2.0, (sum.1 as f32)/2.0);
 
 
             if diff_sum < 0 {
@@ -311,6 +311,6 @@ fn get_derivative(pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32), esc
         }
     }
 
-    let avg_derivative = ((sum.0 as f64) / 2.0, (sum.1 as f64)/2.0);
+    let avg_derivative = ((sum.0 as f32) / 2.0, (sum.1 as f32)/2.0);
     avg_derivative
 }
