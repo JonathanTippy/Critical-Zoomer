@@ -16,6 +16,13 @@ pub(crate) struct ZoomerScreen {
     , pub(crate) objective_location: ObjectivePosAndZoom
 }
 
+#[derive(Clone, Debug)]
+
+pub(crate) enum ScreenValue {
+    Outside{escape_time: u32, in_filament: bool}
+    , Inside{loop_period: u32, out_filament: bool}
+}
+
 pub(crate) struct ZoomerValuesScreen {
     pub(crate) values: Vec<ScreenValue>
     , pub(crate) screen_size: (u32, u32)
@@ -132,7 +139,8 @@ async fn internal_behavior<A: SteadyActor>(
 
             for i in 0..r.len() {
                 let point = &r[i%len];
-                let value = get_value_from_point(point, radius as f32);
+                let pos = pos_from_index(i, v.screen_res.0);
+                let value = get_value_from_point(point, radius as f32, pos, &r, v.screen_res);
                 output.push(value);
             }
 
@@ -153,19 +161,55 @@ async fn internal_behavior<A: SteadyActor>(
     Ok(())
 }
 
-fn get_value_from_point(p: &CompletedPoint, r: f32) -> ScreenValue {
+fn get_value_from_point(p: &CompletedPoint, r: f32, pos:(i32, i32), points: &Vec<CompletedPoint>, res: (u32, u32)) -> ScreenValue {
     match p {
         CompletedPoint::Escapes{escape_time: t, escape_location: z, start_location: c} => {
-            /*let z = (
-                i16_to_f32(z.0)
-                , i16_to_f32(z.1)
-                );
-            let c = (
-                i16_to_f32(c.0)
-                , i16_to_f32(c.1)
-            );*/
 
-            //let r:f32 = 256.0;
+            let neighbors: [(i32, i32);4] =[
+                (pos.0, pos.1-1)
+                , (pos.0-1, pos.1)
+                , (pos.0, pos.1+1)
+                , (pos.0+1, pos.1)
+            ];
+
+            let mut sign:(Option<i32>, Option<i32>) = (None, None);
+            let mut filament = false;
+            //let derivative = get_derivative(pos, points, res, *t);
+
+            for n in neighbors {
+                if (
+                    n.0 >= 0 && n.0 <= res.0 as i32 - 1
+                        && n.1 >= 0 && n.1 <= res.1 as i32 - 1
+                ) {
+                    match points[index_from_pos(&n, res.0)] {
+                        CompletedPoint::Repeats{period: np} => {}
+                        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c} => {
+                            
+                            let difference = (nt as i32)-(*t as i32);
+                            let direction = diff(n, pos);
+                            let derivative = (direction.0 * difference, direction.1 * difference);
+                            if derivative.0!=0 {
+                                if let Some(s) = sign.0 {
+                                    if s != derivative.0.signum()
+                                    {filament = true;}
+                                } else {
+                                    sign.0 = Some(derivative.0.signum());
+                                }
+                            }
+                            if derivative.1!=0 {
+                                if let Some(s) = sign.1 {
+                                    if s != derivative.1.signum()
+                                    {filament = true;}
+                                } else {
+                                    sign.1 = Some(derivative.1.signum());
+                                }
+                            }
+                        }
+                        CompletedPoint::Dummy{} => {}
+                    }
+                }
+            }
+
             let r_squared = r*r;
             let mut p = PointF32{
                 c: *c
@@ -178,21 +222,95 @@ fn get_value_from_point(p: &CompletedPoint, r: f32) -> ScreenValue {
                 , done: (false, false)
                 , delivered: false
                 , period: 0
-                };
+            };
 
             while !bailout_point_f32(&p, r_squared) {
                 iterate_f32(&mut p);
                 update_point_results_f32(&mut p);
             }
-            ScreenValue::Outside{escape_time: p.iterations}
 
+            ScreenValue::Outside{escape_time: p.iterations, in_filament: filament}
         }
         CompletedPoint::Repeats{period: p} => {
-            ScreenValue::Inside{loop_period:*p}
+            let neighbors: [(i32, i32);4] =[
+                (pos.0, pos.1-1)
+                , (pos.0-1, pos.1)
+                , (pos.0, pos.1+1)
+                , (pos.0+1, pos.1)
+            ];
+
+            let mut sum = (0, 0);
+
+            let mut diff_sum = 0;
+
+            for n in neighbors {
+                if (
+                    n.0 >= 0 && n.0 <= res.0 as i32 - 1
+                        && n.1 >= 0 && n.1 <= res.1 as i32 - 1
+                ) {
+                    match points[index_from_pos(&n, res.0)] {
+                        CompletedPoint::Repeats{period: np} => {
+                            let difference = (np as i32)-(*p as i32);
+                            diff_sum+=difference;
+                            let direction = diff(n, pos);
+                            let derivative = (direction.0 * difference, direction.1 * difference);
+                            sum = (sum.0+derivative.0, sum.1+derivative.1);
+                        }
+                        CompletedPoint::Escapes{escape_time: t, escape_location: z, start_location: c} => {}
+                        CompletedPoint::Dummy{} => {}
+                    }
+                }
+            }
+
+            let avg_derivative = ((sum.0 as f32) / 2.0, (sum.1 as f32)/2.0);
+
+
+            if diff_sum < 0 {
+                ScreenValue::Inside{loop_period:*p, out_filament: true}
+            } else {
+                ScreenValue::Inside{loop_period:*p, out_filament: false}
+            }
+
         }
         CompletedPoint::Dummy{} => {
             //panic!("completed point was not completed");
-            ScreenValue::Inside{loop_period:0}
+            ScreenValue::Inside{loop_period:0, out_filament:false}
         }
     }
+}
+
+fn diff(a:(i32, i32), b:(i32, i32)) -> (i32, i32) {
+    (a.0-b.0, a.1-b.1)
+}
+
+fn get_derivative(pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32), escape_time: u32) -> (f32, f32) {
+    let neighbors: [(i32, i32);4] =[
+        (pos.0, pos.1-1)
+        , (pos.0-1, pos.1)
+        , (pos.0, pos.1+1)
+        , (pos.0+1, pos.1)
+    ];
+
+    let mut sum = (0, 0);
+
+    for n in neighbors {
+        if (
+            n.0 >= 0 && n.0 <= res.0 as i32 - 1
+                && n.1 >= 0 && n.1 <= res.1 as i32 - 1
+        ) {
+            match points[index_from_pos(&n, res.0)] {
+                CompletedPoint::Repeats{period: np} => {}
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c} => {
+                    let difference = (nt as i32)-(escape_time as i32);
+                    let direction = diff(n, pos);
+                    let derivative = (direction.0 * difference, direction.1 * difference);
+                    sum = (sum.0+derivative.0, sum.1+derivative.1);
+                }
+                CompletedPoint::Dummy{} => {}
+            }
+        }
+    }
+
+    let avg_derivative = ((sum.0 as f32) / 2.0, (sum.1 as f32)/2.0);
+    avg_derivative
 }

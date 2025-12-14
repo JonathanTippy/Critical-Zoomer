@@ -64,8 +64,6 @@ pub(crate) struct PointF32 {
     , pub(crate) imag_squared: f32
     , pub(crate) real_imag: f32
     , pub(crate) iterations: u32
-    // if this isn't updated enough, you will take longer to realize loops.
-    // If its updated too often, you will not be able to realize long loops.
     , pub(crate) loop_detection_point: ((f32, f32), u32)
     , pub(crate) done: (bool, bool)
     , pub(crate) delivered: bool
@@ -421,11 +419,17 @@ pub(crate) fn iterate_max_n_times_f32 (point: &mut PointF32, r_squared:f32, epsi
 #[inline]
 pub(crate) fn timewarp_n_iterations (point: &mut PointF32, r_squared:f32, n: u32) -> bool {
 
-    assert!(n>=1000);
 
     let c = point.c.clone();
     let mut z = point.z.clone();
-    for _ in 0..n {
+
+    let blocks = n / 4096;
+    let change = n % 4096;
+
+    for _ in 0..blocks {
+        timewarp_4096(&mut z, c);
+    }
+    for _ in 0..change {
         z = (
             z.0 * z.0 - z.1 * z.1 + c.0
             , 2.0 * z.0 * z.1 + c.1
@@ -442,6 +446,17 @@ pub(crate) fn timewarp_n_iterations (point: &mut PointF32, r_squared:f32, n: u32
         true
     }
 }
+
+#[inline(always)]
+fn timewarp_4096 ( z:&mut (f32, f32), c:(f32,f32)) {
+    for _ in 0..4096 {
+        *z = (
+            z.0 * z.0 - z.1 * z.1 + c.0
+            , 2.0 * z.0 * z.1 + c.1
+        );
+    }
+}
+
 #[inline(always)]
 pub(crate) fn iterate_f32 (point: &mut PointF32) {
     // move z
@@ -601,61 +616,60 @@ pub(crate) fn queue_incomplete_neighbors_of_edge(pos1:&(i32, i32), pos2:&(i32, i
 
     let wid = res.0;
 
-    let neighbors: [(i32, i32);10] = if (pos1.0 - pos2.0).abs()==1 { // horizontal
+    let neighbors: [(i32, i32);8] = if (pos1.0 - pos2.0).abs()==1 { // horizontal
         if pos1.0>pos2.0 { // pos1 more right
             [
-                (pos1.0+1, pos1.1)
-                , (pos2.0-1, pos2.1)
-                , (pos1.0+1, pos1.1+1)
-                , (pos1.0+1, pos1.1-1)
-                , (pos2.0-1, pos2.1+1)
-                , (pos2.0-1, pos2.1-1)
-                , (pos1.0, pos1.1+1)
-                , (pos1.0, pos1.1-1)
+                (pos1.0, pos1.1+1)
                 , (pos2.0, pos2.1+1)
                 , (pos2.0, pos2.1-1)
+                , (pos1.0, pos1.1-1)
+                , (pos1.0+1, pos1.1+1)
+                , (pos2.0-1, pos2.1+1)
+                , (pos2.0-1, pos2.1-1)
+                , (pos1.0+1, pos1.1-1)
+                //, (pos1.0+1, pos1.1)
+                //, (pos2.0-1, pos2.1)
             ]
         } else { // pos2 more right
             [
-                (pos2.0+1, pos2.1)
-                , (pos1.0-1, pos1.1)
-                , (pos2.0+1, pos2.1+1)
-                , (pos2.0+1, pos2.1-1)
-                , (pos1.0-1, pos1.1+1)
-                , (pos1.0-1, pos1.1-1)
-                , (pos2.0, pos2.1+1)
-                , (pos2.0, pos2.1-1)
+                (pos2.0, pos2.1+1)
                 , (pos1.0, pos1.1+1)
                 , (pos1.0, pos1.1-1)
+                , (pos2.0, pos2.1-1)
+                , (pos2.0+1, pos2.1+1)
+                , (pos1.0-1, pos1.1+1)
+                , (pos1.0-1, pos1.1-1)
+                , (pos2.0+1, pos2.1-1)
+                //, (pos2.0+1, pos2.1)
+                //, (pos1.0-1, pos1.1)
             ]
         }
     } else { // vertical
         if pos1.0>pos2.0 { // pos1 higher
             [
-                (pos1.0, pos1.1+1)
-                , (pos2.0, pos2.1-1)
+                (pos1.0+1, pos1.1)
+                , (pos2.0+1, pos2.1)
+                , (pos1.0-1, pos1.1)
+                , (pos2.0-1, pos2.1)
                 , (pos1.0+1, pos1.1+1)
-                , (pos1.0-1, pos1.1+1)
-
                 , (pos2.0+1, pos2.1-1)
                 , (pos2.0-1, pos2.1-1)
-                , (pos1.0+1, pos1.1)
-                , (pos1.0-1, pos1.1)
-                , (pos2.0+1, pos2.1)
-                , (pos2.0-1, pos2.1)
+                , (pos1.0-1, pos1.1+1)
+                //, (pos1.0, pos1.1+1)
+                //, (pos2.0, pos2.1-1)
             ]
         } else { // pos2 higher
             [
-                (pos2.0, pos2.1+1)
-                , (pos1.0, pos1.1-1)
-                , (pos2.0+1, pos2.1+1)
-                , (pos2.0-1, pos2.1+1)
-                , (pos1.0+1, pos1.1-1)
-                , (pos1.0-1, pos1.1-1)
-                , (pos1.0+1, pos1.1)
-                , (pos1.0-1, pos1.1)
+                (pos1.0+1, pos1.1)
                 , (pos2.0+1, pos2.1)
                 , (pos2.0-1, pos2.1)
+                , (pos1.0-1, pos1.1)
+                , (pos2.0+1, pos2.1+1)
+                , (pos1.0+1, pos1.1-1)
+                , (pos1.0-1, pos1.1-1)
+                , (pos2.0-1, pos2.1+1)
+                //, (pos2.0, pos2.1+1)
+                //, (pos1.0, pos1.1-1)
             ]
         }
     };

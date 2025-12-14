@@ -14,12 +14,7 @@ pub(crate) enum WorkerCommand {
     Update
     , Replace{context: WorkContext}
 }
-#[derive(Clone, Debug)]
 
-pub(crate) enum ScreenValue {
-    Outside{escape_time: u32}
-    , Inside{loop_period: u32}
-}
 #[derive(Clone, Debug)]
 
 pub(crate) struct ResultsPackage {
