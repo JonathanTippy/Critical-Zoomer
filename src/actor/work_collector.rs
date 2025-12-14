@@ -165,8 +165,8 @@ fn sample_old_values(old_package: &ResultsPackage, new_location: ObjectivePosAnd
     );
 
     let relative_pos_in_pixels:(i32, i32) = (
-        relative_pos.0.shift(new_location.zoom_pot).shift(crate::actor::work_controller::PIXELS_PER_UNIT_POT).into()
-        , relative_pos.1.shift(new_location.zoom_pot).shift(crate::actor::work_controller::PIXELS_PER_UNIT_POT).into()
+        relative_pos.0.clone().shift(new_location.zoom_pot).shift(crate::actor::work_controller::PIXELS_PER_UNIT_POT).into()
+        , relative_pos.1.clone().shift(new_location.zoom_pot).shift(crate::actor::work_controller::PIXELS_PER_UNIT_POT).into()
     );
 
     let relative_zoom = new_location.zoom_pot - old_package.location.zoom_pot;

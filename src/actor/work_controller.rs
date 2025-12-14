@@ -61,7 +61,7 @@ async fn internal_behavior<A: SteadyActor>(
     let mut to_worker = to_worker.lock().await;
 
     let mut state = state.lock(|| WorkControllerState {
-        mixmap: get_interlaced_mixmap(WORKER_INIT_RES, (WORKER_INIT_RES.0*WORKER_INIT_RES.1) as usize)
+        mixmap: get_random_mixmap((WORKER_INIT_RES.0*WORKER_INIT_RES.1) as usize)
         , loc: WORKER_INIT_LOC
         , zoom_pot: WORKER_INIT_ZOOM_POT
         , worker_res: WORKER_INIT_RES
@@ -86,6 +86,7 @@ async fn internal_behavior<A: SteadyActor>(
             actor.wait_avail(&mut from_sampler, 1),
         );
 
+        //info!("work controller alive");
         if actor.avail_units(&mut from_sampler) > 0 {
             while actor.avail_units(&mut from_sampler) > 1 {
                 let stuff = actor.try_take(&mut from_sampler).expect("internal error");
@@ -142,10 +143,10 @@ fn get_points_f32(res: (u32, u32), loc:(f64, f64), zoom: i64) -> Points {
                         , imag_squared: 0.0
                         , real_imag: 0.0
                         , iterations: 0
-                        , loop_detection_points: [(0.0, 0.0); NUMBER_OF_LOOP_CHECK_POINTS]
+                        , loop_detection_point: (point, 1)
                         , done: (false, false)
                         , delivered: false
-                        , escaped_time: None
+                        , period: 0
                     }
                 )
             }
@@ -193,7 +194,7 @@ fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAnd
     }
 
     if state.worker_res != stuff.1 {
-        state.mixmap = get_interlaced_mixmap(stuff.1, (stuff.1.0*stuff.1.1) as usize)
+        state.mixmap = get_random_mixmap((stuff.1.0*stuff.1.1) as usize)
     }
 
     state.worker_res = stuff.1;
@@ -210,24 +211,24 @@ fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAnd
 
     state.zoom_pot = obj.zoom_pot as i64;
 
-    let mut edges = VecDeque::new();
+    let mut edges = Vec::new();
     let res = state.worker_res;
-    for i in 0..(res.0-2) as i32 {
-        edges.push_back((i, 0))
+    for i in 0..(res.0-1) as i32 {
+        edges.push((i, 0))
     }
-    for i in 0..(res.1-2) as i32 {
-        edges.push_back(((res.0-1) as i32, i))
+    for i in 0..(res.1-1) as i32 {
+        edges.push(((res.0-1) as i32, i))
     }
-    for i in 0..(res.0-2) as i32 {
-        edges.push_back((i , (res.1-1) as i32))
+    for i in 0..(res.0) as i32 {
+        edges.push((i , (res.1-1) as i32))
     }
-    for i in 0..(res.1-2) as i32 {
-        edges.push_back((0, i))
+    for i in 1..(res.1-1) as i32 {
+        edges.push((0, i))
     }
 
     let mut rng = rand::rng();
     // Shuffle edges randomly
-    //edges.shuffle(&mut rng);
+    edges.shuffle(&mut rng);
 
     let work_context = WorkContext {
         points: get_points_f32(stuff.1, state.loc, state.zoom_pot)
@@ -246,7 +247,8 @@ fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAnd
         , total_bouts_today: 0
         , last_update: 0
         , res: state.worker_res
-        , edge_poses: edges
+        , scredge_poses: VecDeque::from(edges)
+        , edge_queue: VecDeque::new()
         , out_queue: VecDeque::new()
         , in_queue: VecDeque::new()
     };

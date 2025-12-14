@@ -157,8 +157,8 @@ pub(crate) fn sample(
         );
 
         let relative_pos_in_pixels:(i32, i32) = (
-            relative_pos.0.shift(context.location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
-            , relative_pos.1.shift(context.location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
+            relative_pos.0.clone().shift(context.location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
+            , relative_pos.1.clone().shift(context.location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
         );
 
         let relative_zoom = context.location.zoom_pot - current_screen.objective_location.zoom_pot;
@@ -270,6 +270,21 @@ pub(crate) fn index_from_relative_location(l: (i32, i32), data_res: (u32, u32), 
         ) as usize;
 
     i
+}
+
+#[inline]
+pub(crate) fn optional_index_from_relative_location(l: (i32, i32), data_res: (u32, u32), data_length: usize) -> Option<usize> {
+
+    if l.0 >= 0 && l.0 <= (data_res.0-1) as i32 && l.1 >= 0 && l.1 <= (data_res.1-1) as i32 {
+        let i =
+            (
+                (l.1 as u32 * data_res.0)
+                    + l.0 as u32
+            ) as usize;
+
+        Some(i)
+    } else {None}
+
 }
 
 #[inline]

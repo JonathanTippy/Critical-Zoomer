@@ -127,6 +127,7 @@ async fn internal_behavior<A: SteadyActor>(
             );
             state.total_workshifts+=1;
             //info!("workday completed. took {}ms.", start.elapsed().as_millis());
+            //info!("workshift {}", state.total_workshifts);
         }
 
 
