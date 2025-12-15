@@ -102,13 +102,15 @@ pub async fn run(
     pixels_in: SteadyRx<ZoomerScreen>,
     sampler_out: SteadyTx<(ObjectivePosAndZoom, (u32, u32))>,
     settings_out: SteadyTx<ZoomerSettingsUpdate>,
+    attention_out: SteadyTx<(i32, i32)>,
     state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
     internal_behavior(
-        actor.into_spotlight([&pixels_in], [&sampler_out, &settings_out]),
+        actor.into_spotlight([&pixels_in], [&sampler_out, &settings_out, &attention_out]),
         pixels_in,
         sampler_out,
         settings_out,
+        attention_out,
         state,
     )
     .await
@@ -120,6 +122,7 @@ async fn internal_behavior<A: SteadyActor>(
     pixels_in: SteadyRx<ZoomerScreen>,
     sampler_out: SteadyTx<(ObjectivePosAndZoom, (u32, u32))>,
     settings_out: SteadyTx<ZoomerSettingsUpdate>,
+    attention_out: SteadyTx<(i32, i32)>,
     state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
 
@@ -188,6 +191,7 @@ async fn internal_behavior<A: SteadyActor>(
         , pixels_in: pixels_in.clone()
         , sampler_out: sampler_out.clone()
         , settings_out: settings_out.clone()
+        , attention_out: attention_out.clone()
         , portable_state: portable_state.clone()
     };
 
@@ -227,6 +231,7 @@ struct EguiWindowPassthrough<'a, A> {
     pixels_in: SteadyRx<ZoomerScreen>,
     sampler_out: SteadyTx<(ObjectivePosAndZoom, (u32, u32))>,
     settings_out: SteadyTx<ZoomerSettingsUpdate>,
+    attention_out: SteadyTx<(i32, i32)>,
     portable_state:Arc<Mutex<StateGuard<'a, WindowState>>>
 }
 
@@ -243,6 +248,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
         let mut pixels_in = self.pixels_in.try_lock().unwrap();
         let mut sampler_out = self.sampler_out.try_lock().unwrap();
         let settings_out = self.settings_out.try_lock().unwrap();
+        let mut attention_out = self.attention_out.try_lock().unwrap();
         let mut state = self.portable_state.lock().unwrap();
 
 
@@ -316,7 +322,8 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             // sample
 
-            let command_package = parse_inputs(&ctx, &mut state, size);
+            let (command_package, attention) = parse_inputs(&ctx, &mut state, size);
+            actor.try_send(&mut attention_out, attention);
 
             state.sampling_context.screen_size = (size.0 as u32, size.1 as u32);
 
@@ -690,19 +697,21 @@ pub(crate) struct MouseDragStart {
 
 
 
-fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usize, usize)) -> Vec<ZoomerCommand> {
+fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usize, usize)) -> (Vec<ZoomerCommand>, (i32, i32)) {
 
 
     let settings = &state.controls_settings;
 
-    let mut returned = vec!();
+    let mut returned = (vec!(), (0, 0));
 
     let ppp = ctx.pixels_per_point();
 
     let min_size = min(state.size.x as u32, state.size.y as u32) as f32;
 
     ctx.input(|input_state| {
-
+        if let Some(pos) = input_state.pointer.latest_pos() {
+            returned.1 = (pos.x as i32, pos.y as i32);
+        }
 
         // begin a new drag if neither of the buttons are held and one or both has just been pressed
         if
@@ -747,7 +756,7 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
                             .shift(-PIXELS_PER_UNIT_POT)
                         );
 
-                    returned.push(
+                    returned.0.push(
                         ZoomerCommand::MoveTo{
                             x: drag_start_pos.0 - objective_drag.0
                             , y: drag_start_pos.1 - objective_drag.1
@@ -771,7 +780,7 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
                 , c.y// * (1<<16) as f32 / min_size
             );
 
-            returned.push(
+            returned.0.push(
                 if scroll > 0.0 {
                     //info!("zooming in");
                     ZoomerCommand::Zoom{
@@ -791,16 +800,16 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
 
 
         if input_state.key_down(egui::Key::ArrowDown) {
-            returned.push(ZoomerCommand::Move{pixels_x: 0, pixels_y: 1});
+            returned.0.push(ZoomerCommand::Move{pixels_x: 0, pixels_y: 1});
         }
         if input_state.key_down(egui::Key::ArrowUp) {
-            returned.push(ZoomerCommand::Move{pixels_x: 0, pixels_y: -1});
+            returned.0.push(ZoomerCommand::Move{pixels_x: 0, pixels_y: -1});
         }
         if input_state.key_down(egui::Key::ArrowLeft) {
-            returned.push(ZoomerCommand::Move{pixels_x: -1, pixels_y: 0});
+            returned.0.push(ZoomerCommand::Move{pixels_x: -1, pixels_y: 0});
         }
         if input_state.key_down(egui::Key::ArrowRight) {
-            returned.push(ZoomerCommand::Move{pixels_x: 1, pixels_y: 0});
+            returned.0.push(ZoomerCommand::Move{pixels_x: 1, pixels_y: 0});
         }
     });
 
