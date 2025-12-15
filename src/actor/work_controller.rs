@@ -185,6 +185,8 @@ fn get_interlaced_mixmap(res:(u32, u32), size:usize) -> Vec<usize> {
 
 fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAndZoom, (u32, u32))) -> Option<WorkContext> {
 
+    let zoomed = stuff.0.zoom_pot > state.zoom_pot as i32;
+
     let obj = stuff.0;
 
     if let Some(loc) = state.last_sampler_location.clone() {
@@ -251,6 +253,8 @@ fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAnd
         , edge_queue: VecDeque::new()
         , out_queue: VecDeque::new()
         , in_queue: VecDeque::new()
+        , zoomed
+        , attention: (0, 0)
     };
     state.last_sampler_location = Some(obj);
     Some(work_context)

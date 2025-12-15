@@ -103,6 +103,11 @@ fn build_graph(graph: &mut Graph) {
         , work_controller_rx_from_window
     ) = channel_builder.with_capacity(50).build();
 
+    let (
+        window_tx_to_worker
+        , worker_rx_from_window
+    ) = channel_builder.with_capacity(50).build();
+
     //work controller to worker commands channel
 
     let (
@@ -161,7 +166,7 @@ fn build_graph(graph: &mut Graph) {
     let state = new_state();
     actor_builder.with_name(NAME_WINDOW)
         .build(move |context|
-            actor::window::run(context, window_rx_from_colorer.clone(), window_tx_to_work_controller.clone(), window_tx_to_updater.clone(), state.clone()) //#!#//
+            actor::window::run(context, window_rx_from_colorer.clone(), window_tx_to_work_controller.clone(), window_tx_to_updater.clone(), window_tx_to_worker.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
                , SoloAct);
 
@@ -189,7 +194,7 @@ fn build_graph(graph: &mut Graph) {
     let state = new_state();
     actor_builder.with_name(NAME_SCREEN_WORKER)
         .build(move |context|
-                   actor::screen_worker::run(context, screen_worker_rx_from_work_controller.clone(), screen_worker_tx_to_work_collector.clone(), state.clone()) //#!#//
+                   actor::screen_worker::run(context, screen_worker_rx_from_work_controller.clone(), screen_worker_tx_to_work_collector.clone(), worker_rx_from_window.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
                , SoloAct);
 

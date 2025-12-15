@@ -1,4 +1,5 @@
 
+use rand::Rng;
 
 use std::time::Instant;
 use std::collections::*;
@@ -37,6 +38,8 @@ pub(crate) struct WorkContext {
     , pub(crate) edge_queue: VecDeque<((i32, i32), u32)>
     , pub(crate) out_queue: VecDeque<((i32, i32), u32)>
     , pub(crate) in_queue: VecDeque<((i32, i32), u32)>
+    , pub(crate) zoomed: bool
+    , pub(crate) attention: (i32, i32)
 }
 
 
@@ -182,10 +185,9 @@ pub(crate) fn workshift_f32(
                     (&context.in_queue[0].0, Step::In)
                 } else {context.index = total_points-1; break;}
             }
-
             4 => {
                 //(&pos_from_index(context.random_index, context.res.0), Step::Random)
-                if context.edge_queue.len()>0 {
+                /*if context.edge_queue.len()>0 {
                     (&context.edge_queue[0].0, Step::Edge)
                 } else if context.out_queue.len()>0{
                     (&context.out_queue[0].0, Step::Out)
@@ -193,7 +195,19 @@ pub(crate) fn workshift_f32(
                     (&context.scredge_poses[0], Step::Scredge)
                 } else if context.in_queue.len()>0 {
                     (&context.in_queue[0].0, Step::In)
-                } else {context.index = total_points-1; break;}
+                } else {context.index = total_points-1; break;}*/
+                let mut rng = rand::rng();
+                let mut x:i32 = rng.random_range(-50..50);
+                let mut y:i32 = rng.random_range(-50..50);
+
+                if x + context.attention.0 < 0 || x + context.attention.0 > context.res.0 as i32-1
+                || y + context.attention.1 < 0 || y + context.attention.1 > context.res.1 as i32-1{
+                    x = 0;y=0;
+                }
+
+                (&(
+                    context.attention.0 + x, context.attention.1 + y
+                ), Step::Random)
             }
             _ => {break}
         };

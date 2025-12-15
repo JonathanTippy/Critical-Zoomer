@@ -29,13 +29,15 @@ pub async fn run(
     actor: SteadyActorShadow,
     commands_in: SteadyRx<WorkerCommand>,
     updates_out: SteadyTx<WorkUpdate>,
+    attention_in: SteadyRx<(i32, i32)>,
     state: SteadyState<WorkerState>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
-        actor.into_spotlight([&commands_in], [&updates_out]),
+        actor.into_spotlight([&commands_in, &attention_in], [&updates_out]),
         commands_in,
         updates_out,
+        attention_in,
         state,
     )
         .await
@@ -45,6 +47,7 @@ async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
     commands_in: SteadyRx<WorkerCommand>,
     updates_out: SteadyTx<WorkUpdate>,
+    attention_in: SteadyRx<(i32, i32)>,
     state: SteadyState<WorkerState>,
 ) -> Result<(), Box<dyn Error>> {
 
@@ -52,6 +55,7 @@ async fn internal_behavior<A: SteadyActor>(
 
     let mut commands_in = commands_in.lock().await;
     let mut updates_out = updates_out.lock().await;
+    let mut attention_in = attention_in.lock().await;
 
     let mut state = state.lock(|| WorkerState {
         work_context: None
@@ -79,6 +83,17 @@ async fn internal_behavior<A: SteadyActor>(
                 actor.wait_periodic(max_sleep),
                 actor.wait_avail(&mut commands_in, 1),
             );
+        }
+
+        if actor.avail_units(&mut attention_in) > 0 {
+            while actor.avail_units(&mut attention_in) > 1 {
+                let stuff = actor.try_take(&mut attention_in).expect("internal error");
+                drop(stuff);
+            };
+            let attention = actor.try_take(&mut attention_in).expect("internal error");
+            if let Some((ctx, _)) = &mut state.work_context {
+                ctx.attention = attention;
+            }
         }
 
         if actor.avail_units(&mut commands_in) > 0 {
