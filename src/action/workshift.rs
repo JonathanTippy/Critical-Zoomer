@@ -59,7 +59,7 @@ pub(crate) enum CompletedPoint {
 
 
 //pub(crate) const SpeedTestPoint
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug)]
 
 pub(crate) struct PointF32 {
     pub(crate) c: (f32, f32)
@@ -113,27 +113,22 @@ pub(crate) fn workshift_f32(
     context.spent_tokens_today = 0;
 
 
-    let (total_points, episilon) = {
-        let points = match &mut context.points {
-            Points::F32 { p} => {p}
-        };
-        (points.len(), (points[0].c.0 - points[1].c.0).abs() / 64.0)
+    let points = match &mut context.points {
+        Points::F32 { p} => {p}
     };
+    let episilon = (points[0].c.0 - points[1].c.0).abs() / 64.0;
 
+
+    let total_points = points.len();
     context.random_index = context.random_map[min(context.index, total_points-1)];
 
 
     while context.time_workshift_started.elapsed().as_millis()<10{//while context.index < total_points && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
 
 
+        let poses = get_poses(context, points, total_points);
 
-        let poses = get_poses(context, total_points);
-
-        for queue_index in 0..poses.len() {
-            let (pos, step) = &poses[queue_index];
-            let points = match &mut context.points {
-                Points::F32 { p} => {p}
-            };
+        for (pos, step) in poses {
 
             let index = index_from_pos(&pos, context.res.0);
 
@@ -143,25 +138,87 @@ pub(crate) fn workshift_f32(
             match step {
                 Step::In => {
                     point.period = context.in_queue[0].1;
-                    context.completed_points.push((CompletedPoint::Repeats{period: context.in_queue[queue_index].1}, index));
+                    context.completed_points.push((CompletedPoint::Repeats{period: context.in_queue[0].1}, index));
                     point.delivered = true;
                     queue_incomplete_neighbors_in(&pos, context.res, points, &mut context.in_queue);
-                    let _ =  context.in_queue.remove(queue_index);
+                    let _ =  context.in_queue.pop_front();
                     continue;
                 }
                 _ => {}
             }
             //}
 
+
+
         }
 
-        multi_iterate_max_n_times(&poses, context,4.0, episilon, 1000);
+        let old_iterations = point.iterations;
 
-        for queue_index in 0..poses.len() {
-            let (pos, step) = &poses[queue_index];
-            let points = match &mut context.points {
-                Points::F32 { p} => {p}
-            };
+        match step {
+            Step::Scredge => {
+                iterate_max_n_times_f32(point, 4.0, episilon, 1000);
+            }
+            Step::Random => {
+                iterate_max_n_times_f32(point, 4.0, episilon, 1000);
+            }
+            Step::Out => {
+                let difficulty = context.out_queue[0].1;
+                let eta = difficulty as i32 - point.iterations as i32;
+                if eta > 2000 {
+                    let warp = min(eta/2, 1000000);
+                    if !timewarp_n_iterations(point, 4.0, warp as u32) {
+                        context.out_queue[0].1 = 0;
+                    };
+                } else {
+                    iterate_max_n_times_f32(point, 4.0, episilon, 100);
+                }
+            }
+            Step::In => {
+                let difficulty = context.in_queue[0].1;
+                let eta = difficulty as i32 - point.iterations as i32;
+                if eta > 2000 {
+                    let warp = min(eta/2, 1000000);
+                    if !timewarp_n_iterations(point, 4.0, warp as u32) {
+                        context.in_queue[0].1 = 0;
+                    };
+                } else {
+                    iterate_max_n_times_f32(point, 4.0, episilon, 100);
+                }
+            }
+            Step::Edge => {
+                let difficulty = context.edge_queue[0].1;
+                let eta = difficulty as i32 - point.iterations as i32;
+                if eta > 2000 {
+                    let warp = min(eta/2, 10000000);
+                    if !timewarp_n_iterations(point, 4.0, warp as u32) {
+                        context.edge_queue[0].1 = 0;
+                    };
+                } else {
+                    iterate_max_n_times_f32(point, 4.0, episilon, 100);
+                }
+            }
+        }
+
+        /*if let Some(t) = point.escaped_time {
+            let warp = (t-point.iterations)/2;
+            if !timewarp_n_iterations(point, 4.0, warp) {
+                point.escaped_time = Some(point.iterations + warp);
+                context.total_iterations_today+=warp;
+            }
+        } else {
+            let warp = min(point.iterations/2, 1000);
+            if !timewarp_n_iterations(point, 4.0, warp) {
+                point.escaped_time = Some(point.iterations + warp);
+                context.total_iterations_today+=warp;
+            }
+        }*/
+
+
+
+        context.total_iterations_today += point.iterations - old_iterations;
+
+
+        for (pos, step) in poses {
 
             let index = index_from_pos(&pos, context.res.0);
 
@@ -173,6 +230,27 @@ pub(crate) fn workshift_f32(
                 //context.already_done.push(context.index);
                 //context.already_done_hashset.insert(context.index);
                 context.total_iterations += point.iterations;
+
+
+
+                match step {
+                    Step::Out => {
+                        let _ =  context.out_queue.pop_front();
+                    }
+                    Step::Scredge => {
+                        let _ = context.scredge_poses.pop_front();
+                    }
+                    Step::In => {
+                        let _ =  context.in_queue.pop_front();
+                    }
+                    Step::Edge => {
+                        let _ =  context.edge_queue.pop_front();
+                    }
+                    Step::Random => {
+                        context.index += 1;
+                        context.random_index = context.random_map[min(context.index, total_points-1)];
+                    }
+                }
 
                 point.delivered = true;
 
@@ -187,6 +265,7 @@ pub(crate) fn workshift_f32(
                         point.period = raw_period;
                         CompletedPoint::Repeats{period: point.period}
                     };
+                    queue_incomplete_neighbors_in(&pos, context.res, points, &mut context.in_queue);
                     returned
                 } else {
                     let result = CompletedPoint::Escapes {
@@ -194,54 +273,22 @@ pub(crate) fn workshift_f32(
                         , escape_location: point.z
                         , start_location: point.c
                     };
+                    queue_incomplete_neighbors(&pos, context.res, points, &mut context.out_queue);
                     result
                 };
                 if let Some(e) = point_is_edge(&pos, context.res, points) {
                     //context.edge_queue.clear();
+                    queue_incomplete_neighbors_of_edge(&e.0, &e.1, context.res, points, &mut context.edge_queue);
                 }
 
                 context.completed_points.push((completed_point, index));
 
 
                 context.total_points_today += 1
-            }
-
-        }
-
-        for queue_index in (0..poses.len()).rev() {
-            let (pos, step) = &poses[queue_index];
-            let points = match &mut context.points {
-                Points::F32 { p} => {p}
-            };
-
-            let index = index_from_pos(&pos, context.res.0);
-
-            let point = &mut points[index];
-
-
-            if point.done.0 || point.done.1 {
-                match step {
-                    Step::Out => {
-                        let _ =  context.out_queue.remove(queue_index);
-                    }
-                    Step::Scredge => {
-                        let _ = context.scredge_poses.remove(queue_index);
-                    }
-                    Step::In => {
-                        let _ =  context.in_queue.remove(queue_index);
-                    }
-                    Step::Edge => {
-                        let _ =  context.edge_queue.remove(queue_index);
-                    }
-                    Step::Random => {
-                        context.index += 1;
-                        context.random_index = context.random_map[min(context.index, total_points-1)];
-                    }
-                }
             } else {
                 match step {
                     Step::Out => {
-                        let pos = context.out_queue.remove(queue_index).unwrap();
+                        let pos = context.out_queue.pop_front().unwrap();
                         context.out_queue.push_back(pos);
                         continue;
                     }
@@ -262,27 +309,7 @@ pub(crate) fn workshift_f32(
                     _ => {}
                 }
             }
-        }
 
-
-        for queue_index in 0..poses.len() {
-            let (pos, step) = &poses[queue_index];
-            let points = match &mut context.points {
-                Points::F32 { p} => {p}
-            };
-
-            let index = index_from_pos(&pos, context.res.0);
-
-            let point = &mut points[index];
-
-            if point.done.1 {
-                queue_incomplete_neighbors_in(&pos, context.res, points, &mut context.in_queue);
-            } else {
-                queue_incomplete_neighbors(&pos, context.res, points, &mut context.out_queue);
-            };
-            if let Some(e) = point_is_edge(&pos, context.res, points) {
-                queue_incomplete_neighbors_of_edge(&e.0, &e.1, context.res, points, &mut context.edge_queue);
-            }
         }
 
         context.total_bouts_today += 1;
@@ -588,81 +615,75 @@ pub(crate) fn queue_incomplete_neighbors_of_edge(pos1:&(i32, i32), pos2:&(i32, i
 }
 
 
-fn get_poses(mut context: &mut WorkContext, total_points:usize) -> Vec<((i32, i32), Step)> {
-
-    let points = match &mut context.points {
-        Points::F32 { p} => {p}
-    };
+fn get_poses(context:&mut WorkContext, points: &Vec<PointF32>, total_points:usize) -> Vec<((i32, i32), Step)> {
 
     let mut returned = Vec::new();
 
-    let mut queue_index = 0;
-
-    while returned.len()<8 {
+    while returned.len()<64 {
 
         let (pos, step) = match context.workshifts%5 {
             0 => {
                 if context.workshifts == 0 {
-                    if context.scredge_poses.len()>queue_index {
-                        (&context.scredge_poses[queue_index], Step::Scredge)
-                    } else if context.edge_queue.len()>queue_index {
-                        (&context.edge_queue[queue_index].0, Step::Edge)
-                    } else if context.out_queue.len()>queue_index{
-                        (&context.out_queue[queue_index].0, Step::Out)
-                    } else if context.in_queue.len()>queue_index {
-                        (&context.in_queue[queue_index].0, Step::In)
+                    if context.scredge_poses.len()>0 {
+                        (&context.scredge_poses[0], Step::Scredge)
+                    } else if context.edge_queue.len()>0 {
+                        (&context.edge_queue[0].0, Step::Edge)
+                    } else if context.out_queue.len()>0{
+                        (&context.out_queue[0].0, Step::Out)
+                    } else if context.in_queue.len()>0 {
+                        (&context.in_queue[0].0, Step::In)
                     } else {context.index = total_points-1; break;
                     }
                 } else {
-                    if context.edge_queue.len()>queue_index {
-                        (&context.edge_queue[queue_index].0, Step::Edge)
-                    } else if context.out_queue.len()>queue_index{
-                        (&context.out_queue[queue_index].0, Step::Out)
-                    } else if context.scredge_poses.len()>queue_index {
-                        (&context.scredge_poses[queue_index], Step::Scredge)
-                    } else if context.in_queue.len()>queue_index {
-                        (&context.in_queue[queue_index].0, Step::In)
+                    if context.edge_queue.len()>0 {
+                        (&context.edge_queue[0].0, Step::Edge)
+                    } else if context.out_queue.len()>0{
+                        (&context.out_queue[0].0, Step::Out)
+                    } else if context.scredge_poses.len()>0 {
+                        (&context.scredge_poses[0], Step::Scredge)
+                    } else if context.in_queue.len()>0 {
+                        (&context.in_queue[0].0, Step::In)
                     } else {context.index = total_points-1; break;
                     }
                 }
             }
             1 => {
-                if context.edge_queue.len()>queue_index {
-                    (&context.edge_queue[queue_index].0, Step::Edge)
-                } else if context.out_queue.len()>queue_index{
-                    (&context.out_queue[queue_index].0, Step::Out)
-                } else if context.scredge_poses.len()>queue_index {
-                    (&context.scredge_poses[queue_index], Step::Scredge)
-                } else if context.in_queue.len()>queue_index {
-                    (&context.in_queue[queue_index].0, Step::In)
+                if context.edge_queue.len()>0 {
+                    (&context.edge_queue[0].0, Step::Edge)
+                } else if context.out_queue.len()>0{
+                    (&context.out_queue[0].0, Step::Out)
+                } else if context.scredge_poses.len()>0 {
+                    (&context.scredge_poses[0], Step::Scredge)
+                } else if context.in_queue.len()>0 {
+                    (&context.in_queue[0].0, Step::In)
                 } else {context.index = total_points-1; break;}
             }
             2 =>{
-                if context.out_queue.len()>queue_index{
-                    (&context.out_queue[queue_index].0, Step::Out)
-                } else if context.edge_queue.len()>queue_index {
-                    (&context.edge_queue[queue_index].0, Step::Edge)
-                } else if context.scredge_poses.len()>queue_index {
-                    (&context.scredge_poses[queue_index], Step::Scredge)
-                } else if context.in_queue.len()>queue_index {
-                    (&context.in_queue[queue_index].0, Step::In)
+                if context.out_queue.len()>0{
+                    (&context.out_queue[0].0, Step::Out)
+                } else if context.edge_queue.len()>0 {
+                    (&context.edge_queue[0].0, Step::Edge)
+                } else if context.scredge_poses.len()>0 {
+                    (&context.scredge_poses[0], Step::Scredge)
+                } else if context.in_queue.len()>0 {
+                    (&context.in_queue[0].0, Step::In)
                 } else {context.index = total_points-1; break;
                 }
             }
             3 =>{
-                if context.edge_queue.len()>queue_index {
-                    (&context.edge_queue[queue_index].0, Step::Edge)
-                } else if context.out_queue.len()>queue_index{
-                    (&context.out_queue[queue_index].0, Step::Out)
-                } else if context.scredge_poses.len()>queue_index {
-                    (&context.scredge_poses[queue_index], Step::Scredge)
-                } else if context.in_queue.len()>queue_index {
-                    (&context.in_queue[queue_index].0, Step::In)
+                if context.edge_queue.len()>0 {
+                    (&context.edge_queue[0].0, Step::Edge)
+                } else if context.out_queue.len()>0{
+                    (&context.out_queue[0].0, Step::Out)
+                } else if context.scredge_poses.len()>0 {
+                    (&context.scredge_poses[0], Step::Scredge)
+                } else if context.in_queue.len()>0 {
+                    (&context.in_queue[0].0, Step::In)
                 } else {context.index = total_points-1; break;}
             }
             4 => {
                 //(&pos_from_index(context.random_index, context.res.0), Step::Random)
-                if context.edge_queue.len()>0 {
+                /*if context.edge_queue.len()>0 {
                     (&context.edge_queue[0].0, Step::Edge)
                 } else if context.out_queue.len()>0{
                     (&context.out_queue[0].0, Step::Out)
@@ -670,8 +691,8 @@ fn get_poses(mut context: &mut WorkContext, total_points:usize) -> Vec<((i32, i3
                     (&context.scredge_poses[0], Step::Scredge)
                 } else if context.in_queue.len()>0 {
                     (&context.in_queue[0].0, Step::In)
-                } else {context.index = total_points-1; break;}
-                /*let mut rng = rand::rng();
+                } else {context.index = total_points-1; break;}*/
+                let mut rng = rand::rng();
 
                 context.attention_radius+=1;
 
@@ -685,7 +706,7 @@ fn get_poses(mut context: &mut WorkContext, total_points:usize) -> Vec<((i32, i3
 
                 (&(
                     context.attention.0 + x, context.attention.1 + y
-                ), Step::Random)*/
+                ), Step::Random)
             }
             _ => {break}
         };
@@ -699,16 +720,16 @@ fn get_poses(mut context: &mut WorkContext, total_points:usize) -> Vec<((i32, i3
         if point.delivered {
             match step {
                 Step::Out => {
-                    let _ =  context.out_queue.remove(queue_index);
+                    let _ =  context.out_queue.pop_front();
                 }
                 Step::Scredge => {
-                    let _ = context.scredge_poses.remove(queue_index);
+                    let _ = context.scredge_poses.pop_front();
                 }
                 Step::In => {
-                    let _ =  context.in_queue.remove(queue_index);
+                    let _ =  context.in_queue.pop_front();
                 }
                 Step::Edge => {
-                    let _ =  context.edge_queue.remove(queue_index);
+                    let _ =  context.edge_queue.pop_front();
                 }
                 Step::Random => {
                     context.index += 1;
@@ -717,7 +738,6 @@ fn get_poses(mut context: &mut WorkContext, total_points:usize) -> Vec<((i32, i3
             }
             continue;
         } else {
-            queue_index+=1;
             returned.push((pos, step));
         }
     }
@@ -725,243 +745,13 @@ fn get_poses(mut context: &mut WorkContext, total_points:usize) -> Vec<((i32, i3
     returned
 }
 
-fn multi_iterate_max_n_times_2(
-    poses: &Vec<((i32, i32), Step)>
-    , context: &mut WorkContext
+fn multi_iterate_max_n_times(
+    poses: Vec<((i32, i32), Step)>
+    , points:&mut Vec<PointF32>
     , r_squared:f32
     , episilon:f32
     , n:usize) {
-
-    let points = match &mut context.points {
-        Points::F32 { p} => {p}
-    };
-    if poses.len()==8 {
-        let mut mini_workspace:[PointF32;8] = [PointF32{
-            c: (0.0, 0.0)
-            , z: (0.0, 0.0)
-            , real_squared: 0.0
-            , imag_squared: 0.0
-            , real_imag: 0.0
-            , iterations: 0
-            , loop_detection_point: ((0.0, 0.0), 1)
-            , done: (false, false)
-            , delivered: false
-            , period: 0
-        }; 8];
-        for i in 0..8 {
-            let (pos, step) = &poses[i];
-            let index = index_from_pos(&pos, context.res.0);
-            let point = &mut points[index];
-            mini_workspace[i] = point.clone()
-        }
-
-        for _ in 0..n {
-            for mut point in &mut mini_workspace {
-                update_point_results_f32(&mut point);
-                point.done.0 = bailout_point_f32(&mut point, r_squared) || (!point.real_squared.is_finite()) || (!point.imag_squared.is_finite());
-                if !(point.done.0 || point.done.1) {
-                    iterate_f32(&mut point);
-                } else {
-                    continue;
-                }
-                point.done.1 = loop_check_point_f32(&mut point, episilon);
-                update_loop_check_points(&mut point);
-            }
-        }
-
-        for i in 0..8 {
-            let (pos, step) = &poses[i];
-            let index = index_from_pos(&pos, context.res.0);
-            (*points)[index] = mini_workspace[i]
-        }
-    } else {
-        for (pos, step) in poses {
-            let index = index_from_pos(&pos, context.res.0);
-            let mut point = &mut points[index];
-            update_point_results_f32(&mut point);
-            point.done.0 = bailout_point_f32(&mut point, r_squared) || (!point.real_squared.is_finite()) || (!point.imag_squared.is_finite());
-            if !(point.done.0 || point.done.1) {
-                iterate_f32(&mut point);
-            } else {
-                break;
-            }
-            point.done.1 = loop_check_point_f32(&mut point, episilon);
-            update_loop_check_points(&mut point);
-        }
-    }
-}
-
-
-fn multi_iterate_max_n_times(
-    poses: &Vec<((i32, i32), Step)>,
-    context: &mut WorkContext,
-    r_squared: f32,
-    epsilon: f32,
-    n: usize,
-) {
-    use wide::{f32x8, u32x8, CmpGe, CmpGt, CmpLe, CmpNe};
-
-    let points = match &mut context.points {
-        Points::F32 { p } => p,
-    };
-
-    if poses.len() == 8 {
-        // Gather lanes into scalar arrays
-        let mut c_r_arr = [0.0f32; 8];
-        let mut c_i_arr = [0.0f32; 8];
-        let mut z_r_arr = [0.0f32; 8];
-        let mut z_i_arr = [0.0f32; 8];
-        let mut it_arr = [0u32; 8];
-        let mut lz_r_arr = [0.0f32; 8];
-        let mut lz_i_arr = [0.0f32; 8];
-        let mut lit_arr = [1u32; 8];
-        let mut d0b = [false; 8];
-        let mut d1b = [false; 8];
-
-        for i in 0..8 {
-            let (pos, _) = &poses[i];
-            let idx = index_from_pos(pos, context.res.0);
-            let p = points[idx];
-            c_r_arr[i] = p.c.0;
-            c_i_arr[i] = p.c.1;
-            z_r_arr[i] = p.z.0;
-            z_i_arr[i] = p.z.1;
-            it_arr[i] = p.iterations;
-            lz_r_arr[i] = p.loop_detection_point.0.0;
-            lz_i_arr[i] = p.loop_detection_point.0.1;
-            lit_arr[i] = p.loop_detection_point.1;
-            d0b[i] = p.done.0;
-            d1b[i] = p.done.1;
-        }
-
-        // Pack into vectors
-        let c_r = f32x8::new(c_r_arr);
-        let c_i = f32x8::new(c_i_arr);
-        let mut zr = f32x8::new(z_r_arr);
-        let mut zi = f32x8::new(z_i_arr);
-        let mut iter = u32x8::new(it_arr);
-        let mut loop_zr = f32x8::new(lz_r_arr);
-        let mut loop_zi = f32x8::new(lz_i_arr);
-        let mut loop_it = u32x8::new(lit_arr);
-
-        // Build initial masks from bool arrays via u32x8 and CmpNe
-        let d0_init_bits = u32x8::new([
-            d0b[0] as u32, d0b[1] as u32, d0b[2] as u32, d0b[3] as u32,
-            d0b[4] as u32, d0b[5] as u32, d0b[6] as u32, d0b[7] as u32,
-        ]);
-        let d1_init_bits = u32x8::new([
-            d1b[0] as u32, d1b[1] as u32, d1b[2] as u32, d1b[3] as u32,
-            d1b[4] as u32, d1b[5] as u32, d1b[6] as u32, d1b[7] as u32,
-        ]);
-        let zero_u = u32x8::splat(0u32);
-        let mut done0: m32x8 = d0_init_bits.cmp_ne(zero_u);
-        let mut done1: m32x8 = d1_init_bits.cmp_ne(zero_u);
-
-        let two = f32x8::splat(2.0);
-        let r2 = f32x8::splat(r_squared);
-        let eps = f32x8::splat(epsilon);
-        let one_u = u32x8::splat(1u32);
-
-        for _ in 0..n {
-            let active = !(done0 | done1);
-            if !active.any() {
-                break;
-            }
-
-            let rr = zr * zr;
-            let ii = zi * zi;
-            let ri = zr * zi;
-            let sum = rr + ii;
-
-            // Bailout if |z|^2 > r2 or NaN appears
-            let bailout = sum.cmp_gt(r2) | sum.is_nan();
-
-            // Update z where active and not bailing out
-            let upd = active & !bailout;
-            let next_zr = rr - ii + c_r;
-            let next_zi = two * ri + c_i;
-            zr = upd.select(next_zr, zr);
-            zi = upd.select(next_zi, zi);
-            iter = upd.select(iter + one_u, iter);
-
-            // Loop detection: axis-aligned epsilon box
-            let near_r = (zr - loop_zr).abs().cmp_le(eps);
-            let near_i = (zi - loop_zi).abs().cmp_le(eps);
-            let loop_hit = upd & (near_r & near_i);
-            done1 = done1 | loop_hit;
-
-            // Loop-check-point refresh when iter >= loop_it << 1
-            let thresh = loop_it << 1u32;
-            let refresh = upd & iter.cmp_ge(thresh);
-            loop_zr = refresh.select(zr, loop_zr);
-            loop_zi = refresh.select(zi, loop_zi);
-            loop_it = refresh.select(iter, loop_it);
-
-            // Mark bailout-done
-            done0 = done0 | (active & bailout);
-        }
-
-        // Spill back to scalar arrays, recompute derived fields, and commit
-        let zr_o: [f32; 8] = zr.into();
-        let zi_o: [f32; 8] = zi.into();
-        let it_o: [u32; 8] = iter.into();
-        let lzr_o: [f32; 8] = loop_zr.into();
-        let lzi_o: [f32; 8] = loop_zi.into();
-        let lit_o: [u32; 8] = loop_it.into();
-
-        let d0_bits: [u32; 8] = done0.to_int().into();
-        let d1_bits: [u32; 8] = done1.to_int().into();
-        let mut d0_o = [false; 8];
-        let mut d1_o = [false; 8];
-        for i in 0..8 {
-            d0_o[i] = d0_bits[i] != 0;
-            d1_o[i] = d1_bits[i] != 0;
-        }
-
-        for i in 0..8 {
-            let (pos, _) = &poses[i];
-            let idx = index_from_pos(pos, context.res.0);
-            let p = &mut points[idx];
-            p.z = (zr_o[i], zi_o[i]);
-            p.iterations = it_o[i];
-            p.loop_detection_point = ((lzr_o[i], lzi_o[i]), lit_o[i]);
-            p.done = (d0_o[i], d1_o[i]);
-            update_point_results_f32(p);
-        }
-    } else {
-        // Fallback scalar path: correct n-iteration loop with local workspace (semantics match SIMD)
-        let mut local_points: Vec<PointF32> = Vec::with_capacity(poses.len());
-        for (pos, _) in poses {
-            let idx = index_from_pos(pos, context.res.0);
-            local_points.push(points[idx]);
-        }
-
-        for _ in 0..n {
-            let mut all_done = true;
-            for point in &mut local_points {
-                if point.done.0 || point.done.1 {
-                    continue;
-                }
-                all_done = false;
-                update_point_results_f32(point);
-                point.done.0 = bailout_point_f32(point, r_squared)
-                    || (!point.real_squared.is_finite())
-                    || (!point.imag_squared.is_finite());
-                if !(point.done.0 || point.done.1) {
-                    iterate_f32(point);
-                }
-                point.done.1 = loop_check_point_f32(point, epsilon);
-                update_loop_check_points(point);
-            }
-            if all_done {
-                break;
-            }
-        }
-
-        // Commit back
-        for (i, (pos, _)) in poses.iter().enumerate() {
-            let idx = index_from_pos(pos, context.res.0);
-            points[idx] = local_points[i];
-        }
+    if poses.len()==64 {
+        
     }
 }
