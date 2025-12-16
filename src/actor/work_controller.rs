@@ -255,6 +255,7 @@ fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAnd
         , in_queue: VecDeque::new()
         , zoomed
         , attention: (0, 0)
+        , attention_radius: 0
     };
     state.last_sampler_location = Some(obj);
     Some(work_context)
