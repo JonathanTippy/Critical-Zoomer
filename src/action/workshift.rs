@@ -40,6 +40,7 @@ pub(crate) struct WorkContext {
     , pub(crate) in_queue: VecDeque<((i32, i32), u32)>
     , pub(crate) zoomed: bool
     , pub(crate) attention: (i32, i32)
+    , pub(crate) attention_radius: u32
 }
 
 
@@ -125,122 +126,15 @@ pub(crate) fn workshift_f32(
     while context.time_workshift_started.elapsed().as_millis()<10{//while context.index < total_points && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
 
 
-        let (pos, step) = match context.workshifts%5 {
-            0 => {
-                if context.workshifts == 0 {
-                    if context.scredge_poses.len()>0 {
-                        (&context.scredge_poses[0], Step::Scredge)
-                    } else if context.edge_queue.len()>0 {
-                        (&context.edge_queue[0].0, Step::Edge)
-                    } else if context.out_queue.len()>0{
-                        (&context.out_queue[0].0, Step::Out)
-                    } else if context.in_queue.len()>0 {
-                        (&context.in_queue[0].0, Step::In)
-                    } else {context.index = total_points-1; break;
-                    }
-                } else {
-                    if context.edge_queue.len()>0 {
-                        (&context.edge_queue[0].0, Step::Edge)
-                    } else if context.out_queue.len()>0{
-                        (&context.out_queue[0].0, Step::Out)
-                    } else if context.scredge_poses.len()>0 {
-                        (&context.scredge_poses[0], Step::Scredge)
-                    } else if context.in_queue.len()>0 {
-                        (&context.in_queue[0].0, Step::In)
-                    } else {context.index = total_points-1; break;
-                    }
-                }
-            }
-            1 => {
-                if context.edge_queue.len()>0 {
-                    (&context.edge_queue[0].0, Step::Edge)
-                } else if context.out_queue.len()>0{
-                    (&context.out_queue[0].0, Step::Out)
-                } else if context.scredge_poses.len()>0 {
-                    (&context.scredge_poses[0], Step::Scredge)
-                } else if context.in_queue.len()>0 {
-                    (&context.in_queue[0].0, Step::In)
-                } else {context.index = total_points-1; break;}
-            }
-            2 =>{
-                if context.out_queue.len()>0{
-                    (&context.out_queue[0].0, Step::Out)
-                } else if context.edge_queue.len()>0 {
-                    (&context.edge_queue[0].0, Step::Edge)
-                } else if context.scredge_poses.len()>0 {
-                    (&context.scredge_poses[0], Step::Scredge)
-                } else if context.in_queue.len()>0 {
-                    (&context.in_queue[0].0, Step::In)
-                } else {context.index = total_points-1; break;
-                }
-            }
-            3 =>{
-                if context.edge_queue.len()>0 {
-                    (&context.edge_queue[0].0, Step::Edge)
-                } else if context.out_queue.len()>0{
-                    (&context.out_queue[0].0, Step::Out)
-                } else if context.scredge_poses.len()>0 {
-                    (&context.scredge_poses[0], Step::Scredge)
-                } else if context.in_queue.len()>0 {
-                    (&context.in_queue[0].0, Step::In)
-                } else {context.index = total_points-1; break;}
-            }
-            4 => {
-                //(&pos_from_index(context.random_index, context.res.0), Step::Random)
-                /*if context.edge_queue.len()>0 {
-                    (&context.edge_queue[0].0, Step::Edge)
-                } else if context.out_queue.len()>0{
-                    (&context.out_queue[0].0, Step::Out)
-                } else   if context.scredge_poses.len()>0 {
-                    (&context.scredge_poses[0], Step::Scredge)
-                } else if context.in_queue.len()>0 {
-                    (&context.in_queue[0].0, Step::In)
-                } else {context.index = total_points-1; break;}*/
-                let mut rng = rand::rng();
-                let mut x:i32 = rng.random_range(-50..50);
-                let mut y:i32 = rng.random_range(-50..50);
+        let poses = get_poses(context, points, total_points);
 
-                if x + context.attention.0 < 0 || x + context.attention.0 > context.res.0 as i32-1
-                || y + context.attention.1 < 0 || y + context.attention.1 > context.res.1 as i32-1{
-                    x = 0;y=0;
-                }
+        for (pos, step) in poses {
 
-                (&(
-                    context.attention.0 + x, context.attention.1 + y
-                ), Step::Random)
-            }
-            _ => {break}
-        };
+            let index = index_from_pos(&pos, context.res.0);
 
-        let index = index_from_pos(pos, context.res.0);
+            let point = &mut points[index];
 
-        let point = &mut points[index];
-
-        let pos = pos.clone();
-
-        if point.delivered {
-            match step {
-                Step::Out => {
-                    let _ =  context.out_queue.pop_front();
-                }
-                Step::Scredge => {
-                    let _ = context.scredge_poses.pop_front();
-                }
-                Step::In => {
-                    let _ =  context.in_queue.pop_front();
-                }
-                Step::Edge => {
-                    let _ =  context.edge_queue.pop_front();
-                }
-                Step::Random => {
-                    context.index += 1;
-                    context.random_index = context.random_map[min(context.index, total_points-1)];
-                }
-            }
-            continue;
-        }
-
-        //if context.workshifts > 100 {
+            //if context.workshifts > 100 {
             match step {
                 Step::In => {
                     point.period = context.in_queue[0].1;
@@ -252,9 +146,11 @@ pub(crate) fn workshift_f32(
                 }
                 _ => {}
             }
-        //}
+            //}
 
 
+
+        }
 
         let old_iterations = point.iterations;
 
@@ -321,89 +217,99 @@ pub(crate) fn workshift_f32(
 
         context.total_iterations_today += point.iterations - old_iterations;
 
-        if point.done.0 || point.done.1 {
 
-            //context.already_done.push(context.index);
-            //context.already_done_hashset.insert(context.index);
-            context.total_iterations += point.iterations;
+        for (pos, step) in poses {
+
+            let index = index_from_pos(&pos, context.res.0);
+
+            let point = &mut points[index];
+
+
+            if point.done.0 || point.done.1 {
+
+                //context.already_done.push(context.index);
+                //context.already_done_hashset.insert(context.index);
+                context.total_iterations += point.iterations;
 
 
 
-            match step {
-                Step::Out => {
-                    let _ =  context.out_queue.pop_front();
+                match step {
+                    Step::Out => {
+                        let _ =  context.out_queue.pop_front();
+                    }
+                    Step::Scredge => {
+                        let _ = context.scredge_poses.pop_front();
+                    }
+                    Step::In => {
+                        let _ =  context.in_queue.pop_front();
+                    }
+                    Step::Edge => {
+                        let _ =  context.edge_queue.pop_front();
+                    }
+                    Step::Random => {
+                        context.index += 1;
+                        context.random_index = context.random_map[min(context.index, total_points-1)];
+                    }
                 }
-                Step::Scredge => {
-                    let _ = context.scredge_poses.pop_front();
-                }
-                Step::In => {
-                    let _ =  context.in_queue.pop_front();
-                }
-                Step::Edge => {
-                    let _ =  context.edge_queue.pop_front();
-                }
-                Step::Random => {
-                    context.index += 1;
-                    context.random_index = context.random_map[min(context.index, total_points-1)];
-                }
-            }
 
-            point.delivered = true;
+                point.delivered = true;
 
 
 
-            let completed_point = if point.done.1 {
-                let raw_period = point.iterations-point.loop_detection_point.1;
-                let returned = if determine_period(point, episilon) {
-                    point.period = point.iterations-point.loop_detection_point.1;
-                    CompletedPoint::Repeats{period: point.period}
-                } else {
-                    point.period = raw_period;
-                    CompletedPoint::Repeats{period: point.period}
-                };
-                queue_incomplete_neighbors_in(&pos, context.res, points, &mut context.in_queue);
-                returned
-            } else {
-                let result = CompletedPoint::Escapes {
-                    escape_time: point.iterations
-                    , escape_location: point.z
-                    , start_location: point.c
-                };
-                queue_incomplete_neighbors(&pos, context.res, points, &mut context.out_queue);
-                result
-            };
-            if let Some(e) = point_is_edge(&pos, context.res, points) {
-                //context.edge_queue.clear();
-                queue_incomplete_neighbors_of_edge(&e.0, &e.1, context.res, points, &mut context.edge_queue);
-            }
-
-            context.completed_points.push((completed_point, index));
-
-
-            context.total_points_today += 1
-        } else {
-            match step {
-                Step::Out => {
-                    let pos = context.out_queue.pop_front().unwrap();
-                    context.out_queue.push_back(pos);
-                    continue;
-                }
-                /*Step::In => {
-                    let pos = context.in_queue.pop_front().unwrap();
-                    context.in_queue.push_back(pos);
-                    continue;
-                }*/
-                Step::Scredge => {
-                    //let pos = context.scredge_poses.pop_front().unwrap();
-                    //context.scredge_poses.push_back(pos);
-                    let completed_point = {
-                        CompletedPoint::Repeats{period: point.iterations-point.loop_detection_point.1}
+                let completed_point = if point.done.1 {
+                    let raw_period = point.iterations-point.loop_detection_point.1;
+                    let returned = if determine_period(point, episilon) {
+                        point.period = point.iterations-point.loop_detection_point.1;
+                        CompletedPoint::Repeats{period: point.period}
+                    } else {
+                        point.period = raw_period;
+                        CompletedPoint::Repeats{period: point.period}
                     };
-                    context.completed_points.push((completed_point, index));
-                    continue;
+                    queue_incomplete_neighbors_in(&pos, context.res, points, &mut context.in_queue);
+                    returned
+                } else {
+                    let result = CompletedPoint::Escapes {
+                        escape_time: point.iterations
+                        , escape_location: point.z
+                        , start_location: point.c
+                    };
+                    queue_incomplete_neighbors(&pos, context.res, points, &mut context.out_queue);
+                    result
+                };
+                if let Some(e) = point_is_edge(&pos, context.res, points) {
+                    //context.edge_queue.clear();
+                    queue_incomplete_neighbors_of_edge(&e.0, &e.1, context.res, points, &mut context.edge_queue);
                 }
-                _ => {}
+
+                context.completed_points.push((completed_point, index));
+
+
+                context.total_points_today += 1
+            } else {
+                match step {
+                    Step::Out => {
+                        let pos = context.out_queue.pop_front().unwrap();
+                        context.out_queue.push_back(pos);
+                        continue;
+                    }
+                    /*Step::In => {
+                        let pos = context.in_queue.pop_front().unwrap();
+                        context.in_queue.push_back(pos);
+                        continue;
+                    }*/
+                    Step::Scredge => {
+                        //let pos = context.scredge_poses.pop_front().unwrap();
+                        //context.scredge_poses.push_back(pos);
+                        let completed_point = {
+                            CompletedPoint::Repeats{period: point.iterations-point.loop_detection_point.1}
+                        };
+                        context.completed_points.push((completed_point, index));
+                        continue;
+                    }
+                    _ => {}
+                }
             }
+
         }
 
         context.total_bouts_today += 1;
@@ -705,5 +611,147 @@ pub(crate) fn queue_incomplete_neighbors_of_edge(pos1:&(i32, i32), pos2:&(i32, i
                 queue.push_front((n, difficulty));
             }
         }
+    }
+}
+
+
+fn get_poses(context:&mut WorkContext, points: &Vec<PointF32>, total_points:usize) -> Vec<((i32, i32), Step)> {
+
+    let mut returned = Vec::new();
+
+    while returned.len()<64 {
+
+        let (pos, step) = match context.workshifts%5 {
+            0 => {
+                if context.workshifts == 0 {
+                    if context.scredge_poses.len()>0 {
+                        (&context.scredge_poses[0], Step::Scredge)
+                    } else if context.edge_queue.len()>0 {
+                        (&context.edge_queue[0].0, Step::Edge)
+                    } else if context.out_queue.len()>0{
+                        (&context.out_queue[0].0, Step::Out)
+                    } else if context.in_queue.len()>0 {
+                        (&context.in_queue[0].0, Step::In)
+                    } else {context.index = total_points-1; break;
+                    }
+                } else {
+                    if context.edge_queue.len()>0 {
+                        (&context.edge_queue[0].0, Step::Edge)
+                    } else if context.out_queue.len()>0{
+                        (&context.out_queue[0].0, Step::Out)
+                    } else if context.scredge_poses.len()>0 {
+                        (&context.scredge_poses[0], Step::Scredge)
+                    } else if context.in_queue.len()>0 {
+                        (&context.in_queue[0].0, Step::In)
+                    } else {context.index = total_points-1; break;
+                    }
+                }
+            }
+            1 => {
+                if context.edge_queue.len()>0 {
+                    (&context.edge_queue[0].0, Step::Edge)
+                } else if context.out_queue.len()>0{
+                    (&context.out_queue[0].0, Step::Out)
+                } else if context.scredge_poses.len()>0 {
+                    (&context.scredge_poses[0], Step::Scredge)
+                } else if context.in_queue.len()>0 {
+                    (&context.in_queue[0].0, Step::In)
+                } else {context.index = total_points-1; break;}
+            }
+            2 =>{
+                if context.out_queue.len()>0{
+                    (&context.out_queue[0].0, Step::Out)
+                } else if context.edge_queue.len()>0 {
+                    (&context.edge_queue[0].0, Step::Edge)
+                } else if context.scredge_poses.len()>0 {
+                    (&context.scredge_poses[0], Step::Scredge)
+                } else if context.in_queue.len()>0 {
+                    (&context.in_queue[0].0, Step::In)
+                } else {context.index = total_points-1; break;
+                }
+            }
+            3 =>{
+                if context.edge_queue.len()>0 {
+                    (&context.edge_queue[0].0, Step::Edge)
+                } else if context.out_queue.len()>0{
+                    (&context.out_queue[0].0, Step::Out)
+                } else if context.scredge_poses.len()>0 {
+                    (&context.scredge_poses[0], Step::Scredge)
+                } else if context.in_queue.len()>0 {
+                    (&context.in_queue[0].0, Step::In)
+                } else {context.index = total_points-1; break;}
+            }
+            4 => {
+                //(&pos_from_index(context.random_index, context.res.0), Step::Random)
+                /*if context.edge_queue.len()>0 {
+                    (&context.edge_queue[0].0, Step::Edge)
+                } else if context.out_queue.len()>0{
+                    (&context.out_queue[0].0, Step::Out)
+                } else   if context.scredge_poses.len()>0 {
+                    (&context.scredge_poses[0], Step::Scredge)
+                } else if context.in_queue.len()>0 {
+                    (&context.in_queue[0].0, Step::In)
+                } else {context.index = total_points-1; break;}*/
+                let mut rng = rand::rng();
+
+                context.attention_radius+=1;
+
+                let mut x:i32 = rng.random_range(-50..=50);
+                let mut y:i32 = rng.random_range(-50..=50);
+
+                if x + context.attention.0 < 0 || x + context.attention.0 > context.res.0 as i32-1
+                    || y + context.attention.1 < 0 || y + context.attention.1 > context.res.1 as i32-1{
+                    x = 0;y=0;
+                }
+
+                (&(
+                    context.attention.0 + x, context.attention.1 + y
+                ), Step::Random)
+            }
+            _ => {break}
+        };
+
+        let index = index_from_pos(pos, context.res.0);
+
+        let point = & points[index];
+
+        let pos = pos.clone();
+
+        if point.delivered {
+            match step {
+                Step::Out => {
+                    let _ =  context.out_queue.pop_front();
+                }
+                Step::Scredge => {
+                    let _ = context.scredge_poses.pop_front();
+                }
+                Step::In => {
+                    let _ =  context.in_queue.pop_front();
+                }
+                Step::Edge => {
+                    let _ =  context.edge_queue.pop_front();
+                }
+                Step::Random => {
+                    context.index += 1;
+                    context.random_index = context.random_map[min(context.index, total_points-1)];
+                }
+            }
+            continue;
+        } else {
+            returned.push((pos, step));
+        }
+    }
+
+    returned
+}
+
+fn multi_iterate_max_n_times(
+    poses: Vec<((i32, i32), Step)>
+    , points:&mut Vec<PointF32>
+    , r_squared:f32
+    , episilon:f32
+    , n:usize) {
+    if poses.len()==64 {
+        
     }
 }
