@@ -29,7 +29,7 @@ const RECOVER_EGUI_CRASHES:bool = false;
 //const MAX_FRAME_TIME:f64 = 1.0 / MIN_FRAME_RATE;
 const VSYNC:bool = false;
 
-pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (800, 480);
+pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (480, 270);
 
 pub(crate) const HOME_POSTION:(i32, i32, i32) = (-2, -2, -2);
 
@@ -90,7 +90,7 @@ pub(crate) struct WindowState {
         , Option<Instant>
     )
     , pub(crate) texturing_things: Vec<(TextureHandle, ColorImage, Vec<Color32>)>
-    //, pub(crate) sampling_resolution_multiplier: f32
+    , pub(crate) sampling_resolution_multiplier: f32
     , pub(crate) timer: Instant
     , pub(crate) fps_margin: f32
     , pub(crate) timer2: Instant
@@ -149,7 +149,7 @@ async fn internal_behavior<A: SteadyActor>(
         , controls_settings: ControlsSettings::H
         , rolling_frame_info: (VecDeque::new(), VecDeque::new(), VecDeque::new(), None)
         , texturing_things: vec!()
-        //, sampling_resolution_multiplier: 1.0
+        , sampling_resolution_multiplier: 1.0
         , timer: Instant::now()
         , fps_margin: 0.0
 
@@ -291,7 +291,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             // make sure we run every frame
             ctx.request_repaint();
 
-            let size = (state.size.x as usize, state.size.y as usize);
+            let size = ((state.size.x as f32 * state.sampling_resolution_multiplier) as usize, (state.size.y as f32 * state.sampling_resolution_multiplier) as usize);
             let pixels = size.0 * size.1;
 
             let mut sampler_buffer = Vec::with_capacity(pixels);
@@ -316,7 +316,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             if state.sampling_context.updated
             {
-                actor.try_send(&mut sampler_out, (state.sampling_context.location.clone(), (state.size.x as u32, state.size.y as u32)));
+                actor.try_send(&mut sampler_out, (state.sampling_context.location.clone(), (size.0 as u32, size.0 as u32)));
                 state.sampling_context.updated = false;
             }
 
@@ -325,7 +325,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             let (command_package, attention) = parse_inputs(&ctx, &mut state, size);
             actor.try_send(&mut attention_out, attention);
 
-            state.sampling_context.screen_size = (size.0 as u32, size.1 as u32);
+            state.sampling_context.screen_size = (size.0 as u32, size.0 as u32);
 
             if state.sampling_context.screen.is_some() {
                 sample(command_package, &mut sampler_buffer, &mut state.sampling_context);
@@ -389,6 +389,9 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
                 ui.image((handle.id(), available_size));
 
+                if state.size != available_size {
+                    state.sampling_resolution_multiplier = state.size.x/available_size.x;
+                };
                 state.size = available_size;
 
                 //info!("took {:.3}ms", start.elapsed().as_secs_f64()*1000.0);
@@ -699,6 +702,9 @@ pub(crate) struct MouseDragStart {
 
 fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usize, usize)) -> (Vec<ZoomerCommand>, (i32, i32)) {
 
+    let x_mult = sampling_size.0 as f32/state.size.x;
+    let y_mult = sampling_size.0 as f32/state.size.y;
+
 
     let settings = &state.controls_settings;
 
@@ -710,7 +716,7 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
 
     ctx.input(|input_state| {
         if let Some(pos) = input_state.pointer.latest_pos() {
-            returned.1 = (pos.x as i32, pos.y as i32);
+            returned.1 = ((pos.x * x_mult) as i32, (pos.y * y_mult) as i32);
         }
 
         // begin a new drag if neither of the buttons are held and one or both has just been pressed
@@ -734,7 +740,8 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
                 } else {
                     // execute the drag
 
-                    let pos = input_state.pointer.latest_pos().unwrap();
+                    let mut pos = input_state.pointer.latest_pos().unwrap();
+                    pos.x = pos.x * x_mult; pos.y = pos.y*y_mult;
 
                     // dragging should snap to pixels
 
