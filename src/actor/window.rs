@@ -291,7 +291,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             // make sure we run every frame
             ctx.request_repaint();
 
-            let size = (state.size.x as usize, state.size.y as usize);//((state.size.x as f32 * state.sampling_resolution_multiplier) as usize, (state.size.y as f32 * state.sampling_resolution_multiplier) as usize);
+            let size = ((state.size.x as f32 * state.sampling_resolution_multiplier) as usize, (state.size.y as f32 * state.sampling_resolution_multiplier) as usize);
             let pixels = size.0 * size.1;
 
             let mut sampler_buffer = Vec::with_capacity(pixels);
@@ -392,7 +392,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 if state.size != available_size {
                     state.sampling_resolution_multiplier = state.size.x/available_size.x;
                 };
-                //state.size = available_size;
+                state.size = available_size;
 
                 //info!("took {:.3}ms", start.elapsed().as_secs_f64()*1000.0);
 
