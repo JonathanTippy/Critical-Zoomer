@@ -211,12 +211,10 @@ pub(crate) fn workshift_f32(
             }
             _ => {break}
         };
-
         let index = index_from_pos(pos, context.res.0);
-
-        let point = &mut points[index];
-
         let pos = pos.clone();
+        {
+        let point = &mut points[index];
 
         if point.delivered {
             match step {
@@ -254,72 +252,23 @@ pub(crate) fn workshift_f32(
             }
         //}
 
-
-
-        let old_iterations = point.iterations;
-
-        match step {
-            Step::Scredge => {
-                iterate_max_n_times_f32(point, 4.0, episilon, 1000);
-            }
-            Step::Random => {
-                iterate_max_n_times_f32(point, 4.0, episilon, 1000);
-            }
-            Step::Out => {
-                let difficulty = context.out_queue[0].1;
-                let eta = difficulty as i32 - point.iterations as i32;
-                if eta > 2000 {
-                    let warp = min(eta/2, 1000000);
-                    if !timewarp_n_iterations(point, 4.0, warp as u32) {
-                        context.out_queue[0].1 = 0;
-                    };
-                } else {
-                    iterate_max_n_times_f32(point, 4.0, episilon, 100);
-                }
-            }
-            Step::In => {
-                let difficulty = context.in_queue[0].1;
-                let eta = difficulty as i32 - point.iterations as i32;
-                if eta > 2000 {
-                    let warp = min(eta/2, 1000000);
-                    if !timewarp_n_iterations(point, 4.0, warp as u32) {
-                        context.in_queue[0].1 = 0;
-                    };
-                } else {
-                    iterate_max_n_times_f32(point, 4.0, episilon, 100);
-                }
-            }
-            Step::Edge => {
-                let difficulty = context.edge_queue[0].1;
-                let eta = difficulty as i32 - point.iterations as i32;
-                if eta > 2000 {
-                    let warp = min(eta/2, 10000000);
-                    if !timewarp_n_iterations(point, 4.0, warp as u32) {
-                        context.edge_queue[0].1 = 0;
-                    };
-                } else {
-                    iterate_max_n_times_f32(point, 4.0, episilon, 100);
-                }
-            }
         }
+        let point = &mut points[index];
+        iterate_max_n_times_f32(point, 4.0, episilon, 1000);
 
-        /*if let Some(t) = point.escaped_time {
-            let warp = (t-point.iterations)/2;
-            if !timewarp_n_iterations(point, 4.0, warp) {
-                point.escaped_time = Some(point.iterations + warp);
-                context.total_iterations_today+=warp;
-            }
+
+        /*if ((index as isize -4) >= 0) && ((index as isize+4) < total_points as isize) {
+            let slice = &mut points[index-4..index+4];
+            iterate_slice_max_n_times_f32(slice, 4.0, episilon, 100);
         } else {
-            let warp = min(point.iterations/2, 1000);
-            if !timewarp_n_iterations(point, 4.0, warp) {
-                point.escaped_time = Some(point.iterations + warp);
-                context.total_iterations_today+=warp;
-            }
+            let point = &mut points[index];
+            iterate_max_n_times_f32(point, 4.0, episilon, 1000);
         }*/
 
 
 
-        context.total_iterations_today += point.iterations - old_iterations;
+        //context.total_iterations_today += point.iterations - old_iterations;
+
 
         if point.done.0 || point.done.1 {
 
@@ -553,13 +502,12 @@ pub(crate) fn queue_incomplete_neighbors(pos:&(i32, i32), res: (u32, u32), point
         , (pos.0, pos.1-1)
     ];
     for n in neighbors {
-
         if (
             n.0 >= 0 && n.0 <= res.0 as i32 - 1
             && n.1 >= 0 && n.1 <= res.1 as i32 - 1
             ) {
             let index = index_from_pos(&n, wid);
-            if !(points[index].done.0 || points[index].done.1) {
+            if !points[index].delivered {
                 queue.push_back((n, difficulty));
             }
         }
@@ -585,7 +533,7 @@ pub(crate) fn queue_incomplete_neighbors_in(pos:&(i32, i32), res: (u32, u32), po
                 && n.1 >= 0 && n.1 <= res.1 as i32 - 1
         ) {
             let index = index_from_pos(&n, wid);
-            if !(points[index].done.0 || points[index].done.1) {
+            if !points[index].delivered {
                 queue.push_back((n, period));
             }
         }
@@ -701,9 +649,121 @@ pub(crate) fn queue_incomplete_neighbors_of_edge(pos1:&(i32, i32), pos2:&(i32, i
                 && n.1 >= 0 && n.1 <= res.1 as i32 - 1
         ) {
             let index = index_from_pos(&n, wid);
-            if !(points[index].done.0 || points[index].done.1) {
+            if !points[index].delivered {
                 queue.push_front((n, difficulty));
             }
         }
     }
 }
+/*
+#[inline]
+pub(crate) fn iterate_slice_max_n_times_f32_2 (slice: &mut [PointF32], r_squared:f32, epsilon:f32, n: u32) {
+
+    assert_eq!(slice.len(),8);
+
+    for point in &mut *slice {
+        for _ in 0..n {
+            update_point_results_f32(point);
+            point.done.0 = bailout_point_f32(point, r_squared) || (!point.real_squared.is_finite()) || (!point.imag_squared.is_finite());
+            if !(point.done.0 || point.done.1) {
+                iterate_f32(point);
+            } else {
+                break;
+            }
+            point.done.1 = loop_check_point_f32(point, epsilon);
+            update_loop_check_points(point);
+        }
+    }
+}
+
+use wide::f32x8;
+
+#[inline]
+pub(crate) fn iterate_slice_max_n_times_f32(
+    slice: &mut [PointF32],
+    r_squared: f32,
+    epsilon: f32,
+    n: u32,
+) {
+    assert_eq!(slice.len(), 8);
+
+    let r2 = f32x8::splat(r_squared);
+    let two = f32x8::splat(2.0);
+
+    for _ in 0..n {
+        let mut zr_arr = [0.0f32; 8];
+        let mut zi_arr = [0.0f32; 8];
+        let mut cr_arr = [0.0f32; 8];
+        let mut ci_arr = [0.0f32; 8];
+        let mut all_done = true;
+
+        for (i, p) in slice.iter().enumerate() {
+            zr_arr[i] = p.z.0;
+            zi_arr[i] = p.z.1;
+            cr_arr[i] = p.c.0;
+            ci_arr[i] = p.c.1;
+            all_done &= p.done.0 || p.done.1;
+        }
+
+        if all_done {
+            break;
+        }
+
+        let mut zr = f32x8::from(zr_arr);
+        let mut zi = f32x8::from(zi_arr);
+        let cr = f32x8::from(cr_arr);
+        let ci = f32x8::from(ci_arr);
+
+        // SIMD iteration block
+        for _ in 0..1 {
+            let zr2 = zr * zr;
+            let zi2 = zi * zi;
+            let zri = zr * zi;
+            let mag2 = zr2 + zi2;
+
+            // SIMD next z values (purely arithmetic)
+            let zr_next = zr2 - zi2 + cr;
+            let zi_next = (zri * two) + ci;
+
+            // write back SIMD registers to scalar arrays
+            let zr2_arr: [f32; 8] = zr2.into();
+            let zi2_arr: [f32; 8] = zi2.into();
+            let zri_arr: [f32; 8] = zri.into();
+            let mag2_arr: [f32; 8] = mag2.into();
+            let zr_next_arr: [f32; 8] = zr_next.into();
+            let zi_next_arr: [f32; 8] = zi_next.into();
+
+            for i in 0..8 {
+                let point = &mut slice[i];
+
+                if point.done.0 || point.done.1 {
+                    continue;
+                }
+
+                point.real_squared = zr2_arr[i];
+                point.imag_squared = zi2_arr[i];
+                point.real_imag = zri_arr[i];
+
+                let bailout = mag2_arr[i] > r_squared
+                    || !point.real_squared.is_finite()
+                    || !point.imag_squared.is_finite();
+
+                point.done.0 = bailout;
+
+                if !(point.done.0 || point.done.1) {
+                    point.z.0 = zr_next_arr[i];
+                    point.z.1 = zi_next_arr[i];
+                    point.iterations += 1;
+
+                    point.done.1 = loop_check_point_f32(point, epsilon);
+                    update_loop_check_points(point);
+                }
+            }
+
+            // update SIMD z registers for next iteration
+            zr = zr_next;
+            zi = zi_next;
+        }
+    }
+}
+*/
