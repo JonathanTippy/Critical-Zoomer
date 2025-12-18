@@ -19,8 +19,8 @@ pub(crate) enum WorkerCommand {
 
 pub(crate) struct ResultsPackage {
     pub(crate) results: Vec<CompletedPoint>
-    , pub(crate) res: (usize, usize)
-    , pub(crate) originating_update: ViewportUpdate
+    , pub(crate) screen_res: (u32, u32)
+    , pub(crate) location: ObjectivePosAndZoom
     , pub(crate) complete: bool
 }
 

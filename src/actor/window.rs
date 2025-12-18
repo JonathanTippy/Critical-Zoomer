@@ -31,21 +31,12 @@ const VSYNC:bool = false;
 
 pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (800, 480);
 
-pub(crate) const HOME_POSTION:(i32, i32, i32) = (0, 0, -2);
+pub(crate) const HOME_POSTION:(i32, i32, i32) = (-2, -2, -2);
 
  //pub(crate) const MIN_PIXELS:u32 = 40; // min_pixels is prioritized over min_fps and should be greater than ~6
 //pub(crate) const MIN_FPS:f32 = 10.0;
 
 /// State struct for the window actor.
-#[derive(Clone, Debug)]
-
-pub(crate) struct ViewportUpdate {
-   relative_pos: (i32, i32)
-    , obj_zoom_pot: i32
-    , res: (usize, usize)
-    , restarted: bool
-    , screen_count: u64
-}
 
 pub(crate) struct ZoomerState {
     pub(crate) settings_window_open: bool
@@ -59,6 +50,26 @@ pub(crate) struct ZoomerReport {
     pub(crate) time_to_xyz: Vec<(String, Duration)>
 }
 
+#[derive(Clone)]
+
+pub(crate) enum ZoomerCommand {
+    SetFocus{pixel_x:u32, pixel_y:u32}
+    , SetZoom{pot: i32}
+    , Zoom{pot: i32, center_screenspace_pos: (i32, i32)} // zoom in or out
+    , Move{pixels_x: i32, pixels_y: i32}
+    , MoveTo{x: IntExp, y: IntExp}
+    , SetPos{real: IntExp, imag: IntExp}
+    , TrackPoint{point_id:u64, point_real: IntExp, point_imag: IntExp}
+    , UntrackPoint{point_id:u64}
+    , UntrackAllPoints
+} pub(crate) const NUMBER_OF_COMMANDS:u16=10;
+
+#[derive(Clone)]
+
+pub(crate) struct ZoomerCommandPackage {
+    pub(crate) start_time: Instant
+    , pub(crate) commands: Vec<ZoomerCommand>
+}
 
 
 #[derive(Clone)]
@@ -89,7 +100,7 @@ pub(crate) struct WindowState {
 pub async fn run(
     actor: SteadyActorShadow,
     pixels_in: SteadyRx<ZoomerScreen>,
-    sampler_out: SteadyTx<ViewportUpdate>,
+    sampler_out: SteadyTx<(ObjectivePosAndZoom, (u32, u32))>,
     settings_out: SteadyTx<ZoomerSettingsUpdate>,
     attention_out: SteadyTx<(i32, i32)>,
     state: SteadyState<WindowState>,
@@ -109,7 +120,7 @@ pub async fn run(
 async fn internal_behavior<A: SteadyActor>(
     actor: A,
     pixels_in: SteadyRx<ZoomerScreen>,
-    sampler_out: SteadyTx<ViewportUpdate>,
+    sampler_out: SteadyTx<(ObjectivePosAndZoom, (u32, u32))>,
     settings_out: SteadyTx<ZoomerSettingsUpdate>,
     attention_out: SteadyTx<(i32, i32)>,
     state: SteadyState<WindowState>,
@@ -218,7 +229,7 @@ async fn internal_behavior<A: SteadyActor>(
 struct EguiWindowPassthrough<'a, A> {
     portable_actor: Arc<Mutex<A>>,
     pixels_in: SteadyRx<ZoomerScreen>,
-    sampler_out: SteadyTx<ViewportUpdate>,
+    sampler_out: SteadyTx<(ObjectivePosAndZoom, (u32, u32))>,
     settings_out: SteadyTx<ZoomerSettingsUpdate>,
     attention_out: SteadyTx<(i32, i32)>,
     portable_state:Arc<Mutex<StateGuard<'a, WindowState>>>
@@ -305,10 +316,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             if state.sampling_context.updated
             {
-                actor.try_send(&mut sampler_out,
-                               (state.sampling_context.location.clone()
-                                , (state.size.x as u32, state.size.y as u32))
-                );
+                actor.try_send(&mut sampler_out, (state.sampling_context.location.clone(), (state.size.x as u32, state.size.y as u32)));
                 state.sampling_context.updated = false;
             }
 
@@ -326,6 +334,9 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     sampler_buffer.push(Color32::PURPLE);
                 }
             }*/
+
+
+
             /*if state.sampling_context.screens[0].complete
                 && (
                     state.sampling_context.relative_transforms.pos != (0, 0)
@@ -686,3 +697,121 @@ pub(crate) struct MouseDragStart {
 
 
 
+fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usize, usize)) -> (Vec<ZoomerCommand>, (i32, i32)) {
+
+
+    let settings = &state.controls_settings;
+
+    let mut returned = (vec!(), (0, 0));
+
+    let ppp = ctx.pixels_per_point();
+
+    let min_size = min(state.size.x as u32, state.size.y as u32) as f32;
+
+    ctx.input(|input_state| {
+        if let Some(pos) = input_state.pointer.latest_pos() {
+            returned.1 = (pos.x as i32, pos.y as i32);
+        }
+
+        // begin a new drag if neither of the buttons are held and one or both has just been pressed
+        if
+        (input_state.pointer.primary_pressed() && (! input_state.pointer.button_down(egui::PointerButton::Middle)))
+        || (input_state.pointer.button_pressed(egui::PointerButton::Middle) && (! input_state.pointer.primary_down())) {
+            let d = input_state.pointer.latest_pos().unwrap();
+            state.sampling_context.mouse_drag_start = Some(
+                (state.sampling_context.location.clone()
+                 , d
+                )
+            );
+        }
+
+        match &state.sampling_context.mouse_drag_start {
+            Some(start) => {
+
+                // end the current drag if appropriate
+                if (!input_state.pointer.button_down(egui::PointerButton::Primary)) && (!input_state.pointer.button_down(egui::PointerButton::Middle)) {
+                    state.sampling_context.mouse_drag_start = None;
+                } else {
+                    // execute the drag
+
+                    let pos = input_state.pointer.latest_pos().unwrap();
+
+                    // dragging should snap to pixels
+
+                    //let min_size_recip = (1<<16) / min_size as i32;
+
+                    let drag = (
+                        (pos.x as i32 - start.1.x as i32)// * min_size_recip
+                        , (pos.y as i32 - start.1.y as i32)// * min_size_recip
+                    );
+
+                    let drag_start_pos = start.0.pos.clone();
+
+                    let objective_drag:(IntExp, IntExp) = (
+                        IntExp{val:Integer::from(drag.0), exp:0}
+                            .shift(-state.sampling_context.location.zoom_pot)
+                            .shift(-PIXELS_PER_UNIT_POT)
+                        , IntExp{val:Integer::from(drag.1), exp:0}
+                            .shift(-state.sampling_context.location.zoom_pot)
+                            .shift(-PIXELS_PER_UNIT_POT)
+                        );
+
+                    returned.0.push(
+                        ZoomerCommand::MoveTo{
+                            x: drag_start_pos.0 - objective_drag.0
+                            , y: drag_start_pos.1 - objective_drag.1
+                        }
+                    );
+                }
+            }
+            None => {}
+        }
+
+        let scroll = input_state.raw_scroll_delta.y;
+
+        if scroll != 0.0 {
+
+            //info!("scrolling");
+
+            let c = input_state.pointer.latest_pos().unwrap();
+
+            let c = (
+                c.x// * (1<<16) as f32 / min_size
+                , c.y// * (1<<16) as f32 / min_size
+            );
+
+            returned.0.push(
+                if scroll > 0.0 {
+                    //info!("zooming in");
+                    ZoomerCommand::Zoom{
+                        pot: 1
+                        , center_screenspace_pos: (c.0 as i32, c.1 as i32)
+                    }
+                } else {
+                    //info!("zooming out");
+                    ZoomerCommand::Zoom{
+                        pot: -1
+                        , center_screenspace_pos: (c.0 as i32, c.1 as i32)
+                    }
+                }
+
+            );
+        }
+
+
+        if input_state.key_down(egui::Key::ArrowDown) {
+            returned.0.push(ZoomerCommand::Move{pixels_x: 0, pixels_y: 1});
+        }
+        if input_state.key_down(egui::Key::ArrowUp) {
+            returned.0.push(ZoomerCommand::Move{pixels_x: 0, pixels_y: -1});
+        }
+        if input_state.key_down(egui::Key::ArrowLeft) {
+            returned.0.push(ZoomerCommand::Move{pixels_x: -1, pixels_y: 0});
+        }
+        if input_state.key_down(egui::Key::ArrowRight) {
+            returned.0.push(ZoomerCommand::Move{pixels_x: 1, pixels_y: 0});
+        }
+    });
+
+    returned
+}

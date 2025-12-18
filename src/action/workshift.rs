@@ -33,7 +33,7 @@ pub(crate) struct WorkContext {
     , pub(crate) total_bouts_today: u32
     , pub(crate) total_points_today: u32
     , pub(crate) spent_tokens_today: u32
-    , pub(crate) res: (usize, usize)
+    , pub(crate) res: (u32, u32)
     , pub(crate) scredge_poses: VecDeque<(i32, i32)>
     , pub(crate) edge_queue: VecDeque<((i32, i32), u32)>
     , pub(crate) out_queue: VecDeque<((i32, i32), u32)>
@@ -532,15 +532,15 @@ pub(crate) fn update_point_results_f32(point: &mut PointF32) {
 }
 
 #[inline]
-pub(crate) fn index_from_pos(pos:&(i32, i32), wid:usize) -> usize {
+pub(crate) fn index_from_pos(pos:&(i32, i32), wid:u32) -> usize {
     (pos.0 + pos.1*wid as i32) as usize
 }
 
-pub(crate) fn pos_from_index(i: usize, wid:usize) -> (i32, i32) {
+pub(crate) fn pos_from_index(i: usize, wid:u32) -> (i32, i32) {
     (i as i32 % wid as i32, i as i32/wid as i32)
 }
 
-pub(crate) fn queue_incomplete_neighbors(pos:&(i32, i32), res: (usize, usize), points: &Vec<PointF32>, queue: &mut VecDeque<((i32, i32), u32)>) {
+pub(crate) fn queue_incomplete_neighbors(pos:&(i32, i32), res: (u32, u32), points: &Vec<PointF32>, queue: &mut VecDeque<((i32, i32), u32)>) {
 
     let difficulty = points[index_from_pos(pos, res.0)].iterations;
 
@@ -566,7 +566,7 @@ pub(crate) fn queue_incomplete_neighbors(pos:&(i32, i32), res: (usize, usize), p
     }
 }
 
-pub(crate) fn queue_incomplete_neighbors_in(pos:&(i32, i32), res: (usize, usize), points: &Vec<PointF32>, queue: &mut VecDeque<((i32, i32), u32)>) {
+pub(crate) fn queue_incomplete_neighbors_in(pos:&(i32, i32), res: (u32, u32), points: &Vec<PointF32>, queue: &mut VecDeque<((i32, i32), u32)>) {
 
     let period = points[index_from_pos(&pos, res.0)].period;
 
@@ -592,7 +592,7 @@ pub(crate) fn queue_incomplete_neighbors_in(pos:&(i32, i32), res: (usize, usize)
     }
 }
 
-pub(crate) fn point_is_edge(pos:&(i32, i32), res: (usize, usize), points: &Vec<PointF32>) -> Option<((i32, i32), (i32, i32))> {
+pub(crate) fn point_is_edge(pos:&(i32, i32), res: (u32, u32), points: &Vec<PointF32>) -> Option<((i32, i32), (i32, i32))> {
     let neighbors: [(i32, i32);4] = [
         (pos.0+1, pos.1)
         , (pos.0-1, pos.1)
@@ -624,7 +624,7 @@ pub(crate) fn point_is_edge(pos:&(i32, i32), res: (usize, usize), points: &Vec<P
     None
 }
 
-pub(crate) fn queue_incomplete_neighbors_of_edge(pos1:&(i32, i32), pos2:&(i32, i32), res: (usize, usize), points: &Vec<PointF32>, queue: &mut VecDeque<((i32, i32), u32)>) {
+pub(crate) fn queue_incomplete_neighbors_of_edge(pos1:&(i32, i32), pos2:&(i32, i32), res: (u32, u32), points: &Vec<PointF32>, queue: &mut VecDeque<((i32, i32), u32)>) {
 
     let difficulty = points[index_from_pos(pos1, res.0)].iterations;
 

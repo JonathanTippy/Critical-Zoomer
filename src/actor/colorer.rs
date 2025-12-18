@@ -13,7 +13,8 @@ use crate::actor::escaper::*;
 
 pub(crate) struct ZoomerScreen {
     pub(crate) pixels: Vec<(u8,u8,u8)>
-    , pub(crate) res: (usize, usize)
+    , pub(crate) screen_size: (u32, u32)
+    , pub(crate) objective_location: ObjectivePosAndZoom
 }
 
 
@@ -161,7 +162,7 @@ async fn internal_behavior<A: SteadyActor>(
 
             actor.try_send(&mut screens_out, ZoomerScreen{
                 pixels: output
-                , res: v.res.clone()
+                , screen_size: v.screen_size.clone()
                 , objective_location:  v.objective_location.clone()
             });
             //info!("sent colors to window");
