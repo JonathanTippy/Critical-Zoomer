@@ -6,14 +6,16 @@ use crate::actor::updater::*;
 use crate::action::utils::*;
 use crate::action::workshift::CompletedPoint;
 use crate::actor::work_collector::*;
+use crate::actor::window::*;
+
 use crate::action::workshift::*;
 
 #[derive(Clone, Debug)]
 
 pub(crate) struct ZoomerScreen {
     pub(crate) pixels: Vec<(u8,u8,u8)>
-    , pub(crate) screen_size: (u32, u32)
-    , pub(crate) objective_location: ObjectivePosAndZoom
+    , pub(crate) res: (usize, usize)
+    , pub(crate) originating_update: ViewportUpdate
 }
 
 #[derive(Clone, Debug)]
@@ -25,8 +27,8 @@ pub(crate) enum ScreenValue {
 
 pub(crate) struct ZoomerValuesScreen {
     pub(crate) values: Vec<ScreenValue>
-    , pub(crate) screen_size: (u32, u32)
-    , pub(crate) objective_location: ObjectivePosAndZoom
+    , pub(crate) res: (usize, usize)
+    , pub(crate) originating_update: ViewportUpdate
 }
 
 
@@ -139,8 +141,8 @@ async fn internal_behavior<A: SteadyActor>(
 
             for i in 0..r.len() {
                 let point = &r[i%len];
-                let pos = pos_from_index(i, v.screen_res.0);
-                let value = get_value_from_point(point, radius as f32, pos, &r, v.screen_res);
+                let pos = pos_from_index(i, v.res.0);
+                let value = get_value_from_point(point, radius as f32, pos, &r, v.res);
                 output.push(value);
             }
 
@@ -149,8 +151,8 @@ async fn internal_behavior<A: SteadyActor>(
 
             actor.try_send(&mut screens_out, ZoomerValuesScreen{
                 values: output
-                , screen_size: v.screen_res
-                , objective_location:  v.location.clone()
+                , res: v.res
+                , originating_update:  v.originating_update
             });
             //info!("sent colors to window");
         }

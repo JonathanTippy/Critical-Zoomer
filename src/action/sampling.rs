@@ -9,16 +9,18 @@ use crate::actor::window::*;
 use crate::actor::colorer::*;
 use crate::action::utils::*;
 
-use rug::{Float, Integer};
 use crate::actor::work_controller::PIXELS_PER_UNIT_POT;
 
 #[derive(Clone, Debug)]
 pub(crate) struct SamplingContext {
     pub(crate) screen: Option<ZoomerScreen>
-    , pub(crate) screen_size: (u32, u32)
-    , pub(crate) location: ObjectivePosAndZoom
+    , pub(crate) screen_size: (usize, usize)
+    , pub(crate) total_relative_pos: (i32, i32)
+    , pub(crate) relative_nuggets: Vec<((i32, i32), i32)>
+    , pub(crate) restarted: bool
+    , pub(crate) zoom_pot: i32
     , pub(crate) updated: bool
-    , pub(crate) mouse_drag_start: Option<(ObjectivePosAndZoom, Pos2)>
+    , pub(crate) mouse_drag_start: Option<((i32, i32), Pos2)>
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -29,7 +31,6 @@ pub(crate) struct ViewportLocation {
 }
 
 pub(crate) fn sample(
-    mut command_package: Vec<ZoomerCommand>,
     output_buffer: &mut Vec<Color32>,
     sampling_context: &mut SamplingContext
 ) {
@@ -39,113 +40,12 @@ pub(crate) fn sample(
 
     let size = context.screen_size;
     let min_side = min(context.screen_size.0, context.screen_size.1);
-    // handle commands
-
-    for command in &mut command_package {
-        match command {
-            ZoomerCommand::SetFocus{pixel_x, pixel_y} => {
-            }
-            ZoomerCommand::Zoom{pot, center_screenspace_pos} => {
-
-                /*let center_centered_pos = (
-                    center_screenspace_pos.0 + (context.screen_size.0/2) as i32
-                    , center_screenspace_pos.1 + (context.screen_size.1/2) as i32
-                );*/
-
-
-                // adjust position & zoom based on zooming in 3 steps
-                // step 1: move to zoom center
-                // step 2: zoom
-                // step 3: move back so zoom center falls on same screenspace location
-
-                let pixel_width = IntExp{val: Integer::from(1), exp:-context.location.zoom_pot}.shift(-PIXELS_PER_UNIT_POT);
-
-                context.location.pos = (
-                    context.location.pos.0.clone()
-                        + IntExp{val: Integer::from(center_screenspace_pos.0), exp: -context.location.zoom_pot}.shift(-PIXELS_PER_UNIT_POT)
-                        - (pixel_width.clone() >> 1)
-                    , context.location.pos.1.clone()
-                        + IntExp{val: Integer::from(center_screenspace_pos.1), exp: -context.location.zoom_pot }.shift(-PIXELS_PER_UNIT_POT)
-                        - (pixel_width.clone() >> 1)
-                );
-
-                context.location.zoom_pot += *pot;
-
-                let pixel_width = IntExp{val: Integer::from(1), exp:-context.location.zoom_pot}.shift(-PIXELS_PER_UNIT_POT);
-
-                context.location.pos = (
-                    context.location.pos.0.clone()
-                        - IntExp{val: Integer::from(center_screenspace_pos.0), exp: -context.location.zoom_pot}.shift(-PIXELS_PER_UNIT_POT)
-                        + (pixel_width.clone() >> 1)
-                    , context.location.pos.1.clone()
-                        - IntExp{val: Integer::from(center_screenspace_pos.1), exp: -context.location.zoom_pot }.shift(-PIXELS_PER_UNIT_POT)
-                        + (pixel_width.clone() >> 1)
-                );
-
-                // reset mouse drag start to the new screenspace location
-
-                match &context.mouse_drag_start {
-                    Some(d) => {
-                        context.mouse_drag_start = Some(
-                            (
-                                ObjectivePosAndZoom{
-                                    pos: context.location.pos.clone()
-                                    , zoom_pot: context.location.zoom_pot
-                                }
-                                , egui::Pos2 {
-                                x: center_screenspace_pos.0 as f32
-                                , y: center_screenspace_pos.1 as f32
-                            }
-                            ));
-                    }
-                    None => {}
-                }
-
-
-                context.updated = true;
-
-            }
-            ZoomerCommand::SetZoom{pot} => {
-                context.location.zoom_pot = *pot;
-                context.updated = true;
-            }
-            ZoomerCommand::Move{pixels_x, pixels_y} => {
-                context.location.pos = (
-                    context.location.pos.0.clone() + IntExp::from(*pixels_x).shift(-context.location.zoom_pot).shift(-PIXELS_PER_UNIT_POT)
-                    , context.location.pos.1.clone() + IntExp::from(*pixels_y).shift(-context.location.zoom_pot).shift(-PIXELS_PER_UNIT_POT)
-                );
-                context.updated = true;
-            }
-            ZoomerCommand::MoveTo{x, y} => {
-                context.location.pos =
-                    (x.clone(), y.clone());
-                context.updated = true;
-            }
-
-            ZoomerCommand::SetPos{real, imag} => {
-            }
-            ZoomerCommand::TrackPoint{point_id, point_real, point_imag} => {
-            }
-            ZoomerCommand::UntrackPoint{point_id} => {
-            }
-            ZoomerCommand::UntrackAllPoints{} => {
-            }
-        }
-    }
-
-
+    
     if let Some(current_screen) = &context.screen {
-        // go over the sampling size in rows and seats, and sample the colors
-
-        /*info!("zoom: {}, location: {} + {}i"
-        , current_screen.objective_location.zoom_pot
-        , current_screen.objective_location.pos.0
-        , current_screen.objective_location.pos.1
-    );*/
 
         let res = context.screen_size;
 
-        let data_size = current_screen.screen_size.clone();
+        let data_size = current_screen.res.clone();
 
         let data_len = current_screen.pixels.len();
 
