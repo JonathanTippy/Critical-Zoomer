@@ -12,7 +12,7 @@ use rand::prelude::SliceRandom;
 use crate::action::utils::*;
 
 pub(crate) enum WorkerCommand {
-    Replace{frame_info: (SamplingRelativeTransforms, (u32, u32)), context: WorkContext}
+    Replace{frame_info: (ObjectivePosAndZoom, (u32, u32)), context: WorkContext}
 }
 
 
@@ -22,7 +22,7 @@ pub(crate) struct WorkControllerState {
     , zoom_pot: i64
     , worker_res: (u32, u32)
     , percent_completed: u16
-    , last_sampler_location: Option<SamplingRelativeTransforms>
+    , last_sampler_location: Option<ObjectivePosAndZoom>
 }
 
 
@@ -36,7 +36,7 @@ pub(crate) const PIXELS_PER_UNIT: u64 = 1<<(PIXELS_PER_UNIT_POT);
 
 pub async fn run(
     actor: SteadyActorShadow,
-    from_sampler: SteadyRx<(SamplingRelativeTransforms, (u32, u32))>,
+    from_sampler: SteadyRx<(ObjectivePosAndZoom, (u32, u32))>,
     to_worker: SteadyTx<WorkerCommand>,
     state: SteadyState<WorkControllerState>,
 ) -> Result<(), Box<dyn Error>> {
@@ -52,7 +52,7 @@ pub async fn run(
 
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
-    from_sampler: SteadyRx<(SamplingRelativeTransforms, (u32, u32))>,
+    from_sampler: SteadyRx<(ObjectivePosAndZoom, (u32, u32))>,
     to_worker: SteadyTx<WorkerCommand>,
     state: SteadyState<WorkControllerState>,
 ) -> Result<(), Box<dyn Error>> {
@@ -183,7 +183,7 @@ fn get_interlaced_mixmap(res:(u32, u32), size:usize) -> Vec<usize> {
 }
 
 
-fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (SamplingRelativeTransforms, (u32, u32))) -> Option<WorkContext> {
+fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAndZoom, (u32, u32))) -> Option<WorkContext> {
 
     let zoomed = stuff.0.zoom_pot > state.zoom_pot as i32;
 

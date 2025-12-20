@@ -14,7 +14,7 @@ use crate::actor::escaper::*;
 pub(crate) struct ZoomerScreen {
     pub(crate) pixels: Vec<(u8,u8,u8)>
     , pub(crate) screen_size: (u32, u32)
-    , pub(crate) objective_location: SamplingRelativeTransforms
+    , pub(crate) objective_location: ObjectivePosAndZoom
 }
 
 

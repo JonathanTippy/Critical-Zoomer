@@ -20,7 +20,7 @@ pub(crate) enum WorkerCommand {
 pub(crate) struct ResultsPackage {
     pub(crate) results: Vec<CompletedPoint>
     , pub(crate) screen_res: (u32, u32)
-    , pub(crate) location: SamplingRelativeTransforms
+    , pub(crate) location: ObjectivePosAndZoom
     , pub(crate) complete: bool
 }
 
@@ -142,7 +142,7 @@ async fn internal_behavior<A: SteadyActor>(
     Ok(())
 }
 
-fn sample_old_values(old_package: &ResultsPackage, new_location: SamplingRelativeTransforms, new_res: (u32, u32)) -> ResultsPackage {
+fn sample_old_values(old_package: &ResultsPackage, new_location: ObjectivePosAndZoom, new_res: (u32, u32)) -> ResultsPackage {
     let mut returned = ResultsPackage{
         results: vec!()
         , screen_res: new_res

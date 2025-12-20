@@ -12,19 +12,13 @@ use crate::action::utils::*;
 use rug::{Float, Integer};
 use crate::actor::work_controller::PIXELS_PER_UNIT_POT;
 
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct SamplingRelativeTransforms {
-    pub(crate) pos: (i32, i32) // this is in pixels. (pixels is pixels is pixels. (sometimes))
-    , pub(crate) zoom_pot: i64 // this is evaluated after the relative position during sampling
-    , pub(crate) counter: u64
-}
 #[derive(Clone, Debug)]
 pub(crate) struct SamplingContext {
     pub(crate) screen: Option<ZoomerScreen>
-    , pub(crate) res: (u32, u32)
-    , pub(crate) relative_transforms: SamplingRelativeTransforms
-    , pub(crate) mouse_drag_start: Option<MouseDragStart>
+    , pub(crate) screen_size: (u32, u32)
+    , pub(crate) location: ObjectivePosAndZoom
     , pub(crate) updated: bool
+    , pub(crate) mouse_drag_start: Option<(ObjectivePosAndZoom, Pos2)>
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -43,96 +37,89 @@ pub(crate) fn sample(
     let bucket = output_buffer;
     let context = sampling_context;
 
-    let size = context.res;
-    let min_side = min(context.res.0, context.res.1);
+    let size = context.screen_size;
+    let min_side = min(context.screen_size.0, context.screen_size.1);
     // handle commands
 
     for command in &mut command_package {
         match command {
             ZoomerCommand::SetFocus{pixel_x, pixel_y} => {
             }
-            ZoomerCommand::Zoom{pot, center_relative_relative_pos} => {
+            ZoomerCommand::Zoom{pot, center_screenspace_pos} => {
 
-                let factor:f32;
-
-                if *pot > 0 {
-                    factor = (1<<*pot) as f32;
-                } else {
-                    factor =  1.0 / (1<<-*pot) as f32;
-                }
-
-                context.relative_transforms.zoom_pot =
-                    context.relative_transforms.zoom_pot + *pot;
+                /*let center_centered_pos = (
+                    center_screenspace_pos.0 + (context.screen_size.0/2) as i32
+                    , center_screenspace_pos.1 + (context.screen_size.1/2) as i32
+                );*/
 
 
+                // adjust position & zoom based on zooming in 3 steps
+                // step 1: move to zoom center
+                // step 2: zoom
+                // step 3: move back so zoom center falls on same screenspace location
 
+                let pixel_width = IntExp{val: Integer::from(1), exp:-context.location.zoom_pot}.shift(-PIXELS_PER_UNIT_POT);
 
-                if factor > 1.0 {
-                    // adjust position based on zooming (ridiculously hard to think about)
-                    context.relative_transforms.pos = (
-                        (
-                            ((context.relative_transforms.pos.0 as f64) * factor as f64)
-                                - (center_relative_relative_pos.0) as f64
-                        ) as i32
-                        , (
-                            ((context.relative_transforms.pos.1 as f64) * factor as f64 )
-                                - (center_relative_relative_pos.1) as f64
-                        ) as i32
-                    );
+                context.location.pos = (
+                    context.location.pos.0.clone()
+                        + IntExp{val: Integer::from(center_screenspace_pos.0), exp: -context.location.zoom_pot}.shift(-PIXELS_PER_UNIT_POT)
+                        - (pixel_width.clone() >> 1)
+                    , context.location.pos.1.clone()
+                        + IntExp{val: Integer::from(center_screenspace_pos.1), exp: -context.location.zoom_pot }.shift(-PIXELS_PER_UNIT_POT)
+                        - (pixel_width.clone() >> 1)
+                );
 
-                } else {
+                context.location.zoom_pot += *pot;
 
-                    // adjust position based on zooming (ridiculously hard to think about)
-                    context.relative_transforms.pos = (
-                        (
-                            ((context.relative_transforms.pos.0 as f64) * factor as f64)
-                                + (center_relative_relative_pos.0 as f64 * (factor as f64))
-                        ) as i32
-                        , (
-                            ((context.relative_transforms.pos.1 as f64) * factor as f64 )
-                                + (center_relative_relative_pos.1 as f64 * (factor as f64))
-                        ) as i32
-                    );
+                let pixel_width = IntExp{val: Integer::from(1), exp:-context.location.zoom_pot}.shift(-PIXELS_PER_UNIT_POT);
 
-                    // if we are zooming out, drop the smallest bit from the transform.
+                context.location.pos = (
+                    context.location.pos.0.clone()
+                        - IntExp{val: Integer::from(center_screenspace_pos.0), exp: -context.location.zoom_pot}.shift(-PIXELS_PER_UNIT_POT)
+                        + (pixel_width.clone() >> 1)
+                    , context.location.pos.1.clone()
+                        - IntExp{val: Integer::from(center_screenspace_pos.1), exp: -context.location.zoom_pot }.shift(-PIXELS_PER_UNIT_POT)
+                        + (pixel_width.clone() >> 1)
+                );
 
-                    context.relative_transforms.pos = (
-                        context.relative_transforms.pos.0 - context.relative_transforms.pos.0 % 2
-                        , context.relative_transforms.pos.1 - context.relative_transforms.pos.1 % 2
-                    );
-                }
+                // reset mouse drag start to the new screenspace location
 
                 match &context.mouse_drag_start {
                     Some(d) => {
                         context.mouse_drag_start = Some(
-                            MouseDragStart {
-                                screenspace_drag_start: egui::Pos2 {
-                                    x: center_relative_relative_pos.0 as f32
-                                    , y: center_relative_relative_pos.1 as f32
+                            (
+                                ObjectivePosAndZoom{
+                                    pos: context.location.pos.clone()
+                                    , zoom_pot: context.location.zoom_pot
                                 }
-                                , relative_transforms: SamplingRelativeTransforms {
-                                    pos: context.relative_transforms.pos
-                                    , zoom_pot: 0
-                                    , counter: 0
-                                }
-                            });
+                                , egui::Pos2 {
+                                x: center_screenspace_pos.0 as f32
+                                , y: center_screenspace_pos.1 as f32
+                            }
+                            ));
                     }
                     None => {}
                 }
 
+
+                context.updated = true;
+
             }
-            ZoomerCommand::SetZoom{factor} => {
+            ZoomerCommand::SetZoom{pot} => {
+                context.location.zoom_pot = *pot;
+                context.updated = true;
             }
             ZoomerCommand::Move{pixels_x, pixels_y} => {
-                context.relative_transforms.pos = (
-                    context.relative_transforms.pos.0
-                        + *pixels_x, context.relative_transforms.pos.1
-                        + *pixels_y
-                )
+                context.location.pos = (
+                    context.location.pos.0.clone() + IntExp::from(*pixels_x).shift(-context.location.zoom_pot).shift(-PIXELS_PER_UNIT_POT)
+                    , context.location.pos.1.clone() + IntExp::from(*pixels_y).shift(-context.location.zoom_pot).shift(-PIXELS_PER_UNIT_POT)
+                );
+                context.updated = true;
             }
             ZoomerCommand::MoveTo{x, y} => {
-                context.relative_transforms.pos =
-                    (*x, *y);
+                context.location.pos =
+                    (x.clone(), y.clone());
+                context.updated = true;
             }
 
             ZoomerCommand::SetPos{real, imag} => {
@@ -156,9 +143,7 @@ pub(crate) fn sample(
         , current_screen.objective_location.pos.1
     );*/
 
-        // go over the sampling size in rows and seats, and sample the colors
-
-        let res = context.res;
+        let res = context.screen_size;
 
         let data_size = current_screen.screen_size.clone();
 
@@ -166,14 +151,29 @@ pub(crate) fn sample(
 
         let data = &current_screen.pixels;
 
-        let relative_pos = context.relative_transforms.pos;
+        let relative_pos = (
+            current_screen.objective_location.pos.0.clone()-context.location.pos.0.clone()
+            , current_screen.objective_location.pos.1.clone()-context.location.pos.1.clone()
+        );
+
+        let relative_pos_in_pixels:(i32, i32) = (
+            relative_pos.0.clone().shift(context.location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
+            , relative_pos.1.clone().shift(context.location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
+        );
+
+        let relative_zoom = context.location.zoom_pot - current_screen.objective_location.zoom_pot;
+
+        /*let relative_pos_in_pixels = (
+            relative_pos_in_pixels.0 + shift(1, relative_zoom-1)
+            , relative_pos_in_pixels.1 + shift(1, relative_zoom-1)
+        );*/
 
         let factor:f64;
 
-        if context.relative_transforms.zoom_pot > 0 {
-            factor = (1<<context.relative_transforms.zoom_pot) as f64;
+        if relative_zoom > 0 {
+            factor = (1<<relative_zoom) as f64;
         } else {
-            factor =  1.0 / (1<<-context.relative_transforms.zoom_pot) as f64;
+            factor =  1.0 / (1<<-relative_zoom) as f64;
         }
 
         let relative_zoom_recip = ((1.0 / factor) * ((1<<16) as f64)) as u32;
@@ -198,8 +198,8 @@ pub(crate) fn sample(
                         , seat
                         //, res_recip
                         , min_side_recip
-                        , relative_pos
-                        , context.relative_transforms.zoom_pot
+                        , relative_pos_in_pixels
+                        , relative_zoom as i64
                     )
                 );
                 //i+=1;
