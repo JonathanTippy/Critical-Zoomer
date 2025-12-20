@@ -1,7 +1,7 @@
 use std::cmp::min;
 use steady_state::*;
 use crate::action::sampling::{index_from_relative_location, relative_location_i32_row_and_seat, transform_relative_location_i32};
-use crate::action::utils::ObjectivePosAndZoom;
+use crate::action::utils::SamplingRelativeTransforms;
 use crate::action::workshift::*;
 //use crate::actor::work_collector::*;
 use crate::actor::work_controller::*;
@@ -10,13 +10,13 @@ use crate::actor::work_controller::*;
 
 
 pub(crate) struct WorkUpdate {
-    pub(crate) frame_info: Option<(ObjectivePosAndZoom, (u32, u32))>,
+    pub(crate) frame_info: Option<(SamplingRelativeTransforms, (u32, u32))>,
     pub(crate) completed_points: (Vec<(CompletedPoint, usize)>)
 }
 
 #[derive(Clone)]
 pub(crate) struct WorkerState {
-    work_context: Option<(WorkContext, (ObjectivePosAndZoom, (u32, u32)))>
+    work_context: Option<(WorkContext, (SamplingRelativeTransforms, (u32, u32)))>
     , workshift_token_budget: u32
     , iteration_token_cost: u32
     , point_token_cost: u32
