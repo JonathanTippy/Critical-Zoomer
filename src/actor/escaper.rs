@@ -13,7 +13,7 @@ use crate::action::workshift::*;
 pub(crate) struct ZoomerScreen {
     pub(crate) pixels: Vec<(u8,u8,u8)>
     , pub(crate) screen_size: (u32, u32)
-    , pub(crate) objective_location: ObjectivePosAndZoom
+    , pub(crate) objective_location: SamplingRelativeTransforms
 }
 
 #[derive(Clone, Debug)]
@@ -26,7 +26,7 @@ pub(crate) enum ScreenValue {
 pub(crate) struct ZoomerValuesScreen {
     pub(crate) values: Vec<ScreenValue>
     , pub(crate) screen_size: (u32, u32)
-    , pub(crate) objective_location: ObjectivePosAndZoom
+    , pub(crate) objective_location: SamplingRelativeTransforms
 }
 
 

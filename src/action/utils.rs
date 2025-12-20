@@ -33,12 +33,6 @@ pub(crate) fn shift_signed_assume_left(input: i32, shift: i64) -> i32 {
     }
 }*/
 
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct ObjectivePosAndZoom {
-    pub(crate) pos: (IntExp, IntExp)
-    , pub(crate) zoom_pot: i32
-}
-
 
 
 #[derive(Clone, Debug, PartialEq)]
