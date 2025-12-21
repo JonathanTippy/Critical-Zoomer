@@ -24,7 +24,7 @@ pub const DEFAULT_SETTINGS:SettingsState = SettingsState{};
 
 pub const DEFAULT_SETTINGS_WINDOW_CONTEXT:SettingsWindowContext = SettingsWindowContext{
     settings: DEFAULT_SETTINGS
-    , size: egui::vec2(DEFAULT_SETTINGS_WINDOW_RES.0 as f32, DEFAULT_SETTINGS_WINDOW_RES.1 as f32)
+    , size: egui::vec2(DEFAULT_SETTINGS_WINDOW_RES.0 as f64, DEFAULT_SETTINGS_WINDOW_RES.1 as f64)
     , location: None
     , will_close: false
     , settings_updates: None
