@@ -2,6 +2,8 @@ use rug::*;
 use std::cmp::*;
 use std::ops::*;
 
+pub(crate) const INTEXP_WARNING_SIZE:u32 = 100;
+
 #[inline]
 pub(crate) fn zoom_from_pot(zoom: i32) -> f64 {
     if zoom > 0 {(1 << zoom) as f64} else {1.0 / (1<<-zoom) as f64}
@@ -127,6 +129,9 @@ impl Shr<u32> for IntExp {
 impl std::fmt::Display for IntExp {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 
+        if self.val.significant_bits() > INTEXP_WARNING_SIZE {
+            println!("WARMING: intexp passed warning size");
+        }
         if self.exp >= 0 {
             f.write_str(&(self.val.clone()<<self.exp as u32).to_string())?;
             Ok(())
