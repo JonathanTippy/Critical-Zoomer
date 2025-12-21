@@ -34,7 +34,7 @@ pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (800, 480);
 pub(crate) const HOME_POSTION:(i32, i32, i32) = (-2, -2, -2);
 
  //pub(crate) const MIN_PIXELS:u32 = 40; // min_pixels is prioritized over min_fps and should be greater than ~6
-//pub(crate) const MIN_FPS:f64 = 10.0;
+//pub(crate) const MIN_FPS:f32 = 10.0;
 
 /// State struct for the window actor.
 
@@ -90,9 +90,9 @@ pub(crate) struct WindowState {
         , Option<Instant>
     )
     , pub(crate) texturing_things: Vec<(TextureHandle, ColorImage, Vec<Color32>)>
-    //, pub(crate) sampling_resolution_multiplier: f64
+    //, pub(crate) sampling_resolution_multiplier: f32
     , pub(crate) timer: Instant
-    , pub(crate) fps_margin: f64
+    , pub(crate) fps_margin: f32
     , pub(crate) timer2: Instant
 }
 
@@ -129,7 +129,7 @@ async fn internal_behavior<A: SteadyActor>(
     let portable_actor = Arc::new(Mutex::new(actor));
 
     let state = state.lock(|| WindowState{
-        size: egui::vec2(DEFAULT_WINDOW_RES.0 as f64, DEFAULT_WINDOW_RES.1 as f64)
+        size: egui::vec2(DEFAULT_WINDOW_RES.0 as f32, DEFAULT_WINDOW_RES.1 as f32)
         , location: None
         , last_frame_period: None
         , buffers: vec!(vec!(Color32::BLACK;(DEFAULT_WINDOW_RES.0*DEFAULT_WINDOW_RES.1) as usize))
@@ -358,7 +358,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             let image = ColorImage {
                 size: [size.0, size.1],
                 pixels: sampler_buffer,
-                source_size: egui::vec2(size.0 as f64, size.1 as f64)
+                source_size: egui::vec2(size.0 as f32, size.1 as f32)
             };
 
             //info!("took {:.3}ms color imaging", start.elapsed().as_secs_f64()*1000.0);
@@ -456,7 +456,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
                                                 let ypixels:f64 = (target_pixels/aspect_ratio).sqrt();
 
-                                                let res_multiplier:f64 = (ypixels / (state.size.y as f64)) as f64;
+                                                let res_multiplier:f32 = (ypixels / (state.size.y as f64)) as f32;
 
                                                 state.sampling_resolution_multiplier = res_multiplier;
                                             } else if fps > (MIN_FPS + state.fps_margin ) as f64 {
@@ -475,12 +475,12 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
                                                 let ypixels:f64 = (target_pixels/aspect_ratio).sqrt();
 
-                                                let res_multiplier:f64 = (ypixels / (state.size.y as f64)) as f64;
+                                                let res_multiplier:f32 = (ypixels / (state.size.y as f64)) as f32;
 
                                                 state.sampling_resolution_multiplier = res_multiplier;
                                             }
 
-                                            let min_res_mult = std::cmp::max(5, MIN_PIXELS) as f64/std::cmp::min(state.size.x as u32, state.size.y as u32) as f64;
+                                            let min_res_mult = std::cmp::max(5, MIN_PIXELS) as f32/std::cmp::min(state.size.x as u32, state.size.y as u32) as f32;
 
                                             if state.sampling_resolution_multiplier < min_res_mult {
                                                 //info!("PROBLEM: sampling res can't be less than 0.001");
@@ -706,7 +706,7 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
 
     let ppp = ctx.pixels_per_point();
 
-    let min_size = min(state.size.x as u32, state.size.y as u32) as f64;
+    let min_size = min(state.size.x as u32, state.size.y as u32) as f32;
 
     ctx.input(|input_state| {
         if let Some(pos) = input_state.pointer.latest_pos() {
@@ -817,8 +817,8 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
             let c = input_state.pointer.latest_pos().unwrap();
 
             let c = (
-                c.x// * (1<<16) as f64 / min_size
-                , c.y// * (1<<16) as f64 / min_size
+                c.x// * (1<<16) as f32 / min_size
+                , c.y// * (1<<16) as f32 / min_size
             );
 
             returned.0.push(
