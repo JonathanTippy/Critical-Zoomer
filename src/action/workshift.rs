@@ -4,6 +4,8 @@ use rand::Rng;
 use std::time::Instant;
 use std::collections::*;
 use std::cmp::*;
+use std::sync::MutexGuard;
+use steady_state::*;
 use crate::action::utils::*;
 pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
 
@@ -15,11 +17,12 @@ pub(crate) enum Step {Scredge, In, Out, Edge, Random}
 pub(crate) enum Points {
     F32{p:Vec<PointF32>}
 }
-#[derive(Clone, Debug)]
+
 
 pub(crate) struct WorkContext {
     pub(crate) points: Points
-    , pub(crate) completed_points: Vec<(CompletedPoint, usize)>
+    , pub(crate) actor: SteadyActorShadow
+    , pub(crate) completed_points: Option<&mut MutexGuard<Tx<(CompletedPoint, usize)>>>
     , pub(crate) last_update: usize
     , pub(crate) index: usize
     , pub(crate) random_index: usize
@@ -244,7 +247,7 @@ pub(crate) fn workshift_f32(
             match step {
                 Step::In => {
                     point.period = context.in_queue[0].1;
-                    context.completed_points.push((CompletedPoint::Repeats{period: context.in_queue[0].1}, index));
+                    context.actor.try_send(&mut context.completed_points.unwrap(), (CompletedPoint::Repeats{period: context.in_queue[0].1}, index));
                     point.delivered = true;
                     queue_incomplete_neighbors_in(&pos, context.res, points, &mut context.in_queue);
                     let _ =  context.in_queue.pop_front();
@@ -377,7 +380,7 @@ pub(crate) fn workshift_f32(
                 queue_incomplete_neighbors_of_edge(&e.0, &e.1, context.res, points, &mut context.edge_queue);
             }
 
-            context.completed_points.push((completed_point, index));
+            context.actor.try_send(context.completed_points.push((completed_point, index)));
 
 
             context.total_points_today += 1
