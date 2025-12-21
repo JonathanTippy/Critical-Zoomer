@@ -52,7 +52,6 @@ pub(crate) fn sample(
                     , center_screenspace_pos.1 + (context.screen_size.1/2) as i32
                 );*/
 
-
                 // adjust position & zoom based on zooming in 3 steps
                 // step 1: move to zoom center
                 // step 2: zoom
@@ -82,16 +81,32 @@ pub(crate) fn sample(
                         + (pixel_width.clone() >> 1)
                 );
 
-                // reset mouse drag start to the new screenspace location
+                // round position to not be more precise than necessary
 
-                match &context.mouse_drag_start {
+                if *pot < 0 {
+                    context.location.pos = (
+                        context.location.pos.0.clone().round((-*pot) as usize)
+                        , context.location.pos.1.clone().round((-*pot) as usize)
+                    );
+                }
+
+
+                // reset mouse drag start to the new screenspace location
+                // theoretically this is not necessary as objective position
+                // of mouse drag start will always remain attached to mouse
+                // current position.
+                // mouse screenspace position should be invariant under zoom
+                // as the mouse's screenspace position is the zoom center.
+
+                /*match &context.mouse_drag_start {
                     Some(d) => {
                         context.mouse_drag_start = Some(
                             (
-                                ObjectivePosAndZoom{
+                                /*ObjectivePosAndZoom{
                                     pos: context.location.pos.clone()
                                     , zoom_pot: context.location.zoom_pot
-                                }
+                                }*/
+                                d.0.clone()
                                 , egui::Pos2 {
                                 x: center_screenspace_pos.0 as f32
                                 , y: center_screenspace_pos.1 as f32
@@ -99,7 +114,7 @@ pub(crate) fn sample(
                             ));
                     }
                     None => {}
-                }
+                }*/
 
 
                 context.updated = true;

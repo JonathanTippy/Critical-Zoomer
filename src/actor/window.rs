@@ -714,16 +714,7 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
         }
 
         // begin a new drag if neither of the buttons are held and one or both has just been pressed
-        if
-        (input_state.pointer.primary_pressed() && (! input_state.pointer.button_down(egui::PointerButton::Middle)))
-        || (input_state.pointer.button_pressed(egui::PointerButton::Middle) && (! input_state.pointer.primary_down())) {
-            let d = input_state.pointer.latest_pos().unwrap();
-            state.sampling_context.mouse_drag_start = Some(
-                (state.sampling_context.location.clone()
-                 , d
-                )
-            );
-        }
+
 
         match &state.sampling_context.mouse_drag_start {
             Some(start) => {
@@ -735,6 +726,20 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
                     // execute the drag
 
                     let pos = input_state.pointer.latest_pos().unwrap();
+
+                    let offset = (
+                        (start.1.x as i32)// * min_size_recip
+                        , (start.1.y as i32)// * min_size_recip
+                    );
+
+                    let objective_offset:(IntExp, IntExp) = (
+                        IntExp{val:Integer::from(offset.0), exp:0}
+                            .shift(-state.sampling_context.location.zoom_pot)
+                            .shift(-PIXELS_PER_UNIT_POT)
+                        , IntExp{val:Integer::from(offset.1), exp:0}
+                            .shift(-state.sampling_context.location.zoom_pot)
+                            .shift(-PIXELS_PER_UNIT_POT)
+                    );
 
                     // dragging should snap to pixels
 
@@ -758,13 +763,49 @@ fn parse_inputs(ctx:&egui::Context, state: &mut WindowState, sampling_size: (usi
 
                     returned.0.push(
                         ZoomerCommand::MoveTo{
-                            x: drag_start_pos.0 - objective_drag.0
-                            , y: drag_start_pos.1 - objective_drag.1
+                            x: drag_start_pos.0 - objective_drag.0 - objective_offset.0
+                            , y: drag_start_pos.1 - objective_drag.1 - objective_offset.1
                         }
                     );
                 }
             }
-            None => {}
+            None => {
+                if
+                (input_state.pointer.primary_pressed() && (! input_state.pointer.button_down(egui::PointerButton::Middle)))
+                    || (input_state.pointer.button_pressed(egui::PointerButton::Middle) && (! input_state.pointer.primary_down())) {
+                    let d = input_state.pointer.latest_pos().unwrap();
+
+                    let offset = (
+                        (d.x as i32)// * min_size_recip
+                        , (d.y as i32)// * min_size_recip
+                    );
+
+                    let objective_offset:(IntExp, IntExp) = (
+                        IntExp{val:Integer::from(offset.0), exp:0}
+                            .shift(-state.sampling_context.location.zoom_pot)
+                            .shift(-PIXELS_PER_UNIT_POT)
+                        , IntExp{val:Integer::from(offset.1), exp:0}
+                            .shift(-state.sampling_context.location.zoom_pot)
+                            .shift(-PIXELS_PER_UNIT_POT)
+                    );
+
+                    state.sampling_context.mouse_drag_start = Some(
+                        (ObjectivePosAndZoom {
+                            pos: (
+                                state.sampling_context.location.clone().pos.0
+                                + objective_offset.0
+                                , state.sampling_context.location.clone().pos.1
+                                + objective_offset.1
+                                )
+                            , zoom_pot: {
+                                state.sampling_context.location.clone().zoom_pot
+                            }
+                        }
+                         , d
+                        )
+                    );
+                }
+            }
         }
 
         let scroll = input_state.raw_scroll_delta.y;
