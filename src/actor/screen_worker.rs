@@ -11,7 +11,7 @@ use crate::actor::work_controller::*;
 
 pub(crate) struct WorkUpdate {
     pub(crate) frame_info: Option<(ObjectivePosAndZoom, (u32, u32))>,
-    pub(crate) completed_points: (Vec<(CompletedPoint, usize)>)
+    pub(crate) completed_points: (Steck<(CompletedPoint, usize), 1000>)
 }
 
 #[derive(Clone)]
@@ -109,16 +109,16 @@ async fn internal_behavior<A: SteadyActor>(
                     if let Some((old_ctx, old_frame_info)) = &mut state.work_context {
                         let U = work_update(old_ctx);
 
-                        if U.len() > 0 {
+                        if U.len > 0 {
                             actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:U});
                         }
 
                         state.work_context = Some((ctx, frame_info.clone()));
-                        actor.try_send(&mut updates_out, WorkUpdate{frame_info:Some(frame_info), completed_points:vec!()});
+                        actor.try_send(&mut updates_out, WorkUpdate{frame_info:Some(frame_info), completed_points:Steck{stuff: [(CompletedPoint::Dummy{}, 0);1000], len: 0}});
 
                     } else {
                         state.work_context = Some((ctx, frame_info.clone()));
-                        actor.try_send(&mut updates_out, WorkUpdate{frame_info:Some(frame_info), completed_points:vec!()});
+                        actor.try_send(&mut updates_out, WorkUpdate{frame_info:Some(frame_info), completed_points:Steck{stuff: [(CompletedPoint::Dummy{}, 0);1000], len: 0}});
                         //debug!("screen worker got new context: \n{:?}", state.work_context);
                     }
                 }
@@ -149,7 +149,7 @@ async fn internal_behavior<A: SteadyActor>(
         if state.total_workshifts % 1 == 0 {
             if let Some(ctx) = &mut state.work_context {
                 let c = work_update(&mut ctx.0);
-                if c.len() > 0 {
+                if c.len > 0 {
                     actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:c});
                 }
             }
@@ -164,13 +164,12 @@ fn calculate_tokens(state: &mut WorkerState) {
 
 }
 
-fn work_update(ctx: &mut WorkContext) -> Vec<(CompletedPoint, usize)> {
-    let update_start = ctx.last_update;
-    let mut returned = vec!();
-    returned.append(&mut ctx.completed_points);
-    ctx.completed_points = vec!();
+fn work_update(ctx: &mut WorkContext) -> Steck<(CompletedPoint, usize), 1000> {
+    //let update_start = ctx.last_update;
+    let len = ctx.completed_points.len;
+    ctx.completed_points.len = 0;
     ctx.last_update = ctx.index;
-    returned
+    Steck{stuff:ctx.completed_points.stuff, len}
 }
 
 #[inline]
