@@ -152,11 +152,11 @@ pub(crate) fn sample(
     if let Some(current_screen) = &context.screen {
         // go over the sampling size in rows and seats, and sample the colors
 
-        info!("zoom: {}, location: {} + {}i"
+        /*info!("zoom: {}, location: {} + {}i"
         , current_screen.objective_location.zoom_pot
         , current_screen.objective_location.pos.0
         , current_screen.objective_location.pos.1
-    );
+    );*/
 
         let res = context.screen_size;
 
