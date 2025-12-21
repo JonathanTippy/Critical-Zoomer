@@ -4,40 +4,11 @@ use rand::Rng;
 use std::time::Instant;
 use std::collections::*;
 use std::cmp::*;
-use std::mem::MaybeUninit;
 use crate::action::utils::*;
 pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
 
 #[derive(Clone, Debug)]
 pub(crate) enum Step {Scredge, In, Out, Edge, Random}
-
-#[derive(Clone, Debug)]
-pub(crate) struct Steck<T: Copy, const SIZE:usize> {
-    pub(crate) stuff: [T;SIZE]
-    , pub(crate) len: usize
-}
-
-impl<T: Copy, const SIZE:usize> Steck<T, SIZE> {
-    pub(crate) fn try_push(&mut self, thing:T) -> bool {
-        if self.len < SIZE {
-            self.len+=1;
-            self.stuff[self.len-1] = thing;
-            true
-        } else {
-            false
-        }
-    }
-    pub(crate) fn try_pop(&mut self) -> Option<T> {
-        if self.len > 0 {
-            self.len-=1;
-            Some(self.stuff[self.len])
-        } else {
-            None
-        }
-    }
-}
-
-
 
 #[derive(Clone, Debug)]
 
@@ -48,7 +19,7 @@ pub(crate) enum Points {
 
 pub(crate) struct WorkContext {
     pub(crate) points: Points
-    , pub(crate) completed_points: Steck<(CompletedPoint, usize), 1000>
+    , pub(crate) completed_points: Vec<(CompletedPoint, usize)>
     , pub(crate) last_update: usize
     , pub(crate) index: usize
     , pub(crate) random_index: usize
@@ -72,7 +43,7 @@ pub(crate) struct WorkContext {
 }
 
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) enum CompletedPoint {
     Repeats{
         period: u32
@@ -273,14 +244,11 @@ pub(crate) fn workshift_f32(
             match step {
                 Step::In => {
                     point.period = context.in_queue[0].1;
-                    if context.completed_points.try_push((CompletedPoint::Repeats{period: context.in_queue[0].1}, index)) {
-                        point.delivered = true;
-                        queue_incomplete_neighbors_in(&pos, context.res, points, &mut context.in_queue);
-                        let _ =  context.in_queue.pop_front();
-                        continue;
-                    } else {
-                        break;
-                    }
+                    context.completed_points.push((CompletedPoint::Repeats{period: context.in_queue[0].1}, index));
+                    point.delivered = true;
+                    queue_incomplete_neighbors_in(&pos, context.res, points, &mut context.in_queue);
+                    let _ =  context.in_queue.pop_front();
+                    continue;
                 }
                 _ => {}
             }
@@ -409,7 +377,7 @@ pub(crate) fn workshift_f32(
                 queue_incomplete_neighbors_of_edge(&e.0, &e.1, context.res, points, &mut context.edge_queue);
             }
 
-            if context.completed_points.try_push((completed_point, index)) {} else {break}
+            context.completed_points.push((completed_point, index));
 
 
             context.total_points_today += 1
@@ -431,7 +399,7 @@ pub(crate) fn workshift_f32(
                     let completed_point = {
                         CompletedPoint::Repeats{period: point.iterations-point.loop_detection_point.1}
                     };
-                    if context.completed_points.try_push((completed_point, index)) {} else {break};
+                    context.completed_points.push((completed_point, index));
                     continue;
                 }
                 _ => {}

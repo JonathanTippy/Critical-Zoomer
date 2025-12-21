@@ -234,7 +234,7 @@ fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAnd
 
     let work_context = WorkContext {
         points: get_points_f32(stuff.1, state.loc, state.zoom_pot)
-        , completed_points: Steck{stuff: [(CompletedPoint::Dummy{}, 0);1000], len: 0}
+        , completed_points: vec!()
         , index: 0
         , random_index: 0
         , time_created: Instant::now()
