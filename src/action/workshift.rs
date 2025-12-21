@@ -76,8 +76,8 @@ pub(crate) enum CompletedPoint {
     }
     , Escapes{
         escape_time: u32
-        , escape_location: (f64, f64)
-        , start_location: (f64, f64)
+        , escape_location: (f32, f32)
+        , start_location: (f32, f32)
     }
     , Dummy{}
 }
@@ -87,13 +87,13 @@ pub(crate) enum CompletedPoint {
 #[derive(Clone, Debug)]
 
 pub(crate) struct PointF32 {
-    pub(crate) c: (f64, f64)
-    , pub(crate) z: (f64, f64)
-    , pub(crate) real_squared: f64
-    , pub(crate) imag_squared: f64
-    , pub(crate) real_imag: f64
+    pub(crate) c: (f32, f32)
+    , pub(crate) z: (f32, f32)
+    , pub(crate) real_squared: f32
+    , pub(crate) imag_squared: f32
+    , pub(crate) real_imag: f32
     , pub(crate) iterations: u32
-    , pub(crate) loop_detection_point: ((f64, f64), u32)
+    , pub(crate) loop_detection_point: ((f32, f32), u32)
     , pub(crate) done: (bool, bool)
     , pub(crate) delivered: bool
     , pub(crate) period: u32
@@ -109,7 +109,7 @@ pub(crate) fn workshift(
 ) {
     match context.points {
         Points::F32{p: _} => {
-            workshift_f64(
+            workshift_f32(
                 day_token_allowance
                 , iteration_token_cost
                 , point_token_cost
@@ -121,7 +121,7 @@ pub(crate) fn workshift(
 }
 
 
-pub(crate) fn workshift_f64(
+pub(crate) fn workshift_f32(
     day_token_allowance: u32
     , iteration_token_cost: u32
     , point_token_cost: u32
@@ -286,10 +286,10 @@ pub(crate) fn workshift_f64(
 
         match step {
             Step::Scredge => {
-                iterate_max_n_times_f64(point, 4.0, episilon, 1000);
+                iterate_max_n_times_f32(point, 4.0, episilon, 1000);
             }
             Step::Random => {
-                iterate_max_n_times_f64(point, 4.0, episilon, 1000);
+                iterate_max_n_times_f32(point, 4.0, episilon, 1000);
             }
             Step::Out => {
                 let difficulty = context.out_queue[0].1;
@@ -300,7 +300,7 @@ pub(crate) fn workshift_f64(
                         context.out_queue[0].1 = 0;
                     };
                 } else {
-                    iterate_max_n_times_f64(point, 4.0, episilon, 100);
+                    iterate_max_n_times_f32(point, 4.0, episilon, 100);
                 }
             }
             Step::In => {
@@ -312,7 +312,7 @@ pub(crate) fn workshift_f64(
                         context.in_queue[0].1 = 0;
                     };
                 } else {
-                    iterate_max_n_times_f64(point, 4.0, episilon, 100);
+                    iterate_max_n_times_f32(point, 4.0, episilon, 100);
                 }
             }
             Step::Edge => {
@@ -324,7 +324,7 @@ pub(crate) fn workshift_f64(
                         context.edge_queue[0].1 = 0;
                     };
                 } else {
-                    iterate_max_n_times_f64(point, 4.0, episilon, 100);
+                    iterate_max_n_times_f32(point, 4.0, episilon, 100);
                 }
             }
         }
@@ -441,23 +441,23 @@ pub(crate) fn workshift_f64(
 }
 
 #[inline]
-pub(crate) fn iterate_max_n_times_f64 (point: &mut PointF32, r_squared:f64, epsilon:f64, n: u32) {
+pub(crate) fn iterate_max_n_times_f32 (point: &mut PointF32, r_squared:f32, epsilon:f32, n: u32) {
     for i in 0..n {
-        update_point_results_f64(point);
-        point.done.0 = bailout_point_f64(point, r_squared) || (!point.real_squared.is_finite()) || (!point.imag_squared.is_finite());
+        update_point_results_f32(point);
+        point.done.0 = bailout_point_f32(point, r_squared) || (!point.real_squared.is_finite()) || (!point.imag_squared.is_finite());
         if !(point.done.0 || point.done.1) {
-            iterate_f64(point);
+            iterate_f32(point);
         } else {
             break;
         }
-        point.done.1 = loop_check_point_f64(point, epsilon);
+        point.done.1 = loop_check_point_f32(point, epsilon);
         update_loop_check_points(point);
     }
 }
 
 
 #[inline]
-pub(crate) fn timewarp_n_iterations (point: &mut PointF32, r_squared:f64, n: u32) -> bool {
+pub(crate) fn timewarp_n_iterations (point: &mut PointF32, r_squared:f32, n: u32) -> bool {
 
 
     let c = point.c.clone();
@@ -477,9 +477,9 @@ pub(crate) fn timewarp_n_iterations (point: &mut PointF32, r_squared:f64, n: u32
     }
 
     let backup = point.clone();
-    point.z = z; update_point_results_f64(point);
+    point.z = z; update_point_results_f32(point);
 
-    if bailout_point_f64(point, r_squared) || (!point.real_squared.is_finite()) || (!point.imag_squared.is_finite()) {
+    if bailout_point_f32(point, r_squared) || (!point.real_squared.is_finite()) || (!point.imag_squared.is_finite()) {
         *point = backup; false
     } else {
         point.iterations+=n;
@@ -488,7 +488,7 @@ pub(crate) fn timewarp_n_iterations (point: &mut PointF32, r_squared:f64, n: u32
 }
 
 #[inline(always)]
-fn timewarp_4096 ( z:&mut (f64, f64), c:(f64,f64)) {
+fn timewarp_4096 ( z:&mut (f32, f32), c:(f32,f32)) {
     for _ in 0..4096 {
         *z = (
             z.0 * z.0 - z.1 * z.1 + c.0
@@ -498,7 +498,7 @@ fn timewarp_4096 ( z:&mut (f64, f64), c:(f64,f64)) {
 }
 
 #[inline(always)]
-pub(crate) fn iterate_f64 (point: &mut PointF32) {
+pub(crate) fn iterate_f32 (point: &mut PointF32) {
     // move z
     point.z = (
         point.real_squared - point.imag_squared + point.c.0
@@ -508,20 +508,20 @@ pub(crate) fn iterate_f64 (point: &mut PointF32) {
 }
 
 #[inline(always)]
-pub(crate) fn bailout_point_f64 (point: & PointF32, r_squared:f64) -> bool {
+pub(crate) fn bailout_point_f32 (point: & PointF32, r_squared:f32) -> bool {
     // checks
 
     point.real_squared + point.imag_squared > r_squared
 }
 
 #[inline(always)]
-fn points_near (z1: (f64, f64), z2: (f64, f64), e: f64) -> bool {
+fn points_near (z1: (f32, f32), z2: (f32, f32), e: f32) -> bool {
     z1.0 >= (z2.0 - e) && z1.0 <= (z2.0 + e)
     && z1.1 >= (z2.1 - e) && z1.1 <= (z2.1 + e)
 }
 
 #[inline(always)]
-fn loop_check_point_f64 (point: & PointF32, epsilon:f64) -> bool {
+fn loop_check_point_f32 (point: & PointF32, epsilon:f32) -> bool {
     points_near(point.z, point.loop_detection_point.0, epsilon)
 }
 
@@ -533,16 +533,16 @@ fn update_loop_check_points (point: &mut PointF32) {
     }
 }
 
-fn determine_period (point: &mut PointF32, epsilon:f64) -> bool {
+fn determine_period (point: &mut PointF32, epsilon:f32) -> bool {
     let max_period = 1000;
 
     timewarp_n_iterations(point, 4.0, 1000);
 
     point.loop_detection_point = (point.z, point.iterations);
     for _ in 0..max_period {
-        update_point_results_f64(point);
-        iterate_f64(point);
-        if loop_check_point_f64(point, 0.0001) {
+        update_point_results_f32(point);
+        iterate_f32(point);
+        if loop_check_point_f32(point, 0.0001) {
             return true
         }
     }
@@ -550,7 +550,7 @@ fn determine_period (point: &mut PointF32, epsilon:f64) -> bool {
 }
 
 #[inline]
-pub(crate) fn update_point_results_f64(point: &mut PointF32) {
+pub(crate) fn update_point_results_f32(point: &mut PointF32) {
     // update values
     point.real_squared = point.z.0 * point.z.0;
     point.imag_squared = point.z.1 * point.z.1;
