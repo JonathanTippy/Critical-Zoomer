@@ -10,6 +10,35 @@ pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
 #[derive(Clone, Debug)]
 pub(crate) enum Step {Scredge, In, Out, Edge, Random}
 
+
+
+#[derive(Clone, Debug)]
+pub(crate) struct Steck<T: Copy, const SIZE:usize> {
+    pub(crate) stuff: [T;SIZE]
+    , pub(crate) len: usize
+}
+
+impl<T: Copy, const SIZE:usize> Steck<T, SIZE> {
+    pub(crate) fn try_push(&mut self, thing:T) -> bool {
+        if self.len < SIZE {
+            self.len+=1;
+            self.stuff[self.len-1] = thing;
+            true
+        } else {
+            false
+        }
+    }
+    pub(crate) fn try_pop(&mut self) -> Option<T> {
+        if self.len > 0 {
+            self.len-=1;
+            Some(self.stuff[self.len])
+        } else {
+            None
+        }
+    }
+}
+
+
 #[derive(Clone, Debug)]
 
 pub(crate) enum Points {
