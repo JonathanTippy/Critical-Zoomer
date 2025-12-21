@@ -140,7 +140,7 @@ async fn internal_behavior<A: SteadyActor>(
             for i in 0..r.len() {
                 let point = &r[i%len];
                 let pos = pos_from_index(i, v.screen_res.0);
-                let value = get_value_from_point(point, radius as f32, pos, &r, v.screen_res);
+                let value = get_value_from_point(point, radius as f64, pos, &r, v.screen_res);
                 output.push(value);
             }
 
@@ -161,7 +161,7 @@ async fn internal_behavior<A: SteadyActor>(
     Ok(())
 }
 
-fn get_value_from_point(p: &CompletedPoint, r: f32, pos:(i32, i32), points: &Vec<CompletedPoint>, res: (u32, u32)) -> ScreenValue {
+fn get_value_from_point(p: &CompletedPoint, r: f64, pos:(i32, i32), points: &Vec<CompletedPoint>, res: (u32, u32)) -> ScreenValue {
     match p {
         CompletedPoint::Escapes{escape_time: t, escape_location: z, start_location: c} => {
 
@@ -224,9 +224,9 @@ fn get_value_from_point(p: &CompletedPoint, r: f32, pos:(i32, i32), points: &Vec
                 , period: 0
             };
 
-            while !bailout_point_f32(&p, r_squared) {
-                iterate_f32(&mut p);
-                update_point_results_f32(&mut p);
+            while !bailout_point_f64(&p, r_squared) {
+                iterate_f64(&mut p);
+                update_point_results_f64(&mut p);
             }
 
             ScreenValue::Outside{escape_time: p.iterations, in_filament: filament}
@@ -262,7 +262,7 @@ fn get_value_from_point(p: &CompletedPoint, r: f32, pos:(i32, i32), points: &Vec
                 }
             }
 
-            let avg_derivative = ((sum.0 as f32) / 2.0, (sum.1 as f32)/2.0);
+            let avg_derivative = ((sum.0 as f64) / 2.0, (sum.1 as f64)/2.0);
 
 
             if diff_sum < 0 {
@@ -283,7 +283,7 @@ fn diff(a:(i32, i32), b:(i32, i32)) -> (i32, i32) {
     (a.0-b.0, a.1-b.1)
 }
 
-fn get_derivative(pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32), escape_time: u32) -> (f32, f32) {
+fn get_derivative(pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32), escape_time: u32) -> (f64, f64) {
     let neighbors: [(i32, i32);4] =[
         (pos.0, pos.1-1)
         , (pos.0-1, pos.1)
@@ -311,6 +311,6 @@ fn get_derivative(pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32), esc
         }
     }
 
-    let avg_derivative = ((sum.0 as f32) / 2.0, (sum.1 as f32)/2.0);
+    let avg_derivative = ((sum.0 as f64) / 2.0, (sum.1 as f64)/2.0);
     avg_derivative
 }
