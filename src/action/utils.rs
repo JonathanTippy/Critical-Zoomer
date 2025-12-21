@@ -155,6 +155,12 @@ impl IntExp {
             return self >> (-exp) as u32;
         }
     }
+    pub(crate) fn round(self, bits: usize) -> IntExp {
+        IntExp{
+            val: self.val >> 1
+            , exp: self.exp + 1
+        }
+    }
 }
 
 
