@@ -123,18 +123,29 @@ async fn internal_behavior<A: SteadyActor>(
             for i in 0..r.len() {
                 let value = &r[i%len];
                 let color:(u8,u8,u8) = match value {
-                    ScreenValue::Inside{loop_period: p, out_filament: f, smallness:s} => {
-                        let s = ((1.0/s).sin() + 1.0) * 50.0;
+                    ScreenValue::Inside{loop_period: p, out_filament: f, smallness:s, node: n} => {
+                        //let s = ((1.0/s).sin() + 1.0) * 50.0;
+
 
                         if *f {
-                            (dim as u8 + (s as u8), dim as u8, dim as u8+25)
+                            if *n {
+                                (dim as u8, dim as u8 + 100, dim as u8+25)
+                            } else {
+                                (dim as u8, dim as u8, dim as u8+25)
+                            }
                         } else {
-                            (s as u8, 0, 0)
+                            if *n {
+                                (0, 100, 0)
+                            } else {
+                                (0, 0, 0)
+                            }
                         }
 
                     }
-                    ScreenValue::Outside { escape_time: e, in_filament: f, smallness:s } => {
+                    ScreenValue::Outside { escape_time: e, in_filament: f, smallness:s, node: n } => {
                         let s = ((1.0/s).sin() + 1.0) * 25.0;
+
+                        let mut returned:(u8,u8,u8) = (0,0,0);
 
                         if *f {
                             let m = (*e as f64 % u)/u;
@@ -144,7 +155,11 @@ async fn internal_behavior<A: SteadyActor>(
 
                             let b =
                                 (e_sin * brim+dim) as u8;
-                            (b+(s as u8),b,b+25)
+                            returned = (
+                                returned.0 + b+(s as u8)
+                                , returned.1 + b
+                                , returned.2 + b+25
+                                );
                         } else {
                             let m = (*e as f64 % u)/u;
                             let m_pi = m * 6.28 + t_pi;
@@ -153,8 +168,22 @@ async fn internal_behavior<A: SteadyActor>(
 
                             let b =
                                 (e_sin * brim+dim) as u8;
-                            (b+(s as u8),b,b)
+                            returned = (
+                                returned.0+b+(s as u8)
+                                , returned.1+b
+                                , returned.2+b
+                            );
                         }
+                        if *n {
+                            returned = (
+                                returned.0
+                                , returned.1+100
+                                , returned.2
+                            );
+                        }
+
+
+                        returned
                     }
                 };
                 //let color = (255, 255, 255);
