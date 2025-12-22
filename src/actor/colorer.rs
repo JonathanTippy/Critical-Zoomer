@@ -123,15 +123,17 @@ async fn internal_behavior<A: SteadyActor>(
             for i in 0..r.len() {
                 let value = &r[i%len];
                 let color:(u8,u8,u8) = match value {
-                    ScreenValue::Inside{loop_period: p, out_filament: f} => {
+                    ScreenValue::Inside{loop_period: p, out_filament: f, smallness:s} => {
+
+
                         if *f {
-                            (dim as u8, dim as u8, dim as u8+25)
+                            (dim as u8 + ((1.0/ *s) as u8), dim as u8, dim as u8+25)
                         } else {
-                            (0, 0, 0)
+                            (((1.0/ *s) as u8), 0, 0)
                         }
 
                     }
-                    ScreenValue::Outside { escape_time: e, in_filament: f } => {
+                    ScreenValue::Outside { escape_time: e, in_filament: f, smallness:s } => {
                         if *f {
                             let m = (*e as f64 % u)/u;
                             let m_pi = m * 6.28 + t_pi;
@@ -140,7 +142,7 @@ async fn internal_behavior<A: SteadyActor>(
 
                             let b =
                                 (e_sin * brim+dim) as u8;
-                            (b,b,b+25)
+                            (b+((1.0/ *s) as u8),b,b+25)
                         } else {
                             let m = (*e as f64 % u)/u;
                             let m_pi = m * 6.28 + t_pi;
@@ -149,7 +151,7 @@ async fn internal_behavior<A: SteadyActor>(
 
                             let b =
                                 (e_sin * brim+dim) as u8;
-                            (b,b,b)
+                            (b+((1.0/ *s) as u8),b,b)
                         }
                     }
                 };

@@ -176,10 +176,20 @@ impl Into<i32> for IntExp {
         (self.val.shift(self.exp)).to_i32_wrapping()
     }
 }
+impl From<IntExp> for f64 {
+    fn from(a:IntExp) -> f64 {
+        a.val.to_f64() * 2.0f64.powf(a.exp as f64)
+    }
+}
 
-impl Into<f64> for IntExp {
+/*impl Into<f64> for IntExp {
     fn into(self) -> f64 {
-        self.val.to_f64() * 1.0.shift(self.exp)
+        self.val.to_f64() * 2.0f64.powf(self.exp as f64)
+    }
+}*/
+impl Into<f32> for IntExp {
+    fn into(self) -> f32 {
+        self.val.to_f32() * 2.0f32.powf(self.exp as f32)
     }
 }
 
