@@ -6,19 +6,17 @@ use crate::action::workshift::*;
 use crate::action::sampling::*;
 use crate::actor::screen_worker::*;
 
-
-
 use rand::prelude::SliceRandom;
 use crate::action::utils::*;
 
-pub(crate) enum WorkerCommand {
-    Replace{frame_info: (ObjectivePosAndZoom, (u32, u32)), context: WorkContext}
+pub(crate) enum WorkerCommand<T> {
+    Replace{frame_info: (ObjectivePosAndZoom, (u32, u32)), context: WorkContext<T>}
 }
 
 
 pub(crate) struct WorkControllerState {
     mixmap: Vec<usize>
-    , loc: (f64, f64)
+    , loc: (IntExp, IntExp)
     , zoom_pot: i64
     , worker_res: (u32, u32)
     , percent_completed: u16
@@ -27,7 +25,6 @@ pub(crate) struct WorkControllerState {
 
 
 pub(crate) const WORKER_INIT_RES:(u32, u32) = DEFAULT_WINDOW_RES;
-pub(crate) const WORKER_INIT_LOC:(f64, f64) = (0.0, 0.0);
 pub(crate) const WORKER_INIT_ZOOM_POT: i64 = -2;
 pub(crate) const WORKER_INIT_ZOOM:f64 = if WORKER_INIT_ZOOM_POT>0 {(1<<WORKER_INIT_ZOOM_POT) as f64} else {1.0 / (1<<-WORKER_INIT_ZOOM_POT) as f64};
 
@@ -37,7 +34,7 @@ pub(crate) const PIXELS_PER_UNIT: u64 = 1<<(PIXELS_PER_UNIT_POT);
 pub async fn run(
     actor: SteadyActorShadow,
     from_sampler: SteadyRx<(ObjectivePosAndZoom, (u32, u32))>,
-    to_worker: SteadyTx<WorkerCommand>,
+    to_worker: SteadyTx<WorkerCommand<f64>>,
     state: SteadyState<WorkControllerState>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
@@ -50,10 +47,10 @@ pub async fn run(
         .await
 }
 
-async fn internal_behavior<A: SteadyActor>(
+async fn internal_behavior<A: SteadyActor, T:Clone + From<f32> + From<f32> + Clone + From<IntExp> + Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + crate::action::workshift::Finite + crate::action::workshift::Gt + crate::action::workshift::Abs + From<f32> + Into<f64> + Copy>(
     mut actor: A,
     from_sampler: SteadyRx<(ObjectivePosAndZoom, (u32, u32))>,
-    to_worker: SteadyTx<WorkerCommand>,
+    to_worker: SteadyTx<WorkerCommand<T>>,
     state: SteadyState<WorkControllerState>,
 ) -> Result<(), Box<dyn Error>> {
 
@@ -62,7 +59,7 @@ async fn internal_behavior<A: SteadyActor>(
 
     let mut state = state.lock(|| WorkControllerState {
         mixmap: get_random_mixmap((WORKER_INIT_RES.0*WORKER_INIT_RES.1) as usize)
-        , loc: WORKER_INIT_LOC
+        , loc: (IntExp::from(0), IntExp::from(0))
         , zoom_pot: WORKER_INIT_ZOOM_POT
         , worker_res: WORKER_INIT_RES
         , percent_completed: 0
@@ -108,50 +105,56 @@ async fn internal_behavior<A: SteadyActor>(
     Ok(())
 }
 
-fn get_points_f32(res: (u32, u32), loc:(f64, f64), zoom: i64) -> Points {
-    let mut out:Vec<PointF32> = Vec::with_capacity((res.0*res.1) as usize);
+use std::ops::*;
+fn get_points<T: From<f32> + Clone + From<IntExp> + Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + crate::action::workshift::Finite + crate::action::workshift::Gt + crate::action::workshift::Abs + From<f32> + Into<f64> + Copy>
+    (res: (u32, u32), loc:(IntExp, IntExp), zoom: i64) -> Vec<Point<T>> {
+    let mut out:Vec<Point<T>> = Vec::with_capacity((res.0*res.1) as usize);
+
+        let significant_res = PIXELS_PER_UNIT;//min(res.0, res.1);
+
+        let real_center:T = loc.0.into();
+        let imag_center:T = loc.1.into();
+
+
+        let zoom_factor:IntExp;
+
+        if zoom > 0 {
+            zoom_factor = IntExp::from(1) >> (zoom as u32);
+        } else {
+            zoom_factor = IntExp::from(1) << ((-zoom) as u32);
+        }
 
         for row in 0..res.1 {
             for seat in 0..res.0 {
 
-                let significant_res = PIXELS_PER_UNIT;//min(res.0, res.1);
+                let row = row as f32;
+                let seat = seat as f32;
 
-                let real_center:f64 = loc.0;
-                let imag_center:f64 = loc.1;
-
-
-                let zoom_factor:f32;
-
-                if zoom > 0 {
-                    zoom_factor = (1<<zoom) as f32;
-                } else {
-                    zoom_factor =  1.0 / ((1<<-zoom) as f32);
-                }
-
-                let point:(f32, f32) = (
+                let point:(T, T) = (
                     /*(real_center + ((seat as f32 / significant_res as f32 - 0.5) / zoom_factor) as f64) as f32
                     , (imag_center + (-((row as f32 / significant_res as f32 - 0.5) / zoom_factor)) as f64) as f32*/
-                    (real_center + ((seat as f32 / significant_res as f32) / zoom_factor) as f64) as f32
-                    , (imag_center + (-((row as f32 / significant_res as f32) / zoom_factor)) as f64) as f32
+                    real_center + (T::from((seat / significant_res as f32)) * zoom_factor.clone().into())
+                    , imag_center + (T::from(-((row / significant_res as f32))) * zoom_factor.clone().into())
                 );
 
                 out.push(
-                    PointF32{
-                        c: point
-                        , z: point
-                        , real_squared: 0.0
-                        , imag_squared: 0.0
-                        , real_imag: 0.0
+                    Point{
+                        c: point.clone()
+                        , z: point.clone()
+                        , real_squared: 0.0.into()
+                        , imag_squared: 0.0.into()
+                        , real_imag: 0.0.into()
                         , iterations: 0
-                        , loop_detection_point: (point, 1)
+                        , loop_detection_point: (point.clone(), 1)
                         , done: (false, false)
                         , delivered: false
                         , period: 0
+                        , smallness: 100.0
                     }
                 )
             }
         }
-    Points::F32{p:out}
+    out
 }
 
 
@@ -183,7 +186,7 @@ fn get_interlaced_mixmap(res:(u32, u32), size:usize) -> Vec<usize> {
 }
 
 
-fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAndZoom, (u32, u32))) -> Option<WorkContext> {
+fn handle_sampler_stuff<T: Clone + From<f32> + From<f32> + Clone + From<IntExp> + Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + crate::action::workshift::Finite + crate::action::workshift::Gt + crate::action::workshift::Abs + From<f32> + Into<f64> + Copy>(state: &mut WorkControllerState, stuff: (ObjectivePosAndZoom, (u32, u32))) -> Option<WorkContext<T>> {
 
     let zoomed = stuff.0.zoom_pot > state.zoom_pot as i32;
 
@@ -207,8 +210,8 @@ fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAnd
     );
 
     state.loc = (
-        state.loc.0
-        , -state.loc.1
+        state.loc.0.clone()
+        , IntExp::from(0)-state.loc.1.clone()
         );
 
     state.zoom_pot = obj.zoom_pot as i64;
@@ -233,7 +236,7 @@ fn handle_sampler_stuff(state: &mut WorkControllerState, stuff: (ObjectivePosAnd
     edges.shuffle(&mut rng);
 
     let work_context = WorkContext {
-        points: get_points_f32(stuff.1, state.loc, state.zoom_pot)
+        points: get_points(stuff.1, state.loc.clone(), state.zoom_pot)
         , completed_points: vec!()
         , index: 0
         , random_index: 0

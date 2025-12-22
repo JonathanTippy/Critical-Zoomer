@@ -10,6 +10,7 @@ pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
 #[derive(Clone, Debug)]
 pub(crate) enum Step {Scredge, In, Out, Edge, Random}
 
+
 #[derive(Clone, Debug)]
 pub(crate) struct Stec<T: Copy, const SIZE:usize> {
     pub(crate) stuff: [T;SIZE]
@@ -36,15 +37,9 @@ impl<T: Copy, const SIZE:usize> Stec<T, SIZE> {
     }
 }
 
-
 #[derive(Clone, Debug)]
-pub(crate) enum Points {
-    F32{p:Vec<PointF32>}
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct WorkContext {
-    pub(crate) points: Points
+pub(crate) struct WorkContext<T> {
+    pub(crate) points: Vec<Point<T>>
     , pub(crate) completed_points: Vec<(CompletedPoint, usize)>
     , pub(crate) last_update: usize
     , pub(crate) index: usize
@@ -72,12 +67,14 @@ pub(crate) struct WorkContext {
 #[derive(Clone, Debug)]
 pub(crate) enum CompletedPoint {
     Repeats{
-        period: u32
+        period: u32,
+        smallness: f32
     }
     , Escapes{
         escape_time: u32
         , escape_location: (f32, f32)
         , start_location: (f32, f32)
+        , smallness: f32
     }
     , Dummy{}
 }
@@ -86,47 +83,58 @@ pub(crate) enum CompletedPoint {
 //pub(crate) const SpeedTestPoint
 #[derive(Clone, Debug)]
 
-pub(crate) struct PointF32 {
-    pub(crate) c: (f32, f32)
-    , pub(crate) z: (f32, f32)
-    , pub(crate) real_squared: f32
-    , pub(crate) imag_squared: f32
-    , pub(crate) real_imag: f32
+pub(crate) struct Point<T> {
+    pub(crate) c: (T, T)
+    , pub(crate) z: (T, T)
+    , pub(crate) real_squared: T
+    , pub(crate) imag_squared: T
+    , pub(crate) real_imag: T
     , pub(crate) iterations: u32
-    , pub(crate) loop_detection_point: ((f32, f32), u32)
+    , pub(crate) loop_detection_point: ((T, T), u32)
     , pub(crate) done: (bool, bool)
     , pub(crate) delivered: bool
     , pub(crate) period: u32
+    , pub(crate) smallness: f32
 }
 
 
-pub(crate) fn workshift(
-    day_token_allowance: u32
-    , iteration_token_cost: u32
-    , point_token_cost: u32
-    , bout_token_cost: u32
-    , context: &mut WorkContext
-) {
-    match context.points {
-        Points::F32{p: _} => {
-            workshift_f32(
-                day_token_allowance
-                , iteration_token_cost
-                , point_token_cost
-                , bout_token_cost
-                , context
-            )
-        }
+
+
+pub trait Abs {
+    fn abs(self) -> Self;
+}
+impl Abs for f32 {
+    fn abs(self) -> Self {
+        self.abs()
+    }
+}
+impl Abs for f64 {
+    fn abs(self) -> Self {
+        self.abs()
+    }
+}
+pub trait Gt {
+    fn gt(self, a:Self) -> bool;
+}
+
+impl Gt for f32 {
+    fn gt(self, a:Self) -> bool {
+        self > a
+    }
+}
+impl Gt for f64 {
+    fn gt(self, a:Self) -> bool {
+        self > a
     }
 }
 
 
-pub(crate) fn workshift_f32(
+pub(crate) fn workshift<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f64> + PartialOrd + Finite + Gt + Abs + From<f32> + Into<f64> + Copy>(
     day_token_allowance: u32
     , iteration_token_cost: u32
     , point_token_cost: u32
     , bout_token_cost: u32
-    , context: &mut WorkContext
+    , context: &mut WorkContext<T>
 ) {
 
     context.time_workshift_started = Instant::now();
@@ -138,13 +146,11 @@ pub(crate) fn workshift_f32(
     context.spent_tokens_today = 0;
 
 
-    let points = match &mut context.points {
-        Points::F32 { p} => {p}
-    };
-    let episilon = (points[0].c.0 - points[1].c.0).abs() / 64.0;
+
+    let episilon = (context.points[0].c.0 - context.points[1].c.0).abs() * (T::from(1.0 / 64.0));
 
 
-    let total_points = points.len();
+    let total_points = context.points.len();
     context.random_index = context.random_map[min(context.index, total_points-1)];
 
 
@@ -240,7 +246,7 @@ pub(crate) fn workshift_f32(
 
         let index = index_from_pos(pos, context.res.0);
 
-        let point = &mut points[index];
+        let point = &mut context.points[index];
 
         let pos = pos.clone();
 
@@ -267,17 +273,17 @@ pub(crate) fn workshift_f32(
         }
 
         //if context.workshifts > 100 {
-            match step {
+            /*match step {
                 Step::In => {
                     point.period = context.in_queue[0].1;
                     context.completed_points.push((CompletedPoint::Repeats{period: context.in_queue[0].1}, index));
                     point.delivered = true;
-                    queue_incomplete_neighbors_in(&pos, context.res, points, &mut context.in_queue);
+                    queue_incomplete_neighbors_in(&pos, context.res, &context.points, &mut context.in_queue);
                     let _ =  context.in_queue.pop_front();
                     continue;
                 }
                 _ => {}
-            }
+            }*/
         //}
 
 
@@ -286,21 +292,21 @@ pub(crate) fn workshift_f32(
 
         match step {
             Step::Scredge => {
-                iterate_max_n_times_f32(point, 4.0, episilon, 1000);
+                iterate_max_n_times(point, 4.0f32.into(), episilon, 1000);
             }
             Step::Random => {
-                iterate_max_n_times_f32(point, 4.0, episilon, 1000);
+                iterate_max_n_times(point, 4.0f32.into(), episilon, 1000);
             }
             Step::Out => {
                 let difficulty = context.out_queue[0].1;
                 let eta = difficulty as i32 - point.iterations as i32;
                 if eta > 2000 {
                     let warp = min(eta/2, 1000000);
-                    if !timewarp_n_iterations(point, 4.0, warp as u32) {
+                    if !timewarp_n_iterations(point, 4.0f32.into(), warp as u32) {
                         context.out_queue[0].1 = 0;
                     };
                 } else {
-                    iterate_max_n_times_f32(point, 4.0, episilon, 100);
+                    iterate_max_n_times(point, 4.0f32.into(), episilon, 100);
                 }
             }
             Step::In => {
@@ -308,11 +314,11 @@ pub(crate) fn workshift_f32(
                 let eta = difficulty as i32 - point.iterations as i32;
                 if eta > 2000 {
                     let warp = min(eta/2, 1000000);
-                    if !timewarp_n_iterations(point, 4.0, warp as u32) {
+                    if !timewarp_n_iterations(point, 4.0f32.into(), warp as u32) {
                         context.in_queue[0].1 = 0;
                     };
                 } else {
-                    iterate_max_n_times_f32(point, 4.0, episilon, 100);
+                    iterate_max_n_times(point, 4.0f32.into(), episilon, 100);
                 }
             }
             Step::Edge => {
@@ -320,11 +326,11 @@ pub(crate) fn workshift_f32(
                 let eta = difficulty as i32 - point.iterations as i32;
                 if eta > 2000 {
                     let warp = min(eta/2, 10000000);
-                    if !timewarp_n_iterations(point, 4.0, warp as u32) {
+                    if !timewarp_n_iterations(point, 4.0f32.into(), warp as u32) {
                         context.edge_queue[0].1 = 0;
                     };
                 } else {
-                    iterate_max_n_times_f32(point, 4.0, episilon, 100);
+                    iterate_max_n_times(point, 4.0f32.into(), episilon, 100);
                 }
             }
         }
@@ -382,25 +388,26 @@ pub(crate) fn workshift_f32(
                 let raw_period = point.iterations-point.loop_detection_point.1;
                 let returned = if determine_period(point, episilon) {
                     point.period = point.iterations-point.loop_detection_point.1;
-                    CompletedPoint::Repeats{period: point.period}
+                    CompletedPoint::Repeats{period: point.period, smallness: point.smallness.sqrt()}
                 } else {
                     point.period = raw_period;
-                    CompletedPoint::Repeats{period: point.period}
+                    CompletedPoint::Repeats{period: point.period, smallness: point.smallness.sqrt()}
                 };
-                queue_incomplete_neighbors_in(&pos, context.res, points, &mut context.in_queue);
+                queue_incomplete_neighbors_in(&pos, context.res, &context.points, &mut context.in_queue);
                 returned
             } else {
                 let result = CompletedPoint::Escapes {
                     escape_time: point.iterations
-                    , escape_location: point.z
-                    , start_location: point.c
+                    , escape_location: (point.z.0.into() as f32, point.z.1.into() as f32)
+                    , start_location: (point.c.0.into() as f32, point.c.1.into() as f32)
+                    , smallness: point.smallness.sqrt()
                 };
-                queue_incomplete_neighbors(&pos, context.res, points, &mut context.out_queue);
+                queue_incomplete_neighbors(&pos, context.res, &context.points, &mut context.out_queue);
                 result
             };
-            if let Some(e) = point_is_edge(&pos, context.res, points) {
+            if let Some(e) = point_is_edge(&pos, context.res, &context.points) {
                 //context.edge_queue.clear();
-                queue_incomplete_neighbors_of_edge(&e.0, &e.1, context.res, points, &mut context.edge_queue);
+                queue_incomplete_neighbors_of_edge(&e.0, &e.1, context.res, &context.points, &mut context.edge_queue);
             }
 
             context.completed_points.push((completed_point, index));
@@ -423,7 +430,7 @@ pub(crate) fn workshift_f32(
                     //let pos = context.scredge_poses.pop_front().unwrap();
                     //context.scredge_poses.push_back(pos);
                     let completed_point = {
-                        CompletedPoint::Repeats{period: point.iterations-point.loop_detection_point.1}
+                        CompletedPoint::Repeats{period: point.iterations-point.loop_detection_point.1, smallness: point.smallness.sqrt()}
                     };
                     context.completed_points.push((completed_point, index));
                     continue;
@@ -441,23 +448,38 @@ pub(crate) fn workshift_f32(
 }
 
 #[inline]
-pub(crate) fn iterate_max_n_times_f32 (point: &mut PointF32, r_squared:f32, epsilon:f32, n: u32) {
+pub(crate) fn iterate_max_n_times<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Into<f64>+ PartialOrd + Gt +From<f32>+ Copy> (point: &mut Point<T>, r_squared:T, epsilon:T, n: u32) {
     for i in 0..n {
-        update_point_results_f32(point);
-        point.done.0 = bailout_point_f32(point, r_squared) || (!point.real_squared.is_finite()) || (!point.imag_squared.is_finite());
+        update_point_results(point);
+        point.done.0 = bailout_point(point, r_squared);// || (!point.real_squared.is_finite()) || (!point.imag_squared.is_finite());
         if !(point.done.0 || point.done.1) {
-            iterate_f32(point);
+            iterate(point);
         } else {
             break;
         }
-        point.done.1 = loop_check_point_f32(point, epsilon);
+        point.done.1 = loop_check_point(point, epsilon);
         update_loop_check_points(point);
     }
 }
 
 
+pub trait Finite {
+    fn is_finite(self) -> bool;
+}
+impl Finite for f32 {
+    fn is_finite(self) -> bool {
+        self.is_finite()
+    }
+}
+impl Finite for f64 {
+    fn is_finite(self) -> bool {
+        self.is_finite()
+    }
+}
+
+
 #[inline]
-pub(crate) fn timewarp_n_iterations (point: &mut PointF32, r_squared:f32, n: u32) -> bool {
+pub(crate) fn timewarp_n_iterations<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + Into<f64>+ Finite + From<f32> + Gt + Copy> (point: &mut Point<T>, r_squared:T, n: u32) -> bool {
 
 
     let c = point.c.clone();
@@ -472,14 +494,14 @@ pub(crate) fn timewarp_n_iterations (point: &mut PointF32, r_squared:f32, n: u32
     for _ in 0..change {
         z = (
             z.0 * z.0 - z.1 * z.1 + c.0
-            , 2.0 * z.0 * z.1 + c.1
+            , T::from(2.0.into()) * z.0 * z.1 + c.1
         );
     }
 
     let backup = point.clone();
-    point.z = z; update_point_results_f32(point);
+    point.z = z; update_point_results(point);
 
-    if bailout_point_f32(point, r_squared) || (!point.real_squared.is_finite()) || (!point.imag_squared.is_finite()) {
+    if bailout_point(point, r_squared) || (!point.real_squared.is_finite()) || (!point.imag_squared.is_finite()) {
         *point = backup; false
     } else {
         point.iterations+=n;
@@ -488,61 +510,64 @@ pub(crate) fn timewarp_n_iterations (point: &mut PointF32, r_squared:f32, n: u32
 }
 
 #[inline(always)]
-fn timewarp_4096 ( z:&mut (f32, f32), c:(f32,f32)) {
+fn timewarp_4096<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + From<f32> + Copy> ( z:&mut (T, T), c:(T,T)) {
     for _ in 0..4096 {
         *z = (
             z.0 * z.0 - z.1 * z.1 + c.0
-            , 2.0 * z.0 * z.1 + c.1
+            , T::from(2.0f32.into()) * z.0 * z.1 + c.1
         );
     }
 }
 
+use std::ops::*;
+
 #[inline(always)]
-pub(crate) fn iterate_f32 (point: &mut PointF32) {
+pub(crate) fn iterate<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + From<f32> + Copy> (point: &mut Point<T>) {
     // move z
     point.z = (
         point.real_squared - point.imag_squared + point.c.0
-        , 2.0 * point.real_imag + point.c.1
+        , T::from(2.0f32.into()) * point.real_imag + point.c.1
     );
     point.iterations+=1;
 }
 
+use std::cmp::*;
 #[inline(always)]
-pub(crate) fn bailout_point_f32 (point: & PointF32, r_squared:f32) -> bool {
+pub(crate) fn bailout_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Gt + PartialOrd + Copy> (point: & Point<T>, r_squared:T) -> bool {
     // checks
 
     point.real_squared + point.imag_squared > r_squared
 }
 
 #[inline(always)]
-fn points_near (z1: (f32, f32), z2: (f32, f32), e: f32) -> bool {
+fn points_near<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + Copy> (z1: (T, T), z2: (T, T), e: T) -> bool {
     z1.0 >= (z2.0 - e) && z1.0 <= (z2.0 + e)
     && z1.1 >= (z2.1 - e) && z1.1 <= (z2.1 + e)
 }
 
 #[inline(always)]
-fn loop_check_point_f32 (point: & PointF32, epsilon:f32) -> bool {
+fn loop_check_point<T:Sub<Output=T> + Add<Output=T> + PartialOrd + Mul<Output=T> + Copy> (point: & Point<T>, epsilon:T) -> bool {
     points_near(point.z, point.loop_detection_point.0, epsilon)
 }
 
 #[inline(always)]
-fn update_loop_check_points (point: &mut PointF32) {
+fn update_loop_check_points<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Copy> (point: &mut Point<T>) {
 
     if point.iterations >= point.loop_detection_point.1 << 1 {
         point.loop_detection_point = (point.z, point.iterations);
     }
 }
 
-fn determine_period (point: &mut PointF32, epsilon:f32) -> bool {
+fn determine_period<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Gt + Finite + PartialOrd + Into<f64> +From<f32> + Copy> (point: &mut Point<T>, epsilon:T) -> bool {
     let max_period = 1000;
 
-    timewarp_n_iterations(point, 4.0, 1000);
+    timewarp_n_iterations(point, 4.0f32.into(), 10000);
 
     point.loop_detection_point = (point.z, point.iterations);
     for _ in 0..max_period {
-        update_point_results_f32(point);
-        iterate_f32(point);
-        if loop_check_point_f32(point, 0.0001) {
+        update_point_results(point);
+        iterate(point);
+        if loop_check_point(point, epsilon) {
             return true
         }
     }
@@ -550,11 +575,14 @@ fn determine_period (point: &mut PointF32, epsilon:f32) -> bool {
 }
 
 #[inline]
-pub(crate) fn update_point_results_f32(point: &mut PointF32) {
+pub(crate) fn update_point_results<T:Sub<Output=T> + Add<Output=T> + Into<f64> + Mul<Output=T> + Copy>(point: &mut Point<T>) {
     // update values
     point.real_squared = point.z.0 * point.z.0;
     point.imag_squared = point.z.1 * point.z.1;
     point.real_imag = point.z.0 * point.z.1;
+    let rad = <T as Into<f64>>::into(point.real_squared)as f32 + <T as Into<f64>>::into(point.imag_squared) as f32;
+    if rad < point.smallness {point.smallness=rad}
+
 }
 
 #[inline]
@@ -566,7 +594,7 @@ pub(crate) fn pos_from_index(i: usize, wid:u32) -> (i32, i32) {
     (i as i32 % wid as i32, i as i32/wid as i32)
 }
 
-pub(crate) fn queue_incomplete_neighbors(pos:&(i32, i32), res: (u32, u32), points: &Vec<PointF32>, queue: &mut VecDeque<((i32, i32), u32)>) {
+pub(crate) fn queue_incomplete_neighbors<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Copy>(pos:&(i32, i32), res: (u32, u32), points: &Vec<Point<T>>, queue: &mut VecDeque<((i32, i32), u32)>) {
 
     let difficulty = points[index_from_pos(pos, res.0)].iterations;
 
@@ -592,7 +620,7 @@ pub(crate) fn queue_incomplete_neighbors(pos:&(i32, i32), res: (u32, u32), point
     }
 }
 
-pub(crate) fn queue_incomplete_neighbors_in(pos:&(i32, i32), res: (u32, u32), points: &Vec<PointF32>, queue: &mut VecDeque<((i32, i32), u32)>) {
+pub(crate) fn queue_incomplete_neighbors_in<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Copy>(pos:&(i32, i32), res: (u32, u32), points: &Vec<Point<T>>, queue: &mut VecDeque<((i32, i32), u32)>) {
 
     let period = points[index_from_pos(&pos, res.0)].period;
 
@@ -618,7 +646,7 @@ pub(crate) fn queue_incomplete_neighbors_in(pos:&(i32, i32), res: (u32, u32), po
     }
 }
 
-pub(crate) fn point_is_edge(pos:&(i32, i32), res: (u32, u32), points: &Vec<PointF32>) -> Option<((i32, i32), (i32, i32))> {
+pub(crate) fn point_is_edge<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Copy> (pos:&(i32, i32), res: (u32, u32), points: &Vec<Point<T>>) -> Option<((i32, i32), (i32, i32))> {
     let neighbors: [(i32, i32);4] = [
         (pos.0+1, pos.1)
         , (pos.0-1, pos.1)
@@ -650,7 +678,7 @@ pub(crate) fn point_is_edge(pos:&(i32, i32), res: (u32, u32), points: &Vec<Point
     None
 }
 
-pub(crate) fn queue_incomplete_neighbors_of_edge(pos1:&(i32, i32), pos2:&(i32, i32), res: (u32, u32), points: &Vec<PointF32>, queue: &mut VecDeque<((i32, i32), u32)>) {
+pub(crate) fn queue_incomplete_neighbors_of_edge<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Copy>(pos1:&(i32, i32), pos2:&(i32, i32), res: (u32, u32), points: &Vec<Point<T>>, queue: &mut VecDeque<((i32, i32), u32)>) {
 
     let difficulty = points[index_from_pos(pos1, res.0)].iterations;
 

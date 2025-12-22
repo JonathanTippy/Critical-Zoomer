@@ -19,8 +19,8 @@ pub(crate) struct ZoomerScreen {
 #[derive(Clone, Debug)]
 
 pub(crate) enum ScreenValue {
-    Outside{escape_time: u32, in_filament: bool}
-    , Inside{loop_period: u32, out_filament: bool}
+    Outside{escape_time: u32, in_filament: bool, smallness:f32}
+    , Inside{loop_period: u32, out_filament: bool, smallness:f32}
 }
 
 pub(crate) struct ZoomerValuesScreen {
@@ -163,7 +163,7 @@ async fn internal_behavior<A: SteadyActor>(
 
 fn get_value_from_point(p: &CompletedPoint, r: f32, pos:(i32, i32), points: &Vec<CompletedPoint>, res: (u32, u32)) -> ScreenValue {
     match p {
-        CompletedPoint::Escapes{escape_time: t, escape_location: z, start_location: c} => {
+        CompletedPoint::Escapes{escape_time: t, escape_location: z, start_location: c , smallness:s} => {
 
             let neighbors: [(i32, i32);4] =[
                 (pos.0, pos.1-1)
@@ -182,8 +182,8 @@ fn get_value_from_point(p: &CompletedPoint, r: f32, pos:(i32, i32), points: &Vec
                         && n.1 >= 0 && n.1 <= res.1 as i32 - 1
                 ) {
                     match points[index_from_pos(&n, res.0)] {
-                        CompletedPoint::Repeats{period: np} => {}
-                        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c} => {
+                        CompletedPoint::Repeats{period: np, smallness:s} => {}
+                        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {
                             
                             let difference = (nt as i32)-(*t as i32);
                             let direction = diff(n, pos);
@@ -211,7 +211,7 @@ fn get_value_from_point(p: &CompletedPoint, r: f32, pos:(i32, i32), points: &Vec
             }
 
             let r_squared = r*r;
-            let mut p = PointF32{
+            let mut p = Point{
                 c: *c
                 , z: *z
                 , real_squared: z.0 * z.0
@@ -222,16 +222,17 @@ fn get_value_from_point(p: &CompletedPoint, r: f32, pos:(i32, i32), points: &Vec
                 , done: (false, false)
                 , delivered: false
                 , period: 0
+                , smallness:*s
             };
 
-            while !bailout_point_f32(&p, r_squared) {
-                iterate_f32(&mut p);
-                update_point_results_f32(&mut p);
+            while !bailout_point(&p, r_squared) {
+                iterate(&mut p);
+                update_point_results(&mut p);
             }
 
-            ScreenValue::Outside{escape_time: p.iterations, in_filament: filament}
+            ScreenValue::Outside{escape_time: p.iterations, in_filament: filament, smallness:*s}
         }
-        CompletedPoint::Repeats{period: p} => {
+        CompletedPoint::Repeats{period: p, smallness:s} => {
             let neighbors: [(i32, i32);4] =[
                 (pos.0, pos.1-1)
                 , (pos.0-1, pos.1)
@@ -249,14 +250,14 @@ fn get_value_from_point(p: &CompletedPoint, r: f32, pos:(i32, i32), points: &Vec
                         && n.1 >= 0 && n.1 <= res.1 as i32 - 1
                 ) {
                     match points[index_from_pos(&n, res.0)] {
-                        CompletedPoint::Repeats{period: np} => {
+                        CompletedPoint::Repeats{period: np, smallness:s} => {
                             let difference = (np as i32)-(*p as i32);
                             diff_sum+=difference;
                             let direction = diff(n, pos);
                             let derivative = (direction.0 * difference, direction.1 * difference);
                             sum = (sum.0+derivative.0, sum.1+derivative.1);
                         }
-                        CompletedPoint::Escapes{escape_time: t, escape_location: z, start_location: c} => {}
+                        CompletedPoint::Escapes{escape_time: t, escape_location: z, start_location: c, smallness:s} => {}
                         CompletedPoint::Dummy{} => {}
                     }
                 }
@@ -266,15 +267,15 @@ fn get_value_from_point(p: &CompletedPoint, r: f32, pos:(i32, i32), points: &Vec
 
 
             if diff_sum < 0 {
-                ScreenValue::Inside{loop_period:*p, out_filament: true}
+                ScreenValue::Inside{loop_period:*p, out_filament: true, smallness:*s}
             } else {
-                ScreenValue::Inside{loop_period:*p, out_filament: false}
+                ScreenValue::Inside{loop_period:*p, out_filament: false, smallness:*s}
             }
 
         }
         CompletedPoint::Dummy{} => {
             //panic!("completed point was not completed");
-            ScreenValue::Inside{loop_period:0, out_filament:false}
+            ScreenValue::Inside{loop_period:0, out_filament:false, smallness:100.0}
         }
     }
 }
@@ -299,8 +300,8 @@ fn get_derivative(pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32), esc
                 && n.1 >= 0 && n.1 <= res.1 as i32 - 1
         ) {
             match points[index_from_pos(&n, res.0)] {
-                CompletedPoint::Repeats{period: np} => {}
-                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c} => {
+                CompletedPoint::Repeats{period: np, smallness:s} => {}
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {
                     let difference = (nt as i32)-(escape_time as i32);
                     let direction = diff(n, pos);
                     let derivative = (direction.0 * difference, direction.1 * difference);
