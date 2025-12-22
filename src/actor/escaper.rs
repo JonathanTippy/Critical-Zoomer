@@ -19,8 +19,8 @@ pub(crate) struct ZoomerScreen {
 #[derive(Clone, Debug)]
 
 pub(crate) enum ScreenValue {
-    Outside{escape_time: u32, in_filament: bool, smallness:f32}
-    , Inside{loop_period: u32, out_filament: bool, smallness:f32}
+    Outside{escape_time: u32, in_filament: bool, smallness:f32, node: bool}
+    , Inside{loop_period: u32, out_filament: bool, smallness:f32, node: bool}
 }
 
 pub(crate) struct ZoomerValuesScreen {
@@ -230,7 +230,7 @@ fn get_value_from_point(p: &CompletedPoint, r: f32, pos:(i32, i32), points: &Vec
                 update_point_results(&mut p);
             }
 
-            ScreenValue::Outside{escape_time: p.iterations, in_filament: filament, smallness:*s}
+            ScreenValue::Outside{escape_time: p.iterations, in_filament: filament, smallness:*s, node: is_node(pos, points, res)}
         }
         CompletedPoint::Repeats{period: p, smallness:s} => {
             let neighbors: [(i32, i32);4] =[
@@ -267,15 +267,15 @@ fn get_value_from_point(p: &CompletedPoint, r: f32, pos:(i32, i32), points: &Vec
 
 
             if diff_sum < 0 {
-                ScreenValue::Inside{loop_period:*p, out_filament: true, smallness:*s}
+                ScreenValue::Inside{loop_period:*p, out_filament: true, smallness:*s, node: is_node(pos, points, res)}
             } else {
-                ScreenValue::Inside{loop_period:*p, out_filament: false, smallness:*s}
+                ScreenValue::Inside{loop_period:*p, out_filament: false, smallness:*s, node: is_node(pos, points, res)}
             }
 
         }
         CompletedPoint::Dummy{} => {
             //panic!("completed point was not completed");
-            ScreenValue::Inside{loop_period:0, out_filament:false, smallness:100.0}
+            ScreenValue::Inside{loop_period:0, out_filament:false, smallness:100.0, node: is_node(pos, points, res)}
         }
     }
 }
@@ -314,4 +314,92 @@ fn get_derivative(pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32), esc
 
     let avg_derivative = ((sum.0 as f32) / 2.0, (sum.1 as f32)/2.0);
     avg_derivative
+}
+
+fn is_node(pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32)) -> bool {
+
+    let s = match points[index_from_pos(&pos, res.0)] {
+        CompletedPoint::Repeats{period: np, smallness:s} => {s}
+        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
+        CompletedPoint::Dummy{} => {100.0}
+    };
+
+
+    let neighbors: [(i32, i32);8] =[
+        (pos.0, pos.1-1)
+        , (pos.0-1, pos.1)
+        , (pos.0, pos.1+1)
+        , (pos.0+1, pos.1)
+        , (pos.0-1, pos.1-1)
+        , (pos.0+1, pos.1+1)
+        , (pos.0-1, pos.1+1)
+        , (pos.0+1, pos.1-1)
+    ];
+
+    let mut sign:(Option<i32>, Option<i32>, Option<i32>, Option<i32>) = (None, None, None, None);
+    let mut node = true;
+    //let derivative = get_derivative(pos, points, res, *t);
+
+    for n in neighbors {
+        if (
+            n.0 >= 0 && n.0 <= res.0 as i32 - 1
+                && n.1 >= 0 && n.1 <= res.1 as i32 - 1
+        ) {
+
+            let ns = match points[index_from_pos(&n, res.0)] {
+                CompletedPoint::Repeats{period: np, smallness:s} => {s}
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
+                CompletedPoint::Dummy{} => {100.0}
+            };
+
+            let difference = ns-s;
+            let direction = (
+                n.0 - pos.0
+                , n.1-pos.1
+                /*, ((n.0-pos.0) + (n.1-pos.1))-((n.0-pos.0) + (n.1-pos.1)).signum()
+                , ((n.0-pos.0) - (n.1-pos.1))-(n.0-pos.0) + (n.1-pos.1).signum()*/
+                , n.0 - pos.0 + n.1 - pos.1
+                , n.0 - pos.0 - n.1 + pos.1
+            );
+            let derivative = (
+                direction.0 as f32 * difference
+                , direction.1 as f32 * difference
+                , direction.2 as f32 * difference
+                , direction.3 as f32 * difference
+            );
+            if derivative.0!=0.0 {
+                if let Some(s) = sign.0 {
+                    if s == derivative.0.signum() as i32
+                    { node = false;}
+                } else {
+                    sign.0 = Some(derivative.0.signum() as i32);
+                }
+            }
+            if derivative.1!=0.0 {
+                if let Some(s) = sign.1 {
+                    if s == derivative.1.signum() as i32
+                    { node = false;}
+                } else {
+                    sign.1 = Some(derivative.1.signum() as i32);
+                }
+            }
+            if derivative.2!=0.0 {
+                if let Some(s) = sign.2 {
+                    if s == derivative.2.signum() as i32
+                    { node = false;}
+                } else {
+                    sign.2 = Some(derivative.2.signum() as i32);
+                }
+            }
+            if derivative.3!=0.0 {
+                if let Some(s) = sign.3 {
+                    if s == derivative.3.signum() as i32
+                    { node = false;}
+                } else {
+                    sign.3 = Some(derivative.3.signum() as i32);
+                }
+            }
+        }
+    }
+    node
 }
