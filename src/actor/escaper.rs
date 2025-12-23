@@ -487,39 +487,64 @@ fn is_node_tree(pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32)) -> bo
 
 fn smallness_deriv_deriv_big (pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32)) -> bool {
 
-    let sd = get_smallness_derivative(pos, points,res);
+    let s = match points[index_from_pos(&pos, res.0)] {
+        CompletedPoint::Repeats{period: np, smallness:s} => {s}
+        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
+        CompletedPoint::Dummy{} => {100.0}
+    };
 
     let r = 1;
-    let neighbors: [(i32, i32);4] =[
-        (pos.0, pos.1-r)
-        , (pos.0-r, pos.1)
-        , (pos.0, pos.1+r)
-        , (pos.0+r, pos.1)
+    let neighbors: [(((i32, i32), (i32, i32)),((i32, i32), (i32, i32)));2] =[
+        (((pos.0, pos.1-r), (pos.0, pos.1-r-1)), ((pos.0, pos.1+r), (pos.0, pos.1+r+1)))
+        , (((pos.0-r, pos.1), (pos.0-r-1, pos.1)), ((pos.0+r, pos.1), (pos.0+r+1, pos.1)))
     ];
 
     let mut sign:(Option<i32>, Option<i32>) = (None, None);
 
+    let mut happy = false;
+    let mut sad = false;
 
     for n in neighbors {
         if (
-            n.0 >= 0 && n.0 <= res.0 as i32 - 1
-                && n.1 >= 0 && n.1 <= res.1 as i32 - 1
+            n.0.0.0 >= 0 && n.0.0.0 <= res.0 as i32 - 1
+            && n.0.0.1 >= 0 && n.0.0.1 <= res.1 as i32 - 1
+            && n.1.0.1 >= 0 && n.1.0.1 <= res.1 as i32 - 1
+            && n.1.0.0 >= 0 && n.1.0.0 <= res.0 as i32 - 1
+            && n.0.1.0 >= 0 && n.0.1.0 <= res.0 as i32 - 1
+            && n.0.1.1 >= 0 && n.0.1.1 <= res.1 as i32 - 1
+            && n.1.1.1 >= 0 && n.1.1.1 <= res.1 as i32 - 1
+            && n.1.1.0 >= 0 && n.1.1.0 <= res.0 as i32 - 1
         ) {
-            let nsd = get_smallness_derivative(n, points,res);
-            let derivative = difff32(nsd, sd);
-            //let direction = diff(n, pos);
-            //let derivative = (direction.0 as f32 * difference, direction.1 as f32 * difference);
-            if let Some(s) = sign.0 {
-                if s != derivative.0.signum() as i32
-                {return true}
-            } else {
-                sign.0 = Some(derivative.0.signum() as i32);
-            }
-            if let Some(s) = sign.1 {
-                if s != derivative.1.signum() as i32
-                {return true}
-            } else {
-                sign.1 = Some(derivative.1.signum() as i32);
+            let ns11 = match points[index_from_pos(&n.0.0, res.0)] {
+                CompletedPoint::Repeats{period: np, smallness:s} => {s}
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
+                CompletedPoint::Dummy{} => {100.0}
+            };
+            let ns12 = match points[index_from_pos(&n.0.1, res.0)] {
+                CompletedPoint::Repeats{period: np, smallness:s} => {s}
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
+                CompletedPoint::Dummy{} => {100.0}
+            };
+            let ns21 = match points[index_from_pos(&n.1.0, res.0)] {
+                CompletedPoint::Repeats{period: np, smallness:s} => {s}
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
+                CompletedPoint::Dummy{} => {100.0}
+            };
+            let ns22 = match points[index_from_pos(&n.1.1, res.0)] {
+                CompletedPoint::Repeats{period: np, smallness:s} => {s}
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
+                CompletedPoint::Dummy{} => {100.0}
+            };
+            let slope1 = ns12-ns11;
+            let slope2 = ns21-ns22;
+            let slopeslope = slope2-slope1;
+            if slopeslope>0.0 {happy=true} else if slopeslope<0.0 {sad=true};
+
+
+            let avg_slope = (slope1.abs() + slope2.abs())/2.0;
+
+            if slopeslope.abs()/avg_slope > 1.9{
+                return true
             }
 
         }
