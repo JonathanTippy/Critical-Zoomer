@@ -267,15 +267,15 @@ fn get_value_from_point(p: &CompletedPoint, r: f32, pos:(i32, i32), points: &Vec
 
 
             if diff_sum < 0 {
-                ScreenValue::Inside{loop_period:*p, out_filament: true, smallness:*s, node: is_node(pos, points, res)}
+                ScreenValue::Inside{loop_period:*p, out_filament: true, smallness:*s, node: smallness_deriv_deriv_big (pos, points, res)}
             } else {
-                ScreenValue::Inside{loop_period:*p, out_filament: false, smallness:*s, node: is_node(pos, points, res)}
+                ScreenValue::Inside{loop_period:*p, out_filament: false, smallness:*s, node: smallness_deriv_deriv_big (pos, points, res)}
             }
 
         }
         CompletedPoint::Dummy{} => {
             //panic!("completed point was not completed");
-            ScreenValue::Inside{loop_period:0, out_filament:false, smallness:100.0, node: is_node(pos, points, res)}
+            ScreenValue::Inside{loop_period:0, out_filament:false, smallness:100.0, node: smallness_deriv_deriv_big (pos, points, res)}
         }
     }
 }
@@ -316,6 +316,9 @@ fn get_derivative(pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32), esc
     avg_derivative
 }
 
+
+
+
 fn is_node(pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32)) -> bool {
 
     let s = match points[index_from_pos(&pos, res.0)] {
@@ -324,82 +327,247 @@ fn is_node(pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32)) -> bool {
         CompletedPoint::Dummy{} => {100.0}
     };
 
+    let r = 1;
+    // Group neighbors by opposite pairs
+    let pairs = [
+        ((pos.0-r, pos.1), (pos.0+r, pos.1))     // left-right
+        , ((pos.0, pos.1-r), (pos.0, pos.1+r))     // up-down
+        , ((pos.0-r, pos.1-r), (pos.0+r, pos.1+r)) // diagonal
+        , ((pos.0-r, pos.1+r), (pos.0+r, pos.1-r))  // anti-diagonal
+        /*, ((pos.0-r, pos.1+r), (pos.0+r, pos.1)) // imperfect pi/8 hori right up
+        , ((pos.0-r, pos.1), (pos.0+r, pos.1+r)) // imperfect pi/8 hori right down
+        , ((pos.0-r, pos.1), (pos.0+r, pos.1+r)) // imperfect pi/8 hori left up
+        , ((pos.0-r, pos.1-r), (pos.0+r, pos.1)) // imperfect pi/8 hori left down
+        , ((pos.0, pos.1-r), (pos.0+r, pos.1+r)) // imperfect pi/8 verti right right
+        , ((pos.0-r, pos.1-r), (pos.0, pos.1+r)) // imperfect pi/8 verti right left
+        , ((pos.0, pos.1-r), (pos.0+r, pos.1+r)) // imperfect pi/8 verti left right
+        , ((pos.0-r, pos.1-r), (pos.0, pos.1+r)) // imperfect pi/8 verti left left*/
+    ];
 
-    let neighbors: [(i32, i32);8] =[
+    for (n1, n2) in pairs {
+        // Check bounds for both neighbors
+        if !(n1.0 >= 0 && n1.0 < res.0 as i32 && n1.1 >= 0 && n1.1 < res.1 as i32) {
+            continue;
+        }
+        if !(n2.0 >= 0 && n2.0 < res.0 as i32 && n2.1 >= 0 && n2.1 < res.1 as i32) {
+            continue;
+        }
+
+        let s1 = match points[index_from_pos(&n1, res.0)] {
+            CompletedPoint::Repeats{period: np, smallness:s} => {s}
+            CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
+            CompletedPoint::Dummy{} => {100.0}
+        };
+
+        let s2 = match points[index_from_pos(&n2, res.0)] {
+            CompletedPoint::Repeats{period: np, smallness:s} => {s}
+            CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
+            CompletedPoint::Dummy{} => {100.0}
+        };
+
+        // For local minimum, both directions should have higher or equal smallness
+        if s1 > s && s2 > s {
+            return true;
+        }
+    }
+
+    false
+}
+
+
+
+fn is_node_tree(pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32)) -> bool {
+
+    let s = match points[index_from_pos(&pos, res.0)] {
+        CompletedPoint::Repeats{period: np, smallness:s} => {s}
+        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
+        CompletedPoint::Dummy{} => {100.0}
+    };
+
+    let neighbors: [(i32, i32);4] =[
         (pos.0, pos.1-1)
         , (pos.0-1, pos.1)
         , (pos.0, pos.1+1)
         , (pos.0+1, pos.1)
-        , (pos.0-1, pos.1-1)
-        , (pos.0+1, pos.1+1)
-        , (pos.0-1, pos.1+1)
-        , (pos.0+1, pos.1-1)
     ];
 
-    let mut sign:(Option<i32>, Option<i32>, Option<i32>, Option<i32>) = (None, None, None, None);
-    let mut node = true;
+    let mut sign:(Option<i32>, Option<i32>) = (None, None);
     //let derivative = get_derivative(pos, points, res, *t);
+
+    let peak = {let r = 1;
+        // Group neighbors by opposite pairs
+        let pairs = [
+            ((pos.0-r, pos.1), (pos.0+r, pos.1))     // left-right
+            , ((pos.0, pos.1-r), (pos.0, pos.1+r))     // up-down
+            , ((pos.0-r, pos.1-r), (pos.0+r, pos.1+r)) // diagonal
+            , ((pos.0-r, pos.1+r), (pos.0+r, pos.1-r))  // anti-diagonal
+            /*, ((pos.0-r, pos.1+r), (pos.0+r, pos.1)) // imperfect pi/8 hori right up
+            , ((pos.0-r, pos.1), (pos.0+r, pos.1+r)) // imperfect pi/8 hori right down
+            , ((pos.0-r, pos.1), (pos.0+r, pos.1+r)) // imperfect pi/8 hori left up
+            , ((pos.0-r, pos.1-r), (pos.0+r, pos.1)) // imperfect pi/8 hori left down
+            , ((pos.0, pos.1-r), (pos.0+r, pos.1+r)) // imperfect pi/8 verti right right
+            , ((pos.0-r, pos.1-r), (pos.0, pos.1+r)) // imperfect pi/8 verti right left
+            , ((pos.0, pos.1-r), (pos.0+r, pos.1+r)) // imperfect pi/8 verti left right
+            , ((pos.0-r, pos.1-r), (pos.0, pos.1+r)) // imperfect pi/8 verti left left*/
+        ];
+
+        for (n1, n2) in pairs {
+            // Check bounds for both neighbors
+            if !(n1.0 >= 0 && n1.0 < res.0 as i32 && n1.1 >= 0 && n1.1 < res.1 as i32) {
+                continue;
+            }
+            if !(n2.0 >= 0 && n2.0 < res.0 as i32 && n2.1 >= 0 && n2.1 < res.1 as i32) {
+                continue;
+            }
+
+            let s1 = match points[index_from_pos(&n1, res.0)] {
+                CompletedPoint::Repeats{period: np, smallness:s} => {s}
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
+                CompletedPoint::Dummy{} => {100.0}
+            };
+
+            let s2 = match points[index_from_pos(&n2, res.0)] {
+                CompletedPoint::Repeats{period: np, smallness:s} => {s}
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
+                CompletedPoint::Dummy{} => {100.0}
+            };
+
+            // For local minimum, both directions should have higher or equal smallness
+            if s1 < s && s2 < s {
+                return true;
+            }
+        }; false};
+
+    let valley = {let r = 1;
+    // Group neighbors by opposite pairs
+    let pairs = [
+        ((pos.0-r, pos.1), (pos.0+r, pos.1))     // left-right
+        , ((pos.0, pos.1-r), (pos.0, pos.1+r))     // up-down
+        , ((pos.0-r, pos.1-r), (pos.0+r, pos.1+r)) // diagonal
+        , ((pos.0-r, pos.1+r), (pos.0+r, pos.1-r))  // anti-diagonal
+        /*, ((pos.0-r, pos.1+r), (pos.0+r, pos.1)) // imperfect pi/8 hori right up
+        , ((pos.0-r, pos.1), (pos.0+r, pos.1+r)) // imperfect pi/8 hori right down
+        , ((pos.0-r, pos.1), (pos.0+r, pos.1+r)) // imperfect pi/8 hori left up
+        , ((pos.0-r, pos.1-r), (pos.0+r, pos.1)) // imperfect pi/8 hori left down
+        , ((pos.0, pos.1-r), (pos.0+r, pos.1+r)) // imperfect pi/8 verti right right
+        , ((pos.0-r, pos.1-r), (pos.0, pos.1+r)) // imperfect pi/8 verti right left
+        , ((pos.0, pos.1-r), (pos.0+r, pos.1+r)) // imperfect pi/8 verti left right
+        , ((pos.0-r, pos.1-r), (pos.0, pos.1+r)) // imperfect pi/8 verti left left*/
+    ];
+
+    for (n1, n2) in pairs {
+        // Check bounds for both neighbors
+        if !(n1.0 >= 0 && n1.0 < res.0 as i32 && n1.1 >= 0 && n1.1 < res.1 as i32) {
+            continue;
+        }
+        if !(n2.0 >= 0 && n2.0 < res.0 as i32 && n2.1 >= 0 && n2.1 < res.1 as i32) {
+            continue;
+        }
+
+        let s1 = match points[index_from_pos(&n1, res.0)] {
+            CompletedPoint::Repeats{period: np, smallness:s} => {s}
+            CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
+            CompletedPoint::Dummy{} => {100.0}
+        };
+
+        let s2 = match points[index_from_pos(&n2, res.0)] {
+            CompletedPoint::Repeats{period: np, smallness:s} => {s}
+            CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
+            CompletedPoint::Dummy{} => {100.0}
+        };
+
+        // For local minimum, both directions should have higher or equal smallness
+        if s1 >= s && s2 >= s {
+            return true;
+        }
+    }; false};
+
+    peak && (!valley)
+}
+
+fn smallness_deriv_deriv_big (pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32)) -> bool {
+
+    let sd = get_smallness_derivative(pos, points,res);
+
+    let r = 1;
+    let neighbors: [(i32, i32);4] =[
+        (pos.0, pos.1-r)
+        , (pos.0-r, pos.1)
+        , (pos.0, pos.1+r)
+        , (pos.0+r, pos.1)
+    ];
+
+    let mut sign:(Option<i32>, Option<i32>) = (None, None);
+
 
     for n in neighbors {
         if (
             n.0 >= 0 && n.0 <= res.0 as i32 - 1
                 && n.1 >= 0 && n.1 <= res.1 as i32 - 1
         ) {
+            let nsd = get_smallness_derivative(n, points,res);
+            let derivative = difff32(nsd, sd);
+            //let direction = diff(n, pos);
+            //let derivative = (direction.0 as f32 * difference, direction.1 as f32 * difference);
+            if let Some(s) = sign.0 {
+                if s != derivative.0.signum() as i32
+                {return true}
+            } else {
+                sign.0 = Some(derivative.0.signum() as i32);
+            }
+            if let Some(s) = sign.1 {
+                if s != derivative.1.signum() as i32
+                {return true}
+            } else {
+                sign.1 = Some(derivative.1.signum() as i32);
+            }
 
-            let ns = match points[index_from_pos(&n, res.0)] {
-                CompletedPoint::Repeats{period: np, smallness:s} => {s}
-                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
-                CompletedPoint::Dummy{} => {100.0}
-            };
-
-            let difference = ns-s;
-            let direction = (
-                n.0 - pos.0
-                , n.1-pos.1
-                /*, ((n.0-pos.0) + (n.1-pos.1))-((n.0-pos.0) + (n.1-pos.1)).signum()
-                , ((n.0-pos.0) - (n.1-pos.1))-(n.0-pos.0) + (n.1-pos.1).signum()*/
-                , n.0 - pos.0 + n.1 - pos.1
-                , n.0 - pos.0 - n.1 + pos.1
-            );
-            let derivative = (
-                direction.0 as f32 * difference
-                , direction.1 as f32 * difference
-                , direction.2 as f32 * difference
-                , direction.3 as f32 * difference
-            );
-            if derivative.0!=0.0 {
-                if let Some(s) = sign.0 {
-                    if s == derivative.0.signum() as i32
-                    { node = false;}
-                } else {
-                    sign.0 = Some(derivative.0.signum() as i32);
-                }
-            }
-            if derivative.1!=0.0 {
-                if let Some(s) = sign.1 {
-                    if s == derivative.1.signum() as i32
-                    { node = false;}
-                } else {
-                    sign.1 = Some(derivative.1.signum() as i32);
-                }
-            }
-            if derivative.2!=0.0 {
-                if let Some(s) = sign.2 {
-                    if s == derivative.2.signum() as i32
-                    { node = false;}
-                } else {
-                    sign.2 = Some(derivative.2.signum() as i32);
-                }
-            }
-            if derivative.3!=0.0 {
-                if let Some(s) = sign.3 {
-                    if s == derivative.3.signum() as i32
-                    { node = false;}
-                } else {
-                    sign.3 = Some(derivative.3.signum() as i32);
-                }
-            }
         }
     }
-    node
+    false
+}
+
+fn difff32 (a:(f32, f32), b:(f32, f32)) -> (f32, f32) {
+    (a.0-b.0, a.1-b.1)
+}
+
+fn get_smallness_derivative(pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32)) -> (f32, f32) {
+
+    let s = match points[index_from_pos(&pos, res.0)] {
+        CompletedPoint::Repeats{period: np, smallness:s} => {s}
+        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
+        CompletedPoint::Dummy{} => {100.0}
+    };
+
+    let r = 1;
+    let neighbors: [(i32, i32);4] =[
+        (pos.0, pos.1-r)
+        , (pos.0-r, pos.1)
+        , (pos.0, pos.1+r)
+        , (pos.0+r, pos.1)
+    ];
+
+    let mut sum = (0.0, 0.0);
+
+    for n in neighbors {
+        if (
+            n.0 >= 0 && n.0 <= res.0 as i32 - 1
+                && n.1 >= 0 && n.1 <= res.1 as i32 - 1
+        ) {
+            let ns = match points[index_from_pos(&n, res.0)] {
+                CompletedPoint::Repeats{period: np, smallness:s} => {s}
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:ns} => {
+                    ns
+                }
+                CompletedPoint::Dummy{} => {100.0}
+            };
+            let difference = ns-s;
+            let direction = diff(n, pos);
+            let derivative = (direction.0 as f32 * difference, direction.1 as f32 * difference);
+            sum = (sum.0+derivative.0, sum.1+derivative.1);
+        }
+    }
+
+    let avg_derivative = ((sum.0 as f32) / 2.0, (sum.1 as f32)/2.0);
+    avg_derivative
 }
