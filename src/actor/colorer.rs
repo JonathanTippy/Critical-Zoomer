@@ -126,16 +126,17 @@ async fn internal_behavior<A: SteadyActor>(
                     ScreenValue::Inside{loop_period: p, out_filament: f, smallness:s, node: n} => {
                         //let s = ((1.0/s).sin() + 1.0) * 50.0;
 
+                        //let s = (s * 255.0) as u8;
 
                         if *f {
                             if *n {
-                                (dim as u8, dim as u8 + 100, dim as u8+25)
+                                (dim as u8, 255, dim as u8+25)
                             } else {
                                 (dim as u8, dim as u8, dim as u8+25)
                             }
                         } else {
                             if *n {
-                                (0, 100, 0)
+                                (0, 255, 0)
                             } else {
                                 (0, 0, 0)
                             }
@@ -143,7 +144,7 @@ async fn internal_behavior<A: SteadyActor>(
 
                     }
                     ScreenValue::Outside { escape_time: e, in_filament: f, smallness:s, node: n } => {
-                        let s = ((1.0/s).sin() + 1.0) * 25.0;
+                        let s =0;//= ((1.0/s).sin() + 1.0) * 25.0;
 
                         let mut returned:(u8,u8,u8) = (0,0,0);
 
@@ -174,13 +175,13 @@ async fn internal_behavior<A: SteadyActor>(
                                 , returned.2+b
                             );
                         }
-                        if *n {
+                        /*if *n {
                             returned = (
                                 returned.0
-                                , returned.1+100
+                                , 255
                                 , returned.2
                             );
-                        }
+                        }*/
 
 
                         returned
