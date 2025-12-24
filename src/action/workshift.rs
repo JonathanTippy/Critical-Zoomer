@@ -68,13 +68,15 @@ pub(crate) struct WorkContext<T> {
 pub(crate) enum CompletedPoint {
     Repeats{
         period: u32,
-        smallness: f32
+        smallness: f64,
+        small_time: u32
     }
     , Escapes{
         escape_time: u32
         , escape_location: (f32, f32)
         , start_location: (f32, f32)
-        , smallness: f32
+        , smallness: f64
+        , small_time: u32
     }
     , Dummy{}
 }
@@ -94,7 +96,8 @@ pub(crate) struct Point<T> {
     , pub(crate) done: (bool, bool)
     , pub(crate) delivered: bool
     , pub(crate) period: u32
-    , pub(crate) smallness: f32
+    , pub(crate) smallness: T
+    , pub(crate) small_time: u32
 }
 
 
@@ -388,10 +391,10 @@ pub(crate) fn workshift<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f6
                 let raw_period = point.iterations-point.loop_detection_point.1;
                 let returned = if determine_period(point, episilon) {
                     point.period = point.iterations-point.loop_detection_point.1;
-                    CompletedPoint::Repeats{period: point.period, smallness: point.smallness.sqrt()}
+                    CompletedPoint::Repeats{period: point.period, smallness: point.smallness.into().sqrt(), small_time:point.small_time}
                 } else {
                     point.period = raw_period;
-                    CompletedPoint::Repeats{period: point.period, smallness: point.smallness.sqrt()}
+                    CompletedPoint::Repeats{period: point.period, smallness: point.smallness.into().sqrt(), small_time:point.small_time}
                 };
                 queue_incomplete_neighbors_in(&pos, context.res, &context.points, &mut context.in_queue);
                 returned
@@ -400,7 +403,8 @@ pub(crate) fn workshift<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f6
                     escape_time: point.iterations
                     , escape_location: (point.z.0.into() as f32, point.z.1.into() as f32)
                     , start_location: (point.c.0.into() as f32, point.c.1.into() as f32)
-                    , smallness: point.smallness.sqrt()
+                    , smallness: point.smallness.into().sqrt()
+                    , small_time:point.small_time
                 };
                 queue_incomplete_neighbors(&pos, context.res, &context.points, &mut context.out_queue);
                 result
@@ -430,7 +434,7 @@ pub(crate) fn workshift<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f6
                     //let pos = context.scredge_poses.pop_front().unwrap();
                     //context.scredge_poses.push_back(pos);
                     let completed_point = {
-                        CompletedPoint::Repeats{period: point.iterations-point.loop_detection_point.1, smallness: point.smallness.sqrt()}
+                        CompletedPoint::Repeats{period: point.iterations-point.loop_detection_point.1, smallness: point.smallness.into().sqrt(), small_time:point.small_time}
                     };
                     context.completed_points.push((completed_point, index));
                     continue;
@@ -575,13 +579,13 @@ fn determine_period<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Gt + Finit
 }
 
 #[inline]
-pub(crate) fn update_point_results<T:Sub<Output=T> + Add<Output=T> + Into<f64> + Mul<Output=T> + Copy>(point: &mut Point<T>) {
+pub(crate) fn update_point_results<T:Sub<Output=T> + Add<Output=T> + Into<f64> + Gt + Mul<Output=T> + Copy>(point: &mut Point<T>) {
     // update values
     point.real_squared = point.z.0 * point.z.0;
     point.imag_squared = point.z.1 * point.z.1;
     point.real_imag = point.z.0 * point.z.1;
-    let rad = <T as Into<f64>>::into(point.real_squared)as f32 + <T as Into<f64>>::into(point.imag_squared) as f32;
-    if rad < point.smallness {point.smallness=rad}
+    let rad = point.real_squared + point.imag_squared;
+    if rad.into() < point.smallness.into() {point.smallness=rad;point.small_time=point.iterations}
 
 }
 

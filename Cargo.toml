@@ -19,6 +19,6 @@ rug = "1.27.0"
 steady_state = "0.2.5"
 winit = "0.30.12"
 num_cpus = "1.17.0"
-
+egui_dnd = "0.13.0"
 
 
