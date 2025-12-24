@@ -24,38 +24,48 @@ const VSYNC:bool = true;
 
 pub(crate) const DEFAULT_SETTINGS_WINDOW_RES:(u32, u32) = (300, 200);
 
-pub const DEFAULT_SETTINGS:Settings = Settings{
-    coloring_order: [
-        ColoringInstruction::PaintEscapeTime{}
-        , ColoringInstruction::PaintSmallTime{}
-        , ColoringInstruction::PaintSmallness{}
-        , ColoringInstruction::HighlightInFilaments{}
-        , ColoringInstruction::HighlightOutFilaments{}
-        , ColoringInstruction::HighlightNodes{}
-    ]
-    , escape_time_coloring: EscapeTimeColoring{ opacity:255
-        , color:(128,128,128), range:64
-        , shading_method: Shading::Sinus{period: 10.0, phase: Animable::Value{val:0.0}}
-        , normalizing_method: Normalizing::None{}}
-    , small_time_coloring: SmallTimeColoring{inside_opacity:0, outside_opacity:0
-        , color:(128,128,128), range:64
-        , shading_method: Shading::Sinus{period: 10.0, phase: Animable::Value{val:0.0}}
-        , normalizing_method: Normalizing::None{}}
-    , smallness_coloring: SmallnessColoring{inside_opacity:0, outside_opacity:0
-        , color:(128,128,128), range:64
-        , shading_method: Shading::Sinus{period: 10.0, phase: Animable::Value{val:0.0}}
-        , normalizing_method: Normalizing::None{}}
-    , in_filament_highlighting: InFilamentHighlighting{opacity:0, color:(128,128,128)}
-    , out_filament_highlighting: OutFilamentHighlighting{opacity:0, color:(128,128,128)}
-    , node_highlighting: NodeHighlighting{
-        inside_opacity:0, outside_opacity:0
-        , color:(128,128,128)
-    }
-    , bailout_radius: Animable::Value{val:2.0}
-};
+
+impl Settings {
+    pub(crate) const DEFAULT:Settings = Settings{
+        coloring_order: [
+            ColoringInstruction::PaintEscapeTime{}
+            , ColoringInstruction::PaintSmallTime{}
+            , ColoringInstruction::PaintSmallness{}
+            , ColoringInstruction::HighlightInFilaments{}
+            , ColoringInstruction::HighlightOutFilaments{}
+            , ColoringInstruction::HighlightNodes{}
+            , ColoringInstruction::HighlightSmallTimeEdges{}
+        ]
+        , escape_time_coloring: EscapeTimeColoring{ opacity:255
+            , color:(128,128,128), range:64
+            , shading_method: Shading::Sinus{period: 10.0, phase: Animable::Value{val:0.0}}
+            , normalizing_method: Normalizing::None{}}
+        , small_time_coloring: SmallTimeColoring{inside_opacity:0, outside_opacity:0
+            , color:(128,128,128), range:64
+            , shading_method: Shading::Sinus{period: 10.0, phase: Animable::Value{val:0.0}}
+            , normalizing_method: Normalizing::None{}}
+        , smallness_coloring: SmallnessColoring{inside_opacity:0, outside_opacity:0
+            , color:(128,128,128), range:64
+            , shading_method: Shading::Sinus{period: 10.0, phase: Animable::Value{val:0.0}}
+            , normalizing_method: Normalizing::None{}}
+        , in_filament_highlighting: InFilamentHighlighting{opacity:0, color:(128,128,128)}
+        , out_filament_highlighting: OutFilamentHighlighting{opacity:0, color:(128,128,128)}
+        , node_highlighting: NodeHighlighting{
+            inside_opacity:0, outside_opacity:0
+            , color:(128,128,128)
+        }
+        , small_time_edge_highlighting: SmallTimeEdgeHighlighting{
+            inside_opacity:0, outside_opacity:0
+            , color:(128,128,128)
+        }
+        , bailout_radius: Animable::Value{val:2.0}
+        , bailout_max_additional_iterations: 100
+        , estimate_extra_iterations: false
+    };
+}
 
 pub const DEFAULT_SETTINGS_WINDOW_CONTEXT:SettingsWindowContext = SettingsWindowContext{
-    settings: DEFAULT_SETTINGS
+    settings: Settings::DEFAULT
     , size: egui::vec2(DEFAULT_SETTINGS_WINDOW_RES.0 as f32, DEFAULT_SETTINGS_WINDOW_RES.1 as f32)
     , location: None
     , will_close: false
@@ -64,25 +74,49 @@ pub const DEFAULT_SETTINGS_WINDOW_CONTEXT:SettingsWindowContext = SettingsWindow
 
 #[derive(Clone, Debug)]
 pub(crate) struct Settings {
-    coloring_order:[ColoringInstruction;6]
-    , escape_time_coloring: EscapeTimeColoring
-    , small_time_coloring: SmallTimeColoring
-    , smallness_coloring: SmallnessColoring
-    , in_filament_highlighting: InFilamentHighlighting
-    , out_filament_highlighting: OutFilamentHighlighting
-    , node_highlighting: NodeHighlighting
-    , bailout_radius:Animable
+    pub(crate) coloring_order:[ColoringInstruction;7]
+    , pub(crate) escape_time_coloring: EscapeTimeColoring
+    , pub(crate) small_time_coloring: SmallTimeColoring
+    , pub(crate) smallness_coloring: SmallnessColoring
+    , pub(crate) in_filament_highlighting: InFilamentHighlighting
+    , pub(crate) out_filament_highlighting: OutFilamentHighlighting
+    , pub(crate) node_highlighting: NodeHighlighting
+    , pub(crate) small_time_edge_highlighting: SmallTimeEdgeHighlighting
+    , pub(crate) bailout_radius:Animable
+    , pub(crate) bailout_max_additional_iterations:u32
+    , pub(crate) estimate_extra_iterations:bool
 }
+
+
 #[derive(Clone, Debug)]
 
-enum Animable {
+pub(crate) enum Animable {
     Value{val:f64}
     , Animation{
         start: Instant
         , period: Duration
-        , amplitude: f64
         , min:f64
         , max:f64
+        , normalizing: Normalizing
+    }
+}
+use std::f64::consts::*;
+impl Animable {
+    pub(crate) fn determine(self) -> f64 {
+        match self {
+            Animable::Value{val} => {val}
+            , Animable::Animation{start,period,min,max, normalizing} => {
+                let elapsed = start.elapsed();
+                let phase_time = elapsed.as_secs_f64() % period.as_secs_f64();
+                let normalized_phase_time = phase_time / period.as_secs_f64();
+                let wave_result = (1.0-((normalized_phase_time*TAU).cos()))/2.0;
+
+                let min = normalizing.normalize(min);
+                let max = normalizing.normalize(max);
+                let range = max - min;
+                normalizing.denormalize(min + (range*wave_result))
+            }
+        }
     }
 }
 
@@ -90,9 +124,32 @@ enum Animable {
 
 enum Normalizing {
     None{}
-    , Log{repeat:bool, base:f64}
+    , LnLn{}
     , Reciprocal{}
 }
+
+impl Normalizing {
+    fn normalize(&self, input:f64) -> f64 {
+        match self {
+            Normalizing::None{..} => {input}
+            Normalizing::LnLn{..} => {
+                input.ln().ln()
+            }
+            Normalizing::Reciprocal{..} => {1.0/input}
+        }
+    }
+
+    fn denormalize(&self, input:f64) -> f64 {
+        match self {
+            Normalizing::None{..} => {input}
+            Normalizing::LnLn{..} => {
+                input.exp().exp()
+            }
+            Normalizing::Reciprocal{..} => {1.0/input}
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 
 enum Shading {
@@ -106,43 +163,51 @@ enum Shading {
 #[derive(Clone, Debug)]
 
 struct EscapeTimeColoring {
-    opacity:u8
-    , color:(u8,u8,u8), range:u8
-    , shading_method: Shading
-    , normalizing_method: Normalizing
+    pub(crate) opacity:u8
+    , pub(crate) color:(u8,u8,u8), pub(crate) range:u8
+    , pub(crate) shading_method: Shading
+    , pub(crate) normalizing_method: Normalizing
 }
 #[derive(Clone, Debug)]
 
 struct SmallTimeColoring {
-    inside_opacity:u8, outside_opacity:u8
-    , color:(u8,u8,u8), range:u8
-    , shading_method: Shading
-    , normalizing_method: Normalizing
+    pub(crate) inside_opacity:u8, pub(crate) outside_opacity:u8
+    , pub(crate) color:(u8,u8,u8), pub(crate) range:u8
+    , pub(crate) shading_method: Shading
+    , pub(crate) normalizing_method: Normalizing
 }
 #[derive(Clone, Debug)]
 
 struct SmallnessColoring {
-    inside_opacity:u8, outside_opacity:u8
-    , color:(u8,u8,u8), range:u8
-    , shading_method: Shading
-    , normalizing_method: Normalizing
+    pub(crate) inside_opacity:u8, pub(crate) outside_opacity:u8
+    , pub(crate) color:(u8,u8,u8), pub(crate) range:u8
+    , pub(crate) shading_method: Shading
+    , pub(crate) normalizing_method: Normalizing
 }
 #[derive(Clone, Debug)]
 
 struct InFilamentHighlighting {
-    opacity:u8, color:(u8,u8,u8)
+    pub(crate) opacity:u8, pub(crate) color:(u8,u8,u8)
 }
 #[derive(Clone, Debug)]
 
 struct OutFilamentHighlighting {
-    opacity:u8, color:(u8,u8,u8)
+    pub(crate) opacity:u8, pub(crate) color:(u8,u8,u8)
 }
 #[derive(Clone, Debug)]
 
 struct NodeHighlighting {
-    inside_opacity:u8, outside_opacity:u8
-    , color:(u8,u8,u8)
+    pub(crate) inside_opacity:u8, pub(crate) outside_opacity:u8
+    , pub(crate) color:(u8,u8,u8)
 }
+
+#[derive(Clone, Debug)]
+
+struct SmallTimeEdgeHighlighting {
+    pub(crate) inside_opacity:u8, pub(crate) outside_opacity:u8
+    , pub(crate) color:(u8,u8,u8)
+}
+
 
 #[derive(Clone, Debug, Hash, Copy)]
 
@@ -153,6 +218,7 @@ enum ColoringInstruction {
     , HighlightInFilaments{}
     , HighlightOutFilaments{}
     , HighlightNodes{}
+    , HighlightSmallTimeEdges{}
 }
 
 impl ColoringInstruction {
@@ -170,6 +236,8 @@ impl ColoringInstruction {
             } => {String::from("HighlightOutFilaments")}
             , ColoringInstruction::HighlightNodes{
             } => {String::from("HighlightNodes")}
+            , ColoringInstruction::HighlightSmallTimeEdges{
+            } => {String::from("Highlight small time edges")}
         }
     }
 }
@@ -246,6 +314,27 @@ pub(crate) fn settings (
                     if ui.add(Button::new("Click me")).clicked() {println!("clicked")}
                 }
 
+                ui.add(egui::Checkbox::new(&mut state.settings.estimate_extra_iterations, "Checked"));
+
+                let mut bailout_is_animated = match state.settings.bailout_radius {
+                    Animable::Value{..} => {false}
+                    , Animable::Animation{..} => {true}
+                };
+
+                let pre = bailout_is_animated;
+                bailout_is_animated = bailout_is_animated ^ ui.add(Button::selectable(bailout_is_animated, "🔁")).clicked();
+
+                if !pre && bailout_is_animated {
+                    state.settings.bailout_radius = Animable::Animation{start:Instant::now(),period:Duration::from_secs(1), min:2.0,max:256.0,normalizing:Normalizing::LnLn{}};
+                }
+
+                let mut bailout = state.settings.bailout_radius.clone().determine();
+                ui.add(egui::Slider::new(&mut bailout, 2.0..=255.0).logarithmic(true));
+                if !bailout_is_animated {
+                    state.settings.bailout_radius= Animable::Value{val:bailout}
+                };
+
+                ui.add(egui::Slider::new(&mut state.settings.bailout_max_additional_iterations,  0..=100000).logarithmic(true));
 
                 let mut items = state.settings.coloring_order.to_vec();
 
@@ -267,6 +356,7 @@ pub(crate) fn settings (
                 state.settings.coloring_order = items.try_into().unwrap();
 
                 ui.label("This is a deferred viewport!");
+                ctx.request_repaint();
 
             });
 
