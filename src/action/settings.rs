@@ -26,20 +26,12 @@ pub(crate) const DEFAULT_SETTINGS_WINDOW_RES:(u32, u32) = (300, 200);
 
 pub const DEFAULT_SETTINGS:Settings = Settings{
     coloring_order: [
-        ColoringInstruction::PaintEscapeTime{
-
-        }
-        , ColoringInstruction::PaintSmallTime{
-
-        }
-        , ColoringInstruction::PaintSmallness{
-
-        }
+        ColoringInstruction::PaintEscapeTime{}
+        , ColoringInstruction::PaintSmallTime{}
+        , ColoringInstruction::PaintSmallness{}
         , ColoringInstruction::HighlightInFilaments{}
         , ColoringInstruction::HighlightOutFilaments{}
-        , ColoringInstruction::HighlightNodes{
-
-        }
+        , ColoringInstruction::HighlightNodes{}
     ]
     , escape_time_coloring: EscapeTimeColoring{ opacity:255
         , color:(128,128,128), range:64
