@@ -10,9 +10,9 @@ use crate::actor::work_controller::*;
 
 
 
-pub(crate) struct WorkUpdate {
+pub(crate) struct WorkUpdate<T> {
     pub(crate) frame_info: Option<(ObjectivePosAndZoom, (u32, u32))>,
-    pub(crate) completed_points: (Vec<(CompletedPoint, usize)>)
+    pub(crate) completed_points: (Vec<(CompletedPoint<T>, usize)>)
 }
 
 #[derive(Clone)]
@@ -29,7 +29,7 @@ pub(crate) struct WorkerState<T> {
 pub async fn run(
     actor: SteadyActorShadow,
     commands_in: SteadyRx<WorkerCommand<f64>>,
-    updates_out: SteadyTx<WorkUpdate>,
+    updates_out: SteadyTx<WorkUpdate<f64>>,
     attention_in: SteadyRx<(i32, i32)>,
     state: SteadyState<WorkerState<f64>>,
 ) -> Result<(), Box<dyn Error>> {
@@ -47,7 +47,7 @@ pub async fn run(
 async fn internal_behavior<A: SteadyActor, T: Send + Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + crate::action::workshift::Finite + crate::action::workshift::Gt + crate::action::workshift::Abs + From<f32> + Into<f64> + Copy>(
     mut actor: A,
     commands_in: SteadyRx<WorkerCommand<T>>,
-    updates_out: SteadyTx<WorkUpdate>,
+    updates_out: SteadyTx<WorkUpdate<T>>,
     attention_in: SteadyRx<(i32, i32)>,
     state: SteadyState<WorkerState<T>>,
 ) -> Result<(), Box<dyn Error>> {
@@ -161,7 +161,7 @@ async fn internal_behavior<A: SteadyActor, T: Send + Sub<Output=T> + Add<Output=
     Ok(())
 }
 
-fn work_update<T>(ctx: &mut WorkContext<T>) -> Vec<(CompletedPoint, usize)> {
+fn work_update<T>(ctx: &mut WorkContext<T>) -> Vec<(CompletedPoint<T>, usize)> {
     let update_start = ctx.last_update;
     let mut returned = vec!();
     returned.append(&mut ctx.completed_points);

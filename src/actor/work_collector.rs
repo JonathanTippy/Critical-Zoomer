@@ -13,16 +13,16 @@ use crate::action::utils::*;
 
 #[derive(Clone, Debug)]
 
-pub(crate) struct ResultsPackage {
-    pub(crate) results: Vec<CompletedPoint>
+pub(crate) struct ResultsPackage<T> {
+    pub(crate) results: Vec<CompletedPoint<T>>
     , pub(crate) screen_res: (u32, u32)
     , pub(crate) location: ObjectivePosAndZoom
     , pub(crate) complete: bool
 }
 
-pub(crate) struct WorkCollectorState {
-    completed_work: Option<ResultsPackage>
-    , surrounding_work: Option<ResultsPackage>
+pub(crate) struct WorkCollectorState<T> {
+    completed_work: Option<ResultsPackage<T>>
+    , surrounding_work: Option<ResultsPackage<T>>
 }
 
 
@@ -38,9 +38,9 @@ pub(crate) const PIXELS_PER_UNIT: u64 = 1<<(PIXELS_PER_UNIT_POT);
 
 pub async fn run(
     actor: SteadyActorShadow,
-    from_worker: SteadyRx<WorkUpdate>,
-    points_out: SteadyTx<ResultsPackage>,
-    state: SteadyState<WorkCollectorState>,
+    from_worker: SteadyRx<WorkUpdate<f64>>,
+    points_out: SteadyTx<ResultsPackage<f64>>,
+    state: SteadyState<WorkCollectorState<f64>>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
@@ -54,9 +54,9 @@ pub async fn run(
 
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
-    from_worker: SteadyRx<WorkUpdate>,
-    values_out: SteadyTx<ResultsPackage>,
-    state: SteadyState<WorkCollectorState>,
+    from_worker: SteadyRx<WorkUpdate<f64>>,
+    values_out: SteadyTx<ResultsPackage<f64>>,
+    state: SteadyState<WorkCollectorState<f64>>,
 ) -> Result<(), Box<dyn Error>> {
 
     let mut values_out = values_out.lock().await;
@@ -138,7 +138,7 @@ async fn internal_behavior<A: SteadyActor>(
     Ok(())
 }
 
-fn sample_old_values(old_package: &ResultsPackage, new_location: ObjectivePosAndZoom, new_res: (u32, u32)) -> ResultsPackage {
+fn sample_old_values<T:Clone>(old_package: &ResultsPackage<T>, new_location: ObjectivePosAndZoom, new_res: (u32, u32)) -> ResultsPackage<T> {
     let mut returned = ResultsPackage{
         results: vec!()
         , screen_res: new_res
@@ -213,15 +213,15 @@ fn get_random_mixmap(size: usize) -> Vec<usize> {
 
 
 #[inline]
-fn sample_value(
-    pixels: &Vec<CompletedPoint>
+fn sample_value<T: Clone>(
+    pixels: &Vec<CompletedPoint<T>>
     , data_res: (u32, u32)
     , data_len: usize
     , row: usize
     , seat: usize
     , relative_pos: (i32, i32)
     , relative_zoom_pot: i64
-) -> CompletedPoint {
+) -> CompletedPoint<T> {
     let color =
         pixels[
             index_from_relative_location(

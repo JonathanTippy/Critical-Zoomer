@@ -21,7 +21,8 @@ pub(crate) struct ZoomerScreen {
 
 pub(crate) struct ColorerState {
     pub(crate) values:Option<ZoomerValuesScreen>,
-    pub(crate) start:Instant
+    pub(crate) start:Instant,
+    pub(crate) settings:Settings
 }
 
 pub async fn run(
@@ -55,7 +56,8 @@ async fn internal_behavior<A: SteadyActor>(
 
     let mut state = state.lock(|| ColorerState {
         values: None,
-        start: Instant::now()
+        start: Instant::now(),
+        settings: Settings::DEFAULT
     }).await;
 
     // Lock all channels for exclusive access within this actor.
@@ -67,12 +69,14 @@ async fn internal_behavior<A: SteadyActor>(
     while actor.is_running(
         || i!(true)
     ) {
-        // Wait for all required conditions:
-        // - A periodic timer
         await_for_any!(//#!#//
             actor.wait_periodic(max_sleep),
             actor.wait_avail(&mut values_in, 1),
+            actor.wait_avail(&mut settings_in, 1),
         );
+
+
+
 
         let elapsed = state.start.elapsed().as_millis();
 
@@ -95,6 +99,20 @@ async fn internal_behavior<A: SteadyActor>(
         let u = 25.0;
 
         // do stuff
+
+        if actor.avail_units(&mut settings_in) > 0 {
+            while actor.avail_units(&mut settings_in) > 1 {
+                let stuff = actor.try_take(&mut settings_in).expect("internal error");
+                drop(stuff);
+            };
+            match actor.try_take(&mut settings_in) {
+                Some(s) => {
+                    let mut rng = rand::thread_rng();
+                    state.settings = s;
+                }
+                None => {}
+            }
+        }
 
         if actor.avail_units(&mut values_in) > 0 {
             while actor.avail_units(&mut values_in) > 1 {
@@ -200,7 +218,7 @@ async fn internal_behavior<A: SteadyActor>(
                                 , returned.2 + b+25
                                 );
                         } else {*/
-                            let m = (*st as f64 % u)/u;
+                            let m = (*e as f64 % u)/u;
                             let m_pi = m * 6.28 + t_pi;
                             let e_sin = (m_pi.sin() + 1.0)/2.0;
 
