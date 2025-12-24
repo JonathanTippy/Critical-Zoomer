@@ -149,7 +149,8 @@ fn get_points<T: From<f32> + Clone + From<IntExp> + Sub<Output=T> + Add<Output=T
                         , done: (false, false)
                         , delivered: false
                         , period: 0
-                        , smallness: 100.0
+                        , smallness: 100.0.into()
+                        , small_time:0
                     }
                 )
             }

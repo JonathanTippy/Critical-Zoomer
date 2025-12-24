@@ -10,7 +10,6 @@ pub(crate) mod actor {
     pub(crate) mod work_controller;
     pub(crate) mod screen_worker;
     pub(crate) mod colorer;
-    pub(crate) mod updater;
     pub(crate) mod work_collector;
     pub(crate) mod escaper;
 }
@@ -54,7 +53,6 @@ const NAME_SETTINGS_WINDOW: &str = "settings";
 const NAME_COLORER: &str = "colorer";
 const NAME_WORK_CONTROLLER: &str = "work controller";
 const NAME_SCREEN_WORKER:&str = "screen worker";
-const NAME_UPDATER: &str = "updater";
 const NAME_WORK_COLLECTOR: &str = "work collector";
 const NAME_ESCAPER: &str = "point escaper";
 
@@ -80,18 +78,8 @@ fn build_graph(graph: &mut Graph) {
 
 
     let (
-        window_tx_to_updater
-        , updater_rx_from_window
-    ) = channel_builder.with_capacity(2).build();
-
-    let (
         colorer_tx_to_window
         , window_rx_from_colorer
-    ) = channel_builder.with_capacity(2).build();
-
-    let (
-        updater_tx_to_colorer
-        , colorer_rx_from_updater
     ) = channel_builder.with_capacity(2).build();
 
 
@@ -107,6 +95,11 @@ fn build_graph(graph: &mut Graph) {
         window_tx_to_worker
         , worker_rx_from_window
     ) = channel_builder.with_capacity(50).build();
+
+    let (
+        window_tx_to_stuff
+        , stuff_rx_from_window
+    ) = channel_builder.with_capacity(50).build_channel_bundle();
 
     //work controller to worker commands channel
 
@@ -136,11 +129,6 @@ fn build_graph(graph: &mut Graph) {
         , colorer_rx_from_escaper
     ) = channel_builder.with_capacity(2).build();
 
-    let (
-        updater_tx_to_escaper
-        , escaper_rx_from_updater
-    ) = channel_builder.with_capacity(2).build();
-
     // The actor builder is configured to collect thread/core info and load metrics.
     // - with_thread_info: enables reporting of OS thread and CPU core (requires core_affinity feature in Cargo.toml)
     // - with_load_avg, with_mcpu_avg: enables real-time load and CPU usage metrics
@@ -163,24 +151,19 @@ fn build_graph(graph: &mut Graph) {
 
     //let mut responsive_team = graph.actor_troupe();
 
+    let (colorer_settings, escaper_settings) = (stuff_rx_from_window[0].clone(), stuff_rx_from_window[1].clone());
+
     let state = new_state();
     actor_builder.with_name(NAME_WINDOW)
         .build(move |context|
-            actor::window::run(context, window_rx_from_colorer.clone(), window_tx_to_work_controller.clone(), window_tx_to_updater.clone(), window_tx_to_worker.clone(), state.clone()) //#!#//
-               //, MemberOf(&mut responsive_team));
-               , SoloAct);
-
-    let state = new_state();
-    actor_builder.with_name(NAME_UPDATER)
-        .build(move |context|
-                   actor::updater::run(context, updater_rx_from_window.clone(), updater_tx_to_colorer.clone(), updater_tx_to_escaper.clone(), state.clone()) //#!#//
+            actor::window::run(context, window_rx_from_colorer.clone(), window_tx_to_work_controller.clone(), window_tx_to_stuff.clone(), window_tx_to_worker.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
                , SoloAct);
 
     let state = new_state();
     actor_builder.with_name(NAME_COLORER)
         .build(move |context|
-                   actor::colorer::run(context, colorer_rx_from_escaper.clone(), colorer_rx_from_updater.clone(), colorer_tx_to_window.clone(), state.clone()) //#!#//
+                   actor::colorer::run(context, colorer_rx_from_escaper.clone(), colorer_settings.clone(), colorer_tx_to_window.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
                , SoloAct);
 
@@ -208,7 +191,7 @@ fn build_graph(graph: &mut Graph) {
     let state = new_state();
     actor_builder.with_name(NAME_ESCAPER)
         .build(move |context|
-                   actor::escaper::run(context, escaper_rx_from_work_collector.clone(), escaper_rx_from_updater.clone(), escaper_tx_to_colorer.clone(), state.clone())
+                   actor::escaper::run(context, escaper_rx_from_work_collector.clone(), escaper_settings.clone(), escaper_tx_to_colorer.clone(), state.clone())
                , SoloAct
         );
 }

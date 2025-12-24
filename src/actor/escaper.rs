@@ -1,12 +1,12 @@
 use rand::Rng;
 use steady_state::*;
 use crate::action::sampling::*;
-use crate::actor::updater::*;
 
 use crate::action::utils::*;
 use crate::action::workshift::CompletedPoint;
 use crate::actor::work_collector::*;
 use crate::action::workshift::*;
+use crate::action::settings::*;
 
 #[derive(Clone, Debug)]
 
@@ -19,8 +19,20 @@ pub(crate) struct ZoomerScreen {
 #[derive(Clone, Debug)]
 
 pub(crate) enum ScreenValue {
-    Outside{escape_time: u32, in_filament: bool, smallness:f32, node: bool}
-    , Inside{loop_period: u32, out_filament: bool, smallness:f32, node: bool}
+    Outside{
+        big_time: u32
+        , in_filament: bool
+        , smallness:f64
+        , small_time: u32
+        , node: bool
+    }
+    , Inside{
+        loop_period: u32
+        , out_filament: bool
+        , smallness:f64
+        , small_time: u32
+        , node: bool
+    }
 }
 
 pub(crate) struct ZoomerValuesScreen {
@@ -38,15 +50,15 @@ pub(crate) struct EscaperState {
 pub async fn run(
     actor: SteadyActorShadow,
     points_in: SteadyRx<ResultsPackage>,
-    updates_in: SteadyRx<ZoomerSettingsUpdate>,
+    settings_in: SteadyRx<Settings>,
     values_out: SteadyTx<ZoomerValuesScreen>,
     state: SteadyState<EscaperState>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
-        actor.into_spotlight([&updates_in, &points_in], [&values_out]),
+        actor.into_spotlight([&settings_in, &points_in], [&values_out]),
         points_in,
-        updates_in,
+        settings_in,
         values_out,
         state,
     )
@@ -56,13 +68,13 @@ pub async fn run(
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
     points_in: SteadyRx<ResultsPackage>,
-    updates_in: SteadyRx<ZoomerSettingsUpdate>,
+    settings_in: SteadyRx<Settings>,
     values_out: SteadyTx<ZoomerValuesScreen>,
     state: SteadyState<EscaperState>,
 ) -> Result<(), Box<dyn Error>> {
     let mut values_in = points_in.lock().await;
-    let mut updates_in = updates_in.lock().await;
     let mut screens_out = values_out.lock().await;
+    let mut settings_in = settings_in.lock().await;
 
     let mut state = state.lock(|| EscaperState {
         values: None
@@ -85,7 +97,6 @@ async fn internal_behavior<A: SteadyActor>(
         await_for_any!(//#!#//
             actor.wait_periodic(max_sleep),
             actor.wait_avail(&mut values_in, 1),
-            actor.wait_avail(&mut updates_in, 1),
         );
 
 
@@ -163,7 +174,7 @@ async fn internal_behavior<A: SteadyActor>(
 
 fn get_value_from_point(p: &CompletedPoint, r: f32, pos:(i32, i32), points: &Vec<CompletedPoint>, res: (u32, u32)) -> ScreenValue {
     match p {
-        CompletedPoint::Escapes{escape_time: t, escape_location: z, start_location: c , smallness:s} => {
+        CompletedPoint::Escapes{escape_time: t, escape_location: z, start_location: c , smallness:s, small_time:st} => {
 
             let neighbors: [(i32, i32);4] =[
                 (pos.0, pos.1-1)
@@ -182,8 +193,8 @@ fn get_value_from_point(p: &CompletedPoint, r: f32, pos:(i32, i32), points: &Vec
                         && n.1 >= 0 && n.1 <= res.1 as i32 - 1
                 ) {
                     match points[index_from_pos(&n, res.0)] {
-                        CompletedPoint::Repeats{period: np, smallness:s} => {}
-                        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {
+                        CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {}
+                        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {
                             
                             let difference = (nt as i32)-(*t as i32);
                             let direction = diff(n, pos);
@@ -222,7 +233,8 @@ fn get_value_from_point(p: &CompletedPoint, r: f32, pos:(i32, i32), points: &Vec
                 , done: (false, false)
                 , delivered: false
                 , period: 0
-                , smallness:*s
+                , smallness:0.0
+                , small_time:0
             };
 
             while !bailout_point(&p, r_squared) {
@@ -230,9 +242,9 @@ fn get_value_from_point(p: &CompletedPoint, r: f32, pos:(i32, i32), points: &Vec
                 update_point_results(&mut p);
             }
 
-            ScreenValue::Outside{escape_time: p.iterations, in_filament: filament, smallness:*s, node: is_node(pos, points, res)}
+            ScreenValue::Outside{ big_time: p.iterations, in_filament: filament, smallness:*s, node: is_node_tree(pos, points, res), small_time:*st}
         }
-        CompletedPoint::Repeats{period: p, smallness:s} => {
+        CompletedPoint::Repeats{period: p, smallness:s, small_time:st} => {
             let neighbors: [(i32, i32);4] =[
                 (pos.0, pos.1-1)
                 , (pos.0-1, pos.1)
@@ -250,14 +262,14 @@ fn get_value_from_point(p: &CompletedPoint, r: f32, pos:(i32, i32), points: &Vec
                         && n.1 >= 0 && n.1 <= res.1 as i32 - 1
                 ) {
                     match points[index_from_pos(&n, res.0)] {
-                        CompletedPoint::Repeats{period: np, smallness:s} => {
+                        CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {
                             let difference = (np as i32)-(*p as i32);
                             diff_sum+=difference;
                             let direction = diff(n, pos);
                             let derivative = (direction.0 * difference, direction.1 * difference);
                             sum = (sum.0+derivative.0, sum.1+derivative.1);
                         }
-                        CompletedPoint::Escapes{escape_time: t, escape_location: z, start_location: c, smallness:s} => {}
+                        CompletedPoint::Escapes{escape_time: t, escape_location: z, start_location: c, smallness:s, small_time:st} => {}
                         CompletedPoint::Dummy{} => {}
                     }
                 }
@@ -267,15 +279,15 @@ fn get_value_from_point(p: &CompletedPoint, r: f32, pos:(i32, i32), points: &Vec
 
 
             if diff_sum < 0 {
-                ScreenValue::Inside{loop_period:*p, out_filament: true, smallness:*s, node: smallness_deriv_deriv_big (pos, points, res)}
+                ScreenValue::Inside{loop_period:*p, out_filament: true, smallness:*s, node: is_node_tree (pos, points, res), small_time:*st}
             } else {
-                ScreenValue::Inside{loop_period:*p, out_filament: false, smallness:*s, node: smallness_deriv_deriv_big (pos, points, res)}
+                ScreenValue::Inside{loop_period:*p, out_filament: false, smallness:*s, node: is_node_tree (pos, points, res), small_time:*st}
             }
 
         }
         CompletedPoint::Dummy{} => {
             //panic!("completed point was not completed");
-            ScreenValue::Inside{loop_period:0, out_filament:false, smallness:100.0, node: smallness_deriv_deriv_big (pos, points, res)}
+            ScreenValue::Inside{loop_period:0, out_filament:false, smallness:100.0, node: is_node_tree (pos, points, res), small_time:0}
         }
     }
 }
@@ -300,8 +312,8 @@ fn get_derivative(pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32), esc
                 && n.1 >= 0 && n.1 <= res.1 as i32 - 1
         ) {
             match points[index_from_pos(&n, res.0)] {
-                CompletedPoint::Repeats{period: np, smallness:s} => {}
-                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {
+                CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {}
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {
                     let difference = (nt as i32)-(escape_time as i32);
                     let direction = diff(n, pos);
                     let derivative = (direction.0 * difference, direction.1 * difference);
@@ -322,8 +334,8 @@ fn get_derivative(pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32), esc
 fn is_node(pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32)) -> bool {
 
     let s = match points[index_from_pos(&pos, res.0)] {
-        CompletedPoint::Repeats{period: np, smallness:s} => {s}
-        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
+        CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {s}
+        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {s}
         CompletedPoint::Dummy{} => {100.0}
     };
 
@@ -354,14 +366,14 @@ fn is_node(pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32)) -> bool {
         }
 
         let s1 = match points[index_from_pos(&n1, res.0)] {
-            CompletedPoint::Repeats{period: np, smallness:s} => {s}
-            CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
+            CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {s}
+            CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {s}
             CompletedPoint::Dummy{} => {100.0}
         };
 
         let s2 = match points[index_from_pos(&n2, res.0)] {
-            CompletedPoint::Repeats{period: np, smallness:s} => {s}
-            CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
+            CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {s}
+            CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {s}
             CompletedPoint::Dummy{} => {100.0}
         };
 
@@ -378,10 +390,10 @@ fn is_node(pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32)) -> bool {
 
 fn is_node_tree(pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32)) -> bool {
 
-    let s = match points[index_from_pos(&pos, res.0)] {
-        CompletedPoint::Repeats{period: np, smallness:s} => {s}
-        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
-        CompletedPoint::Dummy{} => {100.0}
+    let st = match points[index_from_pos(&pos, res.0)] {
+        CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {st}
+        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {st}
+        CompletedPoint::Dummy{} => {0}
     };
 
     let neighbors: [(i32, i32);4] =[
@@ -394,7 +406,7 @@ fn is_node_tree(pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32)) -> bo
     let mut sign:(Option<i32>, Option<i32>) = (None, None);
     //let derivative = get_derivative(pos, points, res, *t);
 
-    let peak = {let r = 1;
+    let r = 1;
         // Group neighbors by opposite pairs
         let pairs = [
             ((pos.0-r, pos.1), (pos.0+r, pos.1))     // left-right
@@ -420,76 +432,31 @@ fn is_node_tree(pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32)) -> bo
                 continue;
             }
 
-            let s1 = match points[index_from_pos(&n1, res.0)] {
-                CompletedPoint::Repeats{period: np, smallness:s} => {s}
-                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
-                CompletedPoint::Dummy{} => {100.0}
+            let st1 = match points[index_from_pos(&n1, res.0)] {
+                CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {st}
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {st}
+                CompletedPoint::Dummy{} => {0}
             };
 
-            let s2 = match points[index_from_pos(&n2, res.0)] {
-                CompletedPoint::Repeats{period: np, smallness:s} => {s}
-                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
-                CompletedPoint::Dummy{} => {100.0}
+            let st2 = match points[index_from_pos(&n2, res.0)] {
+                CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {st}
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {st}
+                CompletedPoint::Dummy{} => {0}
             };
 
             // For local minimum, both directions should have higher or equal smallness
-            if s1 < s && s2 < s {
+            if st1 != st{// || st2 != st {
                 return true;
             }
-        }; false};
-
-    let valley = {let r = 1;
-    // Group neighbors by opposite pairs
-    let pairs = [
-        ((pos.0-r, pos.1), (pos.0+r, pos.1))     // left-right
-        , ((pos.0, pos.1-r), (pos.0, pos.1+r))     // up-down
-        , ((pos.0-r, pos.1-r), (pos.0+r, pos.1+r)) // diagonal
-        , ((pos.0-r, pos.1+r), (pos.0+r, pos.1-r))  // anti-diagonal
-        /*, ((pos.0-r, pos.1+r), (pos.0+r, pos.1)) // imperfect pi/8 hori right up
-        , ((pos.0-r, pos.1), (pos.0+r, pos.1+r)) // imperfect pi/8 hori right down
-        , ((pos.0-r, pos.1), (pos.0+r, pos.1+r)) // imperfect pi/8 hori left up
-        , ((pos.0-r, pos.1-r), (pos.0+r, pos.1)) // imperfect pi/8 hori left down
-        , ((pos.0, pos.1-r), (pos.0+r, pos.1+r)) // imperfect pi/8 verti right right
-        , ((pos.0-r, pos.1-r), (pos.0, pos.1+r)) // imperfect pi/8 verti right left
-        , ((pos.0, pos.1-r), (pos.0+r, pos.1+r)) // imperfect pi/8 verti left right
-        , ((pos.0-r, pos.1-r), (pos.0, pos.1+r)) // imperfect pi/8 verti left left*/
-    ];
-
-    for (n1, n2) in pairs {
-        // Check bounds for both neighbors
-        if !(n1.0 >= 0 && n1.0 < res.0 as i32 && n1.1 >= 0 && n1.1 < res.1 as i32) {
-            continue;
-        }
-        if !(n2.0 >= 0 && n2.0 < res.0 as i32 && n2.1 >= 0 && n2.1 < res.1 as i32) {
-            continue;
-        }
-
-        let s1 = match points[index_from_pos(&n1, res.0)] {
-            CompletedPoint::Repeats{period: np, smallness:s} => {s}
-            CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
-            CompletedPoint::Dummy{} => {100.0}
         };
-
-        let s2 = match points[index_from_pos(&n2, res.0)] {
-            CompletedPoint::Repeats{period: np, smallness:s} => {s}
-            CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
-            CompletedPoint::Dummy{} => {100.0}
-        };
-
-        // For local minimum, both directions should have higher or equal smallness
-        if s1 >= s && s2 >= s {
-            return true;
-        }
-    }; false};
-
-    peak && (!valley)
+    false
 }
 
 fn smallness_deriv_deriv_big (pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32)) -> bool {
 
     let s = match points[index_from_pos(&pos, res.0)] {
-        CompletedPoint::Repeats{period: np, smallness:s} => {s}
-        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
+        CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {s}
+        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {s}
         CompletedPoint::Dummy{} => {100.0}
     };
 
@@ -516,23 +483,23 @@ fn smallness_deriv_deriv_big (pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u
             && n.1.1.0 >= 0 && n.1.1.0 <= res.0 as i32 - 1
         ) {
             let ns11 = match points[index_from_pos(&n.0.0, res.0)] {
-                CompletedPoint::Repeats{period: np, smallness:s} => {s}
-                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
+                CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {s}
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {s}
                 CompletedPoint::Dummy{} => {100.0}
             };
             let ns12 = match points[index_from_pos(&n.0.1, res.0)] {
-                CompletedPoint::Repeats{period: np, smallness:s} => {s}
-                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
+                CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {s}
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {s}
                 CompletedPoint::Dummy{} => {100.0}
             };
             let ns21 = match points[index_from_pos(&n.1.0, res.0)] {
-                CompletedPoint::Repeats{period: np, smallness:s} => {s}
-                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
+                CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {s}
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {s}
                 CompletedPoint::Dummy{} => {100.0}
             };
             let ns22 = match points[index_from_pos(&n.1.1, res.0)] {
-                CompletedPoint::Repeats{period: np, smallness:s} => {s}
-                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
+                CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {s}
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {s}
                 CompletedPoint::Dummy{} => {100.0}
             };
             let slope1 = ns12-ns11;
@@ -559,8 +526,8 @@ fn difff32 (a:(f32, f32), b:(f32, f32)) -> (f32, f32) {
 fn get_smallness_derivative(pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32,u32)) -> (f32, f32) {
 
     let s = match points[index_from_pos(&pos, res.0)] {
-        CompletedPoint::Repeats{period: np, smallness:s} => {s}
-        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s} => {s}
+        CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {s}
+        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {s}
         CompletedPoint::Dummy{} => {100.0}
     };
 
@@ -580,15 +547,15 @@ fn get_smallness_derivative(pos:(i32, i32), points:&Vec<CompletedPoint>,res:(u32
                 && n.1 >= 0 && n.1 <= res.1 as i32 - 1
         ) {
             let ns = match points[index_from_pos(&n, res.0)] {
-                CompletedPoint::Repeats{period: np, smallness:s} => {s}
-                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:ns} => {
+                CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {s}
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:ns, small_time:st} => {
                     ns
                 }
                 CompletedPoint::Dummy{} => {100.0}
             };
             let difference = ns-s;
             let direction = diff(n, pos);
-            let derivative = (direction.0 as f32 * difference, direction.1 as f32 * difference);
+            let derivative = (direction.0 as f64 * difference, direction.1 as f64 * difference);
             sum = (sum.0+derivative.0, sum.1+derivative.1);
         }
     }

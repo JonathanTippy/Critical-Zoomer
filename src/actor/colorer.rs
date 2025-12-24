@@ -1,13 +1,14 @@
 use rand::Rng;
 use steady_state::*;
 use crate::action::sampling::*;
-use crate::actor::updater::*;
 
 use crate::action::utils::*;
 
 use crate::actor::work_collector::*;
 
 use crate::actor::escaper::*;
+
+use crate::action::settings::*;
 
 #[derive(Clone, Debug)]
 
@@ -26,15 +27,15 @@ pub(crate) struct ColorerState {
 pub async fn run(
     actor: SteadyActorShadow,
     values_in: SteadyRx<ZoomerValuesScreen>,
-    updates_in: SteadyRx<ZoomerSettingsUpdate>,
+    settings_in: SteadyRx<Settings>,
     screens_out: SteadyTx<ZoomerScreen>,
     state: SteadyState<ColorerState>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
-        actor.into_spotlight([&updates_in, &values_in], [&screens_out]),
+        actor.into_spotlight([&settings_in, &values_in], [&screens_out]),
         values_in,
-        updates_in,
+        settings_in,
         screens_out,
         state,
     )
@@ -44,13 +45,13 @@ pub async fn run(
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
     values_in: SteadyRx<ZoomerValuesScreen>,
-    updates_in: SteadyRx<ZoomerSettingsUpdate>,
+    settings_in: SteadyRx<Settings>,
     screens_out: SteadyTx<ZoomerScreen>,
     state: SteadyState<ColorerState>,
 ) -> Result<(), Box<dyn Error>> {
     let mut values_in = values_in.lock().await;
-    let mut updates_in = updates_in.lock().await;
     let mut screens_out = screens_out.lock().await;
+    let mut settings_in = settings_in.lock().await;
 
     let mut state = state.lock(|| ColorerState {
         values: None,
@@ -71,7 +72,6 @@ async fn internal_behavior<A: SteadyActor>(
         await_for_any!(//#!#//
             actor.wait_periodic(max_sleep),
             actor.wait_avail(&mut values_in, 1),
-            actor.wait_avail(&mut updates_in, 1),
         );
 
         let elapsed = state.start.elapsed().as_millis();
@@ -123,12 +123,12 @@ async fn internal_behavior<A: SteadyActor>(
             for i in 0..r.len() {
                 let value = &r[i%len];
                 let color:(u8,u8,u8) = match value {
-                    ScreenValue::Inside{loop_period: p, out_filament: f, smallness:s, node: n} => {
+                    ScreenValue::Inside{loop_period: p, out_filament: f, smallness:s, node: n,small_time:st} => {
                         //let s = ((1.0/s).sin() + 1.0) * 50.0;
 
-                        //let s = (s * 255.0) as u8;
+                        let s = 0;//(s * 255.0) as u8;
 
-                        if *f {
+                        /*if *f {
                             if *n {
                                 (dim as u8, 255, dim as u8+25)
                             } else {
@@ -140,16 +140,12 @@ async fn internal_behavior<A: SteadyActor>(
                             } else {
                                 (0, 0, 0)
                             }
-                        }
-
-                    }
-                    ScreenValue::Outside { escape_time: e, in_filament: f, smallness:s, node: n } => {
-                        let s =0;//= ((1.0/s).sin() + 1.0) * 25.0;
+                        }*/
 
                         let mut returned:(u8,u8,u8) = (0,0,0);
 
-                        if *f {
-                            let m = (*e as f64 % u)/u;
+                        /*if *f {
+                            let m = (*st as f64 % u)/u;
                             let m_pi = m * 6.28 + t_pi;
                             let e_sin = (m_pi.sin() + 1.0)/2.0;
 
@@ -160,9 +156,9 @@ async fn internal_behavior<A: SteadyActor>(
                                 returned.0 + b+(s as u8)
                                 , returned.1 + b
                                 , returned.2 + b+25
-                                );
-                        } else {
-                            let m = (*e as f64 % u)/u;
+                            );
+                        } else {*/
+                            let m = (*st as f64 % u)/u;
                             let m_pi = m * 6.28 + t_pi;
                             let e_sin = (m_pi.sin() + 1.0)/2.0;
 
@@ -174,7 +170,49 @@ async fn internal_behavior<A: SteadyActor>(
                                 , returned.1+b
                                 , returned.2+b
                             );
-                        }
+                        //}
+                        /*if *n {
+                            returned = (
+                                returned.0
+                                , 255
+                                , returned.2
+                            );
+                        }*/
+                        returned
+
+                    }
+                    ScreenValue::Outside { big_time: e, in_filament: f, smallness:s, node: n, small_time:st } => {
+                        let s =0;//= ((1.0/s).sin() + 1.0) * 25.0;
+
+                        let mut returned:(u8,u8,u8) = (0,0,0);
+
+                        /*if *f {
+                            let m = (*st as f64 % u)/u;
+                            let m_pi = m * 6.28 + t_pi;
+                            let e_sin = (m_pi.sin() + 1.0)/2.0;
+
+
+                            let b =
+                                (e_sin * brim+dim) as u8;
+                            returned = (
+                                returned.0 + b+(s as u8)
+                                , returned.1 + b
+                                , returned.2 + b+25
+                                );
+                        } else {*/
+                            let m = (*st as f64 % u)/u;
+                            let m_pi = m * 6.28 + t_pi;
+                            let e_sin = (m_pi.sin() + 1.0)/2.0;
+
+
+                            let b =
+                                (e_sin * brim+dim) as u8;
+                            returned = (
+                                returned.0+b+(s as u8)
+                                , returned.1+b
+                                , returned.2+b
+                            );
+                        //}
                         /*if *n {
                             returned = (
                                 returned.0

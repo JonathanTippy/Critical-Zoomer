@@ -14,7 +14,6 @@ use std::cmp::*;
 use rug::*;
 
 use crate::actor::colorer::*;
-use crate::actor::updater::*;
 use crate::actor::work_controller::*;
 
 use crate::action::sampling::*;
@@ -101,12 +100,12 @@ pub async fn run(
     actor: SteadyActorShadow,
     pixels_in: SteadyRx<ZoomerScreen>,
     sampler_out: SteadyTx<(ObjectivePosAndZoom, (u32, u32))>,
-    settings_out: SteadyTx<ZoomerSettingsUpdate>,
+    settings_out: SteadyTxBundle<Settings,2>,
     attention_out: SteadyTx<(i32, i32)>,
     state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
     internal_behavior(
-        actor.into_spotlight([&pixels_in], [&sampler_out, &settings_out, &attention_out]),
+        actor.into_spotlight([&pixels_in], [&sampler_out, &settings_out[0], &settings_out[1], &attention_out]),
         pixels_in,
         sampler_out,
         settings_out,
@@ -121,7 +120,7 @@ async fn internal_behavior<A: SteadyActor>(
     actor: A,
     pixels_in: SteadyRx<ZoomerScreen>,
     sampler_out: SteadyTx<(ObjectivePosAndZoom, (u32, u32))>,
-    settings_out: SteadyTx<ZoomerSettingsUpdate>,
+    settings_out: SteadyTxBundle<Settings, 2>,
     attention_out: SteadyTx<(i32, i32)>,
     state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
@@ -230,7 +229,7 @@ struct EguiWindowPassthrough<'a, A> {
     portable_actor: Arc<Mutex<A>>,
     pixels_in: SteadyRx<ZoomerScreen>,
     sampler_out: SteadyTx<(ObjectivePosAndZoom, (u32, u32))>,
-    settings_out: SteadyTx<ZoomerSettingsUpdate>,
+    settings_out: SteadyTxBundle<Settings, 2>,
     attention_out: SteadyTx<(i32, i32)>,
     portable_state:Arc<Mutex<StateGuard<'a, WindowState>>>
 }
@@ -247,7 +246,10 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
         let mut actor = self.portable_actor.lock().unwrap();
         let mut pixels_in = self.pixels_in.try_lock().unwrap();
         let mut sampler_out = self.sampler_out.try_lock().unwrap();
-        let settings_out = self.settings_out.try_lock().unwrap();
+        let settings_out = [
+            self.settings_out[0].try_lock().unwrap()
+            ,self.settings_out[1].try_lock().unwrap()
+        ];
         let mut attention_out = self.attention_out.try_lock().unwrap();
         let mut state = self.portable_state.lock().unwrap();
 
@@ -625,6 +627,10 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 if state.settings_window_open {
                     let result = settings(&ctx, state.settings_window_context.clone());
                     state.settings_window_open = !result.will_close;
+                    for mut channel in settings_out {
+                        actor.try_send(&mut channel, result.settings.clone());
+                    }
+
                 }
             });
             //println!("hi 1");
