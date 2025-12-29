@@ -10,6 +10,8 @@ use crate::actor::escaper::*;
 
 use crate::action::settings::*;
 
+use crate::action::color::*;
+
 #[derive(Clone, Debug)]
 
 pub(crate) struct ZoomerScreen {
@@ -82,7 +84,7 @@ async fn internal_behavior<A: SteadyActor>(
 
         //let radius:f64 = 2.0 + (((elapsed % 10000) as f64 / 10000.0) * 4.0);
 
-        let u_1:f64 = 10.0;
+        /*let u_1:f64 = 10.0;
         let u_2:f64 = 100.0;
         let t_p = 10000;
         let t = ((elapsed % t_p) as f64 / t_p as f64);
@@ -96,7 +98,7 @@ async fn internal_behavior<A: SteadyActor>(
         let loglog_u = loglog_u1 + (loglog_u2 - loglog_u1) * t_sin;
         let u = (loglog_u.exp()).exp();
 
-        let u = 25.0;
+        let u = 25.0;*/
 
         // do stuff
 
@@ -129,134 +131,18 @@ async fn internal_behavior<A: SteadyActor>(
             }
         }
 
+        let mut settings = state.settings.clone();
         if let Some(v) = &mut state.values {
-            let r = &v.values;
-            let len = r.len();
-            let mut output = vec!();
-
-            let bright:f64 = 128.0;
-            let dim:f64 = 64.0;
-            let brim:f64 = bright-dim;
-
-            for i in 0..r.len() {
-                let value = &r[i%len];
-                let color:(u8,u8,u8) = match value {
-                    ScreenValue::Inside{loop_period: p, out_filament: f, smallness:s, node: n,small_time:st} => {
-                        //let s = ((1.0/s).sin() + 1.0) * 50.0;
-
-                        let s = 0;//(s * 255.0) as u8;
-
-                        /*if *f {
-                            if *n {
-                                (dim as u8, 255, dim as u8+25)
-                            } else {
-                                (dim as u8, dim as u8, dim as u8+25)
-                            }
-                        } else {
-                            if *n {
-                                (0, 255, 0)
-                            } else {
-                                (0, 0, 0)
-                            }
-                        }*/
-
-                        let mut returned:(u8,u8,u8) = (0,0,0);
-
-                        /*if *f {
-                            let m = (*st as f64 % u)/u;
-                            let m_pi = m * 6.28 + t_pi;
-                            let e_sin = (m_pi.sin() + 1.0)/2.0;
-
-
-                            let b =
-                                (e_sin * brim+dim) as u8;
-                            returned = (
-                                returned.0 + b+(s as u8)
-                                , returned.1 + b
-                                , returned.2 + b+25
-                            );
-                        } else {*/
-                            let m = (*st as f64 % u)/u;
-                            let m_pi = m * 6.28 + t_pi;
-                            let e_sin = (m_pi.sin() + 1.0)/2.0;
-
-
-                            let b =
-                                (e_sin * brim+dim) as u8;
-                            returned = (
-                                returned.0+b+(s as u8)
-                                , returned.1+b
-                                , returned.2+b
-                            );
-                        //}
-                        /*if *n {
-                            returned = (
-                                returned.0
-                                , 255
-                                , returned.2
-                            );
-                        }*/
-                        returned
-
-                    }
-                    ScreenValue::Outside { big_time: e, in_filament: f, smallness:s, node: n, small_time:st } => {
-                        let s =0;//= ((1.0/s).sin() + 1.0) * 25.0;
-
-                        let mut returned:(u8,u8,u8) = (0,0,0);
-
-                        /*if *f {
-                            let m = (*st as f64 % u)/u;
-                            let m_pi = m * 6.28 + t_pi;
-                            let e_sin = (m_pi.sin() + 1.0)/2.0;
-
-
-                            let b =
-                                (e_sin * brim+dim) as u8;
-                            returned = (
-                                returned.0 + b+(s as u8)
-                                , returned.1 + b
-                                , returned.2 + b+25
-                                );
-                        } else {*/
-                            let m = (*e as f64 % u)/u;
-                            let m_pi = m * 6.28 + t_pi;
-                            let e_sin = (m_pi.sin() + 1.0)/2.0;
-
-
-                            let b =
-                                (e_sin * brim+dim) as u8;
-                            returned = (
-                                returned.0+b+(s as u8)
-                                , returned.1+b
-                                , returned.2+b
-                            );
-                        //}
-                        /*if *n {
-                            returned = (
-                                returned.0
-                                , 255
-                                , returned.2
-                            );
-                        }*/
-
-
-                        returned
-                    }
-                };
-                //let color = (255, 255, 255);
-                output.push(color);
-            }
-
-            //info!("done coloring. result is {} pixels long.", output.len());
-
+            let output = color(v, &mut settings);
 
             actor.try_send(&mut screens_out, ZoomerScreen{
                 pixels: output
-                , screen_size: v.screen_size.clone()
+                , screen_size: v.res.clone()
                 , objective_location:  v.objective_location.clone()
             });
             //info!("sent colors to window");
         }
+        state.settings = settings;
 
 
 

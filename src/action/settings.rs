@@ -10,57 +10,116 @@ use std::sync::{Arc, Mutex};
 
 use egui_dnd::dnd;
 
-
+use crate::action::widgetize::*;
 
 
 
 
 const RECOVER_EGUI_CRASHES:bool = false;
-// ^ half implimented; in cases where the window is supposed to
+// ^ half-implemented; in cases where the window is supposed to
 // be minimized or not on top, it might bother the user by restarting.
 const MIN_FRAME_RATE:f64 = 20.0;
 const MAX_FRAME_TIME:f64 = 1.0 / MIN_FRAME_RATE;
 const VSYNC:bool = true;
 
-pub(crate) const DEFAULT_SETTINGS_WINDOW_RES:(u32, u32) = (300, 200);
+pub(crate) const DEFAULT_SETTINGS_WINDOW_RES:(u32, u32) = (500, 800);
+
+pub(crate) const DEFAULT_COLORING_SCRIPT:[ColoringInstruction;7] = [
+    ColoringInstruction::PaintEscapeTime{id: 0, opacity:255
+        , color:(128,128,128), range:64
+        , shading_method: ShadingInstruction{
+            shading: Shading::Sinus{}
+            , period: Animable{
+                start:None
+                , period:Duration::from_secs(10)
+                , value:10.0
+                , animated:false
+                , range:(1.0, 10.0)
+                , limits:(1.0, 10.0)
+                , normalizing:Normalizing::None{}
+            }
+            , phase: Animable{
+                start:None
+                , period:Duration::from_secs(10)
+                , value:0.0
+                , animated:false
+                , range:(0.0, 10.0)
+                , limits:(0.0, 10.0)
+                , normalizing:Normalizing::None{}
+            }
+        }
+        , normalizing_method: Normalizing::None{}}
+    , ColoringInstruction::PaintSmallTime{id: 1, inside_opacity:0, outside_opacity:30
+        , color:(128,128,128), range:64
+        , shading_method: ShadingInstruction{
+            shading: Shading::Sinus{}
+            , period: Animable{
+                start:None
+                , period:Duration::from_secs(10)
+                , value:3.0
+                , animated:false
+                , range:(1.0, 10.0)
+                , limits:(1.0, 10.0)
+                , normalizing:Normalizing::None{}
+            }
+            , phase: Animable{
+                start:None
+                , period:Duration::from_secs(10)
+                , value:0.0
+                , animated:false
+                , range:(0.0, 10.0)
+                , limits:(0.0, 10.0)
+                , normalizing:Normalizing::None{}
+            }
+        }
+        , normalizing_method: Normalizing::None{}}
+    , ColoringInstruction::PaintSmallness{
+        id: 2, inside_opacity:0, outside_opacity:0
+        , color:(128,128,128), range:64
+        , shading_method: ShadingInstruction{
+            shading: Shading::Sinus{}
+            , period: Animable{
+                start:None
+                , period:Duration::from_secs(10)
+                , value:10.0
+                , animated:false
+                , range:(1.0, 10.0)
+                , limits:(1.0, 10.0)
+                , normalizing:Normalizing::None{}
+            }
+            , phase: Animable{
+                start:None
+                , period:Duration::from_secs(10)
+                , value:0.0
+                , animated:false
+                , range:(0.0, 10.0)
+                , limits:(0.0, 10.0)
+                , normalizing:Normalizing::None{}
+            }
+        }
+        , normalizing_method: Normalizing::None{}}
+    , ColoringInstruction::HighlightInFilaments{id: 3, opacity:255, color:(0,0,0)}
+    , ColoringInstruction::HighlightOutFilaments{id: 4, opacity:255, color:(128,128,128)}
+    , ColoringInstruction::HighlightNodes{id: 5, inside_opacity:0, outside_opacity:0
+        , color:(128,128,128), thickness:10, only_fattest:true}
+    , ColoringInstruction::HighlightSmallTimeEdges{id: 6, inside_opacity:30, outside_opacity:0
+        , color:(128,128,128)}
+];
 
 
 impl Settings {
     pub(crate) const DEFAULT:Settings = Settings{
-        coloring_order: [
-            ColoringInstruction::PaintEscapeTime{}
-            , ColoringInstruction::PaintSmallTime{}
-            , ColoringInstruction::PaintSmallness{}
-            , ColoringInstruction::HighlightInFilaments{}
-            , ColoringInstruction::HighlightOutFilaments{}
-            , ColoringInstruction::HighlightNodes{}
-            , ColoringInstruction::HighlightSmallTimeEdges{}
-        ]
-        , escape_time_coloring: EscapeTimeColoring{ opacity:255
-            , color:(128,128,128), range:64
-            , shading_method: Shading::Sinus{period: 10.0, phase: Animable::Value{val:0.0}}
-            , normalizing_method: Normalizing::None{}}
-        , small_time_coloring: SmallTimeColoring{inside_opacity:0, outside_opacity:0
-            , color:(128,128,128), range:64
-            , shading_method: Shading::Sinus{period: 10.0, phase: Animable::Value{val:0.0}}
-            , normalizing_method: Normalizing::None{}}
-        , smallness_coloring: SmallnessColoring{inside_opacity:0, outside_opacity:0
-            , color:(128,128,128), range:64
-            , shading_method: Shading::Sinus{period: 10.0, phase: Animable::Value{val:0.0}}
-            , normalizing_method: Normalizing::None{}}
-        , in_filament_highlighting: InFilamentHighlighting{opacity:0, color:(128,128,128)}
-        , out_filament_highlighting: OutFilamentHighlighting{opacity:0, color:(128,128,128)}
-        , node_highlighting: NodeHighlighting{
-            inside_opacity:0, outside_opacity:0
-            , color:(128,128,128)
-        }
-        , small_time_edge_highlighting: SmallTimeEdgeHighlighting{
-            inside_opacity:0, outside_opacity:0
-            , color:(128,128,128)
-        }
-        , bailout_radius: Animable::Value{val:2.0}
-        , bailout_max_additional_iterations: 100
+        coloring_script: None
+        , bailout_radius: Animable{start:None,period:Duration::from_secs(10)
+            , value:2.0
+            , animated:false
+            , range:(2.0, u32::MAX as f64)
+            , limits:(2.0, u32::MAX as f64)
+            , normalizing:Normalizing::LnLn{}}
+        , bailout_max_additional_iterations: 10
         , estimate_extra_iterations: false
+        , id_counter: 7
+        , currently_selected_coloring_instruction: 0
     };
 }
 
@@ -70,174 +129,303 @@ pub const DEFAULT_SETTINGS_WINDOW_CONTEXT:SettingsWindowContext = SettingsWindow
     , location: None
     , will_close: false
     , checked: false
+    , id_counter: 7
 };
 
 #[derive(Clone, Debug)]
 pub(crate) struct Settings {
-    pub(crate) coloring_order:[ColoringInstruction;7]
-    , pub(crate) escape_time_coloring: EscapeTimeColoring
-    , pub(crate) small_time_coloring: SmallTimeColoring
-    , pub(crate) smallness_coloring: SmallnessColoring
-    , pub(crate) in_filament_highlighting: InFilamentHighlighting
-    , pub(crate) out_filament_highlighting: OutFilamentHighlighting
-    , pub(crate) node_highlighting: NodeHighlighting
-    , pub(crate) small_time_edge_highlighting: SmallTimeEdgeHighlighting
+    pub(crate) coloring_script:Option<Vec<ColoringInstruction>>
     , pub(crate) bailout_radius:Animable
     , pub(crate) bailout_max_additional_iterations:u32
     , pub(crate) estimate_extra_iterations:bool
+    , pub(crate) currently_selected_coloring_instruction: u64
+    , pub(crate) id_counter: u64
 }
 
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 
-pub(crate) enum Animable {
-    Value{val:f64}
-    , Animation{
-        start: Instant
-        , period: Duration
-        , min:f64
-        , max:f64
-        , normalizing: Normalizing
-    }
+pub(crate) struct Animable {
+    pub(crate) start: Option<Instant>
+    , pub(crate) period: Duration
+    , pub(crate) value: f64
+    , pub(crate) animated: bool
+    , pub(crate) range: (f64, f64)
+    , pub(crate) limits: (f64, f64)
+    , pub(crate) normalizing: Normalizing
 }
+
+use core::ops::RangeInclusive;
+
+
+
+
 use std::f64::consts::*;
 impl Animable {
-    pub(crate) fn determine(self) -> f64 {
+    pub(crate) fn determine(&mut self) -> f64 {
         match self {
-            Animable::Value{val} => {val}
-            , Animable::Animation{start,period,min,max, normalizing} => {
-                let elapsed = start.elapsed();
-                let phase_time = elapsed.as_secs_f64() % period.as_secs_f64();
-                let normalized_phase_time = phase_time / period.as_secs_f64();
-                let wave_result = (1.0-((normalized_phase_time*TAU).cos()))/2.0;
+            Animable{mut start, period, range, limits, normalizing, animated, value, ..} => {
+                if *animated {
+                    if start.is_none() {start = Some(Instant::now())}
+                    let elapsed = start.unwrap().elapsed();
+                    let phase_time = elapsed.as_secs_f64() % period.as_secs_f64();
+                    let normalized_phase_time = phase_time / period.as_secs_f64();
+                    let wave_result = (1.0-((normalized_phase_time*TAU).cos()))/2.0;
 
-                let min = normalizing.normalize(min);
-                let max = normalizing.normalize(max);
-                let range = max - min;
-                normalizing.denormalize(min + (range*wave_result))
+                    let min = normalizing.normalize(&self.range.0);
+                    let max = normalizing.normalize(&self.range.1);
+                    let range = max - min;
+                    normalizing.denormalize(&(min + (range*wave_result)))
+                } else {
+                    normalizing.reshape_input(limits, value)
+                }
+
             }
         }
     }
+
 }
 
-#[derive(Clone, Debug)]
 
-enum Normalizing {
+
+#[derive(Clone, Debug, Copy, PartialEq)]
+
+pub(crate) enum Normalizing {
     None{}
     , LnLn{}
+    , Ln{}
     , Reciprocal{}
+    , RecipLn{}
 }
 
 impl Normalizing {
-    fn normalize(&self, input:f64) -> f64 {
+    pub(crate) fn normalize(&self, input:&f64) -> f64 {
         match self {
-            Normalizing::None{..} => {input}
+            Normalizing::None{..} => {*input}
             Normalizing::LnLn{..} => {
                 input.ln().ln()
             }
-            Normalizing::Reciprocal{..} => {1.0/input}
-        }
-    }
-
-    fn denormalize(&self, input:f64) -> f64 {
-        match self {
-            Normalizing::None{..} => {input}
-            Normalizing::LnLn{..} => {
-                input.exp().exp()
+            Normalizing::Ln{..} => {
+                input.ln()
+            }
+            Normalizing::RecipLn{..} => {
+                (1.0/input).ln()
             }
             Normalizing::Reciprocal{..} => {1.0/input}
         }
     }
+
+    pub(crate) fn denormalize(&self, input:&f64) -> f64 {
+        match self {
+            Normalizing::None{..} => {*input}
+            Normalizing::LnLn{..} => {
+                input.exp().exp()
+            }
+            Normalizing::Ln{..} => {
+                input.exp()
+            }
+            Normalizing::RecipLn{..} => {
+                1.0/(input.exp())
+            }
+            Normalizing::Reciprocal{..} => {1.0/input}
+        }
+    }
+
+    pub(crate) fn reshape_input(&self, limits:&(f64, f64), input:&f64) -> f64 {
+
+        let scalar_input = (input-limits.0)/(limits.1-limits.0);
+
+        let normalized_min = self.normalize(&limits.0);
+        let normalized_max = self.normalize(&limits.1);
+        let normalized_range = normalized_max - normalized_min;
+        self.denormalize(&(normalized_min + (normalized_range*scalar_input)))
+    }
+
+    pub(crate) fn get_normalizer(&self) -> Normalizer {
+        match self {
+            Normalizing::None{..} => {
+                Normalizer{
+                    normalize64: |n| {*n}
+                    , denormalize64: |n| {*n}
+                    , normalize32: |n| {*n}
+                    , denormalize32: |n| {*n}
+                }
+            }
+            Normalizing::LnLn{..} => {
+                Normalizer{
+                    normalize64: |n| {n.ln().ln()}
+                    , denormalize64: |n| {n.exp().exp()}
+                    , normalize32: |n| {n.ln().ln()}
+                    , denormalize32: |n| {n.exp().exp()}
+                }
+            }
+            Normalizing::Ln{..} => {
+                Normalizer{
+                    normalize64: |n| {n.ln()}
+                    , denormalize64: |n| {n.exp()}
+                    , normalize32: |n| {n.ln()}
+                    , denormalize32: |n| {n.exp()}
+                }
+            }
+            Normalizing::RecipLn{..} => {
+                Normalizer{
+                    normalize64: |n| {1.0/n.ln()}
+                    , denormalize64: |n| {(1.0/n).exp()}
+                    , normalize32: |n| {1.0/n.ln()}
+                    , denormalize32: |n| {(1.0/n).exp()}
+                }
+            }
+            Normalizing::Reciprocal{..} => {
+                Normalizer{
+                    normalize64: |n| {1.0/n}
+                    , denormalize64: |n| {1.0/n}
+                    , normalize32: |n| {1.0/n}
+                    , denormalize32: |n| {1.0/n}
+                }
+            }
+        }
+    }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy, PartialEq)]
 
-enum Shading {
-    Modular{period:f64, phase:Animable}
-    , Sinus{period:f64, phase:Animable}
-    , Linear{}
-    , Histogram{}
+pub(crate) struct Normalizer {
+    pub(crate) normalize64: fn(&f64)->f64
+    , pub(crate) denormalize64: fn(&f64)->f64
+    , pub(crate) normalize32: fn(&f32)->f32
+    , pub(crate) denormalize32: fn(&f32)->f32
+}
+
+#[derive(Clone, Debug, Copy)]
+
+
+pub(crate) struct ShadingInstruction {
+    pub(crate) period:Animable, pub(crate) phase:Animable
+    , pub(crate) shading: Shading
+}
+
+#[derive(Clone, Debug, Copy, PartialEq)]
+
+pub(crate) enum Shading {
+    Modular{}
+    , Sinus{}
 }
 
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 
-struct EscapeTimeColoring {
-    pub(crate) opacity:u8
-    , pub(crate) color:(u8,u8,u8), pub(crate) range:u8
-    , pub(crate) shading_method: Shading
-    , pub(crate) normalizing_method: Normalizing
-}
-#[derive(Clone, Debug)]
-
-struct SmallTimeColoring {
-    pub(crate) inside_opacity:u8, pub(crate) outside_opacity:u8
-    , pub(crate) color:(u8,u8,u8), pub(crate) range:u8
-    , pub(crate) shading_method: Shading
-    , pub(crate) normalizing_method: Normalizing
-}
-#[derive(Clone, Debug)]
-
-struct SmallnessColoring {
-    pub(crate) inside_opacity:u8, pub(crate) outside_opacity:u8
-    , pub(crate) color:(u8,u8,u8), pub(crate) range:u8
-    , pub(crate) shading_method: Shading
-    , pub(crate) normalizing_method: Normalizing
-}
-#[derive(Clone, Debug)]
-
-struct InFilamentHighlighting {
-    pub(crate) opacity:u8, pub(crate) color:(u8,u8,u8)
-}
-#[derive(Clone, Debug)]
-
-struct OutFilamentHighlighting {
-    pub(crate) opacity:u8, pub(crate) color:(u8,u8,u8)
-}
-#[derive(Clone, Debug)]
-
-struct NodeHighlighting {
-    pub(crate) inside_opacity:u8, pub(crate) outside_opacity:u8
-    , pub(crate) color:(u8,u8,u8)
-}
-
-#[derive(Clone, Debug)]
-
-struct SmallTimeEdgeHighlighting {
-    pub(crate) inside_opacity:u8, pub(crate) outside_opacity:u8
-    , pub(crate) color:(u8,u8,u8)
+pub(crate) enum ColoringInstruction {
+    PaintEscapeTime{
+         opacity:u8
+        , color:(u8,u8,u8), range:u8
+        , shading_method: ShadingInstruction
+        , normalizing_method: Normalizing
+        , id:u64
+    }
+    , PaintSmallTime{
+        inside_opacity:u8, outside_opacity:u8
+        , color:(u8,u8,u8), range:u8
+        , shading_method: ShadingInstruction
+        , normalizing_method: Normalizing
+        , id:u64
+    }
+    , PaintSmallness{
+        inside_opacity:u8, outside_opacity:u8
+        , color:(u8,u8,u8), range:u8
+        , shading_method: ShadingInstruction
+        , normalizing_method: Normalizing
+        , id:u64
+    }
+    , HighlightInFilaments{
+        opacity:u8, color:(u8,u8,u8)
+        , id:u64
+    }
+    , HighlightOutFilaments{
+        opacity:u8, color:(u8,u8,u8)
+        , id:u64
+    }
+    , HighlightNodes{
+        inside_opacity:u8, outside_opacity:u8
+        , color:(u8,u8,u8)
+        , id:u64
+        , thickness:u8
+        , only_fattest: bool
+    }
+    , HighlightSmallTimeEdges{
+        inside_opacity:u8, outside_opacity:u8
+        , color:(u8,u8,u8)
+        , id:u64
+    }
 }
 
-
-#[derive(Clone, Debug, Hash, Copy)]
-
-enum ColoringInstruction {
-    PaintEscapeTime{}
-    , PaintSmallTime{}
-    , PaintSmallness{}
-    , HighlightInFilaments{}
-    , HighlightOutFilaments{}
-    , HighlightNodes{}
-    , HighlightSmallTimeEdges{}
+impl ColoringInstruction {
+    pub(crate) fn id(self) -> u64 {
+        match self {
+            ColoringInstruction::PaintEscapeTime{id, ..
+            } => {id}
+            , ColoringInstruction::PaintSmallTime{id,..
+            } => {id}
+            , ColoringInstruction::PaintSmallness{id,..
+            } => {id}
+            , ColoringInstruction::HighlightInFilaments{id,..
+            } => {id}
+            , ColoringInstruction::HighlightOutFilaments{id,..
+            } => {id}
+            , ColoringInstruction::HighlightNodes{id,..
+            } => {id}
+            , ColoringInstruction::HighlightSmallTimeEdges{id,..
+            } => {id}
+        }
+    }
 }
+
+use std::hash::*;
+impl Hash for ColoringInstruction {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            ColoringInstruction::PaintEscapeTime{id, ..
+            } => {id.hash(state);}
+            , ColoringInstruction::PaintSmallTime{id,..
+            } => {id.hash(state);}
+            , ColoringInstruction::PaintSmallness{id,..
+            } => {id.hash(state);}
+            , ColoringInstruction::HighlightInFilaments{id,..
+            } => {id.hash(state);}
+            , ColoringInstruction::HighlightOutFilaments{id,..
+            } => {id.hash(state);}
+            , ColoringInstruction::HighlightNodes{id,..
+            } => {id.hash(state);}
+            , ColoringInstruction::HighlightSmallTimeEdges{id,..
+            } => {id.hash(state);}
+        }
+    }
+}
+
+
+/*impl Hash for Person {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+        self.phone.hash(state);
+    }
+}*/
 
 impl ColoringInstruction {
     fn name(self) -> String {
         match self {
-            ColoringInstruction::PaintEscapeTime{
-            } => {String::from("PaintEscapeTime")}
-            , ColoringInstruction::PaintSmallTime{
-            } => {String::from("PaintSmallTime")}
-            , ColoringInstruction::PaintSmallness{
-            } => {String::from("PaintSmallness")}
-            , ColoringInstruction::HighlightInFilaments{
-            } => {String::from("HighlightInFilaments")}
-            , ColoringInstruction::HighlightOutFilaments{
-            } => {String::from("HighlightOutFilaments")}
-            , ColoringInstruction::HighlightNodes{
-            } => {String::from("HighlightNodes")}
-            , ColoringInstruction::HighlightSmallTimeEdges{
-            } => {String::from("Highlight small time edges")}
+            ColoringInstruction::PaintEscapeTime{..
+            } => {String::from("Escape Time")}
+            , ColoringInstruction::PaintSmallTime{..
+            } => {String::from("Small Time")}
+            , ColoringInstruction::PaintSmallness{..
+            } => {String::from("Small PB")}
+            , ColoringInstruction::HighlightInFilaments{..
+            } => {String::from("In Filaments")}
+            , ColoringInstruction::HighlightOutFilaments{..
+            } => {String::from("Out Filaments")}
+            , ColoringInstruction::HighlightNodes{..
+            } => {String::from("Minis")}
+            , ColoringInstruction::HighlightSmallTimeEdges{..
+            } => {String::from("Small Time Edges")}
         }
     }
 }
@@ -267,6 +455,7 @@ pub(crate) struct SettingsWindowContext {
     , pub(crate) location: Option<Pos2>
     , pub(crate) will_close: bool
     , pub(crate) checked: bool
+    , pub(crate) id_counter: u64
 }
 
 
@@ -309,53 +498,11 @@ pub(crate) fn settings (
                 let available_size = ui.available_size();
                 //if ui.add(Button::new("Click me")).clicked() {println!("clicked")}
 
-                ui.add(egui::Checkbox::new(&mut state.checked, "Checked"));
-                if state.checked {
-                    if ui.add(Button::new("Click me")).clicked() {println!("clicked")}
-                }
-
-                ui.add(egui::Checkbox::new(&mut state.settings.estimate_extra_iterations, "Checked"));
-
-                let mut bailout_is_animated = match state.settings.bailout_radius {
-                    Animable::Value{..} => {false}
-                    , Animable::Animation{..} => {true}
-                };
-
-                let pre = bailout_is_animated;
-                bailout_is_animated = bailout_is_animated ^ ui.add(Button::selectable(bailout_is_animated, "🔁")).clicked();
-
-                if !pre && bailout_is_animated {
-                    state.settings.bailout_radius = Animable::Animation{start:Instant::now(),period:Duration::from_secs(1), min:2.0,max:256.0,normalizing:Normalizing::LnLn{}};
-                }
-
-                let mut bailout = state.settings.bailout_radius.clone().determine();
-                ui.add(egui::Slider::new(&mut bailout, 2.0..=255.0).logarithmic(true));
-                if !bailout_is_animated {
-                    state.settings.bailout_radius= Animable::Value{val:bailout}
-                };
-
-                ui.add(egui::Slider::new(&mut state.settings.bailout_max_additional_iterations,  0..=100000).logarithmic(true));
-
-                let mut items = state.settings.coloring_order.to_vec();
-
-                let mut rect = Rect::ZERO;
-
-                dnd(ui, "dnd_example").show_vec(&mut items, |ui, item, handle, state| {
-                    ui.horizontal(|ui| {
-                        handle.ui(ui, |ui| {
-                            if state.dragged {
-                                ui.label("dragging");
-                            } else {
-                                ui.label("drag");
-                            }
-                        });
-                        ui.label(*item);
-                    });
+                egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
+                    state.settings.widgetize(ui);
                 });
 
-                state.settings.coloring_order = items.try_into().unwrap();
 
-                ui.label("This is a deferred viewport!");
                 ctx.request_repaint();
 
             });
