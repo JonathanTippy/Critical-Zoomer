@@ -21,29 +21,45 @@ pub(crate) mod action {
     pub(crate) mod workshift;
 
     pub(crate) mod utils;
+    pub(crate) mod widgetize;
+    pub(crate) mod color;
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+use std::thread;
 
-    // Parse command-line arguments (rate, beats, etc.) using clap.
-    let cli_args = MainArg::parse();
+const STACK_SIZE:usize = 200 * 1024 * 1024; // 200 MiB
+fn main() {
 
-    // Initialize logging at Info level for runtime diagnostics and performance output.
-    init_logging(LogLevel::Info)?;
 
-    // Build the actor graph with all channels and actors, using the parsed arguments.
-    let mut graph = GraphBuilder::default()
-        .with_telemtry_production_rate_ms(200)
-        .build(cli_args);
+    let builder = thread::Builder::new()
+        .name("worker-thread".into())
+        .stack_size(STACK_SIZE);
 
-    // Construct the full actor pipeline and channel topology.
-    build_graph(&mut graph);
+    let handler = builder.spawn(|| {
+        // Parse command-line arguments (rate, beats, etc.) using clap.
+        let cli_args = MainArg::parse();
 
-    // Start the entire actor system. All actors and channels are now live.
-    graph.start();
+        // Initialize logging at Info level for runtime diagnostics and performance output.
+        init_logging(LogLevel::Info);
 
-    // The system runs until an actor requests shutdown or the timeout is reached.
-    graph.block_until_stopped(Duration::from_secs(1))
+        // Build the actor graph with all channels and actors, using the parsed arguments.
+        let mut graph = GraphBuilder::default()
+            .with_telemtry_production_rate_ms(200)
+            .with_stack_size(STACK_SIZE)
+            .build(cli_args);
+
+        // Construct the full actor pipeline and channel topology.
+        build_graph(&mut graph);
+
+        // Start the entire actor system. All actors and channels are now live.
+        graph.start();
+
+        // The system runs until an actor requests shutdown or the timeout is reached.
+        graph.block_until_stopped(Duration::from_secs(1));
+    }).expect("Failed to spawn thread");
+
+    handler.join().expect("Thread panicked");
+
 }
 
 // Actor names for use in graph construction and testing.

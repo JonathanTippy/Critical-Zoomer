@@ -13,6 +13,19 @@ use crate::action::settings::*;
 pub(crate) const BAILOUT_MAX_ITERATIONS:usize = 100;
 
 
+pub(crate) enum ScreenValue {
+    Outside{
+        big_time:u32
+        , small_time: u32
+        , smallness:f64
+    },
+    Inside{
+        small_time: u32
+        , loop_period: u32
+        , smallness:f64
+    }
+}
+
 #[derive(Clone, Debug)]
 
 pub(crate) struct ZoomerScreen {
@@ -21,28 +34,9 @@ pub(crate) struct ZoomerScreen {
     , pub(crate) objective_location: ObjectivePosAndZoom
 }
 
-#[derive(Clone, Debug)]
-
-pub(crate) enum ScreenValue {
-    Outside{
-        big_time: u32
-        , in_filament: bool
-        , smallness:f64
-        , small_time: u32
-        , node: bool
-    }
-    , Inside{
-        loop_period: u32
-        , out_filament: bool
-        , smallness:f64
-        , small_time: u32
-        , node: bool
-    }
-}
-
 pub(crate) struct ZoomerValuesScreen {
     pub(crate) values: Vec<ScreenValue>
-    , pub(crate) screen_size: (u32, u32)
+    , pub(crate) res: (u32, u32)
     , pub(crate) objective_location: ObjectivePosAndZoom
 }
 
@@ -155,7 +149,7 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
 
             actor.try_send(&mut screens_out, ZoomerValuesScreen{
                 values: output
-                , screen_size: v.screen_res
+                , res: v.screen_res
                 , objective_location:  v.location.clone()
             });
             //info!("sent colors to window");
@@ -225,8 +219,9 @@ fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f6
                 , imag_squared: z.1 * z.1
                 , iterations: t.clone()
                 , real_imag: z.0 * z.1
-                , loop_detection_point: ((0.0f32.into(), 0.0f32.into()), 0)
-                , done: (false, false)
+                , loop_detection_point: ((0.0.into(), 0.0.into()), 0)
+                , escapes: false
+                , repeats: false
                 , delivered: false
                 , period: 0
                 , smallness_squared:*s
@@ -238,7 +233,7 @@ fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f6
             let og_count= p.iterations;
             while !bailout_point(&p, r_squared.into()) {
                 if c<max {} else {
-                    if settings.estimate_extra_iterations {
+                    /*if settings.estimate_extra_iterations {
                         /*let real_squared:f64 = p.real_squared.into();
                         let imag_squared:f64 = p.imag_squared.into();
                         let bigness:f64 = (real_squared+imag_squared).sqrt();*/
@@ -250,7 +245,7 @@ fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f6
                         let nudge = (p.c.0 - (2.0f32.into())).abs();
                         let additional_iterations = (r as f64 /nudge.into()).log(4.0) as u32;
                         p.iterations+=additional_iterations;
-                    }
+                    }*/
                     break;
                 }
                 iterate(&mut p);
@@ -258,7 +253,7 @@ fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f6
                 c+=1;
             }
 
-            ScreenValue::Outside{ big_time: p.iterations, in_filament: filament, smallness:<T as Into<f64>>::into(*s), node: is_node_tree(pos, points, res), small_time:*st}
+            ScreenValue::Outside{ big_time: p.iterations, smallness:<T as Into<f64>>::into(*s), small_time:*st}
         }
         CompletedPoint::Repeats{period: p, smallness:s, small_time:st} => {
             let neighbors: [(i32, i32);4] =[
@@ -295,15 +290,15 @@ fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f6
 
 
             if diff_sum < 0 {
-                ScreenValue::Inside{loop_period:*p, out_filament: true, smallness:<T as Into<f64>>::into(*s), node: is_node_tree (pos, points, res), small_time:*st}
+                ScreenValue::Inside{loop_period:*p, smallness:<T as Into<f64>>::into(*s), small_time:*st}
             } else {
-                ScreenValue::Inside{loop_period:*p, out_filament: false, smallness:<T as Into<f64>>::into(*s), node: is_node_tree (pos, points, res), small_time:*st}
+                ScreenValue::Inside{loop_period:*p, smallness:<T as Into<f64>>::into(*s), small_time:*st}
             }
 
         }
         CompletedPoint::Dummy{} => {
             //panic!("completed point was not completed");
-            ScreenValue::Inside{loop_period:0, out_filament:false, smallness:100.0, node: is_node_tree (pos, points, res), small_time:0}
+            ScreenValue::Inside{loop_period:0, smallness:100.0, small_time:0}
         }
     }
 }

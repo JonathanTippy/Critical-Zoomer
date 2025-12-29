@@ -222,3 +222,38 @@ pub(crate) fn i16_to_f32(input: i16) -> f32 {
     let p:f32 = input as f32 / (2<<12) as f32;
     p
 }
+
+#[inline]
+pub(crate) fn index_from_pos(pos:&(i32, i32), wid:u32) -> usize {
+    (pos.0 + pos.1*wid as i32) as usize
+}
+
+#[inline]
+pub(crate) fn index_from_pos_safe(pos:&(i32, i32), res:(u32, u32)) -> Option<usize> {
+
+    let valid = (
+        res.0 as i32 > pos.0 && pos.0 >= 0
+        && res.1 as i32 > pos.1 && pos.1 >= 0
+    );
+
+    if valid {
+        Some((pos.0 + pos.1*res.0 as i32) as usize)
+    } else {None}
+}
+
+pub(crate) fn pos_from_index(i: usize, wid:u32) -> (i32, i32) {
+    (i as i32 % wid as i32, i as i32/wid as i32)
+}
+
+const fn init (i:usize) -> u8 { i as u8 }
+
+const ALL_U8S: [u8; 256] = {
+    let mut returned = [0;256];
+    let mut i = 0;
+    while i < 256 {
+        returned[i] = i as u8;
+        i+=1
+    }
+    returned
+};
+

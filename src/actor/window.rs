@@ -156,6 +156,14 @@ async fn internal_behavior<A: SteadyActor>(
 
     }).await;
 
+    {
+        let mut settings_state = state.settings_window_context.try_lock().unwrap();
+        if settings_state.settings.coloring_script.is_none() {
+            settings_state.settings.coloring_script = Some(DEFAULT_COLORING_SCRIPT.into());
+        }
+    }
+
+
     // with_decorations!!!!
     // with_fullscreen!!!!
 
@@ -624,13 +632,18 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     }
                 );
 
+
+
                 if state.settings_window_open {
                     let result = settings(&ctx, state.settings_window_context.clone());
                     state.settings_window_open = !result.will_close;
                     for mut channel in settings_out {
                         actor.try_send(&mut channel, result.settings.clone());
                     }
-
+                } else {
+                    for mut channel in settings_out {
+                        actor.try_send(&mut channel, state.settings_window_context.try_lock().unwrap().settings.clone());
+                    }
                 }
             });
             //println!("hi 1");

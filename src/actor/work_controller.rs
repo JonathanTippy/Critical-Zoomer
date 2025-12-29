@@ -9,7 +9,7 @@ use crate::actor::screen_worker::*;
 use rand::prelude::SliceRandom;
 use crate::action::utils::*;
 
-pub(crate) enum WorkerCommand<T> {
+pub(crate) enum WorkerCommand<T:Copy> {
     Replace{frame_info: (ObjectivePosAndZoom, (u32, u32)), context: WorkContext<T>}
 }
 
@@ -145,8 +145,9 @@ fn get_points<T: From<f32> + Clone + From<IntExp> + Sub<Output=T> + Add<Output=T
                         , imag_squared: 0.0.into()
                         , real_imag: 0.0.into()
                         , iterations: 0
-                        , loop_detection_point: (point.clone(), 1)
-                        , done: (false, false)
+                        , loop_detection_point: ((0.0.into(), 0.0.into()), 0)
+                        , escapes: false
+                        , repeats: false
                         , delivered: false
                         , period: 0
                         , smallness_squared: 100.0.into()
@@ -236,9 +237,13 @@ fn handle_sampler_stuff<T: Clone + From<f32> + From<f32> + Clone + From<IntExp> 
     // Shuffle edges randomly
     edges.shuffle(&mut rng);
 
+
+
+
+
     let work_context = WorkContext {
         points: get_points(stuff.1, state.loc.clone(), state.zoom_pot)
-        , completed_points: vec!()
+        , completed_points: Stec{stuff:[(CompletedPoint::Dummy{}, 0);100000], len:0}
         , index: 0
         , random_index: 0
         , time_created: Instant::now()

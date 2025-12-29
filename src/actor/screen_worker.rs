@@ -16,7 +16,7 @@ pub(crate) struct WorkUpdate<T> {
 }
 
 #[derive(Clone)]
-pub(crate) struct WorkerState<T> {
+pub(crate) struct WorkerState<T:Copy> {
     work_context: Option<(WorkContext<T>, (ObjectivePosAndZoom, (u32, u32)))>
     , workshift_token_budget: u32
     , iteration_token_cost: u32
@@ -44,7 +44,7 @@ pub async fn run(
         .await
 }
 
-async fn internal_behavior<A: SteadyActor, T: Send + Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + crate::action::workshift::Finite + crate::action::workshift::Gt + crate::action::workshift::Abs + From<f32> + Into<f64> + Copy>(
+async fn internal_behavior<A: SteadyActor, T: Send + std::fmt::Debug + Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + crate::action::workshift::Finite + crate::action::workshift::Gt + crate::action::workshift::Abs + From<f32> + Into<f64> + Copy>(
     mut actor: A,
     commands_in: SteadyRx<WorkerCommand<T>>,
     updates_out: SteadyTx<WorkUpdate<T>>,
@@ -161,12 +161,18 @@ async fn internal_behavior<A: SteadyActor, T: Send + Sub<Output=T> + Add<Output=
     Ok(())
 }
 
-fn work_update<T>(ctx: &mut WorkContext<T>) -> Vec<(CompletedPoint<T>, usize)> {
+fn work_update<T:Copy>(ctx: &mut WorkContext<T>) -> Vec<(CompletedPoint<T>, usize)> {
+
+
+    //ctx.completed_points
     let update_start = ctx.last_update;
     let mut returned = vec!();
-    returned.append(&mut ctx.completed_points);
+    for _ in 0..ctx.completed_points.len {
+        returned.push(ctx.completed_points.try_pop().unwrap())
+    }
+    /*returned.append(&mut ctx.completed_points);
     ctx.completed_points = vec!();
-    ctx.last_update = ctx.index;
+    ctx.last_update = ctx.index;*/
     returned
 }
 
