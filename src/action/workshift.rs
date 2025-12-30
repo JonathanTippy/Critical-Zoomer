@@ -248,7 +248,7 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
                 }
 
                 let p = &context.points[index_from_pos(&context.attention, context.res.0)];
-                //println!("selected point: {:?}", p);
+                println!("selected point: {:?}", p);
 
                 (&(
                     context.attention.0 + x, context.attention.1 + y

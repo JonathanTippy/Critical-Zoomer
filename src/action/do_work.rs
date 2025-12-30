@@ -1,5 +1,8 @@
 pub(crate) struct WorkContext {
-    active_point: PointInProgress
+    active_point: Option<PointInProgress>
+    , pos: (i32, i32)
+    , res: (u32, u32)
+    , step: fn((i32, i32), (u32, u32)) -> Option<(i32, i32)>
 }
 
 pub(crate) struct Z {
@@ -67,16 +70,38 @@ pub(crate) struct PointInProgress {
     c: (f64, f64)
     , z: Z
     , iteration_count: u64
-    , landmarks: [(f64, f64);16]
+    , loop_checkpoint: (f64, f64)
+    , min_magnitude_squared: f64
+    , approach_checkpoint: (f64, f64)
+    , approach_min_magnitude_squared: f64
+    , non_approach_iteration_counter: u64
+    , skip_counter: u64
+    , period: u64
 }
 
 impl PointInProgress {
     fn new(c:(f64,f64)) -> Self {
         PointInProgress {
             c
-            , z:c
+            , z:Z{real:0, imag:0, real_squared:0, imag_squared:0}
             , iteration_count: 0
-            , landmarks: [c;16]
+            , loop_checkpoint: (0.0, 0.0)
+            , min_magnitude_squared: f64::INFINITY
+            , approach_checkpoint: (0.0, 0.0)
+            , approach_min_magnitude_squared: f64::INFINITY
+            , non_approach_iteration_counter: 0
+            , skip_counter: 1
+            , period: 1
         }
     }
 }
+
+fn initialize_point(screen_top_left_corner_location: (f64, f64), pixel_side_length: f64, screen_pos: (i32, i32)) -> PointInProgress {
+    return PointInProgress::new(
+        (
+            screen_top_left_corner_location.0 + pixel_side_length * screen_pos.0 as f64
+            , screen_top_left_corner_location.1 - pixel_side_length * screen_pos.1 as f64
+            )
+    )
+}
+
