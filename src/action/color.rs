@@ -59,7 +59,7 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             returned[index]=layer_colors(returned[index], color)
                         }
                     }
-                    println!("painted escape time in {:6}", start.elapsed().as_secs_f64())
+                    //println!("painted escape time in {:6}", start.elapsed().as_secs_f64())
                 }
                 ColoringInstruction::PaintSmallTime{
                     inside_opacity, outside_opacity, color, range, shading_method, normalizing_method, ..
@@ -110,7 +110,7 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             returned[index]=layer_colors(returned[index], color)
                         }
                     }
-                    println!("painted small time in {:6}", start.elapsed().as_secs_f64())
+                    //println!("painted small time in {:6}", start.elapsed().as_secs_f64())
                 }
                 ColoringInstruction::PaintSmallness{
                     inside_opacity, outside_opacity, color, range, shading_method, normalizing_method, ..
@@ -161,7 +161,7 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             returned[index]=layer_colors(returned[index], color)
                         }
                     }
-                    println!("painted smallness in {:6}", start.elapsed().as_secs_f64())
+                    //println!("painted smallness in {:6}", start.elapsed().as_secs_f64())
                 }
                 ColoringInstruction::HighlightInFilaments{
                     opacity, color, ..
@@ -190,7 +190,7 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             }
                         }
                     }
-                    println!("highlighted in filaments in {:6}", start.elapsed().as_secs_f64())
+                    //println!("highlighted in filaments in {:6}", start.elapsed().as_secs_f64())
                 }
                 ColoringInstruction::HighlightOutFilaments{
                     opacity, color, ..
@@ -219,7 +219,7 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             }
                         }
                     }
-                    println!("highlighted out filaments in {:6}", start.elapsed().as_secs_f64())
+                    //println!("highlighted out filaments in {:6}", start.elapsed().as_secs_f64())
                 }
                 ColoringInstruction::HighlightNodes{
                     inside_opacity, outside_opacity, color, thickness, ..
@@ -252,7 +252,7 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             }
                         }
                     }
-                    println!("highlighted nodes in {:6}", start.elapsed().as_secs_f64())
+                    //println!("highlighted nodes in {:6}", start.elapsed().as_secs_f64())
                 }
                 ColoringInstruction::HighlightSmallTimeEdges{
                     inside_opacity, outside_opacity, color, ..
@@ -285,7 +285,7 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             }
                         }
                     }
-                    println!("highlighted node tree in {:6}", start.elapsed().as_secs_f64())
+                    //println!("highlighted node tree in {:6}", start.elapsed().as_secs_f64())
                 }
             }
         }
