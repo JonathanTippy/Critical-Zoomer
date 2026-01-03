@@ -5,24 +5,26 @@ use crate::actor::window::*;
 use crate::action::workshift::*;
 use crate::action::sampling::*;
 use crate::actor::screen_worker::*;
-
+use crate::action::constants::*;
+use crate::action::serialize::*;
 
 use rand::prelude::SliceRandom;
 use crate::action::utils::*;
-
+use crate::action::collect::*;
 
 #[derive(Clone, Debug)]
 
-pub(crate) struct ResultsPackage<T> {
+pub(crate) struct Results<T> {
     pub(crate) results: Vec<CompletedPoint<T>>
-    , pub(crate) screen_res: (u32, u32)
+    , pub(crate) res: (u32, u32)
     , pub(crate) location: ObjectivePosAndZoom
     , pub(crate) complete: bool
 }
 
 pub(crate) struct WorkCollectorState<T> {
-    completed_work: Option<ResultsPackage<T>>
-    , surrounding_work: Option<ResultsPackage<T>>
+    completed_work: Collector<CompletedPoint<T>>
+    , serializing_cursor: usize
+    , must_send: Option<Serial<CompletedPoint<T>>>
 }
 
 
@@ -38,8 +40,8 @@ pub(crate) const PIXELS_PER_UNIT: u64 = 1<<(PIXELS_PER_UNIT_POT);
 
 pub async fn run(
     actor: SteadyActorShadow,
-    from_worker: SteadyRx<WorkUpdate<f64>>,
-    points_out: SteadyTx<ResultsPackage<f64>>,
+    from_worker: SteadyRx<Serial<(CompletedPoint<f64>, usize)>>,
+    points_out: SteadyTx<Serial<CompletedPoint<f64>>>,
     state: SteadyState<WorkCollectorState<f64>>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
@@ -54,8 +56,8 @@ pub async fn run(
 
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
-    from_worker: SteadyRx<WorkUpdate<f64>>,
-    values_out: SteadyTx<ResultsPackage<f64>>,
+    from_worker: SteadyRx<Serial<(CompletedPoint<f64>, usize)>>,
+    values_out: SteadyTx<Serial<CompletedPoint<f64>>>,
     state: SteadyState<WorkCollectorState<f64>>,
 ) -> Result<(), Box<dyn Error>> {
 
@@ -63,8 +65,9 @@ async fn internal_behavior<A: SteadyActor>(
     let mut from_worker = from_worker.lock().await;
 
     let mut state = state.lock(|| WorkCollectorState {
-        completed_work: None
-        , surrounding_work: None
+        completed_work: Collector::default()
+        , serializing_cursor: 0
+        , must_send: None
     }).await;
 
     let max_sleep = Duration::from_millis(50);
@@ -83,53 +86,36 @@ async fn internal_behavior<A: SteadyActor>(
 
         if actor.avail_units(&mut from_worker) > 0 {
             let U =actor.try_take(&mut from_worker).expect("work update seemed available but wasn't...");
+            match U {
+                Serial::Stream{value} => {
+                    state.completed_work.frame.pixels[value.1] = value.0;
+                }
+                Serial::Move { loc} => {
+                    let loc = *loc;
+                    state.completed_work.sample_old_values_move(&loc);
+                    state.must_send = Some(Serial::Move{loc: Box::new(loc)})
 
-            if let Some(surrounding_work) = &mut state.surrounding_work {
-                if let Some(mut f) = U.frame_info.clone() {
-                    f.0.zoom_pot -= 1;
-                    *surrounding_work = sample_old_values(&surrounding_work, f.0, f.1);
+                }
+                Serial::Resize{res} => {
+                    let res = *res;
+                    state.completed_work.sample_old_values_resize(res);
+                    state.must_send = Some(Serial::Resize{res: Box::new(res)})
                 }
             }
-
-            if let Some(completed_work) = &mut state.completed_work {
-                if let Some(f) = U.frame_info {
-                    *completed_work = sample_old_values(&completed_work, f.0, f.1);
-                } else {
-                    //let j = U.completed_points;
-                    let l = U.completed_points.len();
-
-                    /*for i in j..j+l {
-                        if i-j < vs.len() && i < state.completed_work[0].results.len() {
-                            state.completed_work[0].results[i] = vs[i-j].clone();
-                        }
-                    }*/
-                    let vs = U.completed_points;
-                    for i in 0..l {
-                        let W = vs[i].clone();
-                        completed_work.results[W.1] = W.0;
-                    }
-                    actor.try_send(&mut values_out, completed_work.clone());
+            
+            match state.must_send.take() {
+                None => {
+                    match actor.try_send(&mut values_out, Serial::Stream{value: state.completed_work.frame.pixels[state.serializing_cursor]}) {
+                        SendOutcome::Success{..} => {state.serializing_cursor+=1}
+                        _ => {}
+                    };
                 }
-            } else {
-                let f = U.frame_info.expect("work collector recieved an initial work update without any info");
-                state.completed_work = Some(
-                    ResultsPackage {
-                        results: vec![CompletedPoint::Dummy{}; (f.1.0 * f.1.1) as usize]
-                        , screen_res: f.1
-                        , location: f.0
-                        , complete: false
-                    }
-                );
-                if let Some(completed_work) = &mut state.completed_work {
-                    let l = U.completed_points.len();
-                    let vs = U.completed_points;
-                    for i in 0..l {
-                        let W = vs[i].clone();
-                        completed_work.results[W.1] = W.0;
-                    }
-                    actor.try_send(&mut values_out, completed_work.clone());
+                Some(serial) => {
+                    match actor.try_send(&mut values_out, serial) {
+                        SendOutcome::Success{..} => {state.must_send = None}
+                        _ => {}
+                    };
                 }
-
             }
         }
     }
@@ -137,16 +123,16 @@ async fn internal_behavior<A: SteadyActor>(
     info!("Computer shutting down.");
     Ok(())
 }
-
-fn sample_old_values<T:Clone>(old_package: &ResultsPackage<T>, new_location: ObjectivePosAndZoom, new_res: (u32, u32)) -> ResultsPackage<T> {
-    let mut returned = ResultsPackage{
-        results: vec!()
-        , screen_res: new_res
+/*
+fn sample_old_values<T:Clone>(old_package: &Results<T>, new_location: ObjectivePosAndZoom, new_res: (u32, u32)) -> Results<T> {
+    let mut returned = Results {
+        results: Vec::with_capacity((new_res.0*new_res.1) as usize)
+        , res: new_res
         , location: new_location.clone()
         , complete: false
     };
 
-    let old_size = old_package.screen_res.0 * old_package.screen_res.1;
+    let old_size = old_package.res.0 * old_package.res.1;
 
     //let old_package_pixel_width = old_package.location.zoom_pot
 
@@ -172,7 +158,7 @@ fn sample_old_values<T:Clone>(old_package: &ResultsPackage<T>, new_location: Obj
             returned.results.push(
                 sample_value(
                     &old_package.results
-                    , old_package.screen_res
+                    , old_package.res
                     , old_size as usize
                     , row
                     , seat
@@ -235,4 +221,4 @@ fn sample_value<T: Clone>(
             )
             ].clone();
     color
-}
+}*/
