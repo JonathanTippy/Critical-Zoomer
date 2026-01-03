@@ -8,18 +8,34 @@ use std::cmp::*;
 use crate::actor::window::*;
 use crate::actor::colorer::*;
 use crate::action::utils::*;
+use crate::action::serialize::*;
+use crate::action::constants::*;
+
 
 use rug::{Float, Integer};
 use crate::actor::work_controller::PIXELS_PER_UNIT_POT;
 
 #[derive(Clone, Debug)]
 pub(crate) struct SamplingContext {
-    pub(crate) screen: Option<ZoomerScreen>
+    pub(crate) buffer: DoubleBuffer<(u8, u8, u8)>
     , pub(crate) screen_size: (u32, u32)
     , pub(crate) location: ObjectivePosAndZoom
     , pub(crate) updated: bool
     , pub(crate) mouse_drag_start: Option<(ObjectivePosAndZoom, Pos2)>
 }
+
+impl Default for SamplingContext {
+    fn default() -> Self {
+        SamplingContext {
+            buffer: DoubleBuffer::default()
+            , screen_size: DEFAULT_WINDOW_RES
+            , location: ObjectivePosAndZoom::default()
+            , updated: false
+            , mouse_drag_start: None
+        }
+    }
+}
+
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ViewportLocation {
@@ -149,76 +165,68 @@ pub(crate) fn sample(
     }
 
 
-    if let Some(current_screen) = &context.screen {
-        // go over the sampling size in rows and seats, and sample the colors
+    let current_screen = &context.buffer.frame;
+    
+    let res = context.screen_size;
 
-        /*info!("zoom: {}, location: {} + {}i"
-        , current_screen.objective_location.zoom_pot
-        , current_screen.objective_location.pos.0
-        , current_screen.objective_location.pos.1
+    let data_size = current_screen.res.clone();
+
+    let data_len = current_screen.pixels.len();
+
+    let data = &current_screen.pixels;
+
+    let relative_pos = (
+        current_screen.objective_location.pos.0.clone()-context.location.pos.0.clone()
+        , current_screen.objective_location.pos.1.clone()-context.location.pos.1.clone()
+    );
+
+    let relative_pos_in_pixels:(i32, i32) = (
+        relative_pos.0.clone().shift(context.location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
+        , relative_pos.1.clone().shift(context.location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
+    );
+
+    let relative_zoom = context.location.zoom_pot - current_screen.objective_location.zoom_pot;
+
+    /*let relative_pos_in_pixels = (
+        relative_pos_in_pixels.0 + shift(1, relative_zoom-1)
+        , relative_pos_in_pixels.1 + shift(1, relative_zoom-1)
     );*/
 
-        let res = context.screen_size;
+    let factor:f64;
 
-        let data_size = current_screen.screen_size.clone();
+    if relative_zoom > 0 {
+        factor = (1<<relative_zoom) as f64;
+    } else {
+        factor =  1.0 / (1<<-relative_zoom) as f64;
+    }
 
-        let data_len = current_screen.pixels.len();
+    let relative_zoom_recip = ((1.0 / factor) * ((1<<16) as f64)) as u32;
 
-        let data = &current_screen.pixels;
-
-        let relative_pos = (
-            current_screen.objective_location.pos.0.clone()-context.location.pos.0.clone()
-            , current_screen.objective_location.pos.1.clone()-context.location.pos.1.clone()
-        );
-
-        let relative_pos_in_pixels:(i32, i32) = (
-            relative_pos.0.clone().shift(context.location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
-            , relative_pos.1.clone().shift(context.location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
-        );
-
-        let relative_zoom = context.location.zoom_pot - current_screen.objective_location.zoom_pot;
-
-        /*let relative_pos_in_pixels = (
-            relative_pos_in_pixels.0 + shift(1, relative_zoom-1)
-            , relative_pos_in_pixels.1 + shift(1, relative_zoom-1)
-        );*/
-
-        let factor:f64;
-
-        if relative_zoom > 0 {
-            factor = (1<<relative_zoom) as f64;
-        } else {
-            factor =  1.0 / (1<<-relative_zoom) as f64;
-        }
-
-        let relative_zoom_recip = ((1.0 / factor) * ((1<<16) as f64)) as u32;
-
-        let min_side_recip = (1<<32) / (min_side as i64);
-        //let res_recip = (     (1<<16) / size.0,    (1<<16) / size.1    );
+    let min_side_recip = (1<<32) / (min_side as i64);
+    //let res_recip = (     (1<<16) / size.0,    (1<<16) / size.1    );
 
 
-        //info!("data res: {}, {}", data_size.0, data_size.1);
+    //info!("data res: {}, {}", data_size.0, data_size.1);
 
 
-        //let mut i = 0;
-        for row in 0..size.1 as usize {
-            for seat in 0..size.0 as usize {
-                bucket.push(
-                    sample_color(
-                        data
-                        , min_side
-                        , data_size
-                        , data_len
-                        , row
-                        , seat
-                        //, res_recip
-                        , min_side_recip
-                        , relative_pos_in_pixels
-                        , relative_zoom as i64
-                    )
-                );
-                //i+=1;
-            }
+    //let mut i = 0;
+    for row in 0..size.1 as usize {
+        for seat in 0..size.0 as usize {
+            bucket.push(
+                sample_color(
+                    data
+                    , min_side
+                    , data_size
+                    , data_len
+                    , row
+                    , seat
+                    //, res_recip
+                    , min_side_recip
+                    , relative_pos_in_pixels
+                    , relative_zoom as i64
+                )
+            );
+            //i+=1;
         }
     }
 }
@@ -310,17 +318,4 @@ pub(crate) fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom
         signed_shift(l.0 - m.0, -zoom)
         , signed_shift(l.1 - m.1, -zoom)
     )
-}
-
-pub(crate) fn update_sampling_context(context: &mut SamplingContext, screen: ZoomerScreen) {
-
-    if context.location == screen.objective_location {
-        context.updated = false;
-    }
-    
-    /*if let Some(old_screen) = context.screen.take() {
-        drop(old_screen);
-    }*/
-    context.screen = Some(screen);
-
 }
