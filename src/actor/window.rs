@@ -20,8 +20,6 @@ use crate::action::sampling::*;
 use crate::action::settings::*;
 use crate::action::rolling::*;
 use crate::action::utils::*;
-use crate::action::constants::*;
-use crate::action::serialize::*;
 
 const RECOVER_EGUI_CRASHES:bool = false;
 // ^ half implimented; in cases where the window is supposed to
@@ -30,7 +28,9 @@ const RECOVER_EGUI_CRASHES:bool = false;
 //const MAX_FRAME_TIME:f64 = 1.0 / MIN_FRAME_RATE;
 const VSYNC:bool = false;
 
+pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (800, 480);
 
+pub(crate) const HOME_POSTION:(i32, i32, i32) = (-2, -2, -2);
 
  //pub(crate) const MIN_PIXELS:u32 = 40; // min_pixels is prioritized over min_fps and should be greater than ~6
 //pub(crate) const MIN_FPS:f32 = 10.0;
@@ -98,7 +98,7 @@ pub(crate) struct WindowState {
 /// Entry point for the window actor.
 pub async fn run(
     actor: SteadyActorShadow,
-    pixels_in: SteadyRx<Serial<(u8,u8,u8)>>,
+    pixels_in: SteadyRx<ZoomerScreen>,
     sampler_out: SteadyTx<(ObjectivePosAndZoom, (u32, u32))>,
     settings_out: SteadyTxBundle<Settings,2>,
     attention_out: SteadyTx<(i32, i32)>,
@@ -118,7 +118,7 @@ pub async fn run(
 
 async fn internal_behavior<A: SteadyActor>(
     actor: A,
-    pixels_in: SteadyRx<Serial<(u8,u8,u8)>>,
+    pixels_in: SteadyRx<ZoomerScreen>,
     sampler_out: SteadyTx<(ObjectivePosAndZoom, (u32, u32))>,
     settings_out: SteadyTxBundle<Settings, 2>,
     attention_out: SteadyTx<(i32, i32)>,
@@ -133,7 +133,16 @@ async fn internal_behavior<A: SteadyActor>(
         , last_frame_period: None
         , buffers: vec!(vec!(Color32::BLACK;(DEFAULT_WINDOW_RES.0*DEFAULT_WINDOW_RES.1) as usize))
         , id_counter: 0
-        , sampling_context: SamplingContext::default()
+        , sampling_context: SamplingContext {
+            screen: None
+            , screen_size: (DEFAULT_WINDOW_RES.0, DEFAULT_WINDOW_RES.1)
+            , location: ObjectivePosAndZoom {
+                pos: (IntExp::from(HOME_POSTION.0), IntExp::from(HOME_POSTION.1))
+                , zoom_pot: HOME_POSTION.2
+            }
+            , updated: true
+            , mouse_drag_start:None
+        }
         , settings_window_context: Arc::new(Mutex::new(DEFAULT_SETTINGS_WINDOW_CONTEXT))
         , settings_window_open: false
         , controls_settings: ControlsSettings::H
@@ -226,7 +235,7 @@ async fn internal_behavior<A: SteadyActor>(
 
 struct EguiWindowPassthrough<'a, A> {
     portable_actor: Arc<Mutex<A>>,
-    pixels_in: SteadyRx<Serial<(u8,u8,u8)>>,
+    pixels_in: SteadyRx<ZoomerScreen>,
     sampler_out: SteadyTx<(ObjectivePosAndZoom, (u32, u32))>,
     settings_out: SteadyTxBundle<Settings, 2>,
     attention_out: SteadyTx<(i32, i32)>,
@@ -299,9 +308,20 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             match actor.try_take(&mut pixels_in) {
                 Some(s) => {
-                    state.sampling_context.buffer.push(s);
+                    update_sampling_context(&mut state.sampling_context, s);
+                    //info!("window recieved pixels");
+                    /*if s.pixels.len() == pixels {
+                        update_sampling_context(&mut state.sampling_context, s);
+                    } else {
+                        info!("pixel length mismatch. expected {} got {}", pixels, s.pixels.len())
+                    }*/
                 }
                 None => {}
+            }
+
+            if state.sampling_context.screen.is_none() {
+                for _ in 0..pixels {sampler_buffer.push(Color32::PURPLE)};
+                //actor.try_send(&mut sampler_out, (state.sampling_context.relative_transforms.clone(), (state.size.x as u32, state.size.y as u32)));
             }
 
             if state.sampling_context.updated
@@ -317,8 +337,13 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             state.sampling_context.screen_size = (size.0 as u32, size.1 as u32);
 
-            sample(command_package, &mut sampler_buffer, &mut state.sampling_context);
-
+            if state.sampling_context.screen.is_some() {
+                sample(command_package, &mut sampler_buffer, &mut state.sampling_context);
+            } /*else {
+                for _ in 0..pixels {
+                    sampler_buffer.push(Color32::PURPLE);
+                }
+            }*/
 
 
 
@@ -598,8 +623,8 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                         let button_state = ui.button("🏠");
                         if button_state.clicked() {
                             state.sampling_context.location = ObjectivePosAndZoom {
-                                pos: (IntExp::from(HOME_POSITION.0), IntExp::from(HOME_POSITION.1))
-                                , zoom_pot: HOME_POSITION.2
+                                pos: (IntExp::from(HOME_POSTION.0), IntExp::from(HOME_POSTION.1))
+                                , zoom_pot: HOME_POSTION.2
                             };
                             state.sampling_context.updated = true;
                         }

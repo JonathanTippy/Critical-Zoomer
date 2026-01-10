@@ -5,7 +5,6 @@ use crate::actor::window::*;
 use crate::action::workshift::*;
 use crate::action::sampling::*;
 use crate::actor::screen_worker::*;
-use crate::action::constants::*;
 
 use rand::prelude::SliceRandom;
 use crate::action::utils::*;
@@ -153,8 +152,6 @@ fn get_points<T: From<f32> + Clone + From<IntExp> + Sub<Output=T> + Add<Output=T
                         , period: 0
                         , smallness_squared: 100.0.into()
                         , small_time:0
-                        , largeness_squared: 0.0.into()
-                        , big_time: 0
                     }
                 )
             }

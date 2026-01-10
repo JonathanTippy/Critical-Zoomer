@@ -76,8 +76,6 @@ pub(crate) enum CompletedPoint<T> {
         period: u32,
         smallness: T,
         small_time: u32
-        , large_time: u32
-        , largeness: T
     }
     , Escapes{
         escape_time: u32
@@ -89,11 +87,6 @@ pub(crate) enum CompletedPoint<T> {
     , Dummy{}
 }
 
-impl<T> Default for CompletedPoint<T> {
-    fn default() -> Self {
-        CompletedPoint::Dummy{}
-    }
-}
 
 //pub(crate) const SpeedTestPoint
 #[derive(Clone, Debug)]
@@ -112,8 +105,6 @@ pub(crate) struct Point<T> {
     , pub(crate) period: u32
     , pub(crate) smallness_squared: T
     , pub(crate) small_time: u32
-    , pub(crate) largeness_squared: T
-    , pub(crate) big_time: u32
 }
 
 
@@ -413,7 +404,7 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
                 //let raw_period = point.iterations-point.loop_detection_point.1;
                 //point.period = raw_period;
                 determine_period(point, episilon);
-                let returned = CompletedPoint::Repeats{period: point.period, smallness: point.smallness_squared, small_time:point.small_time, largeness: point.largeness_squared, large_time: point.big_time};
+                let returned = CompletedPoint::Repeats{period: point.period, smallness: point.smallness_squared, small_time:point.small_time};
                 queue_incomplete_neighbors_in(&pos, context.res, &context.points, &mut context.in_queue);
                 returned
 
@@ -457,7 +448,7 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
                     //let pos = context.scredge_poses.pop_front().unwrap();
                     //context.scredge_poses.push_back(pos);
                     let completed_point = {
-                        CompletedPoint::Repeats{period: point.iterations-point.loop_detection_point.1, smallness: point.smallness_squared, small_time:point.small_time, largeness: point.largeness_squared, large_time: point.big_time}
+                        CompletedPoint::Repeats{period: point.iterations-point.loop_detection_point.1, smallness: point.smallness_squared, small_time:point.small_time}
                     };
                     if context.completed_points.try_push((completed_point, index)) {} else {
                         break;
@@ -615,7 +606,6 @@ pub(crate) fn update_point_results<T:Sub<Output=T> + Add<Output=T> + Into<f64> +
     point.real_imag = point.z.0 * point.z.1;
     let rad = point.real_squared + point.imag_squared;
     if rad.into() < point.smallness_squared.into() {point.smallness_squared =rad;point.small_time=point.iterations}
-    if rad.into() > point.largeness_squared.into() {point.largeness_squared =rad;point.big_time=point.iterations}
 
 }
 
