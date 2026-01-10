@@ -19,14 +19,10 @@ pub(crate) mod action {
     pub(crate) mod settings;
     pub(crate) mod rolling;
     pub(crate) mod workshift;
+
     pub(crate) mod utils;
     pub(crate) mod widgetize;
     pub(crate) mod color;
-    pub(crate) mod do_work;
-    pub(crate) mod partial_knowledge;
-    pub(crate) mod serialize;
-    pub(crate) mod constants;
-    pub(crate) mod collect;
 }
 
 use std::thread;

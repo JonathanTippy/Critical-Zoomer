@@ -12,37 +12,34 @@ use crate::action::settings::*;
 
 use crate::action::color::*;
 
-use crate::action::serialize::*;
-use crate::action::constants::*;
-use crate::action::serialize::*;
-use crate::action::workshift::CompletedPoint;
-
 #[derive(Clone, Debug)]
 
 pub(crate) struct ZoomerScreen {
-    pub(crate) pixels: DoubleBuffer<(u8, u8, u8)>
+    pub(crate) pixels: Vec<(u8,u8,u8)>
     , pub(crate) screen_size: (u32, u32)
     , pub(crate) objective_location: ObjectivePosAndZoom
 }
 
 
 pub(crate) struct ColorerState {
+    pub(crate) values:Option<ZoomerValuesScreen>,
+    pub(crate) start:Instant,
     pub(crate) settings:Settings
 }
 
 pub async fn run(
     actor: SteadyActorShadow,
-    values_in: SteadyRx<Serial<ScreenValue>>,
+    values_in: SteadyRx<ZoomerValuesScreen>,
     settings_in: SteadyRx<Settings>,
-    colors_out: SteadyTx<Serial<(u8, u8, u8)>>,
+    screens_out: SteadyTx<ZoomerScreen>,
     state: SteadyState<ColorerState>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
-        actor.into_spotlight([&settings_in, &values_in], [&colors_out]),
+        actor.into_spotlight([&settings_in, &values_in], [&screens_out]),
         values_in,
         settings_in,
-        colors_out,
+        screens_out,
         state,
     )
         .await
@@ -50,13 +47,13 @@ pub async fn run(
 
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
-    values_in: SteadyRx<Serial<ScreenValue>>,
+    values_in: SteadyRx<ZoomerValuesScreen>,
     settings_in: SteadyRx<Settings>,
-    colors_out: SteadyTx<Serial<(u8,u8,u8)>>,
+    screens_out: SteadyTx<ZoomerScreen>,
     state: SteadyState<ColorerState>,
 ) -> Result<(), Box<dyn Error>> {
     let mut values_in = values_in.lock().await;
-    let mut colors_out = colors_out.lock().await;
+    let mut screens_out = screens_out.lock().await;
     let mut settings_in = settings_in.lock().await;
 
     let mut state = state.lock(|| ColorerState {
@@ -126,6 +123,8 @@ async fn internal_behavior<A: SteadyActor>(
             };
             match actor.try_take(&mut values_in) {
                 Some(v) => {
+                    let mut rng = rand::thread_rng();
+                    //info!("recieved values");
                     state.values = Some(v);
                 }
                 None => {}
@@ -136,7 +135,7 @@ async fn internal_behavior<A: SteadyActor>(
         if let Some(v) = &mut state.values {
             let output = color(v, &mut settings);
 
-            actor.try_send(&mut colors_out, ZoomerScreen{
+            actor.try_send(&mut screens_out, ZoomerScreen{
                 pixels: output
                 , screen_size: v.res.clone()
                 , objective_location:  v.objective_location.clone()

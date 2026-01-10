@@ -41,7 +41,7 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             let value = &values.values[index];
                             let color = match value {
                                 ScreenValue::Inside{..} => {continue;}
-                                ScreenValue::Outside{escape_time: escape_time, ..} => {
+                                ScreenValue::Outside{big_time: escape_time, ..} => {
                                     let escape_time = *escape_time as f64;
                                     let escape_time = normalizing_method.normalize(&escape_time);
                                     let brightness = match shading_method.shading {
@@ -92,8 +92,8 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             let (smalltime, opacity) = match value {
-                                ScreenValue::Inside{big_time, ..} => {
-                                    (big_time, &inside_opacity)
+                                ScreenValue::Inside{small_time, ..} => {
+                                    (small_time, &inside_opacity)
                                 }
                                 ScreenValue::Outside{small_time, ..} => {
                                     (small_time, &outside_opacity)
@@ -541,7 +541,7 @@ pub(crate) fn get_escape_time(value: Option<&ScreenValue>) -> Option<u32> {
 
     if let Some(v) = value {
         match v {
-            ScreenValue::Outside{escape_time, ..} => {return Some(*escape_time)}
+            ScreenValue::Outside{big_time, ..} => {return Some(*big_time)}
             ScreenValue::Inside{..} => {return None }
         }
     } else {None}

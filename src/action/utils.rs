@@ -2,8 +2,6 @@ use rug::*;
 use std::cmp::*;
 use std::ops::*;
 
-use crate::action::constants::*;
-
 pub(crate) const INTEXP_WARNING_SIZE:u32 = 100;
 
 #[inline]
@@ -41,21 +39,6 @@ pub(crate) fn shift_signed_assume_left(input: i32, shift: i64) -> i32 {
 pub(crate) struct ObjectivePosAndZoom {
     pub(crate) pos: (IntExp, IntExp)
     , pub(crate) zoom_pot: i32
-}
-
-impl Default for ObjectivePosAndZoom {
-    fn default() -> Self {
-        HOME_POSITION.into()
-    }
-}
-
-impl From<(i32, i32, i32)> for ObjectivePosAndZoom {
-    fn from(input:(i32, i32, i32)) -> ObjectivePosAndZoom {
-        ObjectivePosAndZoom {
-            pos: (IntExp::from(input.0), IntExp::from(input.1))
-            , zoom_pot: input.2
-        }
-    }
 }
 
 
