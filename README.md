@@ -64,8 +64,15 @@ a mandelbrot set zoomer written in rust
 - work saving when moving | ✔️
 - flood fill out points | ✔️
 
-### perturbation + series approximation (0.0.6)
- 
-- implement perturbation
-- fix zoom too far
+### settings (0.0.6) done
+
+- settings page allows custom layering of colorings | ✔️
+- also allows animation of variables | ✔️
+
+## general optimization
+
+- better actor comms
+- better knowledge leverage
+- better movement
+
 
