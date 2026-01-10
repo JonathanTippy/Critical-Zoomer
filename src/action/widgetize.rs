@@ -218,11 +218,11 @@ impl Animable {
 impl Normalizing {
     pub(crate) fn widgetize(&mut self, ui:&mut Ui) {
 
-        ui.radio_value(self, Normalizing::NONE,"None");
-        ui.radio_value(self, Normalizing::LNLN,"LnLn");
-        ui.radio_value(self, Normalizing::LN,"Ln");
-        ui.radio_value(self, Normalizing::RECIPLN,"Reciprocal + Ln");
-        ui.radio_value(self, Normalizing::RECIP,"Reciprocal");
+        ui.radio_value(self, Normalizing::None{},"None");
+        ui.radio_value(self, Normalizing::LnLn{},"LnLn");
+        ui.radio_value(self, Normalizing::Ln{},"Ln");
+        ui.radio_value(self, Normalizing::RecipLn{},"Reciprocal + Ln");
+        ui.radio_value(self, Normalizing::Reciprocal{},"Reciprocal");
 
     }
 }
