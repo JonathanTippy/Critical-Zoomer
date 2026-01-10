@@ -22,82 +22,37 @@ const MIN_FRAME_RATE:f64 = 20.0;
 const MAX_FRAME_TIME:f64 = 1.0 / MIN_FRAME_RATE;
 const VSYNC:bool = true;
 
+const DEFAULT_PHASE:Animable = Animable::new(0.0, (0.0, 10.0), Normalizing::NONE);
+const DEFAULT_PERIOD:Animable = Animable::new(10.0, (1.0, 10.0), Normalizing::NONE);
+
 pub(crate) const DEFAULT_SETTINGS_WINDOW_RES:(u32, u32) = (500, 800);
 
 pub(crate) const DEFAULT_COLORING_SCRIPT:[ColoringInstruction;7] = [
     ColoringInstruction::PaintEscapeTime{id: 0, opacity:255
         , color:(128,128,128), range:64
         , shading_method: ShadingInstruction{
-            shading: Shading::Sinus{}
-            , period: Animable{
-                start:None
-                , period:Duration::from_secs(10)
-                , value:10.0
-                , animated:false
-                , range:(1.0, 10.0)
-                , limits:(1.0, 10.0)
-                , normalizing:Normalizing::None{}
-            }
-            , phase: Animable{
-                start:None
-                , period:Duration::from_secs(10)
-                , value:0.0
-                , animated:false
-                , range:(0.0, 10.0)
-                , limits:(0.0, 10.0)
-                , normalizing:Normalizing::None{}
-            }
+            shading: Shading::SINUS
+            , period: DEFAULT_PERIOD
+            , phase: DEFAULT_PHASE
         }
-        , normalizing_method: Normalizing::None{}}
+        , normalizing_method: Normalizing::NONE}
     , ColoringInstruction::PaintSmallTime{id: 1, inside_opacity:0, outside_opacity:30
         , color:(128,128,128), range:64
         , shading_method: ShadingInstruction{
-            shading: Shading::Sinus{}
-            , period: Animable{
-                start:None
-                , period:Duration::from_secs(10)
-                , value:3.0
-                , animated:false
-                , range:(1.0, 10.0)
-                , limits:(1.0, 10.0)
-                , normalizing:Normalizing::None{}
-            }
-            , phase: Animable{
-                start:None
-                , period:Duration::from_secs(10)
-                , value:0.0
-                , animated:false
-                , range:(0.0, 10.0)
-                , limits:(0.0, 10.0)
-                , normalizing:Normalizing::None{}
-            }
+            shading: Shading::SINUS
+            , period: DEFAULT_PERIOD
+            , phase: DEFAULT_PHASE
         }
-        , normalizing_method: Normalizing::None{}}
+        , normalizing_method: Normalizing::NONE}
     , ColoringInstruction::PaintSmallness{
         id: 2, inside_opacity:0, outside_opacity:0
         , color:(128,128,128), range:64
         , shading_method: ShadingInstruction{
-            shading: Shading::Sinus{}
-            , period: Animable{
-                start:None
-                , period:Duration::from_secs(10)
-                , value:10.0
-                , animated:false
-                , range:(1.0, 10.0)
-                , limits:(1.0, 10.0)
-                , normalizing:Normalizing::None{}
-            }
-            , phase: Animable{
-                start:None
-                , period:Duration::from_secs(10)
-                , value:0.0
-                , animated:false
-                , range:(0.0, 10.0)
-                , limits:(0.0, 10.0)
-                , normalizing:Normalizing::None{}
-            }
+            shading: Shading::SINUS
+            , period: DEFAULT_PERIOD
+            , phase: DEFAULT_PHASE
         }
-        , normalizing_method: Normalizing::None{}}
+        , normalizing_method: Normalizing::NONE}
     , ColoringInstruction::HighlightInFilaments{id: 3, opacity:255, color:(0,0,0)}
     , ColoringInstruction::HighlightOutFilaments{id: 4, opacity:255, color:(128,128,128)}
     , ColoringInstruction::HighlightNodes{id: 5, inside_opacity:0, outside_opacity:0
@@ -110,17 +65,35 @@ pub(crate) const DEFAULT_COLORING_SCRIPT:[ColoringInstruction;7] = [
 impl Settings {
     pub(crate) const DEFAULT:Settings = Settings{
         coloring_script: None
-        , bailout_radius: Animable{start:None,period:Duration::from_secs(10)
-            , value:2.0
-            , animated:false
-            , range:(2.0, u32::MAX as f64)
-            , limits:(2.0, u32::MAX as f64)
-            , normalizing:Normalizing::LnLn{}}
+        , bailout_radius: Animable::new(2.0, (2.0, 255.0), Normalizing::LNLN)
         , bailout_max_additional_iterations: 10
         , estimate_extra_iterations: false
         , id_counter: 7
         , currently_selected_coloring_instruction: 0
     };
+
+    pub(crate) fn determine(&mut self) {
+        self.bailout_radius.determine();
+        if let Some(instructions) = &mut self.coloring_script {
+            for instruction in instructions {
+                match instruction {
+                    ColoringInstruction::PaintEscapeTime{shading_method, ..} => {
+                        shading_method.period.determine();
+                        shading_method.phase.determine();
+                    }
+                    ColoringInstruction::PaintSmallTime{shading_method, ..} => {
+                        shading_method.period.determine();
+                        shading_method.phase.determine();
+                    }
+                    ColoringInstruction::PaintSmallness{shading_method, ..} => {
+                        shading_method.period.determine();
+                        shading_method.phase.determine();
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
 }
 
 pub const DEFAULT_SETTINGS_WINDOW_CONTEXT:SettingsWindowContext = SettingsWindowContext{
@@ -153,6 +126,8 @@ pub(crate) struct Animable {
     , pub(crate) range: (f64, f64)
     , pub(crate) limits: (f64, f64)
     , pub(crate) normalizing: Normalizing
+    , pub(crate) frame_value: f64
+    , pub(crate) frame_value_reciprocal: f64
 }
 
 use core::ops::RangeInclusive;
@@ -162,6 +137,22 @@ use core::ops::RangeInclusive;
 
 use std::f64::consts::*;
 impl Animable {
+
+    const fn new(value:f64, limits: (f64, f64), normalizing: Normalizing) -> Animable {
+        Animable {
+            start:None
+            , period:Duration::from_secs(10)
+            , value
+            , animated:false
+            , range:(value, value+10.0)
+            , limits
+            , normalizing
+            , frame_value: value
+            , frame_value_reciprocal: 1.0/value
+        }
+    }
+
+
     pub(crate) fn determine(&mut self) -> f64 {
         match self {
             Animable{mut start, period, range, limits, normalizing, animated, value, ..} => {
@@ -172,25 +163,86 @@ impl Animable {
                     let normalized_phase_time = phase_time / period.as_secs_f64();
                     let wave_result = (1.0-((normalized_phase_time*TAU).cos()))/2.0;
 
-                    let min = normalizing.normalize(&self.range.0);
-                    let max = normalizing.normalize(&self.range.1);
+                    let min = (normalizing.normalize64)(&self.range.0);
+                    let max = (normalizing.normalize64)(&self.range.1);
                     let range = max - min;
-                    normalizing.denormalize(&(min + (range*wave_result)))
+                    let result = (normalizing.denormalize64)(&(min + (range*wave_result)));
+                    self.frame_value = result;
+                    self.frame_value_reciprocal = 1.0/result;
+                    result
                 } else {
-                    normalizing.reshape_input(limits, value)
+                    let result = normalizing.reshape_input(limits, value);
+                    self.frame_value = result;
+                    self.frame_value_reciprocal = 1.0/result;
+                    result
                 }
-
             }
         }
     }
-
 }
 
+#[derive(Clone, Debug, Copy, PartialEq)]
+
+pub(crate) struct Normalizing {
+    pub(crate) normalize64: fn(&f64)->f64
+    , pub(crate) denormalize64: fn(&f64)->f64
+    , pub(crate) normalize32: fn(&f32)->f32
+    , pub(crate) denormalize32: fn(&f32)->f32
+    //, pub(crate) spec: NormalizingSpec
+}
+impl Normalizing {
+
+    pub(crate) const NONE:Normalizing = Normalizing {
+        normalize64: |n| -> f64 {*n}
+        , denormalize64: |n| -> f64 {*n}
+        , normalize32: |n| -> f32 {*n}
+        , denormalize32: |n| -> f32 {*n}
+        //, spec: NormalizingSpec::None{}
+    };
+    pub(crate) const LNLN:Normalizing = Normalizing {
+        normalize64: |n| -> f64 {n.ln().ln()}
+        , denormalize64: |n| -> f64 {n.exp().exp()}
+        , normalize32: |n| -> f32 {n.ln().ln()}
+        , denormalize32: |n| -> f32 {n.exp().exp()}
+        //, spec: NormalizingSpec::None{}
+    };
+    pub(crate) const LN:Normalizing = Normalizing {
+        normalize64: |n| -> f64 {n.ln()}
+        , denormalize64: |n| -> f64 {n.exp()}
+        , normalize32: |n| -> f32 {n.ln()}
+        , denormalize32: |n| -> f32 {n.exp()}
+        //, spec: NormalizingSpec::None{}
+    };
+    pub(crate) const RECIP:Normalizing = Normalizing {
+        normalize64: |n| -> f64 {1.0/n}
+        , denormalize64: |n| -> f64 {1.0/n}
+        , normalize32: |n| -> f32 {1.0/n}
+        , denormalize32: |n| -> f32 {1.0/n}
+        //, spec: NormalizingSpec::None{}
+    };
+    pub(crate) const RECIPLN:Normalizing = Normalizing {
+        normalize64: |n| -> f64 {1.0/(n.ln())}
+        , denormalize64: |n| -> f64 {(1.0/n).exp()}
+        , normalize32: |n| -> f32 {1.0/(n.ln())}
+        , denormalize32: |n| -> f32 {(1.0/n).exp()}
+        //, spec: NormalizingSpec::None{}
+    };
+
+    pub(crate) fn reshape_input(&self, limits:&(f64, f64), input:&f64) -> f64 {
+
+        let scalar_input = (input-limits.0)/(limits.1-limits.0);
+
+        let normalized_min = (self.normalize64)(&limits.0);
+        let normalized_max = (self.normalize64)(&limits.1);
+        let normalized_range = normalized_max - normalized_min;
+        (self.denormalize64)(&(normalized_min + (normalized_range*scalar_input)))
+    }
+}
 
 
 #[derive(Clone, Debug, Copy, PartialEq)]
 
-pub(crate) enum Normalizing {
+pub(crate) enum NormalizingSpec {
     None{}
     , LnLn{}
     , Ln{}
@@ -198,106 +250,7 @@ pub(crate) enum Normalizing {
     , RecipLn{}
 }
 
-impl Normalizing {
-    pub(crate) fn normalize(&self, input:&f64) -> f64 {
-        match self {
-            Normalizing::None{..} => {*input}
-            Normalizing::LnLn{..} => {
-                input.ln().ln()
-            }
-            Normalizing::Ln{..} => {
-                input.ln()
-            }
-            Normalizing::RecipLn{..} => {
-                (1.0/input).ln()
-            }
-            Normalizing::Reciprocal{..} => {1.0/input}
-        }
-    }
-
-    pub(crate) fn denormalize(&self, input:&f64) -> f64 {
-        match self {
-            Normalizing::None{..} => {*input}
-            Normalizing::LnLn{..} => {
-                input.exp().exp()
-            }
-            Normalizing::Ln{..} => {
-                input.exp()
-            }
-            Normalizing::RecipLn{..} => {
-                1.0/(input.exp())
-            }
-            Normalizing::Reciprocal{..} => {1.0/input}
-        }
-    }
-
-    pub(crate) fn reshape_input(&self, limits:&(f64, f64), input:&f64) -> f64 {
-
-        let scalar_input = (input-limits.0)/(limits.1-limits.0);
-
-        let normalized_min = self.normalize(&limits.0);
-        let normalized_max = self.normalize(&limits.1);
-        let normalized_range = normalized_max - normalized_min;
-        self.denormalize(&(normalized_min + (normalized_range*scalar_input)))
-    }
-
-    pub(crate) fn get_normalizer(&self) -> Normalizer {
-        match self {
-            Normalizing::None{..} => {
-                Normalizer{
-                    normalize64: |n| {*n}
-                    , denormalize64: |n| {*n}
-                    , normalize32: |n| {*n}
-                    , denormalize32: |n| {*n}
-                }
-            }
-            Normalizing::LnLn{..} => {
-                Normalizer{
-                    normalize64: |n| {n.ln().ln()}
-                    , denormalize64: |n| {n.exp().exp()}
-                    , normalize32: |n| {n.ln().ln()}
-                    , denormalize32: |n| {n.exp().exp()}
-                }
-            }
-            Normalizing::Ln{..} => {
-                Normalizer{
-                    normalize64: |n| {n.ln()}
-                    , denormalize64: |n| {n.exp()}
-                    , normalize32: |n| {n.ln()}
-                    , denormalize32: |n| {n.exp()}
-                }
-            }
-            Normalizing::RecipLn{..} => {
-                Normalizer{
-                    normalize64: |n| {1.0/n.ln()}
-                    , denormalize64: |n| {(1.0/n).exp()}
-                    , normalize32: |n| {1.0/n.ln()}
-                    , denormalize32: |n| {(1.0/n).exp()}
-                }
-            }
-            Normalizing::Reciprocal{..} => {
-                Normalizer{
-                    normalize64: |n| {1.0/n}
-                    , denormalize64: |n| {1.0/n}
-                    , normalize32: |n| {1.0/n}
-                    , denormalize32: |n| {1.0/n}
-                }
-            }
-        }
-    }
-}
-
-#[derive(Clone, Debug, Copy, PartialEq)]
-
-pub(crate) struct Normalizer {
-    pub(crate) normalize64: fn(&f64)->f64
-    , pub(crate) denormalize64: fn(&f64)->f64
-    , pub(crate) normalize32: fn(&f32)->f32
-    , pub(crate) denormalize32: fn(&f32)->f32
-}
-
 #[derive(Clone, Debug, Copy)]
-
 
 pub(crate) struct ShadingInstruction {
     pub(crate) period:Animable, pub(crate) phase:Animable
@@ -306,9 +259,21 @@ pub(crate) struct ShadingInstruction {
 
 #[derive(Clone, Debug, Copy, PartialEq)]
 
-pub(crate) enum Shading {
-    Modular{}
-    , Sinus{}
+pub(crate) struct Shading {
+    pub(crate) shade: fn(&f64, &f64, &f64, &f64) -> f64
+}
+
+impl Shading {
+    const SINUS:Shading = Shading {
+        shade: |phase:&f64, period:&f64, period_recip:&f64, n:&f64| -> f64 {
+            (1.0-((n+phase)*TAU*period_recip).cos())*0.5
+        }
+    };
+    const MODULAR:Shading = Shading {
+        shade: |phase:&f64, period:&f64, period_recip:&f64, n:&f64| -> f64 {
+            ((n+phase) % period)*period_recip
+        }
+    };
 }
 
 

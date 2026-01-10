@@ -27,6 +27,7 @@ pub(crate) mod action {
     pub(crate) mod serialize;
     pub(crate) mod constants;
     pub(crate) mod collect;
+    pub(crate) mod serial_color;
 }
 
 use std::thread;
