@@ -12,26 +12,12 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                 ColoringInstruction::PaintEscapeTime{
                     opacity, color, range, shading_method, normalizing_method, ..
                 } => {
-                    let start = Instant::now();
+                    /*let start = Instant::now();
                     let period = shading_method.period.determine();
                     let period_recip = 1.0/period;
                     let phase = shading_method.phase.determine();
 
-                    let range = *range as f64 / 255.0;
-
-                    let shade =
-                        match shading_method.shading {
-                            Shading::Modular{..} => {
-                                |phase:&f64, period:&f64, period_recip:&f64, n:&f64| -> f64 {
-                                    ((n+phase) % period)*period_recip
-                                }
-                            }
-                            Shading::Sinus{..} => {
-                                |phase:&f64, period:&f64, period_recip:&f64, n:&f64| -> f64 {
-                                    (1.0-((n+phase)*TAU*period_recip).cos())*0.5
-                                }
-                            }
-                        };
+                    let range = *range as f64 / 255.0;*/
 
                     use std::cmp::*;
                     for x in 0..res.0 {
@@ -43,15 +29,15 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                                 ScreenValue::Inside{..} => {continue;}
                                 ScreenValue::Outside{escape_time: escape_time, ..} => {
                                     let escape_time = *escape_time as f64;
-                                    let escape_time = normalizing_method.normalize(&escape_time);
-                                    let brightness = match shading_method.shading {
-                                        Shading::Modular{..} => {
-                                            ((escape_time+phase) % period)*period_recip
-                                        }
-                                        Shading::Sinus{..} => {
-                                            (1.0-((escape_time+phase)*TAU*period_recip).cos())*0.5
-                                        }
-                                    };
+                                    let escape_time = (normalizing_method.normalize64)(&escape_time);
+
+                                    let brightness = (shading_method.shading.shade)(
+                                        &shading_method.phase.frame_value
+                                        , &shading_method.period.frame_value
+                                        , &shading_method.period.frame_value_reciprocal
+                                        , &escape_time
+                                    );
+
                                     let color = modify_color(*color, brightness, range);
                                     (color.0,color.1,color.2,*opacity)
                                 }
@@ -64,12 +50,12 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                 ColoringInstruction::PaintSmallTime{
                     inside_opacity, outside_opacity, color, range, shading_method, normalizing_method, ..
                 } => {
-                    let start = Instant::now();
+                    /*let start = Instant::now();
                     let period = shading_method.period.determine();
                     let period_recip = 1.0/period;
                     let phase = shading_method.phase.determine();
 
-                    let range = *range as f64 / 255.0;
+                    let range = *range as f64 / 255.0;*/
 
                     let shade =
                         match shading_method.shading {
@@ -102,7 +88,7 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
 
                             let color = {
                                 let smalltime = *smalltime as f64;
-                                let smalltime = normalizing_method.normalize(&smalltime);
+                                let smalltime = (normalizing_method.normalize64)(&smalltime);
                                 let brightness = shade(&phase, &period, &period_recip, &smalltime);
                                 let color = modify_color(*color, brightness, range);
                                 (color.0,color.1,color.2,**opacity)
@@ -153,7 +139,7 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
 
                             let color = {
                                 let smallness = *smallness as f64;
-                                let smallness = normalizing_method.normalize(&smallness);
+                                let smallness = (normalizing_method.normalize64)(&smallness);
                                 let brightness = shade(&phase, &period, &period_recip, &smallness);
                                 let color = modify_color(*color, brightness, range);
                                 (color.0,color.1,color.2,**opacity)

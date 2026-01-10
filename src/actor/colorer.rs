@@ -28,6 +28,7 @@ pub(crate) struct ZoomerScreen {
 
 pub(crate) struct ColorerState {
     pub(crate) settings:Settings
+    , pub(crate) determined_settings: Settings
 }
 
 pub async fn run(
