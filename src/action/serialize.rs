@@ -9,7 +9,6 @@ pub(crate) enum Serial<T> {
     Stream{value: T}
     , Move{loc: Box<ObjectivePosAndZoom>}
     , Resize{res: Box<(u32, u32)>}
-    , Boundary
 }
 
 #[derive(Clone, Debug)]
@@ -92,7 +91,8 @@ impl<T> DoubleBuffer<T> {
                 self.buffer_frame.pixels.clear();
                 true
             }
-            Serial::Boundary{..} => {false}
         }
     }
+
+    
 }
