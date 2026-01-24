@@ -8,6 +8,7 @@ use crate::actor::screen_worker::*;
 
 use rand::prelude::SliceRandom;
 use crate::action::utils::*;
+use crate::action::constants::*;
 
 pub(crate) enum WorkerCommand<T:Copy> {
     Replace{frame_info: (ObjectivePosAndZoom, (u32, u32)), context: WorkContext<T>}

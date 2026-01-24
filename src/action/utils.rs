@@ -2,6 +2,8 @@ use rug::*;
 use std::cmp::*;
 use std::ops::*;
 
+use crate::action::constants::*;
+
 pub(crate) const INTEXP_WARNING_SIZE:u32 = 100;
 
 #[inline]
@@ -257,3 +259,19 @@ const ALL_U8S: [u8; 256] = {
     returned
 };
 
+
+
+impl Default for ObjectivePosAndZoom {
+    fn default() -> Self {
+        HOME_POSITION.into()
+    }
+}
+
+impl From<(i32, i32, i32)> for ObjectivePosAndZoom {
+    fn from(input:(i32, i32, i32)) -> ObjectivePosAndZoom {
+        ObjectivePosAndZoom {
+            pos: (IntExp::from(input.0), IntExp::from(input.1))
+            , zoom_pot: input.2
+        }
+    }
+}
