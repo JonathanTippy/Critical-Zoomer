@@ -8,13 +8,13 @@ I. intro
 II. content
 	1. the mandelbrot set
 		A. definition
-			a. complex numbers
-			b. complex arithmetic
-			c. equation definition
-			d. action visualization
+            a. trigonometric setup & definition
+            b. action visualization
+			c. complex arithmetic
+			d. equation definition
 			e. function attributes
 		B. implementation
-			a. halting definition
+			a. halting
 			b. coloration
 			c. initial implementation
 			d. function & halting optimization
