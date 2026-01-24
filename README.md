@@ -66,6 +66,7 @@ a mandelbrot set zoomer written in rust
 
 ### settings (0.0.6) done
 
+- fix zoom too far | ✔️
 - settings page allows custom layering of colorings | ✔️
 - also allows animation of variables | ✔️
 
