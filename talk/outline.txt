@@ -1,0 +1,46 @@
+I. intro
+	1. hook
+		
+	2. index:
+		A. the mandelbrot set
+		B. my project to explore the mandelbrot set
+		C. rust features I learned
+II. content
+	1. the mandelbrot set
+		A. definition
+			a. complex numbers
+			b. complex arithmetic
+			c. equation definition
+			d. action visualization
+			e. function attributes
+		B. implementation
+			a. halting definition
+			b. coloration
+			c. initial implementation
+			d. function & halting optimization
+			e. screen-space optimization (xaos)
+			f. perturbation (superfractalthing)
+		C. results (images)
+		D. visual attributes
+	2. my project to explore the mandelbrot set
+		A. purpose
+		B. actor layout
+		C. code tour
+		D. current status & demo
+	3. rust features I learned
+		A. steady state
+		B. traits, trait addition & generic types
+		C. const & const fn
+		D. closure syntax, arrays & map
+		E. borrowing & ownership
+			a. scopes, moving & borrowing review
+			b. encapsulation & borrowing
+			c. options & moving or borrowing
+			d. function argument borrowing
+III outro
+	index:
+	1. the mandelbrot set
+	2. my project to explore the mandelbrot set
+	3. rust features I learned
+	
+	to be continued...
