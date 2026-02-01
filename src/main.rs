@@ -45,12 +45,12 @@ fn main() {
         let cli_args = MainArg::parse();
 
         // Initialize logging at Info level for runtime diagnostics and performance output.
-        init_logging(LogLevel::Info);
+        init_logging(LogLevel::Info, None);
 
         // Build the actor graph with all channels and actors, using the parsed arguments.
         let mut graph = GraphBuilder::default()
             .with_telemtry_production_rate_ms(200)
-            .with_stack_size(STACK_SIZE)
+            .with_default_actor_stack_size(STACK_SIZE)
             .build(cli_args);
 
         // Construct the full actor pipeline and channel topology.
