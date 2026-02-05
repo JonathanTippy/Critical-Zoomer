@@ -1,15 +1,15 @@
 I. intro
-	1. hook
-		
 	2. index:
 		A. the mandelbrot set
 		B. my project to explore the mandelbrot set
 		C. rust features I learned
 II. content
 	1. the mandelbrot set
+		Z. history
+			a. history i guess
 		A. definition
-            a. trigonometric setup & definition
-            b. action visualization
+            		a. trigonometric setup & definition
+            		b. action visualization
 			c. complex arithmetic
 			d. equation definition
 			e. function attributes
