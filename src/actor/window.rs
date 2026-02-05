@@ -63,7 +63,7 @@ pub(crate) enum ZoomerCommand {
     , UntrackAllPoints
 } pub(crate) const NUMBER_OF_COMMANDS:u16=10;
 
-#[derive(Clone)] 
+#[derive(Clone)]
 
 pub(crate) struct ZoomerCommandPackage {
     pub(crate) start_time: Instant
