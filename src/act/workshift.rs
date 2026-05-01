@@ -168,7 +168,6 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
             0 => {
                 if context.workshifts == 0 {
                     if context.scredge_poses.len()>0 {
-                        println!("scredge");
                         (&context.scredge_poses[0], Step::Scredge)
                     } else if context.edge_queue.len()>0 {
                         (&context.edge_queue[0].0, Step::Edge)
