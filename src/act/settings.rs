@@ -1,26 +1,8 @@
 use steady_state::*;
 use eframe::egui;
 use eframe::egui::*;
-//use eframe::Frame::raw_window_handle;
- // For X11
-//use winit::platform::wayland::EventLoopBuilderExtWayland; // For Wayland
-//use winit::platform::windows::EventLoopBuilderExtWindows; // For Windows
 use egui::{Color32, Vec2, Pos2, ViewportId, WindowLevel};
 use std::sync::{Arc, Mutex};
-
-use egui_dnd::dnd;
-
-use crate::act::widgetize::*;
-
-
-
-
-const RECOVER_EGUI_CRASHES:bool = false;
-// ^ half-implemented; in cases where the window is supposed to
-// be minimized or not on top, it might bother the user by restarting.
-const MIN_FRAME_RATE:f64 = 20.0;
-const MAX_FRAME_TIME:f64 = 1.0 / MIN_FRAME_RATE;
-const VSYNC:bool = true;
 
 pub(crate) const DEFAULT_SETTINGS_WINDOW_RES:(u32, u32) = (500, 800);
 
@@ -124,7 +106,8 @@ impl Settings {
 }
 
 pub const DEFAULT_SETTINGS_WINDOW_CONTEXT:SettingsWindowContext = SettingsWindowContext{
-    settings: Settings::DEFAULT
+    settings: Settings::DEFAULT,
+    last_settings: Settings::DEFAULT
     , size: egui::vec2(DEFAULT_SETTINGS_WINDOW_RES.0 as f32, DEFAULT_SETTINGS_WINDOW_RES.1 as f32)
     , location: None
     , will_close: false
@@ -132,7 +115,7 @@ pub const DEFAULT_SETTINGS_WINDOW_CONTEXT:SettingsWindowContext = SettingsWindow
     , id_counter: 7
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Settings {
     pub(crate) coloring_script:Option<Vec<ColoringInstruction>>
     , pub(crate) bailout_radius:Animable
@@ -143,7 +126,7 @@ pub(crate) struct Settings {
 }
 
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug, Copy, PartialEq)]
 
 pub(crate) struct Animable {
     pub(crate) start: Option<Instant>
@@ -296,7 +279,7 @@ pub(crate) struct Normalizer {
     , pub(crate) denormalize32: fn(&f32)->f32
 }
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug, Copy, PartialEq)]
 
 
 pub(crate) struct ShadingInstruction {
@@ -312,7 +295,7 @@ pub(crate) enum Shading {
 }
 
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug, Copy, PartialEq)]
 
 pub(crate) enum ColoringInstruction {
     PaintEscapeTime{
@@ -444,13 +427,15 @@ pub(crate) enum ControlsSettings {
 
 pub(crate) struct SettingsWindowResult {
     pub(crate) will_close: bool,
-    pub(crate) settings: Settings
+    pub(crate) settings: Settings,
+    pub(crate) did_change: bool
 }
 
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct SettingsWindowContext {
     pub(crate) settings: Settings
+    , pub(crate) last_settings: Settings
     , pub(crate) size: Vec2
     , pub(crate) location: Option<Pos2>
     , pub(crate) will_close: bool
@@ -463,6 +448,8 @@ pub(crate) fn settings (
     ctx: &egui::Context,
     state: Arc<Mutex<SettingsWindowContext>>,
 ) -> SettingsWindowResult {
+
+    let snapshot = state.try_lock().unwrap().settings.clone();
 
     let state1 = state.clone();
     let state2 = state.clone();
@@ -543,8 +530,12 @@ pub(crate) fn settings (
 
     state.will_close = false;
 
+    let did_change:bool = state.settings != state.last_settings;
+    state.last_settings = state.settings.clone();
+
     SettingsWindowResult{
         will_close: will_close,
-        settings: state.settings.clone()
+        settings: state.settings.clone(),
+        did_change
     }
 }

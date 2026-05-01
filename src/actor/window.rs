@@ -93,6 +93,7 @@ pub(crate) struct WindowState {
     , pub(crate) timer: Instant
     , pub(crate) fps_margin: f32
     , pub(crate) timer2: Instant
+    , pub(crate) sent_initial_settings_broadcast: bool
 }
 
 /// Entry point for the window actor.
@@ -153,6 +154,7 @@ async fn internal_behavior<A: SteadyActor>(
         , fps_margin: 0.0
 
         , timer2: Instant::now()
+        , sent_initial_settings_broadcast: false
 
     }).await;
 
@@ -333,7 +335,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             // sample
 
             let (command_package, attention) = parse_inputs(&ctx, &mut state, size);
-            actor.try_send(&mut attention_out, attention);
+            //actor.try_send(&mut attention_out, attention);
 
             state.sampling_context.screen_size = (size.0 as u32, size.1 as u32);
 
@@ -637,12 +639,18 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 if state.settings_window_open {
                     let result = settings(&ctx, state.settings_window_context.clone());
                     state.settings_window_open = !result.will_close;
-                    for mut channel in settings_out {
-                        actor.try_send(&mut channel, result.settings.clone());
+                    if result.did_change || !state.sent_initial_settings_broadcast {
+                        for mut channel in settings_out {
+                            actor.try_send(&mut channel, result.settings.clone());
+                        }
+                        state.sent_initial_settings_broadcast = true;
                     }
                 } else {
-                    for mut channel in settings_out {
+                    if !state.sent_initial_settings_broadcast {
+                        for mut channel in settings_out {
                         actor.try_send(&mut channel, state.settings_window_context.try_lock().unwrap().settings.clone());
+                        }
+                        state.sent_initial_settings_broadcast = true;
                     }
                 }
             });
