@@ -164,9 +164,9 @@ use std::f64::consts::*;
 impl Animable {
     pub(crate) fn determine(&mut self) -> f64 {
         match self {
-            Animable{mut start, period, range, limits, normalizing, animated, value, ..} => {
+            Animable{start, period, range, limits, normalizing, animated, value, ..} => {
                 if *animated {
-                    if start.is_none() {start = Some(Instant::now())}
+                    if start.is_none() {*start = Some(Instant::now())}
                     let elapsed = start.unwrap().elapsed();
                     let phase_time = elapsed.as_secs_f64() % period.as_secs_f64();
                     let normalized_phase_time = phase_time / period.as_secs_f64();
