@@ -1,7 +1,5 @@
 use steady_state::*;
 
-use rand::prelude::*;
-
 use egui::{Color32, Pos2};
 use std::cmp::*;
 

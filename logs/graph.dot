@@ -6,63 +6,54 @@ node [style=filled, fillcolor=white, fontcolor=black];
 edge [color=white, fontcolor=white];
 graph [bgcolor=black];
 "window" [label="window
-Avg load: 21 %
+Avg load: 7 %
 Avg mCPU: 0000 
-", tooltip="window\n\nThreadId(12) Core:4\nWindow 12.8 secs\n--- Stats ---\nAvg load: 21 %\nAvg mCPU: 0000 \n", color="green", penwidth=3 ];
+", tooltip="window\n\nThreadId(15) Core:4\nWindow 12.8 secs\n--- Stats ---\nAvg load: 7 %\nAvg mCPU: 0000 \n", color="green", penwidth=3 ];
 "colorer" [label="colorer
-Avg load: 24 %
-Avg mCPU: 1024 
-", tooltip="colorer\n\nThreadId(14) Core:1\nWindow 12.8 secs\n--- Stats ---\nAvg load: 24 %\nAvg mCPU: 1024 \n", color="red", penwidth=3 ];
+Avg load: 0 %
+Avg mCPU: 0005 
+", tooltip="colorer\n\nThreadId(16) Core:5\nWindow 12.8 secs\n--- Stats ---\nAvg load: 0 %\nAvg mCPU: 0005 \n", color="green", penwidth=3 ];
 "work controller" [label="work controller
 Avg load: 0 %
-Avg mCPU: 0016 
-", tooltip="work controller\n\nThreadId(15) Core:2\nWindow 12.8 secs\n--- Stats ---\nAvg load: 0 %\nAvg mCPU: 0016 \n", color="green", penwidth=3 ];
-"screen worker" [label="screen worker
-Avg load: 20 %
 Avg mCPU: 0000 
-Restarts: 85", tooltip="screen worker\n\nThreadId(16) Core:3\nWindow 12.8 secs\n--- Stats ---\nAvg load: 20 %\nAvg mCPU: 0000 \n", color="green", penwidth=3 ];
+", tooltip="work controller\n\nThreadId(17) Core:6\nWindow 12.8 secs\n--- Stats ---\nAvg load: 0 %\nAvg mCPU: 0000 \n", color="green", penwidth=3 ];
+"screen worker" [label="screen worker
+Avg load: 1 %
+Avg mCPU: 0016 
+", tooltip="screen worker\n\nThreadId(18) Core:1\nWindow 12.8 secs\n--- Stats ---\nAvg load: 1 %\nAvg mCPU: 0016 \n", color="green", penwidth=3 ];
 "work collector" [label="work collector
-Avg load: 13 %
-Avg mCPU: 0657 
-", tooltip="work collector\n\nThreadId(17) Core:4\nWindow 12.8 secs\n--- Stats ---\nAvg load: 13 %\nAvg mCPU: 0657 \n", color="orange", penwidth=3 ];
+Avg load: 0 %
+Avg mCPU: 0005 
+", tooltip="work collector\n\nThreadId(19) Core:2\nWindow 12.8 secs\n--- Stats ---\nAvg load: 0 %\nAvg mCPU: 0005 \n", color="green", penwidth=3 ];
 "point escaper" [label="point escaper
-Avg load: 21 %
-Avg mCPU: 1024 
-", tooltip="point escaper\n\nThreadId(18) Core:1\nWindow 12.8 secs\n--- Stats ---\nAvg load: 21 %\nAvg mCPU: 1024 \n", color="red", penwidth=3 ];
-"colorer" -> "window" [label="Window 25.6 secs
-Avg rate:  3.980 per/sec
-Cap: 2 Total: 1161
-", tooltip="CH#3: Data | Cap: 2 | Vol: 1 (Total: 1161) | Sat: 50% | Color: grey\n", color="grey", penwidth=1];
-"point escaper" -> "colorer" [label="Window 25.6 secs
-Avg rate:  7.925 per/sec
-Cap: 2 Total: 2265
-", tooltip="CH#9: Data | Cap: 2 | Vol: 2 (Total: 2265) | Sat: 100% | Color: red\n", color="red", penwidth=1];
-"screen worker" -> "work collector" [label="Window 25.6 secs
-Avg rate: 81 per/sec
-Cap: 50 Total: 14K
-", tooltip="CH#14: Data | Cap: 50 | Vol: 0 (Total: 14K) | Sat: 32% | Color: grey\n", color="grey", penwidth=1];
-"window" -> "colorer" [label="Window 25.6 secs
-Avg rate: 163 per/sec
-2x25 Total: 53K
-", tooltip="CH#1: Data | Cap: 50 | Vol: 50 (Total: 53K) | Sat: 94% | Color: red\n", color="red", penwidth=1];
-"window" -> "point escaper" [label="Window 25.6 secs
-Avg rate: 166 per/sec
-2x25 Total: 63K
-", tooltip="CH#2: Data | Cap: 50 | Vol: 36 (Total: 63K) | Sat: 86% | Color: grey\n", color="grey", penwidth=1];
-"window" -> "screen worker" [label="Window 25.6 secs
-Avg rate: 163 per/sec
-Cap: 50 Total: 58K
-", tooltip="CH#5: Data | Cap: 50 | Vol: 15 (Total: 58K) | Sat: 70% | Color: grey\n", color="grey", penwidth=1];
-"window" -> "work controller" [label="Window 25.6 secs
-Avg rate:  2.695 per/sec
-Cap: 50 Total: 617
-", tooltip="CH#4: Data | Cap: 50 | Vol: 0 (Total: 617) | Sat: 0% | Color: grey\n", color="grey", penwidth=1];
-"work collector" -> "point escaper" [label="Window 25.6 secs
-Avg rate: 16 per/sec
-Cap: 2 Total: 3781
-", tooltip="CH#15: Data | Cap: 2 | Vol: 2 (Total: 3781) | Sat: 100% | Color: red\n", color="red", penwidth=1];
-"work controller" -> "screen worker" [label="Window 25.6 secs
-Avg rate:  0.465 per/sec
-Cap: 2 Total: 84
-", tooltip="CH#13: Data | Cap: 2 | Vol: 0 (Total: 84) | Sat: 0% | Color: grey\n", color="grey", penwidth=1];
+Avg load: 0 %
+Avg mCPU: 0006 
+", tooltip="point escaper\n\nThreadId(20) Core:3\nWindow 12.8 secs\n--- Stats ---\nAvg load: 0 %\nAvg mCPU: 0006 \n", color="green", penwidth=3 ];
+"colorer" -> "window" [label="Total: 12
+Avg rate:  0.000 per/sec
+", tooltip="Window: 25.6 secs\nCH#3: Data\n Capacity: 2\n Volume: 1 (Total: 12)\n Saturation: 0%\n", color="#808080", penwidth=1];
+"point escaper" -> "colorer" [label="Total: 20
+Avg rate:  0.000 per/sec
+", tooltip="Window: 25.6 secs\nCH#9: Data\n Capacity: 2\n Volume: 2 (Total: 20)\n Saturation: 100%\n", color="#FF0000", penwidth=1];
+"screen worker" -> "work collector" [label="Total: 153
+Avg rate:  0.000 per/sec
+", tooltip="Window: 25.6 secs\nCH#17: Data\n Capacity: 50\n Volume: 48 (Total: 153)\n Saturation: 28%\n", color="#FFFF00", penwidth=1];
+"window" -> "colorer" [label="Total: 13K
+Avg rate: 179 per/sec
+", tooltip="Window: 25.6 secs\nCH#1: Data\n Capacity: 50\n Volume: 50 (Total: 13K)\n Saturation: 84%\n", color="#FF0000", penwidth=1];
+"window" -> "point escaper" [label="Total: 13K
+Avg rate: 179 per/sec
+", tooltip="Window: 25.6 secs\nCH#2: Data\n Capacity: 50\n Volume: 65 (Total: 13K)\n Saturation: 0%\n", color="#FF0000", penwidth=1];
+"window" -> "screen worker" [label="Total: 13K
+Avg rate: 179 per/sec
+", tooltip="Window: 25.6 secs\nCH#5: Data\n Capacity: 50\n Volume: 47 (Total: 13K)\n Saturation: 0%\n", color="#FF0000", penwidth=1];
+"window" -> "work controller" [label="Total: 1
+Avg rate:  0.035 per/sec
+", tooltip="Window: 25.6 secs\nCH#4: Data\n Capacity: 50\n Volume: 0 (Total: 1)\n Saturation: 0%\n", color="#808080", penwidth=1];
+"work collector" -> "point escaper" [label="Total: 48
+Avg rate:  0.000 per/sec
+", tooltip="Window: 25.6 secs\nCH#18: Data\n Capacity: 2\n Volume: 2 (Total: 48)\n Saturation: 100%\n", color="#FF0000", penwidth=1];
+"work controller" -> "screen worker" [label="Total: 1
+Avg rate:  0.000 per/sec
+", tooltip="Window: 25.6 secs\nCH#13: Data\n Capacity: 2\n Volume: 0 (Total: 1)\n Saturation: 0%\n", color="#808080", penwidth=1];
 }

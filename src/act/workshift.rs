@@ -1,6 +1,3 @@
-
-use rand::Rng;
-
 use std::time::Instant;
 use std::collections::*;
 use std::cmp::*;
@@ -167,10 +164,11 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
     while context.time_workshift_started.elapsed().as_millis()<10{//while context.index < total_points && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
 
 
-        let (pos, step) = match context.workshifts%5 {
+        let (pos, step) = match context.workshifts%4 {
             0 => {
                 if context.workshifts == 0 {
                     if context.scredge_poses.len()>0 {
+                        println!("scredge");
                         (&context.scredge_poses[0], Step::Scredge)
                     } else if context.edge_queue.len()>0 {
                         (&context.edge_queue[0].0, Step::Edge)
@@ -227,35 +225,9 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
                     (&context.in_queue[0].0, Step::In)
                 } else {context.index = total_points-1; break;}
             }
-            4 => {
-                //(&pos_from_index(context.random_index, context.res.0), Step::Random)
-                /*if context.edge_queue.len()>0 {
-                    (&context.edge_queue[0].0, Step::Edge)
-                } else if context.out_queue.len()>0{
-                    (&context.out_queue[0].0, Step::Out)
-                } else   if context.scredge_poses.len()>0 {
-                    (&context.scredge_poses[0], Step::Scredge)
-                } else if context.in_queue.len()>0 {
-                    (&context.in_queue[0].0, Step::In)
-                } else {context.index = total_points-1; break;}*/
-                let mut rng = rand::rng();
-                let mut x:i32 = rng.random_range(-50..50);
-                let mut y:i32 = rng.random_range(-50..50);
-
-                if x + context.attention.0 < 0 || x + context.attention.0 > context.res.0 as i32-1
-                || y + context.attention.1 < 0 || y + context.attention.1 > context.res.1 as i32-1{
-                    x = 0;y=0;
-                }
-
-                let p = &context.points[index_from_pos(&context.attention, context.res.0)];
-                println!("selected point: {:?}", p);
-
-                (&(
-                    context.attention.0 + x, context.attention.1 + y
-                ), Step::Random)
-            }
             _ => {break}
         };
+        context.workshifts+=1;
 
         let index = index_from_pos(pos, context.res.0);
 
