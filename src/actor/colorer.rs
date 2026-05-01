@@ -1,4 +1,3 @@
-use rand::Rng;
 use steady_state::*;
 use crate::act::sampling::*;
 
@@ -109,7 +108,6 @@ async fn internal_behavior<A: SteadyActor>(
             };
             match actor.try_take(&mut settings_in) {
                 Some(s) => {
-                    let mut rng = rand::thread_rng();
                     state.settings = s;
                 }
                 None => {}
@@ -123,7 +121,6 @@ async fn internal_behavior<A: SteadyActor>(
             };
             match actor.try_take(&mut values_in) {
                 Some(v) => {
-                    let mut rng = rand::thread_rng();
                     //info!("recieved values");
                     state.values = Some(v);
                 }

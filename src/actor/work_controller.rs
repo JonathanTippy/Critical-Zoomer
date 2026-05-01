@@ -6,7 +6,6 @@ use crate::act::workshift::*;
 use crate::act::sampling::*;
 use crate::actor::screen_worker::*;
 
-use rand::prelude::SliceRandom;
 use crate::act::utils::*;
 use crate::act::constants::*;
 
@@ -59,7 +58,7 @@ async fn internal_behavior<A: SteadyActor, T:Clone + From<f32> + From<f32> + Clo
     let mut to_worker = to_worker.lock().await;
 
     let mut state = state.lock(|| WorkControllerState {
-        mixmap: get_random_mixmap((WORKER_INIT_RES.0*WORKER_INIT_RES.1) as usize)
+        mixmap: get_evenly_spaced_map((WORKER_INIT_RES.0*WORKER_INIT_RES.1) as usize)
         , loc: (IntExp::from(0), IntExp::from(0))
         , zoom_pot: WORKER_INIT_ZOOM_POT
         , worker_res: WORKER_INIT_RES
@@ -161,28 +160,23 @@ fn get_points<T: From<f32> + Clone + From<IntExp> + Sub<Output=T> + Add<Output=T
 }
 
 
-fn get_random_mixmap(size: usize) -> Vec<usize> {
-    let mut rng = rand::rng();
 
-    let mut indices: Vec<usize> = (0..size).collect();
 
-    // Shuffle indices randomly
-    indices.shuffle(&mut rng);
-    indices
-}
+fn get_interlaced_mixmap(res:(&u32, &u32), size:usize) -> Vec<usize> {
 
-fn get_interlaced_mixmap(res:(u32, u32), size:usize) -> Vec<usize> {
-    let mut rng = rand::rng();
-
-    let mut row_indices:Vec<usize> = (0..res.1 as usize).collect();
-    row_indices.shuffle(&mut rng);
+    let mut row_indices:Vec<usize> = (0..*res.1 as usize).collect();
+    let mut mixed_row_indices:Vec<usize> = vec!();
+    let mixmap = get_evenly_spaced_map(size);
+    for i in 0..size {
+        mixed_row_indices.push(row_indices[mixed_row_indices[i]])
+    }
 
     let mut indices: Vec<usize> = (0..size).collect();
     for mut index in &mut indices {
-        *index = *index % res.0 as usize
+        *index = *index % *res.0 as usize
         +
-        row_indices[(*index / res.0 as usize)]
-        * res.0 as usize
+        row_indices[(*index / *res.0 as usize)]
+        * *res.0 as usize
 
     }
     indices
@@ -202,7 +196,7 @@ fn handle_sampler_stuff<T: Clone + From<f32> + From<f32> + Clone + From<IntExp> 
     }
 
     if state.worker_res != stuff.1 {
-        state.mixmap = get_random_mixmap((stuff.1.0*stuff.1.1) as usize)
+        state.mixmap = get_interlaced_mixmap((&stuff.1.0, &stuff.1.1), (stuff.1.0*stuff.1.1) as usize);
     }
 
     state.worker_res = stuff.1;
@@ -220,23 +214,27 @@ fn handle_sampler_stuff<T: Clone + From<f32> + From<f32> + Clone + From<IntExp> 
     state.zoom_pot = obj.zoom_pot as i64;
 
     let mut edges = Vec::new();
+    let mut linear_edge_map = Vec::new();
     let res = state.worker_res;
     for i in 0..(res.0-1) as i32 {
-        edges.push((i, 0))
+        linear_edge_map.push((i, 0))
     }
     for i in 0..(res.1-1) as i32 {
-        edges.push(((res.0-1) as i32, i))
+        linear_edge_map.push(((res.0-1) as i32, i))
     }
     for i in 0..(res.0) as i32 {
-        edges.push((i , (res.1-1) as i32))
+        linear_edge_map.push((i , (res.1-1) as i32))
     }
     for i in 1..(res.1-1) as i32 {
-        edges.push((0, i))
+        linear_edge_map.push((0, i))
     }
 
-    let mut rng = rand::rng();
-    // Shuffle edges randomly
-    edges.shuffle(&mut rng);
+    let length = linear_edge_map.len();
+    let map = get_evenly_spaced_map(length);
+    for i in 0..length {
+        edges.push(linear_edge_map[map[i]]);
+    }
+
 
 
 
@@ -268,4 +266,20 @@ fn handle_sampler_stuff<T: Clone + From<f32> + From<f32> + Clone + From<IntExp> 
     };
     state.last_sampler_location = Some(obj);
     Some(work_context)
+}
+
+fn get_evenly_spaced_map(length:usize) -> Vec<usize> {
+    let mut a:Vec<usize> = Vec::new();
+    for i in 0..length {a.push(i)};
+
+    let mut b:Vec<usize> = Vec::new();
+    for i  in 0..length {
+        match i % 3 {
+            0 => {b.push(a.remove(0))},
+            1 => {b.push(a.remove((a.len()-1)/2))},
+            2 => {b.push(a.remove(a.len()-1))}
+            _ => {panic!("cannot happen")}
+        }
+    }
+    return b
 }

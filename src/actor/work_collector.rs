@@ -8,7 +8,6 @@ use crate::actor::screen_worker::*;
 use crate::act::constants::*;
 
 
-use rand::prelude::SliceRandom;
 use crate::act::utils::*;
 
 
@@ -200,15 +199,7 @@ fn sample_old_values<T:Clone>(old_package: &ResultsPackage<T>, new_location: Obj
 
 
 
-fn get_random_mixmap(size: usize) -> Vec<usize> {
-    let mut rng = rand::rng();
 
-    let mut indices: Vec<usize> = (0..size).collect();
-
-    // Shuffle indices randomly
-    indices.shuffle(&mut rng);
-    indices
-}
 
 
 
