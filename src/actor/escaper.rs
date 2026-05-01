@@ -1,13 +1,13 @@
 use std::ops::{Add, Mul, Sub};
 use rand::Rng;
 use steady_state::*;
-use crate::action::sampling::*;
+use crate::act::sampling::*;
 
-use crate::action::utils::*;
-use crate::action::workshift::CompletedPoint;
+use crate::act::utils::*;
+use crate::act::workshift::CompletedPoint;
 use crate::actor::work_collector::*;
-use crate::action::workshift::*;
-use crate::action::settings::*;
+use crate::act::workshift::*;
+use crate::act::settings::*;
 
 
 pub(crate) const BAILOUT_MAX_ITERATIONS:usize = 100;

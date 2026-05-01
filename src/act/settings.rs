@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use egui_dnd::dnd;
 
-use crate::action::widgetize::*;
+use crate::act::widgetize::*;
 
 
 

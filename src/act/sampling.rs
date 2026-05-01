@@ -7,7 +7,7 @@ use std::cmp::*;
 
 use crate::actor::window::*;
 use crate::actor::colorer::*;
-use crate::action::utils::*;
+use crate::act::utils::*;
 
 use rug::{Float, Integer};
 use crate::actor::work_controller::PIXELS_PER_UNIT_POT;

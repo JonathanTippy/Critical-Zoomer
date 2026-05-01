@@ -1,6 +1,6 @@
-use crate::action::settings::*;
+use crate::act::settings::*;
 use crate::actor::escaper::*;
-use crate::action::utils::*;
+use crate::act::utils::*;
 use std::f64::consts::*;
 use std::time::*;
 pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<(u8, u8, u8)> {

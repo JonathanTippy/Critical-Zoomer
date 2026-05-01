@@ -2,7 +2,7 @@ use rug::*;
 use std::cmp::*;
 use std::ops::*;
 
-use crate::action::constants::*;
+use crate::act::constants::*;
 
 pub(crate) const INTEXP_WARNING_SIZE:u32 = 100;
 
