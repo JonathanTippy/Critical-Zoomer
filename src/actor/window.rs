@@ -16,11 +16,11 @@ use rug::*;
 use crate::actor::colorer::*;
 use crate::actor::work_controller::*;
 
-use crate::action::sampling::*;
-use crate::action::settings::*;
-use crate::action::rolling::*;
-use crate::action::utils::*;
-use crate::action::constants::*;
+use crate::act::sampling::*;
+use crate::act::settings::*;
+use crate::act::rolling::*;
+use crate::act::utils::*;
+use crate::act::constants::*;
 
 
 const RECOVER_EGUI_CRASHES:bool = false;
