@@ -195,7 +195,7 @@ fn build_graph(graph: &mut Graph) {
     let state = new_state();
     actor_builder.with_name(NAME_SCREEN_WORKER)
         .build(move |context|
-                   actor::screen_worker::run(context, screen_worker_rx_from_work_controller.clone(), screen_worker_tx_to_work_collector.clone(), worker_rx_from_window.clone(), state.clone()) //#!#//
+                   actor::screen_worker::run(context, screen_worker_rx_from_work_controller.clone(), screen_worker_tx_to_work_collector.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
                , SoloAct);
 
