@@ -242,7 +242,7 @@ fn handle_sampler_stuff<T: Clone + From<f32> + From<f32> + Clone + From<IntExp> 
 
     let work_context = WorkContext {
         points: get_points(stuff.1, state.loc.clone(), state.zoom_pot)
-        , completed_points: Stec{stuff:[(CompletedPoint::Dummy{}, 0);100000], len:0}
+        , completed_points: vec!()
         , index: 0
         , random_index: 0
         , time_created: Instant::now()

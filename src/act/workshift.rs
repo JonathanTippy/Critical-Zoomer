@@ -43,7 +43,7 @@ use std::collections::*;
 #[derive(Clone, Debug)]
 pub(crate) struct WorkContext<T:Copy> {
     pub(crate) points: Vec<Point<T>>
-    , pub(crate) completed_points: Stec<(CompletedPoint<T>, usize), 100000>
+    , pub(crate) completed_points: Vec<(CompletedPoint<T>, usize)>
     , pub(crate) last_update: usize
     , pub(crate) index: usize
     , pub(crate) random_index: usize
@@ -166,7 +166,7 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
 
         let (pos, step) = match context.workshifts%4 {
             0 => {
-                if context.workshifts == 0 {
+                if context.workshifts < 20 {
                     if context.scredge_poses.len()>0 {
                         (&context.scredge_poses[0], Step::Scredge)
                     } else if context.edge_queue.len()>0 {
@@ -257,87 +257,14 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
             continue;
         }
 
-        //if context.workshifts > 100 {
-            /*match step {
-                Step::In => {
-                    point.period = context.in_queue[0].1;
-                    context.completed_points.push((CompletedPoint::Repeats{period: context.in_queue[0].1}, index));
-                    point.delivered = true;
-                    queue_incomplete_neighbors_in(&pos, context.res, &context.points, &mut context.in_queue);
-                    let _ =  context.in_queue.pop_front();
-                    continue;
-                }
-                _ => {}
-            }*/
-        //}
-
 
 
         let old_iterations = point.iterations;
 
-        /*match step {
-            Step::Scredge => {
-                iterate_max_n_times(point, 4.0f32.into(), episilon, 1000);
-            }
-            Step::Random => {
-                iterate_max_n_times(point, 4.0f32.into(), episilon, 1000);
-            }
-            Step::Out => {
-                let difficulty = context.out_queue[0].1;
-                let eta = difficulty as i32 - point.iterations as i32;
-                if eta > 2000 {
-                    let warp = min(eta/2, 1000000);
-                    if !timewarp_n_iterations(point, 4.0f32.into(), warp as u32) {
-                        context.out_queue[0].1 = 0;
-                    };
-                } else {
-                    iterate_max_n_times(point, 4.0f32.into(), episilon, 100);
-                }
-            }
-            Step::In => {
-                let difficulty = context.in_queue[0].1;
-                let eta = difficulty as i32 - point.iterations as i32;
-                if eta > 2000 {
-                    let warp = min(eta/2, 1000000);
-                    if !timewarp_n_iterations(point, 4.0f32.into(), warp as u32) {
-                        context.in_queue[0].1 = 0;
-                    };
-                } else {
-                    iterate_max_n_times(point, 4.0f32.into(), episilon, 100);
-                }
-            }
-            Step::Edge => {
-                let difficulty = context.edge_queue[0].1;
-                let eta = difficulty as i32 - point.iterations as i32;
-                if eta > 2000 {
-                    let warp = min(eta/2, 10000000);
-                    if !timewarp_n_iterations(point, 4.0f32.into(), warp as u32) {
-                        context.edge_queue[0].1 = 0;
-                    };
-                } else {
-                    iterate_max_n_times(point, 4.0f32.into(), episilon, 100);
-                }
-            }
-        }
-*/
-        iterate_max_n_times(point, 4.0f32.into(), episilon, 10000);
-        /*if let Some(t) = point.escaped_time {
-            let warp = (t-point.iterations)/2;
-            if !timewarp_n_iterations(point, 4.0, warp) {
-                point.escaped_time = Some(point.iterations + warp);
-                context.total_iterations_today+=warp;
-            }
-        } else {
-            let warp = min(point.iterations/2, 1000);
-            if !timewarp_n_iterations(point, 4.0, warp) {
-                point.escaped_time = Some(point.iterations + warp);
-                context.total_iterations_today+=warp;
-            }
-        }*/
+        iterate_max_n_times(point, 4.0f32.into(), episilon, 1000);
 
 
-
-        context.total_iterations_today += point.iterations - old_iterations;
+        context.total_iterations_today += (point.iterations - old_iterations);
 
 
         if point.repeats || point.escapes {
@@ -374,7 +301,7 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
             let completed_point = if point.repeats {
                 //let raw_period = point.iterations-point.loop_detection_point.1;
                 //point.period = raw_period;
-                determine_period(point, episilon);
+                //determine_period(point, episilon);
                 let returned = CompletedPoint::Repeats{period: point.period, smallness: point.smallness_squared, small_time:point.small_time};
                 queue_incomplete_neighbors_in(&pos, context.res, &context.points, &mut context.in_queue);
                 returned
@@ -395,19 +322,16 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
                 queue_incomplete_neighbors_of_edge(&e.0, &e.1, context.res, &context.points, &mut context.edge_queue);
             }
 
-            if context.completed_points.try_push((completed_point, index)) {} else {
-                let point = &mut context.points[index];
-                point.delivered=false;
-                break;
-            };
+
+            context.completed_points.push((completed_point, index));
 
 
             context.total_points_today += 1
         } else {
-            match step {
+            /*match step {
                 Step::Out => {
-                    let pos = context.out_queue.pop_front().unwrap();
-                    context.out_queue.push_back(pos);
+                    //let pos = context.out_queue.pop_front().unwrap();
+                    //context.out_queue.push_back(pos);
                     continue;
                 }
                 /*Step::In => {
@@ -421,13 +345,11 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
                     let completed_point = {
                         CompletedPoint::Repeats{period: point.iterations-point.loop_detection_point.1, smallness: point.smallness_squared, small_time:point.small_time}
                     };
-                    if context.completed_points.try_push((completed_point, index)) {} else {
-                        break;
-                    };
+                    context.completed_points.push((completed_point, index));
                     continue;
                 }
                 _ => {}
-            }
+            }*/
         }
 
         context.total_bouts_today += 1;
@@ -553,10 +475,10 @@ fn update_loop_check_points<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Co
 
 }
 
-fn determine_period<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Gt + Finite + PartialOrd + Into<f64> +From<f32> + Copy> (point: &mut Point<T>, epsilon:T) -> bool {
-    let max_period = 100000;
+/*fn determine_period<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Gt + Finite + PartialOrd + Into<f64> +From<f32> + Copy> (point: &mut Point<T>, epsilon:T) -> bool {
+    let max_period = 1000;
 
-    timewarp_n_iterations(point, 4.0f32.into(), 100000);
+    timewarp_n_iterations(point, 4.0f32.into(), 1000);
 
     point.loop_detection_point = (point.z, point.iterations);
     for _ in 0..max_period {
@@ -567,7 +489,7 @@ fn determine_period<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Gt + Finit
         }
     }
     return false
-}
+}*/
 
 #[inline]
 pub(crate) fn update_point_results<T:Sub<Output=T> + Add<Output=T> + Into<f64> + Gt + Mul<Output=T> + Copy>(point: &mut Point<T>) {

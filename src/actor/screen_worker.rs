@@ -165,14 +165,15 @@ fn work_update<T:Copy>(ctx: &mut WorkContext<T>) -> Vec<(CompletedPoint<T>, usiz
 
 
     //ctx.completed_points
-    let update_start = ctx.last_update;
-    let mut returned = vec!();
-    for _ in 0..ctx.completed_points.len {
+    /*let update_start = ctx.last_update;
+    for _ in 0..ctx.completed_points.len() {
         returned.push(ctx.completed_points.try_pop().unwrap())
-    }
-    /*returned.append(&mut ctx.completed_points);
+    }*/
+    let mut returned = vec!();
+
+    returned.append(&mut ctx.completed_points);
     ctx.completed_points = vec!();
-    ctx.last_update = ctx.index;*/
+    ctx.last_update = ctx.index;
     returned
 }
 
