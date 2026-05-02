@@ -5,7 +5,7 @@ use crate::act::sampling::*;
 use crate::act::utils::*;
 use crate::act::workshift::CompletedPoint;
 use crate::actor::work_collector::*;
-use crate::act::workshift::{PointF32};
+use crate::act::workshift::{index_from_pos, PointF32};
 use crate::act::settings::*;
 
 
@@ -217,6 +217,7 @@ fn get_value_from_point(p: &CompletedPoint, r: f32, pos:(i32, i32), points: &Vec
                 , real_imag: z.0 * z.1
                 , loop_detection_points: [(0.0, 0.0);5]
                 , done: (false, false)
+                , delivered: false
             };
 
             let max = settings.bailout_max_additional_iterations;

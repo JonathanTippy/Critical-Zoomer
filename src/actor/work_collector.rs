@@ -5,7 +5,8 @@ use crate::actor::window::*;
 use crate::act::workshift::*;
 use crate::act::sampling::*;
 use crate::actor::screen_worker::*;
-use crate::act::constants::DEFAULT_WINDOW_RES;
+use crate::act::constants::*;
+
 
 use rand::prelude::SliceRandom;
 use crate::act::utils::*;
