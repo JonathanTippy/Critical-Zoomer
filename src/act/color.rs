@@ -59,7 +59,6 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             returned[index]=layer_colors(returned[index], color)
                         }
                     }
-                    //println!("painted escape time in {:6}", start.elapsed().as_secs_f64())
                 }
                 ColoringInstruction::PaintSmallTime{
                     inside_opacity, outside_opacity, color, range, shading_method, normalizing_method, ..
@@ -85,7 +84,6 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             }
                         };
 
-                    use std::cmp::*;
                     for x in 0..res.0 {
                         for y in 0..res.1 {
                             let pos = (x as i32, y as i32);
@@ -110,7 +108,6 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             returned[index]=layer_colors(returned[index], color)
                         }
                     }
-                    //println!("painted small time in {:6}", start.elapsed().as_secs_f64())
                 }
                 ColoringInstruction::PaintSmallness{
                     inside_opacity, outside_opacity, color, range, shading_method, normalizing_method, ..
@@ -136,7 +133,6 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             }
                         };
 
-                    use std::cmp::*;
                     for x in 0..res.0 {
                         for y in 0..res.1 {
                             let pos = (x as i32, y as i32);
@@ -161,13 +157,11 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             returned[index]=layer_colors(returned[index], color)
                         }
                     }
-                    //println!("painted smallness in {:6}", start.elapsed().as_secs_f64())
                 }
                 ColoringInstruction::HighlightInFilaments{
                     opacity, color, ..
                 } => {
                     let start = Instant::now();
-                    use std::cmp::*;
                     for x in 0..res.0 {
                         for y in 0..res.1 {
                             let pos = (x as i32, y as i32);
@@ -190,7 +184,6 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             }
                         }
                     }
-                    //println!("highlighted in filaments in {:6}", start.elapsed().as_secs_f64())
                 }
                 ColoringInstruction::HighlightOutFilaments{
                     opacity, color, ..
@@ -219,7 +212,6 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             }
                         }
                     }
-                    //println!("highlighted out filaments in {:6}", start.elapsed().as_secs_f64())
                 }
                 ColoringInstruction::HighlightNodes{
                     inside_opacity, outside_opacity, color, thickness, ..
@@ -252,13 +244,11 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             }
                         }
                     }
-                    //println!("highlighted nodes in {:6}", start.elapsed().as_secs_f64())
                 }
                 ColoringInstruction::HighlightSmallTimeEdges{
                     inside_opacity, outside_opacity, color, ..
                 } => {
                     let start = Instant::now();
-                    use std::cmp::*;
                     for x in 0..res.0 {
                         for y in 0..res.1 {
                             let pos = (x as i32, y as i32);
@@ -285,7 +275,6 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             }
                         }
                     }
-                    //println!("highlighted node tree in {:6}", start.elapsed().as_secs_f64())
                 }
             }
         }
@@ -359,19 +348,10 @@ pub(crate) fn is_out_filament(values: &ZoomerValuesScreen, pos: (i32, i32)) -> b
         ,get_loop_period(safe_sample(&values.values, points[4], values.res))
     ];
 
-    /*let s_values = [
-        get_smallness(safe_sample(&values.values, points[0], values.res))
-        ,get_smallness(safe_sample(&values.values, points[1], values.res))
-        ,get_smallness(safe_sample(&values.values, points[2], values.res))
-        ,get_smallness(safe_sample(&values.values, points[3], values.res))
-        ,get_smallness(safe_sample(&values.values, points[4], values.res))
-    ];*/
 
     is_increased(
         p_values[0], p_values[1], p_values[2], p_values[3], p_values[4]
-    )/* && is_decreased(
-        s_values[0], s_values[1], s_values[2], s_values[3], s_values[4]
-    )*/
+    )
 }
 
 
