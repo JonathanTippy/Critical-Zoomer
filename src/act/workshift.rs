@@ -1,10 +1,13 @@
 
 
 use std::time::Instant;
-use std::collections::HashSet;
+use std::collections::*;
 use std::cmp::*;
 use crate::act::utils::*;
 pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
+
+#[derive(Clone, Debug)]
+pub(crate) enum Step {Edge, In, Out}
 
 #[derive(Clone, Debug)]
 
@@ -29,8 +32,10 @@ pub(crate) struct WorkContext {
     , pub(crate) total_bouts_today: u32
     , pub(crate) total_points_today: u32
     , pub(crate) spent_tokens_today: u32
-    , pub(crate) already_done: Vec<usize>
-    , pub(crate) already_done_hashset: HashSet<usize>
+    , pub(crate) res: (u32, u32)
+    , pub(crate) edge_poses: VecDeque<(i32, i32)>
+    , pub(crate) out_queue: VecDeque<(i32, i32)>
+    , pub(crate) in_queue: VecDeque<(i32, i32)>
 }
 
 
@@ -62,6 +67,7 @@ pub(crate) struct PointF32 {
     // If its updated too often, you will not be able to realize long loops.
     , pub(crate) loop_detection_points: [(f32, f32);NUMBER_OF_LOOP_CHECK_POINTS]
     , pub(crate) done: (bool, bool)
+    , pub(crate) delivered: bool
 }
 
 
@@ -114,15 +120,70 @@ pub(crate) fn workshift_f32(
         //    context.index += 1;
         //}
 
-        if context.index >= total_points {break}
 
-        let point = &mut points[context.index];
 
+
+        let (pos, step) =
+            if context.workshifts > 1 {if context.out_queue.len()>0{
+            (&context.out_queue[0], Step::Out)
+        } else if context.edge_poses.len()>0 {
+            (&context.edge_poses[0], Step::Edge)
+        } else if context.in_queue.len()>0 {
+            (&context.in_queue[0], Step::In)
+        } else {context.index = total_points-1; break;}} else {
+                if context.edge_poses.len()>0 {
+                    (&context.edge_poses[0], Step::Edge)
+                } else if context.out_queue.len()>0{
+                    (&context.out_queue[0], Step::Out)
+                } else if context.in_queue.len()>0 {
+            (&context.in_queue[0], Step::In)
+        } else {context.index = total_points-1; break;
+            }};
+
+        let index = index_from_pos(pos, context.res.0);
+
+        let point = &mut points[index];
+
+        let pos = pos.clone();
+
+        if point.delivered {
+            match step {
+                Step::Out => {
+                    let _ =  context.out_queue.pop_front();
+                }
+                Step::Edge => {
+                    let _ = context.edge_poses.pop_front();
+                }
+                Step::In => {
+                    let _ =  context.in_queue.pop_front();
+
+                }
+            }
+            continue;
+        }
+
+        match step {
+            Step::In => {
+                point.delivered = true;
+                context.completed_points.push((CompletedPoint::Repeats{period: 0}, index));
+                queue_incomplete_neighbors(&pos, context.res, points, &mut context.in_queue);
+                continue;
+            }
+            _ => {}
+        }
 
 
         let old_iterations = point.iterations;
 
-        iterate_max_n_times_f32(point, 4.0, 1000);
+        match step {
+            Step::Edge => {
+                iterate_max_n_times_f32(point, 4.0, 1000);
+            }
+            Step::Out => {
+                iterate_max_n_times_f32(point, 4.0, 10);
+            }
+            _ => {}
+        }
 
         context.total_iterations_today += point.iterations - old_iterations;
 
@@ -130,25 +191,60 @@ pub(crate) fn workshift_f32(
 
             //context.already_done.push(context.index);
             //context.already_done_hashset.insert(context.index);
+            context.total_iterations += point.iterations;
 
+
+
+            match step {
+                Step::Out => {
+                    let _ =  context.out_queue.pop_front();
+                }
+                Step::Edge => {
+                    let _ = context.edge_poses.pop_front();
+                }
+                _ => {}
+            }
+
+            point.delivered = true;
             let completed_point = if point.done.1 {
+                queue_incomplete_neighbors(&pos, context.res, points, &mut context.in_queue);
                 CompletedPoint::Repeats{period: 0}
             } else {
-                CompletedPoint::Escapes {
+                let result = CompletedPoint::Escapes {
                     escape_time: point.iterations
                     , escape_location: point.z
                     , start_location: point.c
-                }
+                };
+                queue_incomplete_neighbors(&pos, context.res, points, &mut context.out_queue);
+                result
             };
 
-            context.completed_points.push((completed_point, context.index));
+            context.completed_points.push((completed_point, index));
 
-            context.total_iterations += point.iterations;
+            //context.index += 1;
 
-            context.index += 1;
+
 
             context.random_index = context.random_map[min(context.index, total_points-1)];
             context.total_points_today += 1
+        } else {
+            match step {
+                Step::Out => {
+                    let pos = context.out_queue.pop_front().unwrap();
+                    context.out_queue.push_back(pos);
+                    continue;
+                }
+                Step::Edge => {
+                    let pos = context.edge_poses.pop_front().unwrap();
+                    context.edge_poses.push_back(pos);
+                    let completed_point = {
+                        CompletedPoint::Repeats{period: 0}
+                    };
+                    context.completed_points.push((completed_point, index));
+                    continue;
+                }
+                _ => {}
+            }
         }
 
         context.total_bouts_today += 1;
@@ -282,9 +378,38 @@ fn update_loop_check_points (point: &mut PointF32) {
 
 
 #[inline]
-fn update_point_results_f32(point: &mut PointF32) {
+pub(crate) fn update_point_results_f32(point: &mut PointF32) {
     // update values
     point.real_squared = point.z.0 * point.z.0;
     point.imag_squared = point.z.1 * point.z.1;
     point.real_imag = point.z.0 * point.z.1;
+}
+
+#[inline]
+pub(crate) fn index_from_pos(pos:&(i32, i32), wid:u32) -> usize {
+    (pos.0 + pos.1*wid as i32) as usize
+}
+
+pub(crate) fn queue_incomplete_neighbors(pos:&(i32, i32), res: (u32, u32), points: &Vec<PointF32>, queue: &mut VecDeque<(i32, i32)>) {
+
+    let wid = res.0;
+
+    let neighbors: [(i32, i32);4] = [
+        (pos.0+1, pos.1)
+        , (pos.0-1, pos.1)
+        , (pos.0, pos.1+1)
+        , (pos.0, pos.1-1)
+    ];
+    for n in neighbors {
+
+        if (
+            n.0 > 0 && n.0 < res.0 as i32 - 1
+            && n.1 > 0 && n.1 < res.1 as i32 - 1
+            ) {
+            let index = index_from_pos(&n, wid);
+            if !(points[index].done.0 || points[index].done.1) {
+                queue.push_back(n);
+            }
+        }
+    }
 }
