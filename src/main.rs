@@ -24,7 +24,6 @@ pub(crate) mod act {
     pub(crate) mod utils;
     pub(crate) mod widgetize;
     pub(crate) mod color;
-    pub(crate) mod constants;
 }
 
 use std::thread;
