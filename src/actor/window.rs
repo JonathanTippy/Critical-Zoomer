@@ -20,8 +20,11 @@ use crate::act::sampling::*;
 use crate::act::settings::*;
 use crate::act::rolling::*;
 use crate::act::utils::*;
-use crate::act::constants::*;
 
+
+pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (800, 480);
+pub(crate) const DEFAULT_FRAME_SIZE:usize = (DEFAULT_WINDOW_RES.0 * DEFAULT_WINDOW_RES.1) as usize;
+pub(crate) const HOME_POSITION:(i32, i32, i32) = (-2, -2, -2);
 
 const RECOVER_EGUI_CRASHES:bool = false;
 // ^ half implimented; in cases where the window is supposed to
@@ -135,7 +138,7 @@ async fn internal_behavior<A: SteadyActor>(
         , buffers: vec!(vec!(Color32::BLACK;(DEFAULT_WINDOW_RES.0*DEFAULT_WINDOW_RES.1) as usize))
         , id_counter: 0
         , sampling_context: SamplingContext {
-            screen: None
+            screens: vec!()
             , screen_size: (DEFAULT_WINDOW_RES.0, DEFAULT_WINDOW_RES.1)
             , location: ObjectivePosAndZoom {
                 pos: (IntExp::from(HOME_POSITION.0), IntExp::from(HOME_POSITION.1))
@@ -321,7 +324,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 None => {}
             }
 
-            if state.sampling_context.screen.is_none() {
+            if state.sampling_context.screens.len() == 0 {
                 for _ in 0..pixels {sampler_buffer.push(Color32::PURPLE)};
                 actor.try_send(&mut sampler_out, (state.sampling_context.location.clone(), (state.size.x as u32, state.size.y as u32)));
             }
@@ -339,7 +342,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             state.sampling_context.screen_size = (size.0 as u32, size.1 as u32);
 
-            if state.sampling_context.screen.is_some() {
+            if state.sampling_context.screens.len() != 0 {
                 sample(command_package, &mut sampler_buffer, &mut state.sampling_context);
             } /*else {
                 for _ in 0..pixels {
