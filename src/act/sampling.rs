@@ -1,9 +1,7 @@
 use steady_state::*;
 
-use rand::prelude::*;
-
 use egui::{Color32, Pos2};
-use std::cmp::min;
+use std::cmp::*;
 
 use crate::actor::window::*;
 use crate::actor::colorer::*;
@@ -14,7 +12,7 @@ use crate::actor::work_controller::PIXELS_PER_UNIT_POT;
 
 #[derive(Clone, Debug)]
 pub(crate) struct SamplingContext {
-    pub(crate) screens: Vec<ZoomerScreen>
+    pub(crate) screen: Option<ZoomerScreen>
     , pub(crate) screen_size: (u32, u32)
     , pub(crate) location: ObjectivePosAndZoom
     , pub(crate) updated: bool
@@ -52,39 +50,61 @@ pub(crate) fn sample(
                     , center_screenspace_pos.1 + (context.screen_size.1/2) as i32
                 );*/
 
-
                 // adjust position & zoom based on zooming in 3 steps
                 // step 1: move to zoom center
                 // step 2: zoom
                 // step 3: move back so zoom center falls on same screenspace location
 
+                let pixel_width = IntExp{val: Integer::from(1), exp:-context.location.zoom_pot}.shift(-PIXELS_PER_UNIT_POT);
+
                 context.location.pos = (
                     context.location.pos.0.clone()
                         + IntExp{val: Integer::from(center_screenspace_pos.0), exp: -context.location.zoom_pot}.shift(-PIXELS_PER_UNIT_POT)
+                        - (pixel_width.clone() >> 1)
                     , context.location.pos.1.clone()
                         + IntExp{val: Integer::from(center_screenspace_pos.1), exp: -context.location.zoom_pot }.shift(-PIXELS_PER_UNIT_POT)
+                        - (pixel_width.clone() >> 1)
                 );
 
                 context.location.zoom_pot += *pot;
 
+                let pixel_width = IntExp{val: Integer::from(1), exp:-context.location.zoom_pot}.shift(-PIXELS_PER_UNIT_POT);
 
                 context.location.pos = (
                     context.location.pos.0.clone()
                         - IntExp{val: Integer::from(center_screenspace_pos.0), exp: -context.location.zoom_pot}.shift(-PIXELS_PER_UNIT_POT)
+                        + (pixel_width.clone() >> 1)
                     , context.location.pos.1.clone()
                         - IntExp{val: Integer::from(center_screenspace_pos.1), exp: -context.location.zoom_pot }.shift(-PIXELS_PER_UNIT_POT)
+                        + (pixel_width.clone() >> 1)
                 );
 
-                // reset mouse drag start to the new screenspace location
+                // round position to not be more precise than necessary
 
-                match &context.mouse_drag_start {
+                if *pot < 0 {
+                    context.location.pos = (
+                        context.location.pos.0.clone().round((-*pot) as usize)
+                        , context.location.pos.1.clone().round((-*pot) as usize)
+                    );
+                }
+
+
+                // reset mouse drag start to the new screenspace location
+                // theoretically this is not necessary as objective position
+                // of mouse drag start will always remain attached to mouse
+                // current position.
+                // mouse screenspace position should be invariant under zoom
+                // as the mouse's screenspace position is the zoom center.
+
+                /*match &context.mouse_drag_start {
                     Some(d) => {
                         context.mouse_drag_start = Some(
                             (
-                                ObjectivePosAndZoom{
+                                /*ObjectivePosAndZoom{
                                     pos: context.location.pos.clone()
                                     , zoom_pot: context.location.zoom_pot
-                                }
+                                }*/
+                                d.0.clone()
                                 , egui::Pos2 {
                                 x: center_screenspace_pos.0 as f32
                                 , y: center_screenspace_pos.1 as f32
@@ -92,7 +112,7 @@ pub(crate) fn sample(
                             ));
                     }
                     None => {}
-                }
+                }*/
 
 
                 context.updated = true;
@@ -126,68 +146,77 @@ pub(crate) fn sample(
         }
     }
 
-    // go over the sampling size in rows and seats, and sample the colors
 
-    let res = context.screen_size;
+    if let Some(current_screen) = &context.screen {
+        // go over the sampling size in rows and seats, and sample the colors
 
-    let data_size = context.screens[0].screen_size.clone();
-
-    let data_len = context.screens[0].pixels.len();
-
-    let data = &context.screens[0].pixels;
-
-    let relative_pos = (
-        context.screens[0].objective_location.pos.0.clone()-context.location.pos.0.clone()
-        , context.screens[0].objective_location.pos.1.clone()-context.location.pos.1.clone()
-    );
-
-    let relative_pos_in_pixels:(i32, i32) = (
-        relative_pos.0.shift(context.location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
-, relative_pos.1.shift(context.location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
-        );
-
-    let relative_zoom = context.location.zoom_pot - context.screens[0].objective_location.zoom_pot;
-
-    /*let relative_pos_in_pixels = (
-        relative_pos_in_pixels.0 + shift(1, relative_zoom-1)
-        , relative_pos_in_pixels.1 + shift(1, relative_zoom-1)
+        /*info!("zoom: {}, location: {} + {}i"
+        , current_screen.objective_location.zoom_pot
+        , current_screen.objective_location.pos.0
+        , current_screen.objective_location.pos.1
     );*/
 
-    let factor:f64;
+        let res = context.screen_size;
 
-    if relative_zoom > 0 {
-        factor = (1<<relative_zoom) as f64;
-    } else {
-        factor =  1.0 / (1<<-relative_zoom) as f64;
-    }
+        let data_size = current_screen.screen_size.clone();
 
-    let relative_zoom_recip = ((1.0 / factor) * ((1<<16) as f64)) as u32;
+        let data_len = current_screen.pixels.len();
 
-    let min_side_recip = (1<<32) / (min_side as i64);
-    //let res_recip = (     (1<<16) / size.0,    (1<<16) / size.1    );
+        let data = &current_screen.pixels;
+
+        let relative_pos = (
+            current_screen.objective_location.pos.0.clone()-context.location.pos.0.clone()
+            , current_screen.objective_location.pos.1.clone()-context.location.pos.1.clone()
+        );
+
+        let relative_pos_in_pixels:(i32, i32) = (
+            relative_pos.0.clone().shift(context.location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
+            , relative_pos.1.clone().shift(context.location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
+        );
+
+        let relative_zoom = context.location.zoom_pot - current_screen.objective_location.zoom_pot;
+
+        /*let relative_pos_in_pixels = (
+            relative_pos_in_pixels.0 + shift(1, relative_zoom-1)
+            , relative_pos_in_pixels.1 + shift(1, relative_zoom-1)
+        );*/
+
+        let factor:f64;
+
+        if relative_zoom > 0 {
+            factor = (1<<relative_zoom) as f64;
+        } else {
+            factor =  1.0 / (1<<-relative_zoom) as f64;
+        }
+
+        let relative_zoom_recip = ((1.0 / factor) * ((1<<16) as f64)) as u32;
+
+        let min_side_recip = (1<<32) / (min_side as i64);
+        //let res_recip = (     (1<<16) / size.0,    (1<<16) / size.1    );
 
 
-    //info!("data res: {}, {}", data_size.0, data_size.1);
+        //info!("data res: {}, {}", data_size.0, data_size.1);
 
 
-    //let mut i = 0;
-    for row in 0..size.1 as usize {
-        for seat in 0..size.0 as usize {
-            bucket.push(
-                sample_color(
-                    data
-                    , min_side
-                    , data_size
-                    , data_len
-                    , row
-                    , seat
-                    //, res_recip
-                    , min_side_recip
-                    , relative_pos_in_pixels
-                    , relative_zoom as i64
-                )
-            );
-            //i+=1;
+        //let mut i = 0;
+        for row in 0..size.1 as usize {
+            for seat in 0..size.0 as usize {
+                bucket.push(
+                    sample_color(
+                        data
+                        , min_side
+                        , data_size
+                        , data_len
+                        , row
+                        , seat
+                        //, res_recip
+                        , min_side_recip
+                        , relative_pos_in_pixels
+                        , relative_zoom as i64
+                    )
+                );
+                //i+=1;
+            }
         }
     }
 }
@@ -242,14 +271,33 @@ pub(crate) fn relative_location_i32_row_and_seat(seat: usize, row: usize) -> (i3
 #[inline]
 pub(crate) fn index_from_relative_location(l: (i32, i32), data_res: (u32, u32), data_length: usize) -> usize {
 
+    let normalized_l = (
+        max(min(l.0, (data_res.0-1) as i32), 0)
+        , max(min(l.1, (data_res.1-1) as i32), 0)
+        );
+
     let i =
         (
-            (min(l.1 as u32, data_res.1-1) * data_res.0)
-            + min(l.0 as u32, data_res.0-1)
+            (normalized_l.1 as u32 * data_res.0)
+            + normalized_l.0 as u32
         ) as usize;
 
-    min(i, data_length-1)
-    // ^ technically this min can be removed but somehow it makes it feel smoother
+    i
+}
+
+#[inline]
+pub(crate) fn optional_index_from_relative_location(l: (i32, i32), data_res: (u32, u32), data_length: usize) -> Option<usize> {
+
+    if l.0 >= 0 && l.0 <= (data_res.0-1) as i32 && l.1 >= 0 && l.1 <= (data_res.1-1) as i32 {
+        let i =
+            (
+                (l.1 as u32 * data_res.0)
+                    + l.0 as u32
+            ) as usize;
+
+        Some(i)
+    } else {None}
+
 }
 
 #[inline]
@@ -268,11 +316,9 @@ pub(crate) fn update_sampling_context(context: &mut SamplingContext, screen: Zoo
         context.updated = false;
     }
     
-    if context.screens.len() != 0 {
-        drop(context.screens.pop().unwrap());
-        context.screens.push(screen);
-    } else {
-        context.screens.push(screen);
-    }
+    /*if let Some(old_screen) = context.screen.take() {
+        drop(old_screen);
+    }*/
+    context.screen = Some(screen);
 
 }

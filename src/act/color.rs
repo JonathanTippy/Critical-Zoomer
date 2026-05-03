@@ -1,12 +1,8 @@
 use crate::act::settings::*;
 use crate::actor::escaper::*;
 use crate::act::utils::*;
-use crate::act::workshift::*;
-
 use std::f64::consts::*;
 use std::time::*;
-use crate::actor::work_collector::*;
-
 pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<(u8, u8, u8)> {
     let mut returned = vec!((0,0,0);(values.res.0*values.res.1) as usize);
     let res = values.res;
@@ -41,11 +37,11 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                     for x in 0..res.0 {
                         for y in 0..res.1 {
                             let pos = (x as i32, y as i32);
-                            let index = index_from_pos(&pos, &res);
+                            let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             let color = match value {
                                 ScreenValue::Inside{..} => {continue;}
-                                ScreenValue::Outside{escape_time, ..} => {
+                                ScreenValue::Outside{big_time: escape_time, ..} => {
                                     let escape_time = *escape_time as f64;
                                     let escape_time = normalizing_method.normalize(&escape_time);
                                     let brightness = match shading_method.shading {
@@ -91,19 +87,19 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                     for x in 0..res.0 {
                         for y in 0..res.1 {
                             let pos = (x as i32, y as i32);
-                            let index = index_from_pos(&pos, &res);
+                            let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             let (smalltime, opacity) = match value {
-                                ScreenValue::Inside{ ..} => {
-                                    (0, &inside_opacity)
+                                ScreenValue::Inside{small_time, ..} => {
+                                    (small_time, &inside_opacity)
                                 }
-                                ScreenValue::Outside{ ..} => {
-                                    (0, &outside_opacity)
+                                ScreenValue::Outside{small_time, ..} => {
+                                    (small_time, &outside_opacity)
                                 }
                             };
 
                             let color = {
-                                let smalltime = smalltime as f64;
+                                let smalltime = *smalltime as f64;
                                 let smalltime = normalizing_method.normalize(&smalltime);
                                 let brightness = shade(&phase, &period, &period_recip, &smalltime);
                                 let color = modify_color(*color, brightness, range);
@@ -140,19 +136,19 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                     for x in 0..res.0 {
                         for y in 0..res.1 {
                             let pos = (x as i32, y as i32);
-                            let index = index_from_pos(&pos, &res);
+                            let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             let (smallness, opacity) = match value {
-                                ScreenValue::Inside{ ..} => {
-                                    (0, &inside_opacity)
+                                ScreenValue::Inside{smallness, ..} => {
+                                    (smallness, &inside_opacity)
                                 }
-                                ScreenValue::Outside{ ..} => {
-                                    (0, &outside_opacity)
+                                ScreenValue::Outside{smallness, ..} => {
+                                    (smallness, &outside_opacity)
                                 }
                             };
 
                             let color = {
-                                let smallness = 0 as f64;
+                                let smallness = *smallness as f64;
                                 let smallness = normalizing_method.normalize(&smallness);
                                 let brightness = shade(&phase, &period, &period_recip, &smallness);
                                 let color = modify_color(*color, brightness, range);
@@ -169,7 +165,7 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                     for x in 0..res.0 {
                         for y in 0..res.1 {
                             let pos = (x as i32, y as i32);
-                            let index = index_from_pos(&pos, &res);
+                            let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             match value {
                                 ScreenValue::Inside{..} => {continue;}
@@ -197,7 +193,7 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                     for x in 0..res.0 {
                         for y in 0..res.1 {
                             let pos = (x as i32, y as i32);
-                            let index = index_from_pos(&pos, &res);
+                            let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             match value {
                                 ScreenValue::Inside{..} => {
@@ -225,7 +221,7 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                     for x in 0..res.0 {
                         for y in 0..res.1 {
                             let pos = (x as i32, y as i32);
-                            let index = index_from_pos(&pos, &res);
+                            let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             let (is_node, opacity) = match value {
                                 ScreenValue::Inside{..} => {
@@ -256,7 +252,7 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                     for x in 0..res.0 {
                         for y in 0..res.1 {
                             let pos = (x as i32, y as i32);
-                            let index = index_from_pos(&pos, &res);
+                            let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             let (is_edge, opacity) = match value {
                                 ScreenValue::Inside{..} => {
@@ -525,7 +521,7 @@ pub(crate) fn get_escape_time(value: Option<&ScreenValue>) -> Option<u32> {
 
     if let Some(v) = value {
         match v {
-            ScreenValue::Outside{escape_time, ..} => {return Some(*escape_time)}
+            ScreenValue::Outside{big_time, ..} => {return Some(*big_time)}
             ScreenValue::Inside{..} => {return None }
         }
     } else {None}
@@ -536,8 +532,8 @@ pub(crate) fn get_small_time(value: Option<&ScreenValue>) -> Option<u32> {
 
     if let Some(v) = value {
         match v {
-            ScreenValue::Outside{ ..} => {return Some(0)}
-            ScreenValue::Inside{ ..} => {return Some(0)}
+            ScreenValue::Outside{small_time, ..} => {return Some(*small_time)}
+            ScreenValue::Inside{small_time, ..} => {return Some(*small_time)}
         }
     } else {None}
 
@@ -547,8 +543,8 @@ pub(crate) fn get_smallness(value: Option<&ScreenValue>) -> Option<f64> {
 
     if let Some(v) = value {
         match v {
-            ScreenValue::Outside{ ..} => {return Some(0.0)}
-            ScreenValue::Inside{ ..} => {return Some(0.0)}
+            ScreenValue::Outside{smallness, ..} => {return Some(*smallness)}
+            ScreenValue::Inside{smallness, ..} => {return Some(*smallness)}
         }
     } else {None}
 
@@ -558,5 +554,5 @@ pub(crate) fn get_smallness(value: Option<&ScreenValue>) -> Option<f64> {
 
 use std::ops::*;
 pub(crate) fn safe_sample<T: Index<usize, Output=J>, J>(stuff:&T, pos:(i32, i32), res:(u32, u32)) -> Option<&J> {
-    if let Some(i) = index_from_pos_safe(&pos, &res) {Some(&stuff[i])} else {None}
+    if let Some(i) = index_from_pos_safe(&pos, res) {Some(&stuff[i])} else {None}
 }

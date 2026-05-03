@@ -2,6 +2,10 @@ use rug::*;
 use std::cmp::*;
 use std::ops::*;
 
+use crate::act::constants::*;
+
+pub(crate) const INTEXP_WARNING_SIZE:u32 = 100;
+
 #[inline]
 pub(crate) fn zoom_from_pot(zoom: i32) -> f64 {
     if zoom > 0 {(1 << zoom) as f64} else {1.0 / (1<<-zoom) as f64}
@@ -127,6 +131,9 @@ impl Shr<u32> for IntExp {
 impl std::fmt::Display for IntExp {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 
+        if self.val.significant_bits() > INTEXP_WARNING_SIZE {
+            println!("WARMING: intexp passed warning size");
+        }
         if self.exp >= 0 {
             f.write_str(&(self.val.clone()<<self.exp as u32).to_string())?;
             Ok(())
@@ -150,6 +157,12 @@ impl IntExp {
             return self >> (-exp) as u32;
         }
     }
+    pub(crate) fn round(self, bits: usize) -> IntExp {
+        IntExp{
+            val: self.val >> 1
+            , exp: self.exp + 1
+        }
+    }
 }
 
 
@@ -165,10 +178,20 @@ impl Into<i32> for IntExp {
         (self.val.shift(self.exp)).to_i32_wrapping()
     }
 }
+impl From<IntExp> for f64 {
+    fn from(a:IntExp) -> f64 {
+        a.val.to_f64() * 2.0f64.powf(a.exp as f64)
+    }
+}
 
-impl Into<f64> for IntExp {
+/*impl Into<f64> for IntExp {
     fn into(self) -> f64 {
-        self.val.to_f64() * 1.0.shift(self.exp)
+        self.val.to_f64() * 2.0f64.powf(self.exp as f64)
+    }
+}*/
+impl Into<f32> for IntExp {
+    fn into(self) -> f32 {
+        self.val.to_f32() * 2.0f32.powf(self.exp as f32)
     }
 }
 
@@ -202,12 +225,53 @@ pub(crate) fn i16_to_f32(input: i16) -> f32 {
     p
 }
 
-pub(crate) fn index_from_pos(pos:&(i32, i32), res: &(u32, u32)) -> usize {
-    (pos.0 + (pos.1*(res.0 as i32))) as usize
+#[inline]
+pub(crate) fn index_from_pos(pos:&(i32, i32), wid:u32) -> usize {
+    (pos.0 + pos.1*wid as i32) as usize
 }
 
-pub(crate) fn index_from_pos_safe(pos:&(i32, i32), res: &(u32, u32)) -> Option<usize> {
-    if pos.0<res.0 as i32 && pos.1<res.1 as i32 && index_from_pos(pos, res) < (res.0*res.1) as usize {
-        Some(index_from_pos(pos, res))
+#[inline]
+pub(crate) fn index_from_pos_safe(pos:&(i32, i32), res:(u32, u32)) -> Option<usize> {
+
+    let valid = (
+        res.0 as i32 > pos.0 && pos.0 >= 0
+        && res.1 as i32 > pos.1 && pos.1 >= 0
+    );
+
+    if valid {
+        Some((pos.0 + pos.1*res.0 as i32) as usize)
     } else {None}
+}
+
+pub(crate) fn pos_from_index(i: usize, wid:u32) -> (i32, i32) {
+    (i as i32 % wid as i32, i as i32/wid as i32)
+}
+
+const fn init (i:usize) -> u8 { i as u8 }
+
+const ALL_U8S: [u8; 256] = {
+    let mut returned = [0;256];
+    let mut i = 0;
+    while i < 256 {
+        returned[i] = i as u8;
+        i+=1
+    }
+    returned
+};
+
+
+
+impl Default for ObjectivePosAndZoom {
+    fn default() -> Self {
+        HOME_POSITION.into()
+    }
+}
+
+impl From<(i32, i32, i32)> for ObjectivePosAndZoom {
+    fn from(input:(i32, i32, i32)) -> ObjectivePosAndZoom {
+        ObjectivePosAndZoom {
+            pos: (IntExp::from(input.0), IntExp::from(input.1))
+            , zoom_pot: input.2
+        }
+    }
 }

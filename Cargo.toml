@@ -1,6 +1,6 @@
 [package]
 name = "critical_zoomer"
-version = "0.0.8"
+version = "0.0.7"
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -16,4 +16,3 @@ rug = "1.30.0"
 steady_state = "0.2.9"
 winit = "0.30.12"
 egui_dnd = "0.13.0"
-rand = "0.10.0"

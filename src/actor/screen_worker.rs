@@ -1,22 +1,23 @@
 use std::cmp::min;
+use std::ops::{Add, Mul, Sub};
 use steady_state::*;
 use crate::act::sampling::{index_from_relative_location, relative_location_i32_row_and_seat, transform_relative_location_i32};
 use crate::act::utils::ObjectivePosAndZoom;
 use crate::act::workshift::*;
-use crate::actor::work_collector::ScreenValue;
+//use crate::actor::work_collector::*;
 use crate::actor::work_controller::*;
 
 
 
 
-pub(crate) struct WorkUpdate {
+pub(crate) struct WorkUpdate<T> {
     pub(crate) frame_info: Option<(ObjectivePosAndZoom, (u32, u32))>,
-    pub(crate) completed_points: (Vec<(CompletedPoint, usize)>)
+    pub(crate) completed_points: (Vec<(CompletedPoint<T>, usize)>)
 }
 
 #[derive(Clone)]
-pub(crate) struct WorkerState {
-    work_context: Option<(WorkContext, (ObjectivePosAndZoom, (u32, u32)))>
+pub(crate) struct WorkerState<T:Copy> {
+    work_context: Option<(WorkContext<T>, (ObjectivePosAndZoom, (u32, u32)))>
     , workshift_token_budget: u32
     , iteration_token_cost: u32
     , point_token_cost: u32
@@ -27,31 +28,35 @@ pub(crate) struct WorkerState {
 
 pub async fn run(
     actor: SteadyActorShadow,
-    commands_in: SteadyRx<WorkerCommand>,
-    updates_out: SteadyTx<WorkUpdate>,
-    state: SteadyState<WorkerState>,
+    commands_in: SteadyRx<WorkerCommand<f64>>,
+    updates_out: SteadyTx<WorkUpdate<f64>>,
+    attention_in: SteadyRx<(i32, i32)>,
+    state: SteadyState<WorkerState<f64>>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
-        actor.into_spotlight([&commands_in], [&updates_out]),
+        actor.into_spotlight([&commands_in, &attention_in], [&updates_out]),
         commands_in,
         updates_out,
+        attention_in,
         state,
     )
         .await
 }
 
-async fn internal_behavior<A: SteadyActor>(
+async fn internal_behavior<A: SteadyActor, T: Send + std::fmt::Debug + Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + crate::act::workshift::Finite + crate::act::workshift::Gt + crate::act::workshift::Abs + From<f32> + Into<f64> + Copy>(
     mut actor: A,
-    commands_in: SteadyRx<WorkerCommand>,
-    updates_out: SteadyTx<WorkUpdate>,
-    state: SteadyState<WorkerState>,
+    commands_in: SteadyRx<WorkerCommand<T>>,
+    updates_out: SteadyTx<WorkUpdate<T>>,
+    attention_in: SteadyRx<(i32, i32)>,
+    state: SteadyState<WorkerState<T>>,
 ) -> Result<(), Box<dyn Error>> {
 
-    //actor.loglevel(LogLevel::Debug);
+    actor.loglevel(LogLevel::Info);
 
     let mut commands_in = commands_in.lock().await;
     let mut updates_out = updates_out.lock().await;
+    let mut attention_in = attention_in.lock().await;
 
     let mut state = state.lock(|| WorkerState {
         work_context: None
@@ -79,6 +84,17 @@ async fn internal_behavior<A: SteadyActor>(
                 actor.wait_periodic(max_sleep),
                 actor.wait_avail(&mut commands_in, 1),
             );
+        }
+
+        if actor.avail_units(&mut attention_in) > 0 {
+            while actor.avail_units(&mut attention_in) > 1 {
+                let stuff = actor.try_take(&mut attention_in).expect("internal error");
+                drop(stuff);
+            };
+            let attention = actor.try_take(&mut attention_in).expect("internal error");
+            if let Some((ctx, _)) = &mut state.work_context {
+                ctx.attention = attention;
+            }
         }
 
         if actor.avail_units(&mut commands_in) > 0 {
@@ -127,6 +143,7 @@ async fn internal_behavior<A: SteadyActor>(
             );
             state.total_workshifts+=1;
             //info!("workday completed. took {}ms.", start.elapsed().as_millis());
+            //info!("workshift {}", state.total_workshifts);
         }
 
 
@@ -144,13 +161,16 @@ async fn internal_behavior<A: SteadyActor>(
     Ok(())
 }
 
-fn calculate_tokens(state: &mut WorkerState) {
+fn work_update<T:Copy>(ctx: &mut WorkContext<T>) -> Vec<(CompletedPoint<T>, usize)> {
 
-}
 
-fn work_update(ctx: &mut WorkContext) -> Vec<(CompletedPoint, usize)> {
-    let update_start = ctx.last_update;
+    //ctx.completed_points
+    /*let update_start = ctx.last_update;
+    for _ in 0..ctx.completed_points.len() {
+        returned.push(ctx.completed_points.try_pop().unwrap())
+    }*/
     let mut returned = vec!();
+
     returned.append(&mut ctx.completed_points);
     ctx.completed_points = vec!();
     ctx.last_update = ctx.index;

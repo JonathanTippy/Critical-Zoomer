@@ -5,51 +5,34 @@ use crate::actor::window::*;
 use crate::act::workshift::*;
 use crate::act::sampling::*;
 use crate::actor::screen_worker::*;
+use crate::act::constants::*;
 
 
-use rand::prelude::SliceRandom;
 use crate::act::utils::*;
 
-pub(crate) enum WorkerCommand {
-    Update
-    , Replace{context: WorkContext}
-}
+
 #[derive(Clone, Debug)]
 
-pub(crate) enum ScreenValue {
-    Outside{escape_time: u32}
-    , Inside{loop_period: u32}
-}
-#[derive(Clone, Debug)]
-
-pub(crate) struct ResultsPackage {
-    pub(crate) results: Vec<CompletedPoint>
+pub(crate) struct ResultsPackage<T> {
+    pub(crate) results: Vec<CompletedPoint<T>>
     , pub(crate) screen_res: (u32, u32)
     , pub(crate) location: ObjectivePosAndZoom
     , pub(crate) complete: bool
 }
 
-pub(crate) struct WorkCollectorState {
-    completed_work: Option<ResultsPackage>
-    , surrounding_work: Option<ResultsPackage>
+pub(crate) struct WorkCollectorState<T> {
+    completed_work: Option<ResultsPackage<T>>
+    , surrounding_work: Option<ResultsPackage<T>>
 }
 
-
-pub(crate) const WORKER_INIT_RES:(u32, u32) = DEFAULT_WINDOW_RES;
-pub(crate) const WORKER_INIT_LOC:(f64, f64) = (0.0, 0.0);
-pub(crate) const WORKER_INIT_ZOOM_POT: i64 = -2;
-pub(crate) const WORKER_INIT_ZOOM:f64 = if WORKER_INIT_ZOOM_POT>0 {(1<<WORKER_INIT_ZOOM_POT) as f64} else {1.0 / (1<<-WORKER_INIT_ZOOM_POT) as f64};
-
-pub(crate) const PIXELS_PER_UNIT_POT:i32 = 9;
-pub(crate) const PIXELS_PER_UNIT: u64 = 1<<(PIXELS_PER_UNIT_POT);
 
 
 
 pub async fn run(
     actor: SteadyActorShadow,
-    from_worker: SteadyRx<WorkUpdate>,
-    points_out: SteadyTx<ResultsPackage>,
-    state: SteadyState<WorkCollectorState>,
+    from_worker: SteadyRx<WorkUpdate<f64>>,
+    points_out: SteadyTx<ResultsPackage<f64>>,
+    state: SteadyState<WorkCollectorState<f64>>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
@@ -63,9 +46,9 @@ pub async fn run(
 
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
-    from_worker: SteadyRx<WorkUpdate>,
-    values_out: SteadyTx<ResultsPackage>,
-    state: SteadyState<WorkCollectorState>,
+    from_worker: SteadyRx<WorkUpdate<f64>>,
+    values_out: SteadyTx<ResultsPackage<f64>>,
+    state: SteadyState<WorkCollectorState<f64>>,
 ) -> Result<(), Box<dyn Error>> {
 
     let mut values_out = values_out.lock().await;
@@ -147,7 +130,7 @@ async fn internal_behavior<A: SteadyActor>(
     Ok(())
 }
 
-fn sample_old_values(old_package: &ResultsPackage, new_location: ObjectivePosAndZoom, new_res: (u32, u32)) -> ResultsPackage {
+fn sample_old_values<T:Clone>(old_package: &ResultsPackage<T>, new_location: ObjectivePosAndZoom, new_res: (u32, u32)) -> ResultsPackage<T> {
     let mut returned = ResultsPackage{
         results: vec!()
         , screen_res: new_res
@@ -165,8 +148,8 @@ fn sample_old_values(old_package: &ResultsPackage, new_location: ObjectivePosAnd
     );
 
     let relative_pos_in_pixels:(i32, i32) = (
-        relative_pos.0.shift(new_location.zoom_pot).shift(crate::actor::work_controller::PIXELS_PER_UNIT_POT).into()
-        , relative_pos.1.shift(new_location.zoom_pot).shift(crate::actor::work_controller::PIXELS_PER_UNIT_POT).into()
+        relative_pos.0.clone().shift(new_location.zoom_pot).shift(crate::actor::work_controller::PIXELS_PER_UNIT_POT).into()
+        , relative_pos.1.clone().shift(new_location.zoom_pot).shift(crate::actor::work_controller::PIXELS_PER_UNIT_POT).into()
     );
 
     let relative_zoom = new_location.zoom_pot - old_package.location.zoom_pot;
@@ -208,29 +191,21 @@ fn sample_old_values(old_package: &ResultsPackage, new_location: ObjectivePosAnd
 
 
 
-fn get_random_mixmap(size: usize) -> Vec<usize> {
-    let mut rng = rand::rng();
 
-    let mut indices: Vec<usize> = (0..size).collect();
-
-    // Shuffle indices randomly
-    indices.shuffle(&mut rng);
-    indices
-}
 
 
 
 
 #[inline]
-fn sample_value(
-    pixels: &Vec<CompletedPoint>
+fn sample_value<T: Clone>(
+    pixels: &Vec<CompletedPoint<T>>
     , data_res: (u32, u32)
     , data_len: usize
     , row: usize
     , seat: usize
     , relative_pos: (i32, i32)
     , relative_zoom_pot: i64
-) -> CompletedPoint {
+) -> CompletedPoint<T> {
     let color =
         pixels[
             index_from_relative_location(
