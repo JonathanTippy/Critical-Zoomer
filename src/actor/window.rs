@@ -323,7 +323,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             if state.sampling_context.screen.is_none() {
                 for _ in 0..pixels {sampler_buffer.push(Color32::PURPLE)};
-                //actor.try_send(&mut sampler_out, (state.sampling_context.relative_transforms.clone(), (state.size.x as u32, state.size.y as u32)));
+                actor.try_send(&mut sampler_out, (state.sampling_context.location.clone(), (state.size.x as u32, state.size.y as u32)));
             }
 
             if state.sampling_context.updated
