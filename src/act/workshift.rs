@@ -328,6 +328,11 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
 
             context.total_points_today += 1
         } else {
+            /*let completed_point = {
+                CompletedPoint::Repeats{period: point.iterations-point.loop_detection_point.1, smallness: point.smallness_squared, small_time:point.small_time}
+            };
+            context.completed_points.push((completed_point, index));
+            continue;*/
             /*match step {
                 Step::Out => {
                     //let pos = context.out_queue.pop_front().unwrap();
