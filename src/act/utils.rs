@@ -2,60 +2,9 @@ use rug::*;
 use std::cmp::*;
 use std::ops::*;
 
-pub(crate) const DEFAULT_WINDOW_RES:(u32, u32) = (800, 480);
-pub(crate) const DEFAULT_FRAME_SIZE:usize = (DEFAULT_WINDOW_RES.0 * DEFAULT_WINDOW_RES.1) as usize;
-pub(crate) const HOME_POSITION:(i32, i32, i32) = (-2, -2, -2);
+use crate::act::constants::*;
+
 pub(crate) const INTEXP_WARNING_SIZE:u32 = 100;
-
-
-pub(crate) struct ActivePointNaiveF64{
-    z: (f64, f64)
-    , c: (f64, f64)
-    , z_real_squared: f64
-    , z_imag_squared: f64
-    , iterations: u64
-    , smallest_magnitude_squared: f64
-    , smallest_magnitude_time: u64
-}
-
-pub(crate) struct ActivePointNaiveF32{
-    z: (f32, f32)
-    , c: (f32, f32)
-    , z_real_squared: f32
-    , z_imag_squared: f32
-    , iterations: u64
-    , smallest_magnitude_squared: f64
-    , smallest_magnitude_time: u64
-}
-
-trait Mandelbrot {
-    fn iterate(&self) -> bool;
-    fn new() -> Self;
-    
-}
-
-
-pub(crate) enum CompletedPoint{
-    Escapes{
-        escape_time:u64
-        , smallest_magnitude:f64
-        , smallest_magnitude_time:u64
-        , escape_location: (f32, f32)
-    }
-    , Repeats{
-        period:u64
-        , smallest_magnitude:f64
-        , smallest_magnitude_time:u64
-    }
-}
-
-
-
-
-
-
-
-
 
 #[inline]
 pub(crate) fn zoom_from_pot(zoom: i32) -> f64 {

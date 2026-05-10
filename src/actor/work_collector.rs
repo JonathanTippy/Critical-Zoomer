@@ -13,16 +13,16 @@ use crate::act::utils::*;
 
 #[derive(Clone, Debug)]
 
-pub(crate) struct ResultsPackage {
-    pub(crate) results: Vec<CompletedPoint>
+pub(crate) struct ResultsPackage<T> {
+    pub(crate) results: Vec<CompletedPoint<T>>
     , pub(crate) screen_res: (u32, u32)
     , pub(crate) location: ObjectivePosAndZoom
     , pub(crate) complete: bool
 }
 
 pub(crate) struct WorkCollectorState<T> {
-    completed_work: Option<ResultsPackage>
-    , surrounding_work: Option<ResultsPackage>
+    completed_work: Option<ResultsPackage<T>>
+    , surrounding_work: Option<ResultsPackage<T>>
 }
 
 
