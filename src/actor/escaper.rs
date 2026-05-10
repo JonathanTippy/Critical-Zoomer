@@ -3,9 +3,7 @@ use steady_state::*;
 use crate::act::sampling::*;
 
 use crate::act::utils::*;
-use crate::act::workshift::CompletedPoint;
 use crate::actor::work_collector::*;
-use crate::act::workshift::*;
 use crate::act::settings::*;
 
 
@@ -14,13 +12,13 @@ pub(crate) const BAILOUT_MAX_ITERATIONS:usize = 100;
 
 pub(crate) enum ScreenValue {
     Outside{
-        big_time:u32
-        , small_time: u32
+        big_time:u64
+        , small_time: u64
         , smallness:f64
     },
     Inside{
-        small_time: u32
-        , loop_period: u32
+        small_time: u64
+        , loop_period: u64
         , smallness:f64
     }
 }
@@ -40,17 +38,17 @@ pub(crate) struct ZoomerValuesScreen {
 }
 
 
-pub(crate) struct EscaperState<T> {
-    pub(crate) values:Option<ResultsPackage<T>>,
+pub(crate) struct EscaperState {
+    pub(crate) values:Option<ResultsPackage>,
     pub(crate) settings:Settings
 }
 
 pub async fn run(
     actor: SteadyActorShadow,
-    points_in: SteadyRx<ResultsPackage<f64>>,
+    points_in: SteadyRx<ResultsPackage>,
     settings_in: SteadyRx<Settings>,
     values_out: SteadyTx<ZoomerValuesScreen>,
-    state: SteadyState<EscaperState<f64>>,
+    state: SteadyState<EscaperState>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
@@ -63,12 +61,12 @@ pub async fn run(
         .await
 }
 
-async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f64> + PartialOrd + Finite + Gt + Abs + From<f32> + Into<f64> + Copy + Send>(
+async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
-    points_in: SteadyRx<ResultsPackage<T>>,
+    points_in: SteadyRx<ResultsPackage>,
     settings_in: SteadyRx<Settings>,
     values_out: SteadyTx<ZoomerValuesScreen>,
-    state: SteadyState<EscaperState<T>>,
+    state: SteadyState<EscaperState>,
 ) -> Result<(), Box<dyn Error>> {
     let mut values_in = points_in.lock().await;
     let mut screens_out = values_out.lock().await;
@@ -158,10 +156,15 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
     Ok(())
 }
 
-fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f64> + PartialOrd + Finite + Gt + Abs + From<f32> + Into<f64> + Copy>
-    (p: &CompletedPoint<T>, r: f32, pos:(i32, i32), points: &Vec<CompletedPoint<T>>, res: (u32, u32), settings:Settings) -> ScreenValue {
+fn get_value_from_point(
+    p: &CompletedPoint, r: f32
+    , pos:(i32, i32)
+    , points: &Vec<CompletedPoint>
+    , res: (u32, u32)
+    , settings:Settings
+) -> ScreenValue {
     match p {
-        CompletedPoint::Escapes{escape_time: t, escape_location: z, start_location: c , smallness:s, small_time:st} => {
+        CompletedPoint::Escapes{escape_time: t, escape_location: z , smallest_magnitude:s, smallest_magnitude_time:st} => {
 
             let neighbors: [(i32, i32);4] =[
                 (pos.0, pos.1-1)
@@ -180,8 +183,8 @@ fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f6
                         && n.1 >= 0 && n.1 <= res.1 as i32 - 1
                 ) {
                     match points[index_from_pos(&n, res.0)] {
-                        CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {}
-                        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {
+                        CompletedPoint::Repeats{period: np, smallest_magnitude:s, smallest_magnitude_time:st} => {}
+                        CompletedPoint::Escapes{escape_time: nt, escape_location: z, smallest_magnitude:s, smallest_magnitude_time:st} => {
                             
                             let difference = (nt as i32)-(*t as i32);
                             let direction = diff(n, pos);
