@@ -160,10 +160,6 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
     let total_points = context.points.len();
     context.random_index = context.random_map[min(context.index, total_points-1)];
 
-    if context.workshifts == 0 {
-        complete_guaranteed_exterior_points(context);
-    }
-
     while context.time_workshift_started.elapsed().as_millis()<10{//while context.index < total_points && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
 
 
@@ -264,14 +260,7 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
 
         let old_iterations = point.iterations;
 
-        if !is_guaranteed_outside_mandelbrot(point.c) {
-            iterate_max_n_times(point, 4.0f32.into(), episilon, 1000);
-        } else {
-            point.escapes = true;
-            point.iterations = 0;
-            point.smallness_squared = 0.0.into();
-            point.small_time = 0;
-        }
+        iterate_max_n_times(point, 4.0f32.into(), episilon, 1000);
 
 
         context.total_iterations_today += (point.iterations - old_iterations);
@@ -372,72 +361,7 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
     }
 
     context.workshifts += 1;
-    update_percent_completed(context);
-}
-
-/// Points outside the main cardioid and period-2 bulb (and |c| > 2) cannot be in the Mandelbrot set.
-#[inline]
-fn is_guaranteed_outside_mandelbrot<T: Into<f64> + Copy>(c: (T, T)) -> bool {
-    let x: f64 = c.0.into();
-    let y: f64 = c.1.into();
-    if x * x + y * y > 4.0 {
-        return true;
-    }
-    let q = (x - 0.25) * (x - 0.25) + y * y;
-    if q * (q + (x - 0.25)) <= 0.25 * y * y {
-        return false;
-    }
-    if (x + 1.0) * (x + 1.0) + y * y <= 0.0625 {
-        return false;
-    }
-    true
-}
-
-fn update_percent_completed<T: Copy>(context: &mut WorkContext<T>) {
-    let total = context.points.len();
-    if total == 0 {
-        context.percent_completed = 100.0;
-        return;
-    }
-    let delivered = context.points.iter().filter(|p| p.delivered).count();
-    context.percent_completed = delivered as f64 / total as f64 * 100.0;
-}
-
-fn complete_guaranteed_exterior_points<T: Sub<Output = T> + Add<Output = T> + Mul<Output = T> + Into<f64> + PartialOrd + Gt + Abs + From<f32> + Into<f64> + Copy>(
-    context: &mut WorkContext<T>,
-) {
-    let res = context.res;
-    let total_points = context.points.len();
-    for index in 0..total_points {
-        if context.points[index].delivered {
-            continue;
-        }
-        let c = context.points[index].c;
-        if !is_guaranteed_outside_mandelbrot(c) {
-            continue;
-        }
-        let pos = pos_from_index(index, res.0);
-        {
-            let point = &mut context.points[index];
-            point.escapes = true;
-            point.delivered = true;
-            point.iterations = 0;
-            point.smallness_squared = 0.0.into();
-            point.small_time = 0;
-        }
-        let completed_point = CompletedPoint::Escapes {
-            escape_time: 0,
-            escape_location: (context.points[index].z.0, context.points[index].z.1),
-            start_location: (context.points[index].c.0, context.points[index].c.1),
-            smallness: context.points[index].smallness_squared,
-            small_time: 0,
-        };
-        queue_incomplete_neighbors(&pos, res, &context.points, &mut context.out_queue);
-        context.completed_points.push((completed_point, index));
-        context.total_points_today += 1;
-        context.total_iterations += context.points[index].iterations;
-    }
-    update_percent_completed(context);
+    context.percent_completed = context.index as f64 / (total_points) as f64 * 100.0;
 }
 
 #[inline]
