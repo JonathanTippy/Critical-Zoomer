@@ -21,6 +21,7 @@ use crate::act::settings::*;
 use crate::act::rolling::*;
 use crate::act::utils::*;
 use crate::act::constants::*;
+use crate::act::boot_trace;
 
 
 const RECOVER_EGUI_CRASHES:bool = false;
@@ -249,6 +250,7 @@ struct EguiWindowPassthrough<'a, A> {
 impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        boot_trace::boot_once("window_egui_first_update", r#"{}"#);
         let this_frame_start = Instant::now();
 
         // min framerate
@@ -312,6 +314,10 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             match actor.try_take(&mut pixels_in) {
                 Some(s) => {
+                    boot_trace::boot_once(
+                        "window_first_pixels_in",
+                        &format!(r#"{{"pixels":{},"res":[{},{}]}}"#, s.pixels.len(), s.screen_size.0, s.screen_size.1),
+                    );
                     update_sampling_context(&mut state.sampling_context, s);
                     state.sampler_requested_without_screen = false;
                     //info!("window recieved pixels");
@@ -330,6 +336,10 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     sampler_buffer.push(flat);
                 }
                 if !state.sampler_requested_without_screen {
+                    boot_trace::boot_once(
+                        "window_sampler_bootstrap",
+                        &format!(r#"{{"res":[{},{}]}}"#, state.size.x as u32, state.size.y as u32),
+                    );
                     actor.try_send(
                         &mut sampler_out,
                         (

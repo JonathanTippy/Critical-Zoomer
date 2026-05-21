@@ -6,6 +6,8 @@ use crate::act::utils::ObjectivePosAndZoom;
 use crate::act::workshift::*;
 //use crate::actor::work_collector::*;
 use crate::actor::work_controller::*;
+use crate::act::boot_trace;
+use crate::act::workshift::CompletedPoint;
 
 
 
@@ -119,6 +121,13 @@ async fn internal_behavior<A: SteadyActor, T: Send + std::fmt::Debug + Sub<Outpu
 
                     } else {
                         state.work_context = Some((ctx, frame_info.clone()));
+                        boot_trace::boot_once(
+                            "sw_replace_initial",
+                            &format!(
+                                r#"{{"res":[{},{}],"points":{}}}"#,
+                                frame_info.1.0, frame_info.1.1, state.work_context.as_ref().unwrap().0.points.len()
+                            ),
+                        );
                         actor.try_send(&mut updates_out, WorkUpdate{frame_info:Some(frame_info), completed_points:vec!()});
                         //debug!("screen worker got new context: \n{:?}", state.work_context);
                     }
@@ -132,8 +141,9 @@ async fn internal_behavior<A: SteadyActor, T: Send + std::fmt::Debug + Sub<Outpu
         let point_token_cost = state.point_token_cost.clone();
         
 
+        let is_first_workshift = state.total_workshifts == 0;
         if let Some(ctx) = &mut state.work_context {
-            //let start = Instant::now();
+            let ws_start = Instant::now();
             workshift (
                 token_budget
                 , iteration_token_cost
@@ -141,6 +151,14 @@ async fn internal_behavior<A: SteadyActor, T: Send + std::fmt::Debug + Sub<Outpu
                 , point_token_cost
                 , &mut ctx.0
             );
+            let ws_ms = ws_start.elapsed().as_millis();
+            if is_first_workshift {
+                boot_trace::boot_span(
+                    "sw_first_workshift",
+                    &format!(r#"{{"completed_pending":{}}}"#, ctx.0.completed_points.len()),
+                    ws_ms,
+                );
+            }
             state.total_workshifts+=1;
             //info!("workday completed. took {}ms.", start.elapsed().as_millis());
             //info!("workshift {}", state.total_workshifts);
@@ -151,6 +169,10 @@ async fn internal_behavior<A: SteadyActor, T: Send + std::fmt::Debug + Sub<Outpu
             if let Some(ctx) = &mut state.work_context {
                 let c = work_update(&mut ctx.0);
                 if c.len() > 0 {
+                    boot_trace::boot_once(
+                        "sw_first_completed_batch",
+                        &format!(r#"{{"count":{}}}"#, c.len()),
+                    );
                     actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:c});
                 }
             }

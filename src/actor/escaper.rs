@@ -7,6 +7,7 @@ use crate::act::workshift::CompletedPoint;
 use crate::actor::work_collector::*;
 use crate::act::workshift::*;
 use crate::act::settings::*;
+use crate::act::boot_trace;
 
 
 pub(crate) const BAILOUT_MAX_ITERATIONS:usize = 100;
@@ -131,21 +132,41 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
         }
 
         if let Some(v) = &state.values {
-            //let rp = v
             let r = &v.results;
             let len = r.len();
+            let dummy_count = r.iter().filter(|p| matches!(p, CompletedPoint::Dummy{})).count();
+            boot_trace::boot_once(
+                "escaper_package_received",
+                &format!(r#"{{"pixels":{},"dummy":{}}}"#, len, dummy_count),
+            );
+            let esc_start = Instant::now();
             let mut output = vec!();
 
             for i in 0..r.len() {
-                let point = &r[i%len];
+                let point = &r[i % len];
+                if matches!(point, CompletedPoint::Dummy {}) {
+                    output.push(ScreenValue::Idk);
+                    continue;
+                }
                 let pos = pos_from_index(i, v.screen_res.0);
-                let value = get_value_from_point(point, radius as f32, pos, &r, v.screen_res, state.settings.clone());
+                let value = get_value_from_point(
+                    point,
+                    radius as f32,
+                    pos,
+                    &r,
+                    v.screen_res,
+                    state.settings.clone(),
+                );
                 output.push(value);
             }
 
-            //info!("done escaping. result is {} pixels long.", output.len());
+            boot_trace::boot_span(
+                "escaper_full_pass",
+                &format!(r#"{{"pixels":{},"dummy":{}}}"#, len, dummy_count),
+                esc_start.elapsed().as_millis(),
+            );
 
-
+            boot_trace::boot_once("escaper_values_to_colorer", r#"{}"#);
             actor.try_send(&mut screens_out, ZoomerValuesScreen{
                 values: output
                 , res: v.screen_res

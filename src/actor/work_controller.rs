@@ -1,6 +1,29 @@
 use steady_state::*;
 
 use std::collections::*;
+use std::io::Write;
+
+// #region agent log
+const DEBUG_LOG_PATH: &str = "/home/jonathan/git/Critical-Zoomer/.cursor/debug-419d19.log";
+
+fn agent_debug_log(hypothesis_id: &str, location: &str, message: &str, data: &str) {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let line = format!(
+        r#"{{"sessionId":"419d19","hypothesisId":"{}","location":"{}","message":"{}","data":{},"timestamp":{}}}"#,
+        hypothesis_id, location, message, data, ts
+    );
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(DEBUG_LOG_PATH)
+    {
+        let _ = writeln!(f, "{}", line);
+    }
+}
+// #endregion
 use crate::actor::window::*;
 use crate::act::workshift::*;
 use crate::act::sampling::*;
@@ -8,6 +31,7 @@ use crate::actor::screen_worker::*;
 
 use crate::act::utils::*;
 use crate::act::constants::*;
+use crate::act::boot_trace;
 
 pub(crate) enum WorkerCommand<T:Copy> {
     Replace{frame_info: (ObjectivePosAndZoom, (u32, u32)), context: WorkContext<T>}
@@ -92,12 +116,66 @@ async fn internal_behavior<A: SteadyActor, T:Clone + From<f32> + From<f32> + Clo
 
             let stuff = actor.try_take(&mut from_sampler).expect("internal error");
 
-            if let Some(ctx) = handle_sampler_stuff(
-                &mut state
-                , stuff.clone()
-            ) {
-                actor.try_send(&mut to_worker, WorkerCommand::Replace{frame_info: (stuff.0, stuff.1), context:ctx});
-            };
+            // #region agent log
+            agent_debug_log(
+                "H-D",
+                "work_controller.rs:internal_behavior",
+                "sampler message received",
+                &format!(
+                    r#"{{"res":[{},{}],"worker_res":[{},{}],"res_changed":{}}}"#,
+                    stuff.1.0,
+                    stuff.1.1,
+                    state.worker_res.0,
+                    state.worker_res.1,
+                    stuff.1 != state.worker_res
+                ),
+            );
+            // #endregion
+
+            match handle_sampler_stuff(&mut state, stuff.clone()) {
+                Some(ctx) => {
+                    // #region agent log
+                    boot_trace::boot_once(
+                        "wc_replace_sent",
+                        &format!(r#"{{"res":[{},{}]}}"#, stuff.1.0, stuff.1.1),
+                    );
+                    agent_debug_log(
+                        "H-F",
+                        "work_controller.rs:internal_behavior",
+                        "sending Replace to screen worker",
+                        &format!(
+                            r#"{{"res":[{},{}],"mixmap_len":{}}}"#,
+                            stuff.1.0,
+                            stuff.1.1,
+                            ctx.random_map.len()
+                        ),
+                    );
+                    // #endregion
+                    actor.try_send(
+                        &mut to_worker,
+                        WorkerCommand::Replace {
+                            frame_info: (stuff.0, stuff.1),
+                            context: ctx,
+                        },
+                    );
+                }
+                None => {
+                    // #region agent log
+                    agent_debug_log(
+                        "H-F",
+                        "work_controller.rs:internal_behavior",
+                        "handle_sampler_stuff returned None (dedup)",
+                        &format!(
+                            r#"{{"res":[{},{}],"worker_res":[{},{}]}}"#,
+                            stuff.1.0,
+                            stuff.1.1,
+                            state.worker_res.0,
+                            state.worker_res.1
+                        ),
+                    );
+                    // #endregion
+                }
+            }
         }
     }
     // Final shutdown log, reporting all statistics.
@@ -162,41 +240,67 @@ fn get_points<T: From<f32> + Clone + From<IntExp> + Sub<Output=T> + Add<Output=T
 
 
 
-fn get_interlaced_mixmap(res:(&u32, &u32), size:usize) -> Vec<usize> {
-
-    let mut row_indices:Vec<usize> = (0..*res.1 as usize).collect();
-    let mut mixed_row_indices:Vec<usize> = vec!();
-    let mixmap = get_evenly_spaced_map(size);
-    for i in 0..size {
-        mixed_row_indices.push(row_indices[mixed_row_indices[i]])
-    }
-
-    let mut indices: Vec<usize> = (0..size).collect();
-    for mut index in &mut indices {
-        *index = *index % *res.0 as usize
-        +
-        row_indices[(*index / *res.0 as usize)]
-        * *res.0 as usize
-
-    }
-    indices
-}
-
-
 fn handle_sampler_stuff<T: Clone + From<f32> + From<f32> + Clone + From<IntExp> + Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + crate::act::workshift::Finite + crate::act::workshift::Gt + crate::act::workshift::Abs + From<f32> + Into<f64> + Copy>(state: &mut WorkControllerState, stuff: (ObjectivePosAndZoom, (u32, u32))) -> Option<WorkContext<T>> {
 
     let zoomed = stuff.0.zoom_pot > state.zoom_pot as i32;
 
     let obj = stuff.0;
 
+    if stuff.1.0 == 0 || stuff.1.1 == 0 {
+        // #region agent log
+        agent_debug_log(
+            "H-B",
+            "work_controller.rs:handle_sampler_stuff",
+            "reject zero-sized resolution",
+            &format!(r#"{{"res":[{},{}]}}"#, stuff.1.0, stuff.1.1),
+        );
+        // #endregion
+        return None;
+    }
+
     if let Some(loc) = state.last_sampler_location.clone() {
         if !((obj != loc) || stuff.1 != state.worker_res) {
-            return None
+            // #region agent log
+            agent_debug_log(
+                "H-F",
+                "work_controller.rs:handle_sampler_stuff",
+                "dedup skip same location and resolution",
+                &format!(
+                    r#"{{"res":[{},{}],"worker_res":[{},{}]}}"#,
+                    stuff.1.0, stuff.1.1, state.worker_res.0, state.worker_res.1
+                ),
+            );
+            // #endregion
+            return None;
         }
     }
 
     if state.worker_res != stuff.1 {
-        state.mixmap = get_interlaced_mixmap((&stuff.1.0, &stuff.1.1), (stuff.1.0*stuff.1.1) as usize);
+        let pixel_count = (stuff.1.0 as u64) * (stuff.1.1 as u64);
+        // #region agent log
+        agent_debug_log(
+            "H-A",
+            "work_controller.rs:handle_sampler_stuff",
+            "resolution change rebuilds mixmap via get_evenly_spaced_map",
+            &format!(
+                r#"{{"old_res":[{},{}],"new_res":[{},{}],"pixel_count":{}}}"#,
+                state.worker_res.0,
+                state.worker_res.1,
+                stuff.1.0,
+                stuff.1.1,
+                pixel_count
+            ),
+        );
+        // #endregion
+        state.mixmap = get_evenly_spaced_map(pixel_count as usize);
+        // #region agent log
+        agent_debug_log(
+            "H-A",
+            "work_controller.rs:handle_sampler_stuff",
+            "mixmap rebuilt",
+            &format!(r#"{{"mixmap_len":{}}}"#, state.mixmap.len()),
+        );
+        // #endregion
     }
 
     state.worker_res = stuff.1;
@@ -265,6 +369,20 @@ fn handle_sampler_stuff<T: Clone + From<f32> + From<f32> + Clone + From<IntExp> 
         , attention: (0, 0)
     };
     state.last_sampler_location = Some(obj);
+    // #region agent log
+    agent_debug_log(
+        "H-A",
+        "work_controller.rs:handle_sampler_stuff",
+        "built WorkContext for Replace",
+        &format!(
+            r#"{{"res":[{},{}],"points":{},"mixmap_len":{}}}"#,
+            state.worker_res.0,
+            state.worker_res.1,
+            work_context.points.len(),
+            work_context.random_map.len()
+        ),
+    );
+    // #endregion
     Some(work_context)
 }
 

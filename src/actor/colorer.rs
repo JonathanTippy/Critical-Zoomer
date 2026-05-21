@@ -10,6 +10,8 @@ use crate::actor::escaper::*;
 use crate::act::settings::*;
 
 use crate::act::color::*;
+use crate::act::boot_trace;
+use crate::actor::escaper::ScreenValue;
 
 #[derive(Clone, Debug)]
 
@@ -130,8 +132,20 @@ async fn internal_behavior<A: SteadyActor>(
 
         let mut settings = state.settings.clone();
         if let Some(v) = &mut state.values {
+            let idk_count = v.values.iter().filter(|sv| matches!(sv, ScreenValue::Idk)).count();
+            boot_trace::boot_once(
+                "colorer_values_received",
+                &format!(r#"{{"pixels":{},"idk":{}}}"#, v.values.len(), idk_count),
+            );
+            let color_start = Instant::now();
             let output = color(v, &mut settings);
+            boot_trace::boot_span(
+                "colorer_color_pass",
+                &format!(r#"{{"pixels":{},"idk":{}}}"#, v.values.len(), idk_count),
+                color_start.elapsed().as_millis(),
+            );
 
+            boot_trace::boot_once("colorer_screen_to_window", r#"{}"#);
             actor.try_send(&mut screens_out, ZoomerScreen{
                 pixels: output
                 , screen_size: v.res.clone()

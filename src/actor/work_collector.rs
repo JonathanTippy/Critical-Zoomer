@@ -9,6 +9,8 @@ use crate::act::constants::*;
 
 
 use crate::act::utils::*;
+use crate::act::boot_trace;
+use crate::act::workshift::CompletedPoint;
 
 
 #[derive(Clone, Debug)]
@@ -100,6 +102,10 @@ async fn internal_behavior<A: SteadyActor>(
                         let W = vs[i].clone();
                         completed_work.results[W.1] = W.0;
                     }
+                    boot_trace::boot_once(
+                        "wc_collector_partial_to_escaper",
+                        &format!(r#"{{"new_points":{}}}"#, l),
+                    );
                     actor.try_send(&mut values_out, completed_work.clone());
                 }
             } else {
@@ -119,6 +125,14 @@ async fn internal_behavior<A: SteadyActor>(
                         let W = vs[i].clone();
                         completed_work.results[W.1] = W.0;
                     }
+                    let dummy_count = completed_work.results.iter().filter(|p| matches!(p, CompletedPoint::Dummy{})).count();
+                    boot_trace::boot_once(
+                        "wc_collector_initial_to_escaper",
+                        &format!(
+                            r#"{{"res":[{},{}],"pixels":{},"dummy":{},"completed":{}}}"#,
+                            f.1.0, f.1.1, completed_work.results.len(), dummy_count, l
+                        ),
+                    );
                     actor.try_send(&mut values_out, completed_work.clone());
                 }
 

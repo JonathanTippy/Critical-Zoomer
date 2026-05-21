@@ -25,19 +25,22 @@ pub(crate) mod act {
     pub(crate) mod widgetize;
     pub(crate) mod color;
     pub(crate) mod constants;
+    pub(crate) mod boot_trace;
 }
 
 use std::thread;
 
 const STACK_SIZE:usize = 200 * 1024 * 1024; // 200 MiB
 fn main() {
-
+    crate::act::boot_trace::boot_t0();
+    crate::act::boot_trace::boot_event("main_start", r#"{}"#);
 
     let builder = thread::Builder::new()
         .name("worker-thread".into())
         .stack_size(STACK_SIZE);
 
     let handler = builder.spawn(|| {
+        crate::act::boot_trace::boot_once("graph_thread_enter", r#"{}"#);
         // Parse command-line arguments (rate, beats, etc.) using clap.
         let cli_args = MainArg::parse();
 
@@ -54,7 +57,9 @@ fn main() {
         build_graph(&mut graph);
 
         // Start the entire actor system. All actors and channels are now live.
+        crate::act::boot_trace::boot_once("graph_start", r#"{}"#);
         graph.start();
+        crate::act::boot_trace::boot_once("graph_started", r#"{}"#);
 
         // The system runs until an actor requests shutdown or the timeout is reached.
         graph.block_until_stopped(Duration::from_secs(1));
