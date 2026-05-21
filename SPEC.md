@@ -370,6 +370,20 @@ window → work controller → screen worker → work collector → escaper → 
 | escaper | Stage-2 bailout, derive `ScreenValue`, filaments |
 | colorer | `color()` → screen pixels |
 
+#### 4.4.1 Full-frame pipeline contract (normative, shipped)
+
+While escaper and colorer operate on **whole `Vec` buffers** (before incremental / dirty-region messaging in §4.3):
+
+1. **Fixed scope every frame:** Each escaper wake derives **`values.len()`** entries; each colorer wake colors the full **`width × height`** buffer. Neither stage may shorten loops, skip regions, or change its wake cadence because the latest `ResultsPackage` or workshift batch contained fewer completed points.
+
+2. **Batch size ≠ frame work:** Partial collector updates **merge** into the buffer; derive and color still run **full-frame**. Effective frame rate and pipeline design must **not** treat “more points completed this batch” as permission to do less work this frame (or vice versa).
+
+3. **Content vs scope:** Per-pixel derive cost may differ while pixels remain `Dummy` / `Idk` versus fully computed—that is pixel **content**, not frame **scope**. Pacing must not depend on counting incomplete pixels to skip passes; micro-optimizations that change how much of the buffer is touched based on `completed.len()` in the incoming message are **not** allowed for scheduling.
+
+4. **Order maps:** `get_evenly_spaced_map(n)` in `work_controller.rs` must be **O(n)**. Building the initial `mixmap` must not block the work-controller actor for multi-second startup (e.g. O(n²) `Vec::remove` on 384k indices).
+
+**Future (§4.3):** Incremental indices and dirty tiles replace full-vec passes; until then, the contract above is the rendering pipeline model.
+
 **Future actors:** Reference orbit; series approximation planner; prefetch scheduler (lookahead).
 
 ---

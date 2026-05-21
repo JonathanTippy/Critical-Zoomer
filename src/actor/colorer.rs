@@ -151,6 +151,9 @@ async fn internal_behavior<A: SteadyActor>(
                 , screen_size: v.res.clone()
                 , objective_location:  v.objective_location.clone()
             });
+            if idk_count == 0 {
+                boot_trace::boot_complete();
+            }
             //info!("sent colors to window");
         }
         state.settings = settings;

@@ -81,14 +81,26 @@ async fn internal_behavior<A: SteadyActor, T:Clone + From<f32> + From<f32> + Clo
     let mut from_sampler = from_sampler.lock().await;
     let mut to_worker = to_worker.lock().await;
 
+    let pixel_count = (WORKER_INIT_RES.0 * WORKER_INIT_RES.1) as usize;
+    boot_trace::boot_once(
+        "wc_mixmap_build_start",
+        &format!(r#"{{"pixels":{}}}"#, pixel_count),
+    );
+    let mixmap_start = std::time::Instant::now();
     let mut state = state.lock(|| WorkControllerState {
-        mixmap: get_evenly_spaced_map((WORKER_INIT_RES.0*WORKER_INIT_RES.1) as usize)
+        mixmap: get_evenly_spaced_map(pixel_count)
         , loc: (IntExp::from(0), IntExp::from(0))
         , zoom_pot: WORKER_INIT_ZOOM_POT
         , worker_res: WORKER_INIT_RES
         , percent_completed: 0
         , last_sampler_location: None
     }).await;
+    boot_trace::boot_span(
+        "wc_mixmap_build_done",
+        &format!(r#"{{"pixels":{}}}"#, pixel_count),
+        mixmap_start.elapsed().as_millis(),
+    );
+    boot_trace::boot_once("wc_actor_ready", r#"{}"#);
 
 
     let max_sleep = Duration::from_millis(50);
@@ -386,18 +398,147 @@ fn handle_sampler_stuff<T: Clone + From<f32> + From<f32> + Clone + From<IntExp> 
     Some(work_context)
 }
 
-fn get_evenly_spaced_map(length:usize) -> Vec<usize> {
-    let mut a:Vec<usize> = Vec::new();
-    for i in 0..length {a.push(i)};
+/// Interleaved front / middle / back order on `0..length`.
+/// O(n log n) via implicit treap; must not use `Vec::remove` (O(n²) at 384k).
+fn get_evenly_spaced_map(length: usize) -> Vec<usize> {
+    if length == 0 {
+        return Vec::new();
+    }
+    let mut nodes: Vec<TreapNode> = (0..length)
+        .map(|i| TreapNode {
+            val: i,
+            prio: (i.wrapping_mul(0x9E37_79B9) as u32) | 1,
+            left: -1,
+            right: -1,
+            size: 1,
+        })
+        .collect();
+    let mut root = -1i32;
+    for i in 0..length {
+        root = treap_insert(root, i as i32, &mut nodes);
+    }
+    let mut out = Vec::with_capacity(length);
+    for step in 0..length {
+        let len = treap_size(root, &nodes);
+        let k = match step % 3 {
+            0 => 0,
+            1 => (len - 1) / 2,
+            2 => len - 1,
+            _ => unreachable!(),
+        };
+        let (v, new_root) = treap_erase_kth(root, k, &mut nodes);
+        out.push(v);
+        root = new_root;
+    }
+    out
+}
 
-    let mut b:Vec<usize> = Vec::new();
-    for i  in 0..length {
-        match i % 3 {
-            0 => {b.push(a.remove(0))},
-            1 => {b.push(a.remove((a.len()-1)/2))},
-            2 => {b.push(a.remove(a.len()-1))}
-            _ => {panic!("cannot happen")}
+#[derive(Clone, Copy)]
+struct TreapNode {
+    val: usize,
+    prio: u32,
+    left: i32,
+    right: i32,
+    size: usize,
+}
+
+fn treap_size(t: i32, nodes: &[TreapNode]) -> usize {
+    if t < 0 {
+        0
+    } else {
+        nodes[t as usize].size
+    }
+}
+
+fn treap_pull(t: i32, nodes: &mut [TreapNode]) {
+    if t < 0 {
+        return;
+    }
+    let i = t as usize;
+    let l = nodes[i].left;
+    let r = nodes[i].right;
+    nodes[i].size = 1 + treap_size(l, nodes) + treap_size(r, nodes);
+}
+
+fn treap_split(t: i32, k: usize, nodes: &mut [TreapNode]) -> (i32, i32) {
+    if t < 0 {
+        return (-1, -1);
+    }
+    let i = t as usize;
+    let left_sz = treap_size(nodes[i].left, nodes);
+    if k <= left_sz {
+        let (a, b) = treap_split(nodes[i].left, k, nodes);
+        nodes[i].left = b;
+        treap_pull(t, nodes);
+        (a, t)
+    } else {
+        let (a, b) = treap_split(nodes[i].right, k - left_sz - 1, nodes);
+        nodes[i].right = a;
+        treap_pull(t, nodes);
+        (t, b)
+    }
+}
+
+fn treap_merge(a: i32, b: i32, nodes: &mut [TreapNode]) -> i32 {
+    if a < 0 {
+        return b;
+    }
+    if b < 0 {
+        return a;
+    }
+    let ai = a as usize;
+    let bi = b as usize;
+    if nodes[ai].prio > nodes[bi].prio {
+        nodes[ai].right = treap_merge(nodes[ai].right, b, nodes);
+        treap_pull(a, nodes);
+        a
+    } else {
+        nodes[bi].left = treap_merge(a, nodes[bi].left, nodes);
+        treap_pull(b, nodes);
+        b
+    }
+}
+
+fn treap_insert(root: i32, idx: i32, nodes: &mut [TreapNode]) -> i32 {
+    let (left, right) = treap_split(root, idx as usize, nodes);
+    let mid = idx;
+    let left = treap_merge(left, mid, nodes);
+    treap_merge(left, right, nodes)
+}
+
+fn treap_erase_kth(t: i32, k: usize, nodes: &mut [TreapNode]) -> (usize, i32) {
+    let (left, rest) = treap_split(t, k, nodes);
+    let (mid, right) = treap_split(rest, 1, nodes);
+    let val = nodes[mid as usize].val;
+    (val, treap_merge(left, right, nodes))
+}
+
+#[cfg(test)]
+mod mixmap_tests {
+    use super::get_evenly_spaced_map;
+
+    fn get_evenly_spaced_map_reference(length: usize) -> Vec<usize> {
+        let mut a: Vec<usize> = (0..length).collect();
+        let mut b = Vec::with_capacity(length);
+        for i in 0..length {
+            match i % 3 {
+                0 => b.push(a.remove(0)),
+                1 => b.push(a.remove((a.len() - 1) / 2)),
+                2 => b.push(a.remove(a.len() - 1)),
+                _ => unreachable!(),
+            }
+        }
+        b
+    }
+
+    #[test]
+    fn evenly_spaced_matches_reference() {
+        for length in [0, 1, 2, 5, 100, 1000, 384_000] {
+            assert_eq!(
+                get_evenly_spaced_map(length),
+                get_evenly_spaced_map_reference(length),
+                "length {length}"
+            );
         }
     }
-    return b
 }

@@ -340,14 +340,18 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                         "window_sampler_bootstrap",
                         &format!(r#"{{"res":[{},{}]}}"#, state.size.x as u32, state.size.y as u32),
                     );
-                    actor.try_send(
-                        &mut sampler_out,
-                        (
-                            state.sampling_context.location.clone(),
-                            (state.size.x as u32, state.size.y as u32),
-                        ),
-                    );
-                    state.sampler_requested_without_screen = true;
+                    if actor
+                        .try_send(
+                            &mut sampler_out,
+                            (
+                                state.sampling_context.location.clone(),
+                                (state.size.x as u32, state.size.y as u32),
+                            ),
+                        )
+                        .is_sent()
+                    {
+                        state.sampler_requested_without_screen = true;
+                    }
                 }
             }
 
