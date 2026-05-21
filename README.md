@@ -4,6 +4,9 @@ Artwork by Deborah Tippy
 # Critical Zoomer
 a mandelbrot set zoomer written in rust
 
+**Specification:** [SPEC.md](SPEC.md) — authoritative goals, input contract (each scroll tick = 2× zoom, zero perceived wait), architecture, algorithms, and roadmap.
+
+**Goal:** Browse the Mandelbrot set very deeply at user-driven speed; completeness and speed are met together (see SPEC §1).
 
 ## How to use (linux)
 - install rust (go to rustlang.org)
@@ -70,9 +73,26 @@ a mandelbrot set zoomer written in rust
 - settings page allows custom layering of colorings | ✔️
 - also allows animation of variables | ✔️
 
+## Roadmap (named phases — detail in [SPEC.md](SPEC.md) §9)
+
+| Phase | Status |
+|-------|--------|
+| Interactive foundation (0.0.1–0.0.6) | Done |
+| Input-first zoom and cache | In progress |
+| Steady-state messaging | Planned |
+| Period detection | Planned |
+| Graphics processor (hybrid B) | Planned |
+| Classical perturbation | Planned |
+| Series approximation | Planned |
+| Cross-platform (Linux, Windows, Mac, web) | Planned |
+| Lookahead prefetch (gaze) | Planned |
+| Exploration (path tracking, Julia) | Planned |
+
+Historical MVP checkmarks above remain accurate for 0.0.x shipped work.
+
 ## general optimization
 
-- better actor comms
+- better actor comms (steady-state messaging phase)
 - better knowledge leverage
 - better movement
 
