@@ -1,13 +1,12 @@
 use std::ops::{Add, Mul, Sub};
-use rand::Rng;
 use steady_state::*;
-use crate::action::sampling::*;
+use crate::act::sampling::*;
 
-use crate::action::utils::*;
-use crate::action::workshift::CompletedPoint;
+use crate::act::utils::*;
+use crate::act::workshift::CompletedPoint;
 use crate::actor::work_collector::*;
-use crate::action::workshift::*;
-use crate::action::settings::*;
+use crate::act::workshift::*;
+use crate::act::settings::*;
 
 
 pub(crate) const BAILOUT_MAX_ITERATIONS:usize = 100;
@@ -109,7 +108,6 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
             };
             match actor.try_take(&mut settings_in) {
                 Some(s) => {
-                    let mut rng = rand::thread_rng();
                     state.settings = s;
                 }
                 None => {}
@@ -123,7 +121,6 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
             };
             match actor.try_take(&mut values_in) {
                 Some(v) => {
-                    let mut rng = rand::thread_rng();
                     //info!("recieved values");
                     state.values = Some(v);
                 }

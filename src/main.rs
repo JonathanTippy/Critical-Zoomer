@@ -15,7 +15,7 @@ pub(crate) mod actor {
 
 }
 
-pub(crate) mod action {
+pub(crate) mod act {
     pub(crate) mod sampling;
     pub(crate) mod settings;
     pub(crate) mod rolling;
@@ -24,9 +24,6 @@ pub(crate) mod action {
     pub(crate) mod utils;
     pub(crate) mod widgetize;
     pub(crate) mod color;
-    pub(crate) mod collect;
-    pub(crate) mod partial_knowledge;
-    pub(crate) mod streaming;
     pub(crate) mod constants;
 }
 
@@ -127,7 +124,7 @@ fn build_graph(graph: &mut Graph) {
     let (
         work_controller_tx_to_screen_worker
         , screen_worker_rx_from_work_controller
-    ) = channel_builder.with_capacity(2).build();
+    ) = channel_builder.with_capacity(50).build();
 
     // worker to work collector responses channel
 
@@ -141,14 +138,14 @@ fn build_graph(graph: &mut Graph) {
     let (
         work_collector_tx_to_escaper
         , escaper_rx_from_work_collector
-    ) = channel_builder.with_capacity(2).build();
+    ) = channel_builder.with_capacity(50).build();
 
     // escaper to colorer channel
 
     let (
         escaper_tx_to_colorer
         , colorer_rx_from_escaper
-    ) = channel_builder.with_capacity(2).build();
+    ) = channel_builder.with_capacity(50).build();
 
     // The actor builder is configured to collect thread/core info and load metrics.
     // - with_thread_info: enables reporting of OS thread and CPU core (requires core_affinity feature in Cargo.toml)

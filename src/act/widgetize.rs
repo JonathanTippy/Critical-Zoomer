@@ -1,7 +1,7 @@
 use eframe::emath::Rect;
 use egui::{color_picker, Ui};
 use egui_dnd::dnd;
-use crate::action::settings::*;
+use crate::act::settings::*;
 impl Settings {
     pub(crate) fn widgetize(&mut self, ui:&mut Ui) {
 
