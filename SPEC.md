@@ -196,6 +196,22 @@ Value-field features; `HighlightInFilaments`, `HighlightOutFilaments` in default
 
 **Normative:** One scroll tick = **2×** zoom (`pot` ± 1). Verify/implement consistently on all platforms.
 
+### 2.2 Screen-space coordinate convention (shipped internal, target UX)
+
+**Shipped (internal):** Pixel indices, queue positions, attention tuples, and screenspace offsets in the compute and sampling pipeline use an **upper-left origin**: x increases right, y increases down (same as framebuffer row-major indexing and egui layout coordinates). Objective Mandelbrot position (`IntExp` pair + `zoom_pot`) is derived from that frame—see `src/action/sampling.rs`, `src/action/workshift.rs`, `index_from_pos` in `src/action/utils.rs`.
+
+**Not shown today:** Coordinate readouts and editable position fields are not in the UI yet, so the corner origin is invisible to users.
+
+**Planned (exploration / navigation UX):** Whenever coordinates are **presented** (status line, settings, copy/paste, path tracking) or **ingested** (jump-to-position, `SetPos`, focus commands), use **screen center as origin** (0, 0 at center; positive x right, positive y up or down per chosen UI convention—document the axis choice when implemented). **Minimal surprise:** users expect “where am I looking” relative to the middle of the view, not the top-left pixel.
+
+**Implementation rule (normative):**
+
+- **Keep internal math corner-based**—do not re-root worker buffers, order maps, or flood-fill indices.
+- **Convert only at the UI boundary** when translating between user-facing center coordinates and internal corner-based pixels or `IntExp` objective space. Use the same `IntExp` + `zoom_pot` + `PIXELS_PER_UNIT_POT` machinery as zoom/pan so deep-zoom precision is preserved (no parallel `f64` screen frame).
+- Scroll zoom at cursor already passes a screenspace point into `Zoom { center_screenspace_pos }`; when center-origin UI ships, document whether that field stays internal-corner-based (egui-native) with conversion at ingest, or is redefined to center-origin in the command enum—either is acceptable if conversion is explicit and tested.
+
+**Roadmap:** **Exploration features** phase (and any navigation UI before then)—center-origin display and editing; internal representation unchanged.
+
 ---
 
 ## 3. Mathematical model
@@ -208,9 +224,17 @@ Outcomes: `Escapes` or `Repeats` per `CompletedPoint`—only valid terminal stat
 
 ### 3.2 Coordinates (shipped)
 
-- `IntExp` navigation (`src/action/utils.rs`)
-- `zoom_pot`: binary zoom steps
-- `PIXELS_PER_UNIT_POT = 9`
+**Objective (Mandelbrot c):**
+
+- `IntExp` navigation (`src/action/utils.rs`) — arbitrary-precision real and imaginary parts with binary exponent.
+- `zoom_pot`: binary zoom steps; `PIXELS_PER_UNIT_POT = 9` links screenspace scale to objective units.
+
+**Screenspace (internal):**
+
+- **Origin: upper-left** of the image (pixel (0, 0) is top-left; y down). Used for indexing, work queues, and command math today.
+- **User-facing origin: screen center** when coordinates are shown or typed — see section 2.2; conversion at UI boundary only, still via `IntExp`.
+
+**Conversion sketch (center ↔ corner, for UI):** Let resolution be (W, H). Internal pixel offset from top-left (px, py) corresponds to center-relative screenspace (sx, sy) with sx = px − W/2, sy = py − H/2 (integer half-width/half-height per chosen rounding rule). Map (sx, sy) to Δc in objective space using current `zoom_pot` and `PIXELS_PER_UNIT_POT` the same way pan/zoom already shifts `context.location.pos` in `sampling.rs`.
 
 ### 3.3 Deep-zoom algorithms (roadmap)
 
@@ -406,7 +430,7 @@ Phases ordered by dependency.
 | **Series approximation** | Taylor orders, error bounds, region skipping | **Planned** |
 | **Cross-platform** | Linux X11+Wayland, Windows, macOS, web | **Planned** |
 | **Deep-zoom validation** | 10-tick 1024× benchmarks; correctness vs reference | **Planned** |
-| **Exploration features** | Point path tracking, Julia overlay | **Planned** |
+| **Exploration features** | Point path tracking, Julia overlay; **center-origin** coordinate display/edit (section 2.2) | **Planned** |
 | **Lookahead prefetch** | Pan + gaze coin-patch; eye tracking | **Planned** |
 | **Antenna bailout (open)** | Replace escaper iteration cap when design chosen | **Undecided** |
 
@@ -478,7 +502,7 @@ Defined in `src/actor/window.rs`; handled in `src/action/sampling.rs`:
 | `MoveTo { x, y }` | Partial | Sets position |
 | `SetZoom { pot }` | No | Sets `zoom_pot` |
 | `SetFocus { pixel_x, pixel_y }` | No | **No-op** (empty match arm) |
-| `SetPos { real, imag }` | No | **No-op** |
+| `SetPos { real, imag }` | No | **No-op** — planned with center-origin navigation UX (section 2.2) |
 | `TrackPoint { … }` | No | **No-op** — path tracking roadmap |
 | `UntrackPoint { point_id }` | No | **No-op** |
 | `UntrackAllPoints` | No | **No-op** |
