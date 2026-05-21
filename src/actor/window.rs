@@ -325,11 +325,9 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             }
 
             if state.sampling_context.screen.is_none() {
-                for row in 0..size.1 {
-                    for seat in 0..size.0 {
-                        let c = idk_checkerboard_rgb(seat as u32, row as u32);
-                        sampler_buffer.push(Color32::from_rgb(c.0, c.1, c.2));
-                    }
+                let flat = Color32::from_rgb(WINDOW_IDK_RGB.0, WINDOW_IDK_RGB.1, WINDOW_IDK_RGB.2);
+                for _ in 0..pixels {
+                    sampler_buffer.push(flat);
                 }
                 if !state.sampler_requested_without_screen {
                     actor.try_send(

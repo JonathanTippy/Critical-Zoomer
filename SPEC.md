@@ -185,7 +185,7 @@ Value-field features; `HighlightInFilaments`, `HighlightOutFilaments` in default
 
 **Preview path:** On viewport change before worker catches up, `sampling.rs` resamples last `ZoomerScreen` — **required** for north star.
 
-**Idk (checkerboard) display:** Pixels with no computed value yet (`ScreenValue::Idk`, from `CompletedPoint::Dummy` in the work collector) use a Minecraft-style missing-texture checkerboard: `IDK_RGB` (128, 0, 128) and `IDK_RGB_LIGHT` (200, 128, 200) on **8×8** screen-space tiles via `idk_checkerboard_rgb` in `constants.rs` (colorer, window pre-first-frame fill, sampling pan holes). During pan, preview samples only the last cached frame: viewport regions with no valid sample (no pan lookahead today; in the future, only when lookahead is insufficient) use the same checkerboard. Known-computed pixels use the coloring script only.
+**Idk display:** `ScreenValue::Idk` (from `CompletedPoint::Dummy`) is drawn in the **colorer only** as a Minecraft missing-texture checkerboard: `#FF00FF` and `#000000` on **64×64** screen-space tiles (`idk_checkerboard_rgb` in `constants.rs`). Before the first colored frame, the **window** shows flat purple (`WINDOW_IDK_RGB`, 128, 0, 128); pan preview holes without cached coverage use the same flat purple (no lookahead today). Known-computed pixels use the coloring script only.
 
 ### 2.1 Input and zoom requirements
 
