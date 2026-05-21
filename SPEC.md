@@ -185,6 +185,8 @@ Value-field features; `HighlightInFilaments`, `HighlightOutFilaments` in default
 
 **Preview path:** On viewport change before worker catches up, `sampling.rs` resamples last `ZoomerScreen` — **required** for north star.
 
+**Idk (checkerboard) display:** Pixels with no computed value yet (`ScreenValue::Idk`, from `CompletedPoint::Dummy` in the work collector) use a Minecraft-style missing-texture checkerboard: `IDK_RGB` (128, 0, 128) and `IDK_RGB_LIGHT` (200, 128, 200) on **8×8** screen-space tiles via `idk_checkerboard_rgb` in `constants.rs` (colorer, window pre-first-frame fill, sampling pan holes). During pan, preview samples only the last cached frame: viewport regions with no valid sample (no pan lookahead today; in the future, only when lookahead is insufficient) use the same checkerboard. Known-computed pixels use the coloring script only.
+
 ### 2.1 Input and zoom requirements
 
 | Requirement | Definition |
@@ -392,7 +394,17 @@ window → work controller → screen worker → work collector → escaper → 
 
 ## 7. Dependencies and build
 
-See [README.md](README.md): Rust, build-essential, m4; `cargo build` / `cargo run`.
+See [README.md](README.md): Rust, build-essential, m4.
+
+**Build profile (normative):** Use **`--release`** for normal runs, manual testing, profiling, and acceptance checks. The actor pipeline and Mandelbrot workshift are CPU-bound; debug builds are far slower and distort startup time, frame pacing, and graph telemetry (for example long purple placeholder frames and idle-looking actors). Reserve debug builds (`cargo build`, `cargo run` without `--release`) for debugging with a debugger or extra checks.
+
+| Intent | Command |
+|--------|---------|
+| Run the app | `cargo run --release` |
+| Build only | `cargo build --release` |
+| Debug / lldb | `cargo build` then `cargo run` (or `RUSTFLAGS` as needed) |
+
+`rebuild.sh` already watches sources and runs `cargo build --release`.
 
 **Dependencies:** clap, eframe/egui 0.32, rug, steady_state 0.2.9, winit, rand.
 
@@ -444,7 +456,7 @@ Phases ordered by dependency.
 
 ### Shipped smoke test (today)
 
-1. `cargo run` on Linux/X11
+1. `cargo run --release` on Linux/X11
 2. Drag pan; scroll zoom at cursor
 3. Home; resize; settings reorder
 4. Partial refinement visible while moving

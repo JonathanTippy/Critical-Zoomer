@@ -1,8 +1,10 @@
 use crate::act::settings::*;
 use crate::actor::escaper::*;
 use crate::act::utils::*;
+use crate::act::constants::idk_checkerboard_rgb;
 use std::f64::consts::*;
 use std::time::*;
+
 pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<(u8, u8, u8)> {
     let mut returned = vec!((0,0,0);(values.res.0*values.res.1) as usize);
     let res = values.res;
@@ -40,6 +42,7 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             let color = match value {
+                                ScreenValue::Idk => {continue;}
                                 ScreenValue::Inside{..} => {continue;}
                                 ScreenValue::Outside{big_time: escape_time, ..} => {
                                     let escape_time = *escape_time as f64;
@@ -90,6 +93,7 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             let (smalltime, opacity) = match value {
+                                ScreenValue::Idk => {continue;}
                                 ScreenValue::Inside{small_time, ..} => {
                                     (small_time, &inside_opacity)
                                 }
@@ -139,6 +143,7 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             let (smallness, opacity) = match value {
+                                ScreenValue::Idk => {continue;}
                                 ScreenValue::Inside{smallness, ..} => {
                                     (smallness, &inside_opacity)
                                 }
@@ -168,6 +173,7 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             match value {
+                                ScreenValue::Idk => {continue;}
                                 ScreenValue::Inside{..} => {continue;}
                                 ScreenValue::Outside{..} => {
                                     let in_filament = is_in_filament(&values, pos);
@@ -196,6 +202,7 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             match value {
+                                ScreenValue::Idk => {continue;}
                                 ScreenValue::Inside{..} => {
                                     let out_filament = is_out_filament(values, pos);
                                     if out_filament {
@@ -224,6 +231,7 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             let (is_node, opacity) = match value {
+                                ScreenValue::Idk => (false, &inside_opacity),
                                 ScreenValue::Inside{..} => {
                                     let node = is_node(values, pos, *thickness);
                                     (node, &inside_opacity)
@@ -255,6 +263,7 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
                             let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             let (is_edge, opacity) = match value {
+                                ScreenValue::Idk => (false, &inside_opacity),
                                 ScreenValue::Inside{..} => {
                                     let edge = is_node_tree(values, pos);
                                     (edge, &inside_opacity)
@@ -279,7 +288,18 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
             }
         }
     }
+    paint_idk_pixels(&mut returned, &values.values, res);
     returned
+}
+
+fn paint_idk_pixels(returned: &mut [(u8, u8, u8)], values: &[ScreenValue], res: (u32, u32)) {
+    for (i, v) in values.iter().enumerate() {
+        if matches!(v, ScreenValue::Idk) {
+            let x = (i as u32) % res.0;
+            let y = (i as u32) / res.0;
+            returned[i] = idk_checkerboard_rgb(x, y);
+        }
+    }
 }
 
 pub(crate) fn layer_colors (bottom: (u8,u8,u8), top:(u8,u8,u8,u8)) -> (u8,u8,u8) {
@@ -508,6 +528,7 @@ pub(crate) fn get_loop_period(value: Option<&ScreenValue>) -> Option<u32> {
 
     if let Some(v) = value {
         match v {
+            ScreenValue::Idk => {return None}
             ScreenValue::Outside{..} => {return None}
             ScreenValue::Inside{loop_period, ..} => {
                 return Some(*loop_period)
@@ -521,6 +542,7 @@ pub(crate) fn get_escape_time(value: Option<&ScreenValue>) -> Option<u32> {
 
     if let Some(v) = value {
         match v {
+            ScreenValue::Idk => {return None}
             ScreenValue::Outside{big_time, ..} => {return Some(*big_time)}
             ScreenValue::Inside{..} => {return None }
         }
@@ -532,6 +554,7 @@ pub(crate) fn get_small_time(value: Option<&ScreenValue>) -> Option<u32> {
 
     if let Some(v) = value {
         match v {
+            ScreenValue::Idk => {return None}
             ScreenValue::Outside{small_time, ..} => {return Some(*small_time)}
             ScreenValue::Inside{small_time, ..} => {return Some(*small_time)}
         }
@@ -543,6 +566,7 @@ pub(crate) fn get_smallness(value: Option<&ScreenValue>) -> Option<f64> {
 
     if let Some(v) = value {
         match v {
+            ScreenValue::Idk => {return None}
             ScreenValue::Outside{smallness, ..} => {return Some(*smallness)}
             ScreenValue::Inside{smallness, ..} => {return Some(*smallness)}
         }

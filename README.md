@@ -19,8 +19,8 @@ a mandelbrot set zoomer written in rust
 - download the repo using:
 git clone [https://github.com/JonathanTippy/Critical-Zoomer](https://github.com/JonathanTippy/Critical-Zoomer)
 - cd Critical-Zoomer
-- cargo build
-- cargo run
+- cargo build --release
+- cargo run --release
 
 ## Controls
 

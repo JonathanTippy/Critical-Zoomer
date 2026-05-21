@@ -94,6 +94,7 @@ pub(crate) struct WindowState {
     , pub(crate) fps_margin: f32
     , pub(crate) timer2: Instant
     , pub(crate) sent_initial_settings_broadcast: bool
+    , pub(crate) sampler_requested_without_screen: bool
 }
 
 /// Entry point for the window actor.
@@ -155,6 +156,7 @@ async fn internal_behavior<A: SteadyActor>(
 
         , timer2: Instant::now()
         , sent_initial_settings_broadcast: false
+        , sampler_requested_without_screen: false
 
     }).await;
 
@@ -311,6 +313,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             match actor.try_take(&mut pixels_in) {
                 Some(s) => {
                     update_sampling_context(&mut state.sampling_context, s);
+                    state.sampler_requested_without_screen = false;
                     //info!("window recieved pixels");
                     /*if s.pixels.len() == pixels {
                         update_sampling_context(&mut state.sampling_context, s);
@@ -322,8 +325,22 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             }
 
             if state.sampling_context.screen.is_none() {
-                for _ in 0..pixels {sampler_buffer.push(Color32::PURPLE)};
-                actor.try_send(&mut sampler_out, (state.sampling_context.location.clone(), (state.size.x as u32, state.size.y as u32)));
+                for row in 0..size.1 {
+                    for seat in 0..size.0 {
+                        let c = idk_checkerboard_rgb(seat as u32, row as u32);
+                        sampler_buffer.push(Color32::from_rgb(c.0, c.1, c.2));
+                    }
+                }
+                if !state.sampler_requested_without_screen {
+                    actor.try_send(
+                        &mut sampler_out,
+                        (
+                            state.sampling_context.location.clone(),
+                            (state.size.x as u32, state.size.y as u32),
+                        ),
+                    );
+                    state.sampler_requested_without_screen = true;
+                }
             }
 
             if state.sampling_context.updated

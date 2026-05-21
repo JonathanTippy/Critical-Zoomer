@@ -9,6 +9,7 @@ use crate::act::utils::*;
 
 use rug::{Float, Integer};
 use crate::actor::work_controller::PIXELS_PER_UNIT_POT;
+use crate::act::constants::idk_checkerboard_rgb;
 
 #[derive(Clone, Debug)]
 pub(crate) struct SamplingContext {
@@ -239,18 +240,16 @@ fn sample_color(
     , relative_pos: (i32, i32)
     , relative_zoom_pot: i64
 ) -> Color32 {
-    let color =
-        pixels[
-            index_from_relative_location(
-                transform_relative_location_i32(
-                    relative_location_i32_row_and_seat(seat, row)
-                    , (relative_pos.0, relative_pos.1)
-                    , relative_zoom_pot
-                )
-                , data_res
-                , data_len
-            )
-        ];
+    let rel = transform_relative_location_i32(
+        relative_location_i32_row_and_seat(seat, row),
+        (relative_pos.0, relative_pos.1),
+        relative_zoom_pot,
+    );
+    let Some(index) = optional_index_from_relative_location(rel, data_res, data_len) else {
+        let c = idk_checkerboard_rgb(seat as u32, row as u32);
+        return Color32::from_rgb(c.0, c.1, c.2);
+    };
+    let color = pixels[index];
     Color32::from_rgb(color.0, color.1, color.2)
 }
 

@@ -22,7 +22,9 @@ pub(crate) enum ScreenValue {
         small_time: u32
         , loop_period: u32
         , smallness:f64
-    }
+    },
+    /// Compute not finished yet (`CompletedPoint::Dummy`), or no valid preview sample (pan without lookahead).
+    Idk,
 }
 
 #[derive(Clone, Debug)]
@@ -293,10 +295,7 @@ fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f6
             }
 
         }
-        CompletedPoint::Dummy{} => {
-            //panic!("completed point was not completed");
-            ScreenValue::Inside{loop_period:0, smallness:100.0, small_time:0}
-        }
+        CompletedPoint::Dummy{} => ScreenValue::Idk,
     }
 }
 
