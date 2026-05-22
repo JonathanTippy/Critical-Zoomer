@@ -466,18 +466,18 @@ window → [work controller → screen worker → work collector]×N
 
 ### 5.1 Shipped frontier (today)
 
-Implementation: `src/act/workshift.rs`, scredge seed in `src/actor/work_controller.rs`.
+Implementation: `src/act/workshift.rs`, screen edge seed in `src/actor/work_controller.rs`.
 
 
 | Mechanism              | Queue / step                     | Behavior                                                                                                                                           |
 | ---------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Perimeter crawl**    | `scredge_poses`, `Step::Scredge` | Viewport border positions, interleaved order at work-context build; prioritized for the first ~20 workshifts                                       |
+| **Perimeter crawl**    | `screen_edge_poses`, `Step::ScreenEdge` | Viewport border positions, interleaved order at work-context build; screen edge prioritized while `screen_edge_poses` is non-empty                |
 | **Outside flood-fill** | `out_queue`, `Step::Out`         | On escape, enqueue incomplete 4-neighbors (`queue_incomplete_neighbors`) — region grows inward from the boundary                                   |
 | **Inside flood-fill**  | `in_queue`, `Step::In`           | On repeat, enqueue incomplete 4-neighbors (`queue_incomplete_neighbors_in`)                                                                        |
 | **Set boundary**       | `edge_queue`, `Step::Edge`       | On `point_is_edge` (escape vs repeat, or period mismatch), enqueue 8-neighbors along the edge (`queue_incomplete_neighbors_of_edge`, `push_front`) |
 
 
-**Scheduling:** `workshifts % 4` rotates which queue is checked first among Edge / Out / Scredge / In.
+**Scheduling:** screen edge first when `screen_edge_poses` is non-empty; otherwise `workshifts % 4` rotates among in/out edge, out, and in queues.
 
 **Outside-first rationale:** Interior pixels spend more effort on periodicity checking; exterior escapes at R = 2 are cheaper per bout. Perimeter crawl plus outside flood-fill surfaces boundary structure before slow interior fill. Outside flood-fill is an adaptation of boundary tracing (region growth) running alongside true perimeter crawl.
 
@@ -642,7 +642,7 @@ Phases ordered by dependency.
 
 ### Workshift and workgroups phase
 
-1. Section 5 matches `workshift.rs` queue behavior (scredge, out/in flood-fill, edge queue).
+1. Section 5 matches `workshift.rs` queue behavior (screen edge, out/in flood-fill, edge queue).
 2. Switch actor + two compute workgroups; toggle `selected_workgroup` changes the visible image without escaper or colorer code changes.
 3. Roadmap lists **Workshift and workgroups** (in progress), **Cross-platform**, and **Computed-work cache** (planned) in dependency order.
 
@@ -717,9 +717,9 @@ Goal for **steady-state messaging phase:** hot path matches L3-friendly access, 
 
 **Preview:** `src/action/sampling.rs` — `sample()` on viewport commands.
 
-**Workshift:** `src/act/workshift.rs` — `workshift()`, `Step`, frontier queues (`scredge_poses`, `out_queue`, `in_queue`, `edge_queue`), `queue_incomplete_`*, `point_is_edge`.
+**Workshift:** `src/act/workshift.rs` — `workshift()`, `Step`, frontier queues (`screen_edge_poses`, `out_queue`, `in_queue`, `edge_queue`), `queue_incomplete_`*, `point_is_edge`.
 
-**Scredge seed:** `src/actor/work_controller.rs` — perimeter positions into `scredge_poses`.
+**Screen edge seed:** `src/actor/work_controller.rs` — perimeter positions into `screen_edge_poses`.
 
 **Switch (planned):** `src/actor/switch.rs` — per-collector ingest, `selected_workgroup`, forward to escaper.
 

@@ -6,54 +6,54 @@ node [style=filled, fillcolor=white, fontcolor=black];
 edge [color=white, fontcolor=white];
 graph [bgcolor=black];
 "window" [label="window
-Avg load: 3 %
+Avg load: 2 %
 Avg mCPU: 0000 
-", tooltip="window\n\nThreadId(24) Core:4\nWindow 12.8 secs\nstopped\n--- Stats ---\nAvg load: 3 %\nAvg mCPU: 0000 \n", color="green", penwidth=3 ];
+", tooltip="window\n\nThreadId(25) Core:4\nWindow 12.8 secs\n--- Stats ---\nAvg load: 2 %\nAvg mCPU: 0000 \n", color="green", penwidth=3 ];
 "colorer" [label="colorer
 Avg load: 2 %
-Avg mCPU: 0119 
-", tooltip="colorer\n\nThreadId(25) Core:5\nWindow 12.8 secs\n--- Stats ---\nAvg load: 2 %\nAvg mCPU: 0119 \n", color="green", penwidth=3 ];
+Avg mCPU: 0099 
+", tooltip="colorer\n\nThreadId(26) Core:5\nWindow 12.8 secs\n--- Stats ---\nAvg load: 2 %\nAvg mCPU: 0099 \n", color="green", penwidth=3 ];
 "work controller" [label="work controller
 Avg load: 0 %
-Avg mCPU: 0015 
-", tooltip="work controller\n\nThreadId(27) Core:6\nWindow 12.8 secs\nstopped\n--- Stats ---\nAvg load: 0 %\nAvg mCPU: 0015 \n", color="green", penwidth=3 ];
+Avg mCPU: 0005 
+", tooltip="work controller\n\nThreadId(27) Core:6\nWindow 12.8 secs\n--- Stats ---\nAvg load: 0 %\nAvg mCPU: 0005 \n", color="green", penwidth=3 ];
 "screen worker" [label="screen worker
-Avg load: 3 %
+Avg load: 2 %
 Avg mCPU: 0000 
-", tooltip="screen worker\n\nThreadId(28) Core:7\nWindow 12.8 secs\nstopped\n--- Stats ---\nAvg load: 3 %\nAvg mCPU: 0000 \n", color="green", penwidth=3 ];
+", tooltip="screen worker\n\nThreadId(28) Core:7\nWindow 12.8 secs\n--- Stats ---\nAvg load: 2 %\nAvg mCPU: 0000 \n", color="green", penwidth=3 ];
 "work collector" [label="work collector
-Avg load: 1 %
-Avg mCPU: 0053 
-", tooltip="work collector\n\nThreadId(29) Core:8\nWindow 12.8 secs\n--- Stats ---\nAvg load: 1 %\nAvg mCPU: 0053 \n", color="green", penwidth=3 ];
+Avg load: 0 %
+Avg mCPU: 0006 
+", tooltip="work collector\n\nThreadId(29) Core:8\nWindow 12.8 secs\n--- Stats ---\nAvg load: 0 %\nAvg mCPU: 0006 \n", color="green", penwidth=3 ];
 "point escaper" [label="point escaper
-Avg load: 3 %
-Avg mCPU: 0131 
-", tooltip="point escaper\n\nThreadId(30) Core:9\nWindow 12.8 secs\n--- Stats ---\nAvg load: 3 %\nAvg mCPU: 0131 \n", color="green", penwidth=3 ];
-"colorer" -> "window" [label="Total: 310
+Avg load: 2 %
+Avg mCPU: 0099 
+", tooltip="point escaper\n\nThreadId(30) Core:9\nWindow 12.8 secs\n--- Stats ---\nAvg load: 2 %\nAvg mCPU: 0099 \n", color="green", penwidth=3 ];
+"colorer" -> "window" [label="Total: 370
+Avg rate:  5.195 per/sec
+", tooltip="Window: 25.6 secs\nCH#3: Data\n Capacity: 2\n Volume: 3 (Total: 370)\n Saturation: 0%\n", color="#808080", penwidth=1];
+"point escaper" -> "colorer" [label="Total: 527
+Avg rate:  6.795 per/sec
+", tooltip="Window: 25.6 secs\nCH#4: Data\n Capacity: 50\n Volume: 2 (Total: 527)\n Saturation: 4%\n", color="#808080", penwidth=1];
+"screen worker" -> "work collector" [label="Total: 336
+Avg rate:  2.965 per/sec
+", tooltip="Window: 25.6 secs\nCH#17: Data\n Capacity: 50\n Volume: 0 (Total: 336)\n Saturation: 0%\n", color="#808080", penwidth=1];
+"window" -> "colorer" [label="Total: 4
 Avg rate:  0.000 per/sec
-", tooltip="Window: 25.6 secs\nCH#3: Data\n Capacity: 2\n Volume: 0 (Total: 310)\n Saturation: 0%\n", color="#808080", penwidth=1];
-"point escaper" -> "colorer" [label="Total: 483
+", tooltip="Window: 25.6 secs\nCH#1: Data\n Capacity: 50\n Volume: 0 (Total: 4)\n Saturation: 0%\n", color="#808080", penwidth=1];
+"window" -> "point escaper" [label="Total: 4
 Avg rate:  0.000 per/sec
-", tooltip="Window: 25.6 secs\nCH#9: Data\n Capacity: 50\n Volume: 3 (Total: 483)\n Saturation: 0%\n", color="#808080", penwidth=1];
-"screen worker" -> "work collector" [label="Total: 1293
-Avg rate:  0.000 per/sec
-", tooltip="Window: 25.6 secs\nCH#17: Data\n Capacity: 50\n Volume: 50 (Total: 1293)\n Saturation: 0%\n", color="#FF0000", penwidth=1];
-"window" -> "colorer" [label="Total: 1
-Avg rate:  0.000 per/sec
-", tooltip="Window: 25.6 secs\nCH#1: Data\n Capacity: 50\n Volume: 0 (Total: 1)\n Saturation: 0%\n", color="#808080", penwidth=1];
-"window" -> "point escaper" [label="Total: 1
-Avg rate:  0.000 per/sec
-", tooltip="Window: 25.6 secs\nCH#2: Data\n Capacity: 50\n Volume: 0 (Total: 1)\n Saturation: 0%\n", color="#808080", penwidth=1];
+", tooltip="Window: 25.6 secs\nCH#2: Data\n Capacity: 50\n Volume: 0 (Total: 4)\n Saturation: 0%\n", color="#808080", penwidth=1];
 "window" -> "screen worker" [label="Total: 0
 Avg rate:  0.000 per/sec
-", tooltip="Window: 25.6 secs\nCH#5: Data\n Capacity: 50\n Volume: 0 (Total: 0)\n Saturation: 0%\n", color="#808080", penwidth=1];
-"window" -> "work controller" [label="Total: 852
-Avg rate:  0.000 per/sec
-", tooltip="Window: 25.6 secs\nCH#4: Data\n Capacity: 50\n Volume: 0 (Total: 852)\n Saturation: 0%\n", color="#808080", penwidth=1];
-"work collector" -> "point escaper" [label="Total: 1257
-Avg rate:  0.000 per/sec
-", tooltip="Window: 25.6 secs\nCH#18: Data\n Capacity: 50\n Volume: 3 (Total: 1257)\n Saturation: 0%\n", color="#808080", penwidth=1];
-"work controller" -> "screen worker" [label="Total: 37
-Avg rate:  0.000 per/sec
-", tooltip="Window: 25.6 secs\nCH#10: Data\n Capacity: 50\n Volume: 0 (Total: 37)\n Saturation: 0%\n", color="#808080", penwidth=1];
+", tooltip="Window: 25.6 secs\nCH#7: Data\n Capacity: 50\n Volume: 0 (Total: 0)\n Saturation: 0%\n", color="#808080", penwidth=1];
+"window" -> "work controller" [label="Total: 314
+Avg rate:  5.585 per/sec
+", tooltip="Window: 25.6 secs\nCH#5: Data\n Capacity: 50\n Volume: 0 (Total: 314)\n Saturation: 0%\n", color="#808080", penwidth=1];
+"work collector" -> "point escaper" [label="Total: 319
+Avg rate:  2.695 per/sec
+", tooltip="Window: 25.6 secs\nCH#21: Data\n Capacity: 50\n Volume: 0 (Total: 319)\n Saturation: 0%\n", color="#808080", penwidth=1];
+"work controller" -> "screen worker" [label="Total: 18
+Avg rate:  0.270 per/sec
+", tooltip="Window: 25.6 secs\nCH#13: Data\n Capacity: 50\n Volume: 0 (Total: 18)\n Saturation: 0%\n", color="#808080", penwidth=1];
 }

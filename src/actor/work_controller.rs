@@ -373,7 +373,7 @@ fn handle_sampler_stuff<T: Clone + From<f32> + From<f32> + Clone + From<IntExp> 
         , total_bouts_today: 0
         , last_update: 0
         , res: state.worker_res
-        , scredge_poses: VecDeque::from(edges)
+        , screen_edge_poses: VecDeque::from(edges)
         , edge_queue: VecDeque::new()
         , out_queue: VecDeque::new()
         , in_queue: VecDeque::new()

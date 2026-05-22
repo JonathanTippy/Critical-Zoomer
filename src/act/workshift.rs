@@ -7,7 +7,7 @@ pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
 pub(crate) const MAX_PIXELS:usize = 1920*1080*4;
 
 #[derive(Clone, Debug)]
-pub(crate) enum Step {Scredge, In, Out, Edge, Random}
+pub(crate) enum Step {ScreenEdge, In, Out, Edge, Random}
 
 
 pub(crate) trait Floaty: Sub<Output=Self> + Add<Output=Self> + Mul<Output=Self> + Into<f64> + PartialOrd + Finite + Gt + Abs + From<f32> + Into<f64> + Copy {}
@@ -58,7 +58,7 @@ pub(crate) struct WorkContext<T:Copy> {
     , pub(crate) total_points_today: u32
     , pub(crate) spent_tokens_today: u32
     , pub(crate) res: (u32, u32)
-    , pub(crate) scredge_poses: VecDeque<(i32, i32)>
+    , pub(crate) screen_edge_poses: VecDeque<(i32, i32)>
     , pub(crate) edge_queue: VecDeque<((i32, i32), u32)>
     , pub(crate) out_queue: VecDeque<((i32, i32), u32)>
     , pub(crate) in_queue: VecDeque<((i32, i32), u32)>
@@ -163,30 +163,18 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
     while context.time_workshift_started.elapsed().as_millis()<10{//while context.index < total_points && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
 
 
-        let (pos, step) = match context.workshifts%4 {
+        let (pos, step) = if context.screen_edge_poses.len() > 0 {
+            (&context.screen_edge_poses[0], Step::ScreenEdge)
+        } else {
+            match context.workshifts%4 {
             0 => {
-                if context.workshifts < 20 {
-                    if context.scredge_poses.len()>0 {
-                        (&context.scredge_poses[0], Step::Scredge)
-                    } else if context.edge_queue.len()>0 {
-                        (&context.edge_queue[0].0, Step::Edge)
-                    } else if context.out_queue.len()>0{
-                        (&context.out_queue[0].0, Step::Out)
-                    } else if context.in_queue.len()>0 {
-                        (&context.in_queue[0].0, Step::In)
-                    } else {context.index = total_points-1; break;
-                    }
-                } else {
-                    if context.edge_queue.len()>0 {
-                        (&context.edge_queue[0].0, Step::Edge)
-                    } else if context.out_queue.len()>0{
-                        (&context.out_queue[0].0, Step::Out)
-                    } else if context.scredge_poses.len()>0 {
-                        (&context.scredge_poses[0], Step::Scredge)
-                    } else if context.in_queue.len()>0 {
-                        (&context.in_queue[0].0, Step::In)
-                    } else {context.index = total_points-1; break;
-                    }
+                if context.edge_queue.len()>0 {
+                    (&context.edge_queue[0].0, Step::Edge)
+                } else if context.out_queue.len()>0{
+                    (&context.out_queue[0].0, Step::Out)
+                } else if context.in_queue.len()>0 {
+                    (&context.in_queue[0].0, Step::In)
+                } else {context.index = total_points-1; break;
                 }
             }
             1 => {
@@ -194,8 +182,6 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
                     (&context.edge_queue[0].0, Step::Edge)
                 } else if context.out_queue.len()>0{
                     (&context.out_queue[0].0, Step::Out)
-                } else if context.scredge_poses.len()>0 {
-                    (&context.scredge_poses[0], Step::Scredge)
                 } else if context.in_queue.len()>0 {
                     (&context.in_queue[0].0, Step::In)
                 } else {context.index = total_points-1; break;}
@@ -205,8 +191,6 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
                     (&context.out_queue[0].0, Step::Out)
                 } else if context.edge_queue.len()>0 {
                     (&context.edge_queue[0].0, Step::Edge)
-                } else if context.scredge_poses.len()>0 {
-                    (&context.scredge_poses[0], Step::Scredge)
                 } else if context.in_queue.len()>0 {
                     (&context.in_queue[0].0, Step::In)
                 } else {context.index = total_points-1; break;
@@ -217,13 +201,12 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
                     (&context.edge_queue[0].0, Step::Edge)
                 } else if context.out_queue.len()>0{
                     (&context.out_queue[0].0, Step::Out)
-                } else if context.scredge_poses.len()>0 {
-                    (&context.scredge_poses[0], Step::Scredge)
                 } else if context.in_queue.len()>0 {
                     (&context.in_queue[0].0, Step::In)
                 } else {context.index = total_points-1; break;}
             }
             _ => {break}
+        }
         };
         context.workshifts+=1;
 
@@ -239,8 +222,8 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
                 Step::Out => {
                     let _ =  context.out_queue.pop_front();
                 }
-                Step::Scredge => {
-                    let _ = context.scredge_poses.pop_front();
+                Step::ScreenEdge => {
+                    let _ = context.screen_edge_poses.pop_front();
                 }
                 Step::In => {
                     let _ =  context.in_queue.pop_front();
@@ -278,8 +261,8 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
                 Step::Out => {
                     let _ =  context.out_queue.pop_front();
                 }
-                Step::Scredge => {
-                    let _ = context.scredge_poses.pop_front();
+                Step::ScreenEdge => {
+                    let _ = context.screen_edge_poses.pop_front();
                 }
                 Step::In => {
                     let _ =  context.in_queue.pop_front();
@@ -343,9 +326,9 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
                     context.in_queue.push_back(pos);
                     continue;
                 }*/
-                Step::Scredge => {
-                    //let pos = context.scredge_poses.pop_front().unwrap();
-                    //context.scredge_poses.push_back(pos);
+                Step::ScreenEdge => {
+                    //let pos = context.screen_edge_poses.pop_front().unwrap();
+                    //context.screen_edge_poses.push_back(pos);
                     let completed_point = {
                         CompletedPoint::Repeats{period: point.iterations-point.loop_detection_point.1, smallness: point.smallness_squared, small_time:point.small_time}
                     };
