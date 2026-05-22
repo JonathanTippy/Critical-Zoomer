@@ -76,7 +76,12 @@ git clone [https://github.com/JonathanTippy/Critical-Zoomer](https://github.com/
 
 - fix zoom too far | ✔️
 - settings page allows custom layering of colorings | ✔️
-- also allows animation of variables | ✔️
+- also allows animation of variables | ✔️  
+  
+## bug fixes 
+- fix slow startup ✔️
+- fix broken edge-first
+- fix stripey incompleteness ✔️
 
 ## Roadmap (named phases — detail in [SPEC.md](SPEC.md) §9)
 
@@ -84,7 +89,8 @@ git clone [https://github.com/JonathanTippy/Critical-Zoomer](https://github.com/
 | Phase                                     | Status      |
 | ----------------------------------------- | ----------- |
 | Interactive foundation (0.0.1–0.0.6)      | Done        |
-| Input-first zoom and cache                | In progress |
+| Workshift and workgroups                  | In progress |
+| Computed-work cache                       | Planned     |
 | Steady-state messaging                    | Planned     |
 | Period detection                          | Planned     |
 | Graphics processor (hybrid B)             | Planned     |
@@ -93,9 +99,5 @@ git clone [https://github.com/JonathanTippy/Critical-Zoomer](https://github.com/
 | Cross-platform (Linux, Windows, Mac, web) | Planned     |
 | Lookahead prefetch (gaze)                 | Planned     |
 | Exploration (path tracking, Julia)        | Planned     |
-
-
-Historical MVP checkmarks above remain accurate for 0.0.x shipped work.
-
 
 

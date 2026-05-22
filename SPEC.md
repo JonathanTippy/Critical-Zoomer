@@ -70,7 +70,7 @@ Use **spare cycles** when the viewport is done or low priority to prefetch compu
 | **Viewport pan lookahead** | ~1× neighborhood | Pan velocity | Edge regions warm when pan completes |
 | **Focus zoom lookahead** | Coin-sized patch | **Eye gaze** (required) | ~50× effective speedup for examined region |
 
-Mouse attention (`screen_worker`) helps flood-fill priority but **lags gaze** for zoom-intent prefetch.
+Mouse attention (`screen_worker`) helps frontier queue priority (section 5); attention is not yet merged into queue ordering. **Lags gaze** for zoom-intent prefetch.
 
 **Idle:** When complete or quiescent, token budget shifts to prefetch (lower than active viewport, cancellable on view change).
 
@@ -127,7 +127,7 @@ Retain finished compute as aggressively as the memory budget allows.
 
 **Required (finished app):** **Derivative-based periodicity detection** (or equivalent rigorous method). Must decide escape **or** repeat. On repeat: yield **approached period** for escaper/colorer and filaments.
 
-**Roadmap:** **Period detection phase** — after input-first, before classical perturbation.
+**Roadmap:** **Period detection phase** — after workshift and workgroups, before classical perturbation.
 
 ### 1.8 Smallness and small time (shipped)
 
@@ -139,7 +139,7 @@ Per-point **smallness** (smallest \|z\|² seen) and **small_time** (iteration at
 | `HighlightSmallTimeEdges` | Tree structure inside |
 | `PaintSmallness` | Minibrot valleys |
 
-First-class value-field features; preserved under compute/color separation.
+First-class value-field features; preserved under compute/color separation. **Small-time edge** frontier tracing is planned (section 5.2). **Frontier scheduling** along filament contours is planned (section 5.2); detection today is in the colorer only.
 
 ### 1.9 Graphics processor (roadmap)
 
@@ -152,7 +152,7 @@ Largest throughput win may be graphics-processor fill of iteration fields—not 
 | **In-filaments** | Neighbor escape times (`big_time`) — slope sign changes | Correct outside iteration through stage 2 |
 | **Out-filaments** | Neighbor loop periods increase across stencil | **Correct approached period** (section 1.7) |
 
-Value-field features; `HighlightInFilaments`, `HighlightOutFilaments` in default script.
+Value-field features; `HighlightInFilaments`, `HighlightOutFilaments` in default script. **Frontier scheduling** along filament contours is planned (section 5.2).
 
 ### 1.11 Product summary
 
@@ -238,7 +238,28 @@ Outcomes: `Escapes` or `Repeats` per `CompletedPoint`—only valid terminal stat
 
 **Conversion sketch (center ↔ corner, for UI):** Let resolution be (W, H). Internal pixel offset from top-left (px, py) corresponds to center-relative screenspace (sx, sy) with sx = px − W/2, sy = py − H/2 (integer half-width/half-height per chosen rounding rule). Map (sx, sy) to Δc in objective space using current `zoom_pot` and `PIXELS_PER_UNIT_POT` the same way pan/zoom already shifts `context.location.pos` in `sampling.rs`.
 
+### 3.3.1 Workgroup switching (required before perturbation)
+
+**Requires:** Shipped before classical perturbation (section 3.3).
+
+**Purpose:** Compare compute modes (direct today, perturbation later) by **switching which frame is shown** in settings—no diffing two code paths in one pipeline.
+
+**Per workgroup (duplicated):** work controller, screen worker, work collector.
+
+**Unchanged for this milestone:** escaper, colorer, window actors (no code changes).
+
+**Switch actor** (`src/actor/switch.rs` when implemented):
+
+- Receives `ResultsPackage` from each work collector; forwards one stream to escaper (same message type as today’s single collector).
+- `settings_in` from window: extend `SteadyTxBundle<Settings, 2>` to `3` in `window.rs` / `main.rs`; index `[2]` → switch, same broadcast pattern as colorer `[0]` and escaper `[1]`.
+- `Settings` gains `selected_workgroup`; window broadcasts full `Settings` to all settings consumers on change.
+- **All workgroups always run:** every WC/SW/collector keeps computing; switch always ingests all collector traffic; selection only chooses which slot is forwarded to escaper.
+
+See section 4.5.
+
 ### 3.3 Deep-zoom algorithms (roadmap)
+
+**Requires** section 3.3.1 (workgroup switching).
 
 **Perturbation theory:** Reference orbit Z_n at c₀; per-pixel δ with D_{n+1} = 2 Z_n D_n + D_n² + δc. Recompute reference on viewport jump.
 
@@ -345,9 +366,13 @@ Tiles optional for locality; **sparse active list required**.
 | ~10 ms workshift loop | No command channel poll until return |
 | `WorkUpdate` with `Vec` batches | Heap allocation per send |
 
-**Target:** Smaller working set (queues, frontier only); cooperative scheduling with **command/attention poll** between batches; order map + sparse point store as backbone.
+**Target:** Smaller working set (queues, frontier only); cooperative scheduling with **command/attention poll** between batches; frontier queues as backbone (section 5).
 
-**Pixel order maps (shipped):** `mixmap` / `random_map` in `work_controller.rs`. **Target:** first-class artifact—array or lazy generator; optional strategy function (spiral, Morton, gaze-weighted).
+**Forbidden at target scale:** `Vec<Point>` sized to pixel count; `mixmap` / `random_map` / any `Vec<usize>` of length `width × height` on the hot path or per `Replace`. **Required instead:** frontier deques + lazy coordinate/order generators (`perimeter_rank`, `visit_rank`, etc.).
+
+**Does not relax** section 4.4.1: escaper and colorer remain one instance each, full-frame every wake.
+
+**Pixel order maps (shipped):** `mixmap` / `random_map` in `work_controller.rs`. **Target:** lazy generator (spiral, Morton, gaze-weighted)—not a materialized O(pixels) index array.
 
 ### 4.3 Channel messages
 
@@ -384,15 +409,77 @@ While escaper and colorer operate on **whole `Vec` buffers** (before incremental
 
 **Future (§4.3):** Incremental indices and dirty tiles replace full-vec passes; until then, the contract above is the rendering pipeline model.
 
-**Future actors:** Reference orbit; series approximation planner; prefetch scheduler (lookahead).
+**Future actors:** Reference orbit; series approximation planner; prefetch scheduler (lookahead); **switch** (section 4.5).
+
+### 4.5 Workgroup switching (planned)
+
+**Target pipeline:**
+
+```
+window → [work controller → screen worker → work collector]×N
+              ↓ (each collector)
+           switch → escaper → colorer → window
+         Settings → escaper, colorer, switch (bundle of 3)
+```
+
+| Actor | Count | Notes |
+|-------|-------|-------|
+| work controller, screen worker, work collector | N (one chain per workgroup) | Window fans out viewport commands to every work controller |
+| switch | 1 | Merges per-group collector state; forwards selected group to escaper |
+| escaper, colorer, window | 1 each | Unchanged; section 4.4.1 still applies |
+
+**Settings:** `selected_workgroup` on `Settings`; window broadcasts to colorer, escaper, and switch (section 3.3.1).
 
 ---
 
-## 5. Computation and scheduling (current)
+## 5. Computation and scheduling
 
-**Shipped foundation:** ~10 ms workshift, token budget, flood-fill queues, attention, work reuse, cancel stale in-flight only, `iterate_max_n_times` per bout—incomplete points stay incomplete (not banned caps).
+**Shipped foundation:** ~10 ms workshift, token budget, frontier queues (section 5.1), attention, work reuse, cancel stale in-flight only, `iterate_max_n_times` per bout—incomplete points stay incomplete (not banned caps).
 
-**Input-first phase:** Workshift redesign (4.2); messaging alignment (4.3); knowledge leverage (`partial_knowledge.rs`), movement.
+**Workshift and workgroups phase:** Workshift redesign (section 4.2); frontier documentation (this section); switch actor + duplicate compute chains (section 4.5); messaging alignment (section 4.3).
+
+### 5.1 Shipped frontier (today)
+
+Implementation: `src/act/workshift.rs`, scredge seed in `src/actor/work_controller.rs`.
+
+| Mechanism | Queue / step | Behavior |
+|-----------|--------------|----------|
+| **Perimeter crawl** | `scredge_poses`, `Step::Scredge` | Viewport border positions, interleaved order at work-context build; prioritized for the first ~20 workshifts |
+| **Outside flood-fill** | `out_queue`, `Step::Out` | On escape, enqueue incomplete 4-neighbors (`queue_incomplete_neighbors`) — region grows inward from the boundary |
+| **Inside flood-fill** | `in_queue`, `Step::In` | On repeat, enqueue incomplete 4-neighbors (`queue_incomplete_neighbors_in`) |
+| **Set boundary** | `edge_queue`, `Step::Edge` | On `point_is_edge` (escape vs repeat, or period mismatch), enqueue 8-neighbors along the edge (`queue_incomplete_neighbors_of_edge`, `push_front`) |
+
+**Scheduling:** `workshifts % 4` rotates which queue is checked first among Edge / Out / Scredge / In.
+
+**Outside-first rationale:** Interior pixels spend more effort on periodicity checking; exterior escapes at R = 2 are cheaper per bout. Perimeter crawl plus outside flood-fill surfaces boundary structure before slow interior fill. Outside flood-fill is an adaptation of boundary tracing (region growth) running alongside true perimeter crawl.
+
+**Not used today:** `Step::Random` is never selected in the workshift loop; `mixmap` / `random_index` do not drive scheduling (legacy wiring only).
+
+### 5.2 Planned frontier tracing
+
+Boundary tracing (thin contours, not full 4-neighbor flood) along:
+
+| Feature | Detection (today) | Scheduling (planned) |
+|---------|-------------------|----------------------|
+| **Out-filaments** | `is_in_filament` in `src/act/color.rs` | Contour-following queue after neighbor `big_time` is available |
+| **In-filaments** | `is_out_filament` in `src/act/color.rs` | Contour-following queue; depends on trustworthy periods (section 1.7) |
+| **Small-time edges** | `is_node_tree` / `HighlightSmallTimeEdges` | Contour-following on `small_time` ridges |
+
+No separate roadmap row; documented here only.
+
+### 5.3 Sparse workshift (target)
+
+Aligns with section 4.2: drop dense `Vec<Point>` and O(pixels) index maps; keep frontier deques and lazy generators for perimeter and fallback visit order.
+
+**Frontier invariant:** Enqueue only **incomplete** pixels adjacent to a completed cell or an explicit seed—the active set stays on the **incomplete↔complete boundary**. Completion is monotone; no spatial backtracking. Optional `queued` set to dedupe duplicate flood entries.
+
+Each workgroup owns its own frontier state when workgroup switching (section 4.5) ships.
+
+### 5.4 Post-collector (escaper / colorer)
+
+Section 4.4.1 is unchanged: **one** escaper and **one** colorer; full `width × height` every wake; batch size and workgroup selection must not shorten their loops.
+
+Frontier rules in sections 5.1–5.3 apply to the **screen worker** only. The switch actor (section 4.5) only changes which merged `ResultsPackage` feeds escaper; it does not permit escaper or colorer culling.
 
 ---
 
@@ -447,11 +534,12 @@ Phases ordered by dependency.
 | Phase | Scope | Status |
 |-------|-------|--------|
 | **Interactive foundation** | Window, actors, workshift, work reuse, flood fill, settings, `IntExp` | **Done** (0.0.1–0.0.6) |
-| **Input-first zoom and cache** | Instant input; 100 MB–1 GB cache; workshift redesign; graph runtime naming | **In progress** |
+| **Workshift and workgroups** | Frontier scheduling (§5); switch actor + duplicate WC/SW/collector (§4.5); sparse workshift direction (§4.2); graph runtime naming | **In progress** |
+| **Computed-work cache** | §1.5 memory budget 100 MB–1 GB, eviction, resize reuse | **Planned** |
 | **Steady-state messaging** | Point-sized messages; slice APIs; no full-screen `Vec` on hot path | **Planned** |
 | **Period detection** | Derivative-based prover; remove `max_period` | **Planned** |
 | **Graphics processor** | Option B; GPU workshift + refangle; CPU escaper/colorer | **Planned** |
-| **Classical perturbation** | Reference orbit + δ iteration | **Planned** |
+| **Classical perturbation** | Reference orbit + δ iteration; requires §3.3.1 | **Planned** |
 | **Perturperturbation (research)** | Experimental perturbed reference | **Research** |
 | **Series approximation** | Taylor orders, error bounds, region skipping | **Planned** |
 | **Cross-platform** | Linux X11+Wayland, Windows, macOS, web | **Planned** |
@@ -512,6 +600,12 @@ Phases ordered by dependency.
 
 1. Prefetch uses spare cycles without blocking instant input.
 2. Gaze-directed zoom measurably faster than off-gaze control.
+
+### Workshift and workgroups phase
+
+1. Section 5 matches `workshift.rs` queue behavior (scredge, out/in flood-fill, edge queue).
+2. Switch actor + two compute workgroups; toggle `selected_workgroup` changes the visible image without escaper or colorer code changes.
+3. Roadmap lists **Workshift and workgroups** (in progress) and **Computed-work cache** (planned) as separate phases.
 
 ---
 
@@ -578,7 +672,11 @@ Goal for **steady-state messaging phase:** hot path matches L3-friendly access, 
 
 **Preview:** `src/action/sampling.rs` — `sample()` on viewport commands.
 
-**Workshift:** `src/action/workshift.rs` — `workshift()`, stage-1 escape at R = 2.
+**Workshift:** `src/act/workshift.rs` — `workshift()`, `Step`, frontier queues (`scredge_poses`, `out_queue`, `in_queue`, `edge_queue`), `queue_incomplete_*`, `point_is_edge`.
+
+**Scredge seed:** `src/actor/work_controller.rs` — perimeter positions into `scredge_poses`.
+
+**Switch (planned):** `src/actor/switch.rs` — per-collector ingest, `selected_workgroup`, forward to escaper.
 
 **Color:** `src/actor/colorer.rs` — `color(v, &mut settings)` on cached values.
 
