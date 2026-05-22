@@ -26,6 +26,7 @@ pub(crate) mod act {
     pub(crate) mod color;
     pub(crate) mod constants;
     pub(crate) mod boot_trace;
+    pub(crate) mod viewport_shift;
 }
 
 use std::thread;

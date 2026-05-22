@@ -240,12 +240,7 @@ fn sample_color(
     , relative_pos: (i32, i32)
     , relative_zoom_pot: i64
 ) -> Color32 {
-    let rel = transform_relative_location_i32(
-        relative_location_i32_row_and_seat(seat, row),
-        (relative_pos.0, relative_pos.1),
-        relative_zoom_pot,
-    );
-    let Some(index) = optional_index_from_relative_location(rel, data_res, data_len) else {
+    let Some(index) = remap_source_index_strict(seat, row, relative_pos, relative_zoom_pot, data_res) else {
         return Color32::from_rgb(WINDOW_IDK_RGB.0, WINDOW_IDK_RGB.1, WINDOW_IDK_RGB.2);
     };
     let color = pixels[index];
@@ -299,6 +294,48 @@ pub(crate) fn optional_index_from_relative_location(l: (i32, i32), data_res: (u3
 }
 
 #[inline]
+fn source_relative_location(
+    seat: usize,
+    row: usize,
+    relative_pos: (i32, i32),
+    relative_zoom_pot: i64,
+) -> (i32, i32) {
+    transform_relative_location_i32(
+        relative_location_i32_row_and_seat(seat, row),
+        relative_pos,
+        relative_zoom_pot,
+    )
+}
+
+/// Preview remap: strict in-bounds only (`None` → display hole / purple).
+#[inline]
+pub(crate) fn remap_source_index_strict(
+    seat: usize,
+    row: usize,
+    relative_pos: (i32, i32),
+    relative_zoom_pot: i64,
+    data_res: (u32, u32),
+) -> Option<usize> {
+    let rel = source_relative_location(seat, row, relative_pos, relative_zoom_pot);
+    let data_len = (data_res.0 * data_res.1) as usize;
+    optional_index_from_relative_location(rel, data_res, data_len)
+}
+
+/// Work-collector smearing: boundary extension into the prior buffer when source is OOB.
+#[inline]
+pub(crate) fn remap_source_index_smearing(
+    seat: usize,
+    row: usize,
+    relative_pos: (i32, i32),
+    relative_zoom_pot: i64,
+    data_res: (u32, u32),
+) -> usize {
+    let rel = source_relative_location(seat, row, relative_pos, relative_zoom_pot);
+    let data_len = (data_res.0 * data_res.1) as usize;
+    index_from_relative_location(rel, data_res, data_len)
+}
+
+#[inline]
 pub(crate) fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom: i64) -> (i32, i32) {
     // move + zoom
 
@@ -319,4 +356,46 @@ pub(crate) fn update_sampling_context(context: &mut SamplingContext, screen: Zoo
     }*/
     context.screen = Some(screen);
 
+}
+
+#[cfg(test)]
+mod remap_tests {
+    use super::*;
+
+    const RES: (u32, u32) = (800, 480);
+
+    #[test]
+    fn preview_strict_oob_returns_none() {
+        let rel = (100, 0);
+        let zoom = 0i64;
+        assert!(remap_source_index_strict(50, 240, rel, zoom, RES).is_none());
+        assert!(remap_source_index_strict(0, 0, rel, zoom, RES).is_none());
+        assert_eq!(remap_source_index_strict(100, 240, rel, zoom, RES), Some(240 * 800));
+    }
+
+    #[test]
+    fn smearing_boundary_extension_on_pan() {
+        let rel = (100, 0);
+        let zoom = 0i64;
+        assert_eq!(remap_source_index_smearing(100, 240, rel, zoom, RES), 240 * 800);
+        assert_eq!(remap_source_index_smearing(50, 240, rel, zoom, RES), 240 * 800);
+    }
+
+    #[test]
+    fn zoom_out_strict_vs_smearing() {
+        let rel = (0, 0);
+        let zoom = -1i64;
+        assert_eq!(remap_source_index_strict(0, 0, rel, zoom, RES), Some(0));
+        assert!(remap_source_index_strict(799, 479, rel, zoom, RES).is_none());
+        assert_eq!(remap_source_index_smearing(0, 0, rel, zoom, RES), 0);
+        assert_eq!(remap_source_index_smearing(799, 479, rel, zoom, RES), 799 + 479 * 800);
+    }
+
+    #[test]
+    fn zoom_in_center_maps_in_bounds() {
+        let rel = (0, 0);
+        let zoom = 1i64;
+        assert_eq!(remap_source_index_strict(400, 240, rel, zoom, RES), Some(120 * 800 + 200));
+        assert_eq!(remap_source_index_smearing(400, 240, rel, zoom, RES), 120 * 800 + 200);
+    }
 }

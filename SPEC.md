@@ -113,6 +113,8 @@ Retain finished compute as aggressively as a single **whole-app memory budget** 
 
 **Rules:** Eviction under active **`limit_mb`**; prefer `sample_old_values` on resize; regenerate colors from `ScreenValue`; viewport wins over lookahead under pressure.
 
+**Productive smearing (same-resolution pan, shipped):** When remapping retained `ResultsPackage` after pan, each destination cell samples the prior buffer at the transformed coordinate. If that source lies outside the prior grid, **boundary extension** applies: use the prior-buffer cell at the extended boundary (`index_from_relative_location` in `src/act/sampling.rs`) so known `CompletedPoint`s occupy adjacent exposed cells. While panning, a widened band of smeared-known values may appear ahead of fresh compute (**semi-dynamic-res during move**); only cells with no prior coverage remain `Dummy` until the worker completes them. The **preview** path uses strict in-bounds remap only (`remap_source_index_strict` → purple holes). The **work collector** and worker pan-shift use smearing (`remap_source_index_smearing`). Implementation: `sample_old_values` in `src/actor/work_collector.rs`, `pan_shift_work_context` in `src/act/viewport_shift.rs`.
+
 ### 1.6 Completion law
 
 **Banned in finished app (worker / period path):**

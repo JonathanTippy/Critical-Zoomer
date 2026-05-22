@@ -7,7 +7,9 @@ use crate::act::workshift::*;
 //use crate::actor::work_collector::*;
 use crate::actor::work_controller::*;
 use crate::act::boot_trace;
+use crate::act::viewport_shift::pan_shift_work_context;
 use crate::act::workshift::CompletedPoint;
+use crate::actor::work_controller::objective_to_worker_loc;
 
 
 
@@ -46,7 +48,7 @@ pub async fn run(
         .await
 }
 
-async fn internal_behavior<A: SteadyActor, T: Send + std::fmt::Debug + Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + crate::act::workshift::Finite + crate::act::workshift::Gt + crate::act::workshift::Abs + From<f32> + Into<f64> + Copy>(
+async fn internal_behavior<A: SteadyActor, T: Send + std::fmt::Debug + Clone + From<f32> + From<crate::act::utils::IntExp> + Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + crate::act::workshift::Finite + crate::act::workshift::Gt + crate::act::workshift::Abs + Into<f64> + Copy>(
     mut actor: A,
     commands_in: SteadyRx<WorkerCommand<T>>,
     updates_out: SteadyTx<WorkUpdate<T>>,
@@ -107,15 +109,67 @@ async fn internal_behavior<A: SteadyActor, T: Send + std::fmt::Debug + Sub<Outpu
             };
 
             match actor.try_take(&mut commands_in).unwrap() {
+                WorkerCommand::Pan { frame_info } => {
+                    if let Some((ctx, old_frame)) = &mut state.work_context {
+                        if old_frame.1 == frame_info.1 {
+                            let u = work_update(ctx);
+                            if !u.is_empty() {
+                                actor.try_send(
+                                    &mut updates_out,
+                                    WorkUpdate {
+                                        frame_info: None,
+                                        completed_points: u,
+                                    },
+                                );
+                            }
+                            let old_loc = old_frame.0.clone();
+                            pan_shift_work_context(
+                                ctx,
+                                &old_loc,
+                                &frame_info.0,
+                                objective_to_worker_loc(&frame_info.0),
+                            );
+                            *old_frame = frame_info.clone();
+                            actor.try_send(
+                                &mut updates_out,
+                                WorkUpdate {
+                                    frame_info: Some(frame_info),
+                                    completed_points: vec![],
+                                },
+                            );
+                        } else {
+                            drop(frame_info);
+                        }
+                    }
+                }
 
-                WorkerCommand::Replace{frame_info: frame_info, context:ctx} => {
-                    if let Some((old_ctx, old_frame_info)) = &mut state.work_context {
+                WorkerCommand::Replace { frame_info, context: ctx } => {
+                    let new_res = frame_info.1;
+                    let old_res = state.work_context.as_ref().map(|(_, fi)| fi.1);
+                    let res_changed = old_res.is_some_and(|r| r != new_res);
+                    if let Some((old_ctx, _old_frame_info)) = &mut state.work_context {
                         let U = work_update(old_ctx);
 
                         if U.len() > 0 {
                             actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:U});
                         }
 
+                        if res_changed {
+                            state.total_workshifts = 0;
+                            if let Some(old_res) = old_res {
+                                boot_trace::boot_once(
+                                    "sw_replace_resize",
+                                    &format!(
+                                        r#"{{"old_res":[{},{}],"new_res":[{},{}],"points":{}}}"#,
+                                        old_res.0,
+                                        old_res.1,
+                                        new_res.0,
+                                        new_res.1,
+                                        ctx.points.len()
+                                    ),
+                                );
+                            }
+                        }
                         state.work_context = Some((ctx, frame_info.clone()));
                         actor.try_send(&mut updates_out, WorkUpdate{frame_info:Some(frame_info), completed_points:vec!()});
 
