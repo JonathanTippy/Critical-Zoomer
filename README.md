@@ -90,13 +90,13 @@ git clone [https://github.com/JonathanTippy/Critical-Zoomer](https://github.com/
 | ----------------------------------------- | ----------- |
 | Interactive foundation (0.0.1–0.0.6)      | Done        |
 | Workshift and workgroups                  | In progress |
+| Cross-platform (Linux, Windows, Mac, web) | Planned     |
 | Computed-work cache                       | Planned     |
 | Steady-state messaging                    | Planned     |
 | Period detection                          | Planned     |
 | Graphics processor (hybrid B)             | Planned     |
 | Classical perturbation                    | Planned     |
 | Series approximation                      | Planned     |
-| Cross-platform (Linux, Windows, Mac, web) | Planned     |
 | Lookahead prefetch (gaze)                 | Planned     |
 | Exploration (path tracking, Julia)        | Planned     |
 

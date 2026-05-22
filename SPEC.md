@@ -14,10 +14,12 @@ This document uses plain language. Requirement IDs like `LR-1` or `AC-*` are not
 
 The heart of the project is to meet **completeness** and **speed** **at once**. That pairing is a **problem** in the constructive sense: a **good stress**, a **request that needs help**—not something to shy away from.
 
-| Pole | What it asks |
-|------|----------------|
-| **Completeness** | Every pixel **finished** (escaped with correct metrics, or proven periodic with approached period) or **explicitly not done yet** |
-| **Speed** | Deliver that **as fast as the user cares to go** (zero input wait, deep zoom, retention, lookahead, perturbation, series approximation, graphics processor, …) |
+
+| Pole             | What it asks                                                                                                                                                   |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Completeness** | Every pixel **finished** (escaped with correct metrics, or proven periodic with approached period) or **explicitly not done yet**                              |
+| **Speed**        | Deliver that **as fast as the user cares to go** (zero input wait, deep zoom, retention, lookahead, perturbation, series approximation, graphics processor, …) |
+
 
 The spec’s **telos** is to **answer both requests together**. Engineering (actors, cache, two-stage bailout, smallness, period detection, perturbation, perturperturbation experiments, series approximation, prefetch, graphics processor, platforms) serves that core stress.
 
@@ -46,11 +48,13 @@ Responsiveness is **input-first**. Full-precision iteration for every pixel at e
 
 **Shipped pipeline:**
 
-| Stage | Module | Artifact | Recomputable without iteration? |
-|-------|--------|----------|--------------------------------|
-| Iterate | `src/action/workshift.rs` | `CompletedPoint` | — |
-| Derive metrics | `src/actor/escaper.rs` | `ScreenValue` in `ZoomerValuesScreen` | Only if bailout-derived fields change |
-| Color | `src/actor/colorer.rs`, `src/action/color.rs` | `color()` → pixels | **Yes** — colorer re-runs on cached values when `Settings` updates |
+
+| Stage          | Module                                        | Artifact                              | Recomputable without iteration?                                    |
+| -------------- | --------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------ |
+| Iterate        | `src/action/workshift.rs`                     | `CompletedPoint`                      | —                                                                  |
+| Derive metrics | `src/actor/escaper.rs`                        | `ScreenValue` in `ZoomerValuesScreen` | Only if bailout-derived fields change                              |
+| Color          | `src/actor/colorer.rs`, `src/action/color.rs` | `color()` → pixels                    | **Yes** — colorer re-runs on cached values when `Settings` updates |
+
 
 Settings and `Animable` fields feed escaper and colorer independently of the screen worker.
 
@@ -65,10 +69,12 @@ Settings and `Animable` fields feed escaper and colorer independently of the scr
 
 Use **spare cycles** when the viewport is done or low priority to prefetch compute for where the user is **about to be**.
 
-| Mode | Scale | Trigger | Purpose |
-|------|-------|---------|---------|
-| **Viewport pan lookahead** | ~1× neighborhood | Pan velocity | Edge regions warm when pan completes |
-| **Focus zoom lookahead** | Coin-sized patch | **Eye gaze** (required) | ~50× effective speedup for examined region |
+
+| Mode                       | Scale            | Trigger                 | Purpose                                    |
+| -------------------------- | ---------------- | ----------------------- | ------------------------------------------ |
+| **Viewport pan lookahead** | ~1× neighborhood | Pan velocity            | Edge regions warm when pan completes       |
+| **Focus zoom lookahead**   | Coin-sized patch | **Eye gaze** (required) | ~50× effective speedup for examined region |
+
 
 Mouse attention (`screen_worker`) helps frontier queue priority (section 5); attention is not yet merged into queue ordering. **Lags gaze** for zoom-intent prefetch.
 
@@ -76,26 +82,36 @@ Mouse attention (`screen_worker`) helps frontier queue priority (section 5); att
 
 ### 1.4 Two-stage escape and animated bailout (shipped)
 
-| Stage | Where | Threshold | Output |
-|-------|-------|-----------|--------|
-| **1 — Standard escape** | Screen worker | **R = 2** (`\|z\|^2 > 4`) | `CompletedPoint::Escapes { escape_time, escape_location, … }` |
-| **2 — Bailout extension** | Escaper | Animatable **bailout radius** R_b | `ScreenValue::Outside { big_time, … }` |
+
+| Stage                     | Where         | Threshold                         | Output                                                        |
+| ------------------------- | ------------- | --------------------------------- | ------------------------------------------------------------- |
+| **1 — Standard escape**   | Screen worker | **R = 2** (`|z|^2 > 4`)           | `CompletedPoint::Escapes { escape_time, escape_location, … }` |
+| **2 — Bailout extension** | Escaper       | Animatable **bailout radius** R_b | `ScreenValue::Outside { big_time, … }`                        |
+
 
 Worker iterates only to R = 2; escaper continues from stored (c, z) to R_b. Animated bailout updates outside coloring without worker rerun.
 
 **Known limitation — main antenna / (-2, 0):** Many pixels sit on the R ≈ 2 boundary; stage 2 crawls → animated bailout loses “superpower” speed. `bailout_max_additional_iterations` is an interim cap (section 1.6).
 
-### 1.5 Retain completed work + memory budget
+### 1.5 Retain completed work + whole-app memory budget
 
-Retain finished compute as aggressively as the memory budget allows.
+Retain finished compute as aggressively as a single **whole-app memory budget** allows. The user-facing setting is **not** a separate knob for one buffer—it caps all in-scope retained compute for the running session.
 
-- **Window resizing:** Freely allowed; pixel maps vary with resolution.
-- **Computed-work cache:** One setting, **100 MB – 1 GB** (inclusive). **Default: 512 MB** (`computed_work_cache_mb`).
-- **Term:** `ResultsPackage`, remapped tiles, `ZoomerValuesScreen` pins, lookahead—not actor stacks (`main.rs` 200 MiB graph thread) or UI textures.
+**In scope (counted toward the budget):** Merged `ResultsPackage` and `ZoomerValuesScreen` data, remapped tiles, per-workgroup collector merge state when section 4.5 ships, lookahead retention pins—everything the app keeps for reuse under the **current** viewport resolution.
 
-**Shipped today:** ~2-frame implicit retention; no enforced budget.
+**Out of scope (not counted, or fixed overhead only):** Graph runtime actor stacks (`main.rs` 200 MiB graph thread), UI textures, preview framebuffer.
 
-**Rules:** User limit ∈ [100, 1024] MB; eviction under limit; prefer `sample_old_values` on resize; regenerate colors from `ScreenValue`; viewport wins over lookahead under pressure.
+**Window resizing:** Freely allowed; pixel maps vary with resolution.
+
+**Upper bound:** User limit at most **1 GB** (`limit_mb ≤ 1024`). **Default: 512 MB** until implementation picks a better default.
+
+**Lower bound (resolution-derived):** Define **`min_budget_mb`** from the **actual current screen size** (`width × height`) and documented per-pixel / per-workgroup retention costs (implementation supplies constants; spec requires the function exists and updates on every resize). The user setting must always satisfy **`limit_mb ≥ min_budget_mb`**. There is **no** fixed normative 100 MB floor—a small reference resolution may yield ~100 MB in an example only.
+
+**Resize — force higher limit when needed:** On resize, recompute **`min_budget_mb`**. If the user’s **`limit_mb`** is below the new minimum, **raise** the effective limit to **`min_budget_mb`** (persisted setting and UI reflect the bump). The app must not run a viewport whose required retention minimum exceeds the active budget. If the window shrinks, **`min_budget_mb`** may decrease; **`limit_mb`** may stay above the new minimum (no automatic lowering). Eviction still obeys **`limit_mb`** when it is above the minimum.
+
+**Shipped today:** ~2-frame implicit retention; no enforced budget or dynamic minimum.
+
+**Rules:** Eviction under active **`limit_mb`**; prefer `sample_old_values` on resize; regenerate colors from `ScreenValue`; viewport wins over lookahead under pressure.
 
 ### 1.6 Completion law
 
@@ -109,17 +125,19 @@ Retain finished compute as aggressively as the memory budget allows.
 
 - **Per-workshift effort limits** — pixel stays incomplete, returns next pass
 - **Cancel stale in-flight work** on viewport change
-- **`bailout_max_additional_iterations`** (escaper stage 2) — intentional antenna workaround until dedicated strategy
+- `**bailout_max_additional_iterations`** (escaper stage 2) — intentional antenna workaround until dedicated strategy
 
 **Normative completion:**
 
 - **Escape:** z² > R² at R = 2 (worker); stage 2 toward R_b subject to escaper cap
 - **Inside / periodic:** period detection certifies repeat → `Repeats { period, smallness, small_time, … }`
 
-| Location | Status |
-|----------|--------|
-| `workshift.rs` `determine_period` `max_period = 100000` | **Violation** — fix in period detection phase |
-| `settings.rs` + `escaper.rs` `bailout_max_additional_iterations` | **Allowed workaround** |
+
+| Location                                                         | Status                                        |
+| ---------------------------------------------------------------- | --------------------------------------------- |
+| `workshift.rs` `determine_period` `max_period = 100000`          | **Violation** — fix in period detection phase |
+| `settings.rs` + `escaper.rs` `bailout_max_additional_iterations` | **Allowed workaround**                        |
+
 
 ### 1.7 Periodicity detection (required)
 
@@ -131,13 +149,15 @@ Retain finished compute as aggressively as the memory budget allows.
 
 ### 1.8 Smallness and small time (shipped)
 
-Per-point **smallness** (smallest \|z\|² seen) and **small_time** (iteration at minimum), stored on `CompletedPoint` / `ScreenValue`.
+Per-point **smallness** (smallest z² seen) and **small_time** (iteration at minimum), stored on `CompletedPoint` / `ScreenValue`.
 
-| Layer | Effect |
-|-------|--------|
-| `PaintSmallTime` | Bubbles outside; pinwheel inside |
-| `HighlightSmallTimeEdges` | Tree structure inside |
-| `PaintSmallness` | Minibrot valleys |
+
+| Layer                     | Effect                           |
+| ------------------------- | -------------------------------- |
+| `PaintSmallTime`          | Bubbles outside; pinwheel inside |
+| `HighlightSmallTimeEdges` | Tree structure inside            |
+| `PaintSmallness`          | Minibrot valleys                 |
+
 
 First-class value-field features; preserved under compute/color separation. **Small-time edge** frontier tracing is planned (section 5.2). **Frontier scheduling** along filament contours is planned (section 5.2); detection today is in the colorer only.
 
@@ -147,35 +167,41 @@ Largest throughput win may be graphics-processor fill of iteration fields—not 
 
 ### 1.10 Filaments (shipped)
 
-| Kind | Detection | Depends on |
-|------|-------------|------------|
-| **In-filaments** | Neighbor escape times (`big_time`) — slope sign changes | Correct outside iteration through stage 2 |
-| **Out-filaments** | Neighbor loop periods increase across stencil | **Correct approached period** (section 1.7) |
+
+| Kind              | Detection                                               | Depends on                                  |
+| ----------------- | ------------------------------------------------------- | ------------------------------------------- |
+| **In-filaments**  | Neighbor escape times (`big_time`) — slope sign changes | Correct outside iteration through stage 2   |
+| **Out-filaments** | Neighbor loop periods increase across stencil           | **Correct approached period** (section 1.7) |
+
 
 Value-field features; `HighlightInFilaments`, `HighlightOutFilaments` in default script. **Frontier scheduling** along filament contours is planned (section 5.2).
 
 ### 1.11 Product summary
 
-| Field | Content |
-|-------|---------|
-| **Name** | Critical-Zoomer |
-| **Primary goal** | Deep Mandelbrot exploration at user-driven speed with **zero perceived input latency** |
-| **Platform (today)** | Linux desktop, X11-oriented (`window.rs`) |
-| **Platform (required)** | One codebase: Linux X11 + Wayland, Windows, macOS, web |
-| **Non-goals** | Per-OS forks; general fractal suite; cloud-only rendering |
+
+| Field                   | Content                                                                                |
+| ----------------------- | -------------------------------------------------------------------------------------- |
+| **Name**                | Critical-Zoomer                                                                        |
+| **Primary goal**        | Deep Mandelbrot exploration at user-driven speed with **zero perceived input latency** |
+| **Platform (today)**    | Linux desktop, X11-oriented (`window.rs`)                                              |
+| **Platform (required)** | One codebase: Linux X11 + Wayland, Windows, macOS, web                                 |
+| **Non-goals**           | Per-OS forks; general fractal suite; cloud-only rendering                              |
+
 
 **Current vs target:**
 
-| Capability | Shipped (0.0.x) | Target |
-|------------|-----------------|--------|
-| Viewport math | `IntExp` + `zoom_pot` | Same; reference for series approximation |
-| Per-pixel iteration | `f64` direct | Perturbation + series approximation |
-| Scroll response | Preview + cancel stale work | Instant every tick |
-| Compute vs color | `ZoomerValuesScreen` + on-demand `color()` | Preserve through deep-zoom algorithms |
-| Work retention | ~2-frame implicit | 100 MB–1 GB cache; free resize |
-| Completion law | `max_period` debt | Period detection phase |
-| Graphics processor | CPU actors only | Option B + GPU workshift (3.6) |
-| Platforms | Linux X11 | X11, Wayland, Windows, Mac, web |
+
+| Capability          | Shipped (0.0.x)                            | Target                                   |
+| ------------------- | ------------------------------------------ | ---------------------------------------- |
+| Viewport math       | `IntExp` + `zoom_pot`                      | Same; reference for series approximation |
+| Per-pixel iteration | `f64` direct                               | Perturbation + series approximation      |
+| Scroll response     | Preview + cancel stale work                | Instant every tick                       |
+| Compute vs color    | `ZoomerValuesScreen` + on-demand `color()` | Preserve through deep-zoom algorithms    |
+| Work retention      | ~2-frame implicit                          | Whole-app budget; `min_budget_mb` from resolution; up to 1 GB; resize may raise limit |
+| Completion law      | `max_period` debt                          | Period detection phase                   |
+| Graphics processor  | CPU actors only                            | Option B + GPU workshift (3.6)           |
+| Platforms           | Linux X11                                  | X11, Wayland, Windows, Mac, web          |
+
 
 ---
 
@@ -189,12 +215,14 @@ Value-field features; `HighlightInFilaments`, `HighlightOutFilaments` in default
 
 ### 2.1 Input and zoom requirements
 
-| Requirement | Definition |
-|-------------|------------|
-| **Instant input** | Viewport and preview update within the same UI frame as each scroll/drag event |
-| **Latest viewport wins** | Discard stale worker frames; latest viewport always wins |
-| **Progressive refinement** | Pixels may be low-res briefly; must not block input |
-| **Rapid deep-zoom gestures** | ~10× 2× ticks (1024×): preview stays interactive |
+
+| Requirement                  | Definition                                                                     |
+| ---------------------------- | ------------------------------------------------------------------------------ |
+| **Instant input**            | Viewport and preview update within the same UI frame as each scroll/drag event |
+| **Latest viewport wins**     | Discard stale worker frames; latest viewport always wins                       |
+| **Progressive refinement**   | Pixels may be low-res briefly; must not block input                            |
+| **Rapid deep-zoom gestures** | ~10× 2× ticks (1024×): preview stays interactive                               |
+
 
 **Normative:** One scroll tick = **2×** zoom (`pot` ± 1). Verify/implement consistently on all platforms.
 
@@ -277,12 +305,14 @@ Experimental: **reference orbit itself** perturbed; hypothesis that interior dyn
 
 **Stack:** egui + eframe + winit (0.32.x); single actor/window architecture.
 
-| Target | Requirement |
-|--------|-------------|
-| Linux | X11 and Wayland |
-| Windows | Native via eframe/winit |
-| macOS | Native via eframe/winit |
-| Web | Browser build; graph runtime + egui threading may need adaptation |
+
+| Target  | Requirement                                                       |
+| ------- | ----------------------------------------------------------------- |
+| Linux   | X11 and Wayland                                                   |
+| Windows | Native via eframe/winit                                           |
+| macOS   | Native via eframe/winit                                           |
+| Web     | Browser build; graph runtime + egui threading may need adaptation |
+
 
 One crate; target cfgs and feature flags—not duplicate apps. Same feature set on all surfaces where OS policy allows.
 
@@ -292,39 +322,32 @@ One crate; target cfgs and feature flags—not duplicate apps. Same feature set 
 
 **Standard GPU fractal app:** One program per pixel; iteration in shader; colors baked in—loses section 1.2 and filaments unless rebuilt.
 
-| Option | Summary | Fits core stress |
-|--------|---------|------------------|
-| **A — Actors only** | Improve worker, messaging; GPU deferred | Strong |
-| **B — Hybrid: GPU iterate, CPU rest** | GPU textures for escape time, period estimate, smallness, small_time; escaper + colorer on CPU | **Preferred** |
-| **C — GPU iterate + GPU color** | Two shader stages | Medium |
-| **D — Full GPU pipeline** | Typical explorers; actors UI-only | Weak for product identity |
-| **E — Tile hybrid** | GPU fills tiles; order map picks tile | Strong |
+
+| Option                                | Summary                                                                                        | Fits core stress          |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------- |
+| **A — Actors only**                   | Improve worker, messaging; GPU deferred                                                        | Strong                    |
+| **B — Hybrid: GPU iterate, CPU rest** | GPU textures for escape time, period estimate, smallness, small_time; escaper + colorer on CPU | **Preferred**             |
+| **C — GPU iterate + GPU color**       | Two shader stages                                                                              | Medium                    |
+| **D — Full GPU pipeline**             | Typical explorers; actors UI-only                                                              | Weak for product identity |
+| **E — Tile hybrid**                   | GPU fills tiles; order map picks tile                                                          | Strong                    |
+
 
 **Near term:** Option A + sections 4.2–4.3.  
 **First GPU experiment:** **B with graphics-processor workshift** (3.6.2); optional dirty tiles (3.6.1).  
 **Technology sketch:** Rust wgpu; compute shader → float textures; CPU readback for escaper; egui texture display.
 
-#### 3.6.1 Done pixels and wasted GPU cycles
-
-Naïve full-frame dispatch spends launches on finished pixels. Mitigations (at least one required for GPU phase):
-
-1. **Done / stale bitmask** in value texture — early return in shader.
-2. **Dirty regions / tiles** — dispatch only changed rectangles.
-3. **Sparse incomplete list** — CPU-maintained active set per launch.
-4. **Scoped readback** — escaper reads only dirty regions.
-
-**Warp divergence** (different iteration counts in one warp) is separate from done-pixel waste; bounded passes help both.
-
 #### 3.6.2 Graphics-processor workshift
 
 GPU mirrors CPU workshift: **repeated bounded passes**, then **refangle** (rebuild) the active point set.
 
-| CPU workshift (target) | GPU workshift |
-|------------------------|---------------|
-| Batch budget or ~10 ms today | **Max iterations per launch** per active point |
-| Incomplete → next pass | Same |
-| Complete → leave frontier | Removed from next launch; written to texture |
-| Order map picks who | Refangle: compact buffer / indirect dispatch = incompletes only |
+
+| CPU workshift (target)       | GPU workshift                                                   |
+| ---------------------------- | --------------------------------------------------------------- |
+| Batch budget or ~10 ms today | **Max iterations per launch** per active point                  |
+| Incomplete → next pass       | Same                                                            |
+| Complete → leave frontier    | Removed from next launch; written to texture                    |
+| Order map picks who          | Refangle: compact buffer / indirect dispatch = incompletes only |
+
 
 **Per-pass loop:**
 
@@ -350,7 +373,7 @@ Tiles optional for locality; **sparse active list required**.
 
 **Actual role:** `graph.start()` / `block_until_stopped` — babysits steady_state actor graph.
 
-**Compute:** **`screen worker`** (`screen_worker.rs`) calls `workshift()`.
+**Compute:** `**screen worker`** (`screen_worker.rs`) calls `workshift()`.
 
 **200 MiB stack:** Graph runtime thread **owns all child actor states on its stack** (`with_default_actor_stack_size`). Enables **limping through panics**—steady_state signature. Not because coordinator bookkeeping is large, and not because this thread iterates Mandelbrot.
 
@@ -360,11 +383,13 @@ Tiles optional for locality; **sparse active list required**.
 
 **Shipped issues:**
 
-| Current | Issue |
-|---------|--------|
-| Full-screen `Vec<Point>` | Huge footprint; most pixels untouched per slice |
-| ~10 ms workshift loop | No command channel poll until return |
-| `WorkUpdate` with `Vec` batches | Heap allocation per send |
+
+| Current                         | Issue                                           |
+| ------------------------------- | ----------------------------------------------- |
+| Full-screen `Vec<Point>`        | Huge footprint; most pixels untouched per slice |
+| ~10 ms workshift loop           | No command channel poll until return            |
+| `WorkUpdate` with `Vec` batches | Heap allocation per send                        |
+
 
 **Target:** Smaller working set (queues, frontier only); cooperative scheduling with **command/attention poll** between batches; frontier queues as backbone (section 5).
 
@@ -380,7 +405,7 @@ Tiles optional for locality; **sparse active list required**.
 
 **Today (misaligned):** `WorkUpdate` with `Vec`, `WorkerCommand::Replace` with full `WorkContext`, `ResultsPackage` vectors on hot path.
 
-**Target (steady-state messaging phase):** One completed point (or tiny struct) per send; viewport metadata + incremental indices on control path; full frames only in computed-work cache.
+**Target (steady-state messaging phase):** One completed point (or tiny struct) per send; viewport metadata + incremental indices on control path; full retained frames governed by the whole-app memory budget (section 1.5).
 
 ### 4.4 Shipped actor pipeline
 
@@ -389,22 +414,21 @@ window → work controller → screen worker → work collector → escaper → 
          Settings ──────────────────────────────→ escaper, colorer
 ```
 
-| Actor | Role |
-|-------|------|
-| screen worker → work collector | Compute (`CompletedPoint`) |
-| escaper | Stage-2 bailout, derive `ScreenValue`, filaments |
-| colorer | `color()` → screen pixels |
+
+| Actor                          | Role                                             |
+| ------------------------------ | ------------------------------------------------ |
+| screen worker → work collector | Compute (`CompletedPoint`)                       |
+| escaper                        | Stage-2 bailout, derive `ScreenValue`, filaments |
+| colorer                        | `color()` → screen pixels                        |
+
 
 #### 4.4.1 Full-frame pipeline contract (normative, shipped)
 
 While escaper and colorer operate on **whole `Vec` buffers** (before incremental / dirty-region messaging in §4.3):
 
-1. **Fixed scope every frame:** Each escaper wake derives **`values.len()`** entries; each colorer wake colors the full **`width × height`** buffer. Neither stage may shorten loops, skip regions, or change its wake cadence because the latest `ResultsPackage` or workshift batch contained fewer completed points.
-
+1. **Fixed scope every frame:** Each escaper wake derives `**values.len()`** entries; each colorer wake colors the full `**width × height**` buffer. Neither stage may shorten loops, skip regions, or change its wake cadence because the latest `ResultsPackage` or workshift batch contained fewer completed points.
 2. **Batch size ≠ frame work:** Partial collector updates **merge** into the buffer; derive and color still run **full-frame**. Effective frame rate and pipeline design must **not** treat “more points completed this batch” as permission to do less work this frame (or vice versa).
-
 3. **Content vs scope:** Per-pixel derive cost may differ while pixels remain `Dummy` / `Idk` versus fully computed—that is pixel **content**, not frame **scope**. Pacing must not depend on counting incomplete pixels to skip passes; micro-optimizations that change how much of the buffer is touched based on `completed.len()` in the incoming message are **not** allowed for scheduling.
-
 4. **Order maps:** `get_evenly_spaced_map(n)` in `work_controller.rs` must be **O(n)**. Building the initial `mixmap` must not block the work-controller actor for multi-second startup (e.g. O(n²) `Vec::remove` on 384k indices).
 
 **Future (§4.3):** Incremental indices and dirty tiles replace full-vec passes; until then, the contract above is the rendering pipeline model.
@@ -422,11 +446,13 @@ window → [work controller → screen worker → work collector]×N
          Settings → escaper, colorer, switch (bundle of 3)
 ```
 
-| Actor | Count | Notes |
-|-------|-------|-------|
-| work controller, screen worker, work collector | N (one chain per workgroup) | Window fans out viewport commands to every work controller |
-| switch | 1 | Merges per-group collector state; forwards selected group to escaper |
-| escaper, colorer, window | 1 each | Unchanged; section 4.4.1 still applies |
+
+| Actor                                          | Count                       | Notes                                                                |
+| ---------------------------------------------- | --------------------------- | -------------------------------------------------------------------- |
+| work controller, screen worker, work collector | N (one chain per workgroup) | Window fans out viewport commands to every work controller           |
+| switch                                         | 1                           | Merges per-group collector state; forwards selected group to escaper |
+| escaper, colorer, window                       | 1 each                      | Unchanged; section 4.4.1 still applies                               |
+
 
 **Settings:** `selected_workgroup` on `Settings`; window broadcasts to colorer, escaper, and switch (section 3.3.1).
 
@@ -442,12 +468,14 @@ window → [work controller → screen worker → work collector]×N
 
 Implementation: `src/act/workshift.rs`, scredge seed in `src/actor/work_controller.rs`.
 
-| Mechanism | Queue / step | Behavior |
-|-----------|--------------|----------|
-| **Perimeter crawl** | `scredge_poses`, `Step::Scredge` | Viewport border positions, interleaved order at work-context build; prioritized for the first ~20 workshifts |
-| **Outside flood-fill** | `out_queue`, `Step::Out` | On escape, enqueue incomplete 4-neighbors (`queue_incomplete_neighbors`) — region grows inward from the boundary |
-| **Inside flood-fill** | `in_queue`, `Step::In` | On repeat, enqueue incomplete 4-neighbors (`queue_incomplete_neighbors_in`) |
-| **Set boundary** | `edge_queue`, `Step::Edge` | On `point_is_edge` (escape vs repeat, or period mismatch), enqueue 8-neighbors along the edge (`queue_incomplete_neighbors_of_edge`, `push_front`) |
+
+| Mechanism              | Queue / step                     | Behavior                                                                                                                                           |
+| ---------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Perimeter crawl**    | `scredge_poses`, `Step::Scredge` | Viewport border positions, interleaved order at work-context build; prioritized for the first ~20 workshifts                                       |
+| **Outside flood-fill** | `out_queue`, `Step::Out`         | On escape, enqueue incomplete 4-neighbors (`queue_incomplete_neighbors`) — region grows inward from the boundary                                   |
+| **Inside flood-fill**  | `in_queue`, `Step::In`           | On repeat, enqueue incomplete 4-neighbors (`queue_incomplete_neighbors_in`)                                                                        |
+| **Set boundary**       | `edge_queue`, `Step::Edge`       | On `point_is_edge` (escape vs repeat, or period mismatch), enqueue 8-neighbors along the edge (`queue_incomplete_neighbors_of_edge`, `push_front`) |
+
 
 **Scheduling:** `workshifts % 4` rotates which queue is checked first among Edge / Out / Scredge / In.
 
@@ -459,11 +487,13 @@ Implementation: `src/act/workshift.rs`, scredge seed in `src/actor/work_controll
 
 Boundary tracing (thin contours, not full 4-neighbor flood) along:
 
-| Feature | Detection (today) | Scheduling (planned) |
-|---------|-------------------|----------------------|
-| **Out-filaments** | `is_in_filament` in `src/act/color.rs` | Contour-following queue after neighbor `big_time` is available |
-| **In-filaments** | `is_out_filament` in `src/act/color.rs` | Contour-following queue; depends on trustworthy periods (section 1.7) |
-| **Small-time edges** | `is_node_tree` / `HighlightSmallTimeEdges` | Contour-following on `small_time` ridges |
+
+| Feature              | Detection (today)                          | Scheduling (planned)                                                  |
+| -------------------- | ------------------------------------------ | --------------------------------------------------------------------- |
+| **Out-filaments**    | `is_in_filament` in `src/act/color.rs`     | Contour-following queue after neighbor `big_time` is available        |
+| **In-filaments**     | `is_out_filament` in `src/act/color.rs`    | Contour-following queue; depends on trustworthy periods (section 1.7) |
+| **Small-time edges** | `is_node_tree` / `HighlightSmallTimeEdges` | Contour-following on `small_time` ridges                              |
+
 
 No separate roadmap row; documented here only.
 
@@ -497,13 +527,15 @@ Frontier rules in sections 5.1–5.3 apply to the **screen worker** only. The sw
 
 See [README.md](README.md): Rust, build-essential, m4.
 
-**Build profile (normative):** Use **`--release`** for normal runs, manual testing, profiling, and acceptance checks. The actor pipeline and Mandelbrot workshift are CPU-bound; debug builds are far slower and distort startup time, frame pacing, and graph telemetry (for example long purple placeholder frames and idle-looking actors). Reserve debug builds (`cargo build`, `cargo run` without `--release`) for debugging with a debugger or extra checks.
+**Build profile (normative):** Use `**--release`** for normal runs, manual testing, profiling, and acceptance checks. The actor pipeline and Mandelbrot workshift are CPU-bound; debug builds are far slower and distort startup time, frame pacing, and graph telemetry (for example long purple placeholder frames and idle-looking actors). Reserve debug builds (`cargo build`, `cargo run` without `--release`) for debugging with a debugger or extra checks.
 
-| Intent | Command |
-|--------|---------|
-| Run the app | `cargo run --release` |
-| Build only | `cargo build --release` |
+
+| Intent       | Command                                                   |
+| ------------ | --------------------------------------------------------- |
+| Run the app  | `cargo run --release`                                     |
+| Build only   | `cargo build --release`                                   |
 | Debug / lldb | `cargo build` then `cargo run` (or `RUSTFLAGS` as needed) |
+
 
 `rebuild.sh` already watches sources and runs `cargo build --release`.
 
@@ -515,13 +547,15 @@ See [README.md](README.md): Rust, build-essential, m4.
 
 ## 8. Quality attributes
 
-| Attribute | Target |
-|-----------|--------|
-| **Input latency** | 0 ms perceived wait between scroll ticks |
-| **Zoom gesture** | 10× 2× ticks without UI stall |
-| **Depth** | Beyond `f64` c via perturbation + series approximation |
-| **Correctness** | Escape or proven period (section 1.6) |
-| **Core stress** | Completeness + speed together |
+
+| Attribute         | Target                                                 |
+| ----------------- | ------------------------------------------------------ |
+| **Input latency** | 0 ms perceived wait between scroll ticks               |
+| **Zoom gesture**  | 10× 2× ticks without UI stall                          |
+| **Depth**         | Beyond `f64` c via perturbation + series approximation |
+| **Correctness**   | Escape or proven period (section 1.6)                  |
+| **Core stress**   | Completeness + speed together                          |
+
 
 **Shipped prerequisites (0.0.2–0.0.6):** Drag+zoom stability, resize, home, work saving, flood fill, settings.
 
@@ -531,22 +565,24 @@ See [README.md](README.md): Rust, build-essential, m4.
 
 Phases ordered by dependency.
 
-| Phase | Scope | Status |
-|-------|-------|--------|
-| **Interactive foundation** | Window, actors, workshift, work reuse, flood fill, settings, `IntExp` | **Done** (0.0.1–0.0.6) |
-| **Workshift and workgroups** | Frontier scheduling (§5); switch actor + duplicate WC/SW/collector (§4.5); sparse workshift direction (§4.2); graph runtime naming | **In progress** |
-| **Computed-work cache** | §1.5 memory budget 100 MB–1 GB, eviction, resize reuse | **Planned** |
-| **Steady-state messaging** | Point-sized messages; slice APIs; no full-screen `Vec` on hot path | **Planned** |
-| **Period detection** | Derivative-based prover; remove `max_period` | **Planned** |
-| **Graphics processor** | Option B; GPU workshift + refangle; CPU escaper/colorer | **Planned** |
-| **Classical perturbation** | Reference orbit + δ iteration; requires §3.3.1 | **Planned** |
-| **Perturperturbation (research)** | Experimental perturbed reference | **Research** |
-| **Series approximation** | Taylor orders, error bounds, region skipping | **Planned** |
-| **Cross-platform** | Linux X11+Wayland, Windows, macOS, web | **Planned** |
-| **Deep-zoom validation** | 10-tick 1024× benchmarks; correctness vs reference | **Planned** |
-| **Exploration features** | Point path tracking, Julia overlay; **center-origin** coordinate display/edit (section 2.2) | **Planned** |
-| **Lookahead prefetch** | Pan + gaze coin-patch; eye tracking | **Planned** |
-| **Antenna bailout (open)** | Replace escaper iteration cap when design chosen | **Undecided** |
+
+| Phase                             | Scope                                                                                                                              | Status                 |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| **Interactive foundation**        | Window, actors, workshift, work reuse, flood fill, settings, `IntExp`                                                              | **Done** (0.0.1–0.0.6) |
+| **Workshift and workgroups**      | Frontier scheduling (§5); switch actor + duplicate WC/SW/collector (§4.5); sparse workshift direction (§4.2); graph runtime naming | **In progress**        |
+| **Cross-platform**                | Linux X11+Wayland, Windows, macOS, web                                                                                             | **Planned**            |
+| **Computed-work cache**           | §1.5 whole-app memory budget; `min_budget_mb` from resolution; raise limit on resize; eviction                                     | **Planned**            |
+| **Steady-state messaging**        | Point-sized messages; slice APIs; no full-screen `Vec` on hot path                                                                 | **Planned**            |
+| **Period detection**              | Derivative-based prover; remove `max_period`                                                                                       | **Planned**            |
+| **Graphics processor**            | Option B; GPU workshift + refangle; CPU escaper/colorer                                                                            | **Planned**            |
+| **Classical perturbation**        | Reference orbit + δ iteration; requires §3.3.1                                                                                     | **Planned**            |
+| **Perturperturbation (research)** | Experimental perturbed reference                                                                                                   | **Research**           |
+| **Series approximation**          | Taylor orders, error bounds, region skipping                                                                                       | **Planned**            |
+| **Deep-zoom validation**          | 10-tick 1024× benchmarks; correctness vs reference                                                                                 | **Planned**            |
+| **Exploration features**          | Point path tracking, Julia overlay; **center-origin** coordinate display/edit (section 2.2)                                        | **Planned**            |
+| **Lookahead prefetch**            | Pan + gaze coin-patch; eye tracking                                                                                                | **Planned**            |
+| **Antenna bailout (open)**        | Replace escaper iteration cap when design chosen                                                                                   | **Undecided**          |
+
 
 **Known limitations:** Antenna zoom; naive period check until period detection phase; implicit two-frame cache until memory budget ships.
 
@@ -585,7 +621,10 @@ Phases ordered by dependency.
 
 ### Memory
 
-1. Cache limit 100 MB–1 GB; resize safe; eviction respects limit.
+1. Budget is whole-app (in-scope retained compute), not one buffer.
+2. `min_budget_mb` derived from current `(width, height)`; setting cannot be set below it.
+3. Increasing resolution raises `limit_mb` when it would otherwise fall below new `min_budget_mb`.
+4. Eviction respects active `limit_mb`; resize safe.
 
 ### Graphics processor phase
 
@@ -605,7 +644,7 @@ Phases ordered by dependency.
 
 1. Section 5 matches `workshift.rs` queue behavior (scredge, out/in flood-fill, edge queue).
 2. Switch actor + two compute workgroups; toggle `selected_workgroup` changes the visible image without escaper or colorer code changes.
-3. Roadmap lists **Workshift and workgroups** (in progress) and **Computed-work cache** (planned) as separate phases.
+3. Roadmap lists **Workshift and workgroups** (in progress), **Cross-platform**, and **Computed-work cache** (planned) in dependency order.
 
 ---
 
@@ -615,26 +654,30 @@ Phases ordered by dependency.
 
 Defined in `src/actor/window.rs`; handled in `src/action/sampling.rs`:
 
-| Command | UI wired | Behavior today |
-|---------|----------|----------------|
-| `Zoom { pot, center_screenspace_pos }` | Yes (scroll) | Full viewport update |
-| `Move { pixels_x, pixels_y }` | Yes (drag, keys) | Pan |
-| `MoveTo { x, y }` | Partial | Sets position |
-| `SetZoom { pot }` | No | Sets `zoom_pot` |
-| `SetFocus { pixel_x, pixel_y }` | No | **No-op** (empty match arm) |
-| `SetPos { real, imag }` | No | **No-op** — planned with center-origin navigation UX (section 2.2) |
-| `TrackPoint { … }` | No | **No-op** — path tracking roadmap |
-| `UntrackPoint { point_id }` | No | **No-op** |
-| `UntrackAllPoints` | No | **No-op** |
+
+| Command                                | UI wired         | Behavior today                                                     |
+| -------------------------------------- | ---------------- | ------------------------------------------------------------------ |
+| `Zoom { pot, center_screenspace_pos }` | Yes (scroll)     | Full viewport update                                               |
+| `Move { pixels_x, pixels_y }`          | Yes (drag, keys) | Pan                                                                |
+| `MoveTo { x, y }`                      | Partial          | Sets position                                                      |
+| `SetZoom { pot }`                      | No               | Sets `zoom_pot`                                                    |
+| `SetFocus { pixel_x, pixel_y }`        | No               | **No-op** (empty match arm)                                        |
+| `SetPos { real, imag }`                | No               | **No-op** — planned with center-origin navigation UX (section 2.2) |
+| `TrackPoint { … }`                     | No               | **No-op** — path tracking roadmap                                  |
+| `UntrackPoint { point_id }`            | No               | **No-op**                                                          |
+| `UntrackAllPoints`                     | No               | **No-op**                                                          |
+
 
 Julia overlay and path tracking depend on exploration features phase.
 
 ### CLI (`src/arg.rs`)
 
-| Flag | Default | Wired |
-|------|---------|-------|
-| `-r` / `--rate` | 2 ms | Parsed via `MainArg`; passed to graph build — **not used** for runtime pacing in current `main.rs` |
-| `-b` / `--beats` | 30000 | Parsed — **not used** for shutdown loop |
+
+| Flag             | Default | Wired                                                                                              |
+| ---------------- | ------- | -------------------------------------------------------------------------------------------------- |
+| `-r` / `--rate`  | 2 ms    | Parsed via `MainArg`; passed to graph build — **not used** for runtime pacing in current `main.rs` |
+| `-b` / `--beats` | 30000   | Parsed — **not used** for shutdown loop                                                            |
+
 
 Reserved for future telemetry or test harnesses.
 
@@ -644,11 +687,13 @@ Reserved for future telemetry or test harnesses.
 
 Present in tree but not part of the active actor pipeline:
 
-| Path | Notes |
-|------|-------|
-| `src/action/collect.rs` | Legacy collection helpers |
+
+| Path                      | Notes                       |
+| ------------------------- | --------------------------- |
+| `src/action/collect.rs`   | Legacy collection helpers   |
 | `src/action/streaming.rs` | Legacy streaming experiment |
-| `src/action/do_work.rs` | Legacy work driver |
+| `src/action/do_work.rs`   | Legacy work driver          |
+
 
 Do not extend these for new features without explicit migration plan. Docker/lambda scripts under repo (if any) are deployment experiments, not product architecture.
 
@@ -672,7 +717,7 @@ Goal for **steady-state messaging phase:** hot path matches L3-friendly access, 
 
 **Preview:** `src/action/sampling.rs` — `sample()` on viewport commands.
 
-**Workshift:** `src/act/workshift.rs` — `workshift()`, `Step`, frontier queues (`scredge_poses`, `out_queue`, `in_queue`, `edge_queue`), `queue_incomplete_*`, `point_is_edge`.
+**Workshift:** `src/act/workshift.rs` — `workshift()`, `Step`, frontier queues (`scredge_poses`, `out_queue`, `in_queue`, `edge_queue`), `queue_incomplete_`*, `point_is_edge`.
 
 **Scredge seed:** `src/actor/work_controller.rs` — perimeter positions into `scredge_poses`.
 
