@@ -33,15 +33,8 @@ use crate::act::utils::*;
 use crate::act::constants::*;
 use crate::act::boot_trace;
 
-pub(crate) enum WorkerCommand<T: Copy> {
-    Replace {
-        frame_info: (ObjectivePosAndZoom, (u32, u32)),
-        context: WorkContext<T>,
-    },
-    /// Same-resolution pan: shift existing worker context (smearing), do not rebuild mixmap.
-    Pan {
-        frame_info: (ObjectivePosAndZoom, (u32, u32)),
-    },
+pub(crate) enum WorkerCommand<T:Copy> {
+    Replace{frame_info: (ObjectivePosAndZoom, (u32, u32)), context: WorkContext<T>}
 }
 
 
@@ -128,10 +121,12 @@ async fn internal_behavior<A: SteadyActor, T:Clone + From<f32> + From<f32> + Clo
 
         //info!("work controller alive");
         if actor.avail_units(&mut from_sampler) > 0 {
-            let mut stuff = actor.try_take(&mut from_sampler).expect("internal error");
-            while actor.avail_units(&mut from_sampler) > 0 {
-                stuff = actor.try_take(&mut from_sampler).expect("internal error");
-            }
+            while actor.avail_units(&mut from_sampler) > 1 {
+                let stuff = actor.try_take(&mut from_sampler).expect("internal error");
+                drop(stuff);
+            };
+
+            let stuff = actor.try_take(&mut from_sampler).expect("internal error");
 
             // #region agent log
             agent_debug_log(
@@ -150,35 +145,31 @@ async fn internal_behavior<A: SteadyActor, T:Clone + From<f32> + From<f32> + Clo
             // #endregion
 
             match handle_sampler_stuff(&mut state, stuff.clone()) {
-                Some(cmd) => {
-                    match &cmd {
-                        WorkerCommand::Replace { context, .. } => {
-                            boot_trace::boot_once(
-                                "wc_replace_sent",
-                                &format!(r#"{{"res":[{},{}]}}"#, stuff.1.0, stuff.1.1),
-                            );
-                            agent_debug_log(
-                                "H-F",
-                                "work_controller.rs:internal_behavior",
-                                "sending Replace to screen worker",
-                                &format!(
-                                    r#"{{"res":[{},{}],"mixmap_len":{}}}"#,
-                                    stuff.1.0,
-                                    stuff.1.1,
-                                    context.random_map.len()
-                                ),
-                            );
-                        }
-                        WorkerCommand::Pan { .. } => {
-                            agent_debug_log(
-                                "H-F",
-                                "work_controller.rs:internal_behavior",
-                                "sending Pan to screen worker",
-                                &format!(r#"{{"res":[{},{}]}}"#, stuff.1.0, stuff.1.1),
-                            );
-                        }
-                    }
-                    actor.try_send(&mut to_worker, cmd);
+                Some(ctx) => {
+                    // #region agent log
+                    boot_trace::boot_once(
+                        "wc_replace_sent",
+                        &format!(r#"{{"res":[{},{}]}}"#, stuff.1.0, stuff.1.1),
+                    );
+                    agent_debug_log(
+                        "H-F",
+                        "work_controller.rs:internal_behavior",
+                        "sending Replace to screen worker",
+                        &format!(
+                            r#"{{"res":[{},{}],"mixmap_len":{}}}"#,
+                            stuff.1.0,
+                            stuff.1.1,
+                            ctx.random_map.len()
+                        ),
+                    );
+                    // #endregion
+                    actor.try_send(
+                        &mut to_worker,
+                        WorkerCommand::Replace {
+                            frame_info: (stuff.0, stuff.1),
+                            context: ctx,
+                        },
+                    );
                 }
                 None => {
                     // #region agent log
@@ -205,15 +196,7 @@ async fn internal_behavior<A: SteadyActor, T:Clone + From<f32> + From<f32> + Clo
 }
 
 use std::ops::*;
-pub(crate) fn objective_to_worker_loc(obj: &ObjectivePosAndZoom) -> ((IntExp, IntExp), i64) {
-    let loc: (IntExp, IntExp) = (obj.pos.0.clone(), obj.pos.1.clone());
-    (
-        (loc.0.clone(), IntExp::from(0) - loc.1.clone()),
-        obj.zoom_pot as i64,
-    )
-}
-
-pub(crate) fn get_points<T: From<f32> + Clone + From<IntExp> + Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + crate::act::workshift::Finite + crate::act::workshift::Gt + crate::act::workshift::Abs + From<f32> + Into<f64> + Copy>
+fn get_points<T: From<f32> + Clone + From<IntExp> + Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + crate::act::workshift::Finite + crate::act::workshift::Gt + crate::act::workshift::Abs + From<f32> + Into<f64> + Copy>
     (res: (u32, u32), loc:(IntExp, IntExp), zoom: i64) -> Vec<Point<T>> {
     let mut out:Vec<Point<T>> = Vec::with_capacity((res.0*res.1) as usize);
 
@@ -269,15 +252,11 @@ pub(crate) fn get_points<T: From<f32> + Clone + From<IntExp> + Sub<Output=T> + A
 
 
 
-fn handle_sampler_stuff<T: Clone + From<f32> + From<f32> + Clone + From<IntExp> + Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + crate::act::workshift::Finite + crate::act::workshift::Gt + crate::act::workshift::Abs + From<f32> + Into<f64> + Copy>(
-    state: &mut WorkControllerState,
-    stuff: (ObjectivePosAndZoom, (u32, u32)),
-) -> Option<WorkerCommand<T>> {
+fn handle_sampler_stuff<T: Clone + From<f32> + From<f32> + Clone + From<IntExp> + Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + crate::act::workshift::Finite + crate::act::workshift::Gt + crate::act::workshift::Abs + From<f32> + Into<f64> + Copy>(state: &mut WorkControllerState, stuff: (ObjectivePosAndZoom, (u32, u32))) -> Option<WorkContext<T>> {
 
-    let obj = stuff.0.clone();
-    let same_res_pan = state.worker_res == stuff.1
-        && state.last_sampler_location.is_some()
-        && obj.zoom_pot == state.zoom_pot as i32;
+    let zoomed = stuff.0.zoom_pot > state.zoom_pot as i32;
+
+    let obj = stuff.0;
 
     if stuff.1.0 == 0 || stuff.1.1 == 0 {
         // #region agent log
@@ -310,22 +289,6 @@ fn handle_sampler_stuff<T: Clone + From<f32> + From<f32> + Clone + From<IntExp> 
 
     if state.worker_res != stuff.1 {
         let pixel_count = (stuff.1.0 as u64) * (stuff.1.1 as u64);
-        boot_trace::boot_reboot(
-            "resize",
-            &format!(
-                r#"{{"old_res":[{},{}],"new_res":[{},{}],"pixels":{}}}"#,
-                state.worker_res.0,
-                state.worker_res.1,
-                stuff.1.0,
-                stuff.1.1,
-                pixel_count
-            ),
-        );
-        boot_trace::boot_once(
-            "wc_mixmap_build_start",
-            &format!(r#"{{"pixels":{}}}"#, pixel_count),
-        );
-        let mixmap_start = std::time::Instant::now();
         // #region agent log
         agent_debug_log(
             "H-A",
@@ -342,11 +305,6 @@ fn handle_sampler_stuff<T: Clone + From<f32> + From<f32> + Clone + From<IntExp> 
         );
         // #endregion
         state.mixmap = get_evenly_spaced_map(pixel_count as usize);
-        boot_trace::boot_span(
-            "wc_mixmap_build_done",
-            &format!(r#"{{"pixels":{}}}"#, pixel_count),
-            mixmap_start.elapsed().as_millis(),
-        );
         // #region agent log
         agent_debug_log(
             "H-A",
@@ -358,16 +316,18 @@ fn handle_sampler_stuff<T: Clone + From<f32> + From<f32> + Clone + From<IntExp> 
     }
 
     state.worker_res = stuff.1;
-    let (loc, zoom_pot) = objective_to_worker_loc(&obj);
-    state.loc = loc;
-    state.zoom_pot = zoom_pot;
 
-    if same_res_pan {
-        state.last_sampler_location = Some(obj);
-        return Some(WorkerCommand::Pan { frame_info: stuff });
-    }
+    state.loc = (
+        obj.pos.0.clone().into()
+        , obj.pos.1.clone().into()
+    );
 
-    let zoomed = obj.zoom_pot > state.zoom_pot as i32;
+    state.loc = (
+        state.loc.0.clone()
+        , IntExp::from(0)-state.loc.1.clone()
+        );
+
+    state.zoom_pot = obj.zoom_pot as i64;
 
     let mut edges = Vec::new();
     let mut linear_edge_map = Vec::new();
@@ -405,7 +365,7 @@ fn handle_sampler_stuff<T: Clone + From<f32> + From<f32> + Clone + From<IntExp> 
         , time_workshift_started: Instant::now()
         , percent_completed: 0.0
         , random_map: state.mixmap.clone()
-        , workshifts: 0u32
+        , workshifts: 0
         , total_iterations: 0
         , spent_tokens_today: 0
         , total_iterations_today: 0
@@ -435,15 +395,12 @@ fn handle_sampler_stuff<T: Clone + From<f32> + From<f32> + Clone + From<IntExp> 
         ),
     );
     // #endregion
-    Some(WorkerCommand::Replace {
-        frame_info: stuff,
-        context: work_context,
-    })
+    Some(work_context)
 }
 
 /// Interleaved front / middle / back order on `0..length`.
 /// O(n log n) via implicit treap; must not use `Vec::remove` (O(n²) at 384k).
-pub(crate) fn get_evenly_spaced_map(length: usize) -> Vec<usize> {
+fn get_evenly_spaced_map(length: usize) -> Vec<usize> {
     if length == 0 {
         return Vec::new();
     }

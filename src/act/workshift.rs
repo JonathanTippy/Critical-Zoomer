@@ -225,6 +225,7 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
             }
             _ => {break}
         };
+        context.workshifts+=1;
 
         let index = index_from_pos(pos, context.res.0);
 

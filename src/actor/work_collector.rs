@@ -87,48 +87,7 @@ async fn internal_behavior<A: SteadyActor>(
 
             if let Some(completed_work) = &mut state.completed_work {
                 if let Some(f) = U.frame_info {
-                    if completed_work.screen_res != f.1 {
-                        *completed_work = ResultsPackage {
-                            results: vec![CompletedPoint::Dummy {}; (f.1.0 * f.1.1) as usize],
-                            screen_res: f.1,
-                            location: f.0,
-                            complete: false,
-                        };
-                        let dummy_count = completed_work
-                            .results
-                            .iter()
-                            .filter(|p| matches!(p, CompletedPoint::Dummy {}))
-                            .count();
-                        boot_trace::boot_once(
-                            "wc_collector_initial_to_escaper",
-                            &format!(
-                                r#"{{"res":[{},{}],"pixels":{},"dummy":{},"completed":0,"reboot":"resize"}}"#,
-                                f.1.0,
-                                f.1.1,
-                                completed_work.results.len(),
-                                dummy_count
-                            ),
-                        );
-                        actor.try_send(&mut values_out, completed_work.clone());
-                    } else {
-                        *completed_work = sample_old_values(&completed_work, f.0, f.1);
-                        let dummy_count = completed_work
-                            .results
-                            .iter()
-                            .filter(|p| matches!(p, CompletedPoint::Dummy {}))
-                            .count();
-                        boot_trace::boot_once(
-                            "wc_collector_remap_to_escaper",
-                            &format!(
-                                r#"{{"res":[{},{}],"pixels":{},"dummy":{},"reboot":"viewport"}}"#,
-                                f.1.0,
-                                f.1.1,
-                                completed_work.results.len(),
-                                dummy_count
-                            ),
-                        );
-                        actor.try_send(&mut values_out, completed_work.clone());
-                    }
+                    *completed_work = sample_old_values(&completed_work, f.0, f.1);
                 } else {
                     //let j = U.completed_points;
                     let l = U.completed_points.len();
@@ -193,6 +152,10 @@ fn sample_old_values<T:Clone>(old_package: &ResultsPackage<T>, new_location: Obj
         , complete: false
     };
 
+    let old_size = old_package.screen_res.0 * old_package.screen_res.1;
+
+    //let old_package_pixel_width = old_package.location.zoom_pot
+
     let relative_pos = (
         old_package.location.pos.0.clone()-new_location.pos.0.clone()
         , old_package.location.pos.1.clone()-new_location.pos.1.clone()
@@ -214,12 +177,13 @@ fn sample_old_values<T:Clone>(old_package: &ResultsPackage<T>, new_location: Obj
         for seat in 0..new_res.0 as usize {
             returned.results.push(
                 sample_value(
-                    &old_package.results,
-                    old_package.screen_res,
-                    row,
-                    seat,
-                    relative_pos_in_pixels,
-                    relative_zoom as i64,
+                    &old_package.results
+                    , old_package.screen_res
+                    , old_size as usize
+                    , row
+                    , seat
+                    , relative_pos_in_pixels
+                    , relative_zoom as i64
                 )
             );
             //i+=1;
@@ -248,13 +212,25 @@ fn sample_old_values<T:Clone>(old_package: &ResultsPackage<T>, new_location: Obj
 
 #[inline]
 fn sample_value<T: Clone>(
-    pixels: &Vec<CompletedPoint<T>>,
-    data_res: (u32, u32),
-    row: usize,
-    seat: usize,
-    relative_pos: (i32, i32),
-    relative_zoom_pot: i64,
+    pixels: &Vec<CompletedPoint<T>>
+    , data_res: (u32, u32)
+    , data_len: usize
+    , row: usize
+    , seat: usize
+    , relative_pos: (i32, i32)
+    , relative_zoom_pot: i64
 ) -> CompletedPoint<T> {
-    let index = remap_source_index_smearing(seat, row, relative_pos, relative_zoom_pot, data_res);
-    pixels[index].clone()
+    let color =
+        pixels[
+            index_from_relative_location(
+                transform_relative_location_i32(
+                    relative_location_i32_row_and_seat(seat, row)
+                    , (relative_pos.0, relative_pos.1)
+                    , relative_zoom_pot
+                )
+                , data_res
+                , data_len
+            )
+            ].clone();
+    color
 }
