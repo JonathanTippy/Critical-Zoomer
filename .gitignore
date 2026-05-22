@@ -1,6 +1,6 @@
 # Generated files
 /target/
 
-# Ide stuff
-/.idea/
-/.cursor/
+# IDE / editor local state (keep on disk, never commit)
+.idea/
+.cursor/

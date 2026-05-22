@@ -76,11 +76,13 @@ git clone [https://github.com/JonathanTippy/Critical-Zoomer](https://github.com/
 
 - fix zoom too far | ✔️
 - settings page allows custom layering of colorings | ✔️
-- also allows animation of variables | ✔️  
-  
-## bug fixes 
+- also allows animation of variables | ✔️
+
+## bug fixes (0.0.9)
+
+- fix incompleteness ✔️
 - fix slow startup ✔️
-- fix broken edge-first
+- fix broken edge-first ✔️
 - fix stripey incompleteness ✔️
 
 ## Roadmap (named phases — detail in [SPEC.md](SPEC.md) §9)
