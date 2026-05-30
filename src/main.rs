@@ -24,9 +24,7 @@ pub(crate) mod action {
     pub(crate) mod utils;
     pub(crate) mod widgetize;
     pub(crate) mod color;
-    pub(crate) mod collect;
     pub(crate) mod partial_knowledge;
-    pub(crate) mod streaming;
     pub(crate) mod constants;
 }
 
