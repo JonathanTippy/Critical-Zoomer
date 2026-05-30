@@ -5,12 +5,10 @@ NO EDITS TO THIS FILE BY AI ASSISTANTS WITHOUT EXPRESS APPROVAL
 
 **Version:** 0.2.0 (`critical_zoomer`)  
 **Status:** product definition (required state).  
-**Install and controls:** [README.md](README.md).  
-**Verification:** [TESTING_SPEC.md](TESTING_SPEC.md) only — not in this file.
 
-**Operational principle (names):**  
-Do not rename functions, types, modules, files, config keys, or `r[name]`
-identifiers without express Product Owner approval.
+
+**Operational principles**
+This project should follow that NASA V methodology, using tracey to link design docs with tests.
 
 ---
 
@@ -20,31 +18,16 @@ identifiers without express Product Owner approval.
 This specification states the **required product**:
 features, invariants, target architecture, and **approved design trade-offs**.
 
-| Document | Role |
-| -------- | ---- |
-| **SPEC.md** | Product MUSTs — prose and inline `r[name]` anchors |
-| **[DELIVERY_SPEC.md](DELIVERY_SPEC.md)** | Crate layout, repo rules, as-built wiring |
-| **[TESTING_SPEC.md](TESTING_SPEC.md)** | Verification — tests, mutants, `// r[verify …]` |
-| **[docs/tracey.md](docs/tracey.md)** | Tracey install and commands |
-| **README / docs/** | Build and run |
-| **Repository** | What exists today |
 
 This file does **not** describe delivery status, debug tooling, test
-methodology, crate layout, or actor-graph wiring (see [DELIVERY_SPEC.md](DELIVERY_SPEC.md)
-and [delivery_spec_notes.md](delivery_spec_notes.md)).
+methodology, crate layout, or actor-graph wiring.
 
 Plain language throughout. Standard Mandelbrot symbols (c, z, R = 2) where
 helpful.
 
 **Traceability**
 
-- Normative statements use **`r[name]`** blocks (lowercase dotted names).
-- Implementation MUST tag the owning unit with `// r[impl name]`.
-- Tests link to the closest related `r[name]` or section in
-  [TESTING_SPEC.md](TESTING_SPEC.md).
-- This is **not** the
-  [wolfpld/tracy](https://github.com/wolfpld/tracy) frame profiler.
-  See [tracey](https://tracey.bearcove.eu/).
+- Tracing Must follow the NASA V pattern: each component's design spec must link to the unit tests for that component, and for larger compositions, the design for that group of parts links to the tests which test it together. Thus, the spec here should link only to the end to end tests. As Egui isn't easily testable, the window must be thin/dumb and send its commands to the sampler actor which sends only rgb frames with additional metadata. This way, the entire graph is kept testable.
 
 ---
 

@@ -300,7 +300,7 @@ fn int_test_2() {
 }
 
 #[test]
-fn test_addition_widening() {
+fn test_addition() {
     let a = PartialKnowledge::new(10.0);
     let b = PartialKnowledge::new(5.0);
     let c = a + b;
