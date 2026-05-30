@@ -237,15 +237,13 @@ Default coloring script includes these highlight layers.
 
 **One codebase, all platforms.**
 
-*(Crate structure: [DELIVERY_SPEC.md](DELIVERY_SPEC.md) §1.)*
+
 
 ---
 
-## 2. Approved design trade-offs
+## 2. Design trade-offs study
 
 
-Deliberate compromises the product **accepts**. Not missing features —
-those belong in [DELIVERY_SPEC.md](DELIVERY_SPEC.md).
 
 ### 2.1 Main antenna deep zoom (escaper)
 
@@ -253,16 +251,13 @@ those belong in [DELIVERY_SPEC.md](DELIVERY_SPEC.md).
 **Region:** Main antenna — near the **R > 2** escape boundary, including
 approach toward **(−2, 0)**.
 
-**Accepted:** The escaper MAY use a **maximum iteration limit** and publish
-`ScreenValue::Outside` with **imperfect** bailout metrics. Full extension
-to **R_b** is not required in this region.
+The R=2 division between worker and escaper enables trivial bailout radius animation at all areas except (-2, 0) where the points begin to escape at *areas  roughly as close to 2 as the screen pixels are*. This results in the "escape is fast" assumption breaking down. Some possibilities below:
 
-Checkerboard or hard incompleteness would be stricter; **speed and responsive
-escaper animation** take priority. This trade-off MAY be revisited.
+The escaper may use a **maximum iteration limit** and publish
+`ScreenValue::Outside` with **imperfect** bailout metrics.=
 
-**Not accepted:** Blocking scroll or sampler snappy control; skipping worker
-escape at **R > 2**; fake finished worker states; using this cap outside the
-main antenna.
+Checkerboard or hard incompleteness would be more correct and is also valid, but either way, the escaper will need an effort limit to animate smoothly.
+
 
 ---
 
@@ -511,16 +506,14 @@ MUST expose:
 Settings changes MUST apply immediately everywhere they affect behavior
 (§5.4).
 
-Layout, default layer table, settings wire, and UI implementation →
-[DELIVERY_SPEC.md](DELIVERY_SPEC.md) §2.
+
 
 ---
 
 ## 6. Quality attributes
 
 
-Non-functional requirements that cut across the spec. Verification detail lives in
-[TESTING_SPEC.md](TESTING_SPEC.md).
+Non-functional requirements that cut across the spec. 
 
 **Input and viewport:** The user MUST perceive **no wait** between scroll
 bumps on the sampler path (§3.1, §3.2). A gesture of **~10 scroll bumps**
@@ -549,8 +542,7 @@ together** (§1.0) — neither “fast but lying” nor “correct but unusably 
 ## 7. Acceptance criteria
 
 
-Product-level outcomes used for release judgment. Verification detail lives in
-[TESTING_SPEC.md](TESTING_SPEC.md) — not duplicated here.
+Product-level outcomes used for release judgment. 
 
 ### 7.1 Input and viewport
 
@@ -598,7 +590,7 @@ Product-level outcomes used for release judgment. Verification detail lives in
 
 1. **Desktop** (Linux X11/Wayland, Windows, macOS): full behavior in §1–§6.
 2. **Web:** same UI affordances as desktop on the shared codebase (§1.9);
-   platform-specific gaps are documented in [DELIVERY_SPEC.md](DELIVERY_SPEC.md),
+   platform-specific gaps are documented in
    not excused in product criteria here.
 
 ---
