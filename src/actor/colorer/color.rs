@@ -1,6 +1,6 @@
-use crate::action::settings::*;
+use crate::settings::*;
 use crate::actor::escaper::*;
-use crate::action::utils::*;
+use crate::utils::*;
 use std::f64::consts::*;
 use std::time::*;
 pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<(u8, u8, u8)> {
@@ -293,7 +293,7 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
     returned
 }
 
-pub(crate) fn layer_colors (bottom: (u8,u8,u8), top:(u8,u8,u8,u8)) -> (u8,u8,u8) {
+pub(crate) fn layer_colors (bottom: (u8, u8, u8), top:(u8, u8, u8, u8)) -> (u8, u8, u8) {
     let top_share = top.3;
     let bottom_share = 255-top_share;
     (
@@ -304,7 +304,7 @@ pub(crate) fn layer_colors (bottom: (u8,u8,u8), top:(u8,u8,u8,u8)) -> (u8,u8,u8)
 }
 
 use std::cmp::*;
-pub(crate) fn modify_color (color:(u8,u8,u8), brightness: f64, range:f64) -> (u8,u8,u8) {
+pub(crate) fn modify_color (color:(u8, u8, u8), brightness: f64, range:f64) -> (u8, u8, u8) {
 let mut delta_b = (((brightness*255.0)-127.0) * range) as i32;
 let color_max = max(max(color.0, color.1), color.2) as i32;
 let color_min = min(min(color.0, color.1), color.2) as i32;

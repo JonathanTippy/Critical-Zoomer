@@ -1,16 +1,17 @@
 use rand::Rng;
 use steady_state::*;
-use crate::action::sampling::*;
+use crate::actor::window::sampling::*;
 
-use crate::action::utils::*;
+use crate::utils::*;
 
 use crate::actor::work_collector::*;
 
 use crate::actor::escaper::*;
 
-use crate::action::settings::*;
+use crate::settings::*;
 
-use crate::action::color::*;
+use crate::actor::colorer::color::*;
+pub(crate) mod color;
 
 #[derive(Clone, Debug)]
 

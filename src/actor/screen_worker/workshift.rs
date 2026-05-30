@@ -4,7 +4,7 @@ use rand::Rng;
 use std::time::Instant;
 use std::collections::*;
 use std::cmp::*;
-use crate::action::utils::*;
+use crate::utils::*;
 pub(crate) const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
 
 pub(crate) const MAX_PIXELS:usize = 1920*1080*4;
@@ -248,7 +248,7 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
                 }
 
                 let p = &context.points[index_from_pos(&context.attention, context.res.0)];
-                println!("selected point: {:?}", p);
+                //println!("selected point: {:?}", p);
 
                 (&(
                     context.attention.0 + x, context.attention.1 + y

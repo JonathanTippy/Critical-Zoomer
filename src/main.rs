@@ -14,19 +14,11 @@ pub(crate) mod actor {
     pub(crate) mod escaper;
 
 }
+pub(crate) mod settings;
 
-pub(crate) mod action {
-    pub(crate) mod sampling;
-    pub(crate) mod settings;
-    pub(crate) mod rolling;
-    pub(crate) mod workshift;
-
-    pub(crate) mod utils;
-    pub(crate) mod widgetize;
-    pub(crate) mod color;
-    pub(crate) mod partial_knowledge;
-    pub(crate) mod constants;
-}
+pub(crate) mod utils;
+pub(crate) mod partial_knowledge;
+pub(crate) mod constants;
 
 use std::thread;
 

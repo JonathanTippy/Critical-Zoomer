@@ -1,14 +1,13 @@
 use std::cmp::min;
 use std::ops::{Add, Mul, Sub};
 use steady_state::*;
-use crate::action::sampling::{index_from_relative_location, relative_location_i32_row_and_seat, transform_relative_location_i32};
-use crate::action::utils::ObjectivePosAndZoom;
-use crate::action::workshift::*;
+use crate::actor::window::sampling::{index_from_relative_location, relative_location_i32_row_and_seat, transform_relative_location_i32};
+use crate::utils::ObjectivePosAndZoom;
 //use crate::actor::work_collector::*;
 use crate::actor::work_controller::*;
+use crate::actor::screen_worker::workshift::*;
 
-
-
+pub(crate) mod workshift;
 
 pub(crate) struct WorkUpdate<T> {
     pub(crate) frame_info: Option<(ObjectivePosAndZoom, (u32, u32))>,
@@ -44,7 +43,7 @@ pub async fn run(
         .await
 }
 
-async fn internal_behavior<A: SteadyActor, T: Send + std::fmt::Debug + Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + crate::action::workshift::Finite + crate::action::workshift::Gt + crate::action::workshift::Abs + From<f32> + Into<f64> + Copy>(
+async fn internal_behavior<A: SteadyActor, T: Send + std::fmt::Debug + Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + workshift::Finite + workshift::Gt + workshift::Abs + From<f32> + Into<f64> + Copy>(
     mut actor: A,
     commands_in: SteadyRx<WorkerCommand<T>>,
     updates_out: SteadyTx<WorkUpdate<T>>,

@@ -2,14 +2,14 @@ use eframe::epaint::Color32;
 use steady_state::*;
 
 use crate::actor::window::*;
-use crate::action::workshift::*;
-use crate::action::sampling::*;
+use crate::actor::screen_worker::workshift::*;
+use crate::actor::window::sampling::*;
 use crate::actor::screen_worker::*;
-use crate::action::constants::*;
+use crate::constants::*;
 
 
 use rand::prelude::SliceRandom;
-use crate::action::utils::*;
+use crate::utils::*;
 
 
 #[derive(Clone, Debug)]

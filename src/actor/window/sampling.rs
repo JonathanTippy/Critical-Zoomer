@@ -5,12 +5,34 @@ use rand::prelude::*;
 use egui::{Color32, Pos2};
 use std::cmp::*;
 
-use crate::actor::window::*;
+//use crate::actor::window::*;
 use crate::actor::colorer::*;
-use crate::action::utils::*;
+use crate::utils::*;
 
 use rug::{Float, Integer};
 use crate::actor::work_controller::PIXELS_PER_UNIT_POT;
+
+
+pub(crate) enum ZoomerCommand {
+    SetFocus { pixel_x: u32, pixel_y: u32 }
+    ,
+    SetZoom { pot: i32 }
+    ,
+    Zoom { pot: i32, center_screenspace_pos: (i32, i32) } // zoom in or out
+    ,
+    Move { pixels_x: i32, pixels_y: i32 }
+    ,
+    MoveTo { x: IntExp, y: IntExp }
+    ,
+    SetPos { real: IntExp, imag: IntExp }
+    ,
+    TrackPoint { point_id: u64, point_real: IntExp, point_imag: IntExp }
+    ,
+    UntrackPoint { point_id: u64 }
+    ,
+    UntrackAllPoints
+}
+pub(crate) const NUMBER_OF_COMMANDS: u16 = 10;
 
 #[derive(Clone, Debug)]
 pub(crate) struct SamplingContext {
