@@ -132,7 +132,7 @@ impl std::fmt::Display for IntExp {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 
         if self.val.significant_bits() > INTEXP_WARNING_SIZE {
-            println!("WARMING: intexp passed warning size");
+            println!("WARNING: intexp passed warning size");
         }
         if self.exp >= 0 {
             f.write_str(&(self.val.clone()<<self.exp as u32).to_string())?;
@@ -274,4 +274,33 @@ impl From<(i32, i32, i32)> for ObjectivePosAndZoom {
             , zoom_pot: input.2
         }
     }
+}
+
+#[test]
+fn test_intexp_speed() {
+    let mut rand = rand::RandState::new();
+    let a = std::time::Instant::now();
+
+    let mut int = Integer::from(Integer::random_bits(3600000, &mut rand));
+
+
+    //let mut int = Integer::u_pow_u(2, 36000000).complete();
+
+    println!("creating int took {} milliseconds", a.elapsed().as_millis());
+    let a = std::time::Instant::now();
+
+    int -= 1;
+    println!("subtracting 1 took {} milliseconds", a.elapsed().as_millis());
+
+    let mut test_val = IntExp { val: int, exp: -3600000 };
+
+    let a = std::time::Instant::now();
+
+
+    test_val = test_val - IntExp::from(1);
+    println!("subtracting 1 took {} milliseconds", a.elapsed().as_millis());
+    let a = std::time::Instant::now();
+
+    test_val = test_val * IntExp::from(2);
+    println!("multiplying by 2 took {} milliseconds", a.elapsed().as_millis());
 }

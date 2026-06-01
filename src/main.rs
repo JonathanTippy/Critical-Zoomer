@@ -2,7 +2,8 @@ use steady_state::*;
 use arg::MainArg;
 mod arg;
 
-
+use crate::utils::*;
+use rug::*;
 // The actor module contains all the actor implementations for this pipeline.
 // Each actor is in its own submodule for clarity and separation of concerns.
 pub(crate) mod actor {
@@ -24,6 +25,9 @@ use std::thread;
 
 const STACK_SIZE:usize = 200 * 1024 * 1024; // 200 MiB
 fn main() {
+
+
+
 
 
     let builder = thread::Builder::new()
@@ -91,7 +95,7 @@ fn build_graph(graph: &mut Graph) {
     let (
         colorer_tx_to_window
         , window_rx_from_colorer
-    ) = channel_builder.with_capacity(2).build();
+    ) = channel_builder.with_capacity(10).build();
 
 
 
@@ -117,7 +121,7 @@ fn build_graph(graph: &mut Graph) {
     let (
         work_controller_tx_to_screen_worker
         , screen_worker_rx_from_work_controller
-    ) = channel_builder.with_capacity(2).build();
+    ) = channel_builder.with_capacity(10).build();
 
     // worker to work collector responses channel
 
@@ -131,14 +135,14 @@ fn build_graph(graph: &mut Graph) {
     let (
         work_collector_tx_to_escaper
         , escaper_rx_from_work_collector
-    ) = channel_builder.with_capacity(2).build();
+    ) = channel_builder.with_capacity(10).build();
 
     // escaper to colorer channel
 
     let (
         escaper_tx_to_colorer
         , colorer_rx_from_escaper
-    ) = channel_builder.with_capacity(2).build();
+    ) = channel_builder.with_capacity(10).build();
 
     // The actor builder is configured to collect thread/core info and load metrics.
     // - with_thread_info: enables reporting of OS thread and CPU core (requires core_affinity feature in Cargo.toml)
