@@ -72,10 +72,21 @@ a mandelbrot set zoomer written in rust
 - settings page allows custom layering of colorings | ✔️
 - also allows animation of variables | ✔️
 
-## general optimization
+## KMF (v0.0.7) done
 
-- better actor comms
-- better knowledge leverage
-- better movement
+- misc
+
+## NASA V (v0.0.8) WIP...
+
+- expectations | ✔️
+- requirements | ✔️
+- architecture | WIP...
+- assemblies arch |
+- units arch |
+- unit tests |
+- integration tests |
+- e2e tests |
+- system verification |
+- system validation |
 
 
