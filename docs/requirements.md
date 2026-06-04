@@ -141,7 +141,7 @@ Unfinished pixels must not be colored flat black:
 If work (In or Out conclusion) exists covering the pixels, 
 they must be filled from low-res work, or if bailout was unexpectedly difficult, 
 which occurs when zooming into (-2, 0), using a best-effort approximation of the escape time.
-If it does not, the pixels must be covered with a black & magenta large-block pattern.
+If it does not, the pixels must be clearly recognizable as not known.
 
 ### Hoarding
 
