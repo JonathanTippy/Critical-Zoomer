@@ -1,22 +1,22 @@
 use rand::Rng;
 use steady_state::*;
-use crate::actor::window::sampling::*;
+use crate::assemblies::headgroup::window::sampling::*;
 
 use crate::utils::*;
 
-use crate::actor::work_collector::*;
+use crate::assemblies::workgroup::work_collector::*;
 
-use crate::actor::escaper::*;
+use crate::assemblies::shadergroup::escaper::*;
 
 use crate::settings::*;
 
-use crate::actor::colorer::color::*;
+use crate::assemblies::shadergroup::colorer::color::*;
 pub(crate) mod color;
 
 #[derive(Clone, Debug)]
 
 pub(crate) struct ZoomerScreen {
-    pub(crate) pixels: Vec<(u8,u8,u8)>
+    pub(crate) pixels: Vec<(u8, u8, u8)>
     , pub(crate) screen_size: (u32, u32)
     , pub(crate) objective_location: ObjectivePosAndZoom
 }

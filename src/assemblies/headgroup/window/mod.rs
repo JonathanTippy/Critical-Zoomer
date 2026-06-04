@@ -13,17 +13,17 @@ use std::cmp::*;
 
 use rug::*;
 
-use crate::actor::colorer::*;
-use crate::actor::work_controller::*;
+use crate::assemblies::shadergroup::colorer::*;
+use crate::assemblies::workgroup::work_controller::*;
 
 use crate::settings::*;
 use crate::utils::*;
 use crate::constants::*;
-use crate::actor::window::rolling::*;
-use crate::actor::window::widgetize::*;
+use crate::assemblies::headgroup::window::rolling::*;
+use crate::assemblies::headgroup::window::widgetize::*;
 
-use crate::actor::window::inputs::*;
-use crate::actor::window::sampling::*;
+use crate::assemblies::headgroup::window::inputs::*;
+use crate::assemblies::headgroup::window::sampling::*;
 
 
 pub(crate) mod rolling;

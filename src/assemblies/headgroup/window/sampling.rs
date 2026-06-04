@@ -6,11 +6,11 @@ use egui::{Color32, Pos2};
 use std::cmp::*;
 
 //use crate::actor::window::*;
-use crate::actor::colorer::*;
+use crate::assemblies::shadergroup::colorer::*;
 use crate::utils::*;
 
 use rug::{Float, Integer};
-use crate::actor::work_controller::PIXELS_PER_UNIT_POT;
+use crate::assemblies::workgroup::work_controller::PIXELS_PER_UNIT_POT;
 
 
 pub(crate) enum ZoomerCommand {

@@ -1,12 +1,12 @@
 use std::ops::{Add, Mul, Sub};
 use rand::Rng;
 use steady_state::*;
-use crate::actor::window::sampling::*;
+use crate::assemblies::headgroup::window::sampling::*;
 
 use crate::utils::*;
-use crate::actor::screen_worker::workshift::CompletedPoint;
-use crate::actor::work_collector::*;
-use crate::actor::screen_worker::workshift::*;
+use crate::assemblies::workgroup::screen_worker::workshift::CompletedPoint;
+use crate::assemblies::workgroup::work_collector::*;
+use crate::assemblies::workgroup::screen_worker::workshift::*;
 use crate::settings::*;
 
 
@@ -29,7 +29,7 @@ pub(crate) enum ScreenValue {
 #[derive(Clone, Debug)]
 
 pub(crate) struct ZoomerScreen {
-    pub(crate) pixels: Vec<(u8,u8,u8)>
+    pub(crate) pixels: Vec<(u8, u8, u8)>
     , pub(crate) screen_size: (u32, u32)
     , pub(crate) objective_location: ObjectivePosAndZoom
 }

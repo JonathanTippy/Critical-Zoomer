@@ -1,5 +1,5 @@
 use crate::settings::*;
-use crate::actor::escaper::*;
+use crate::assemblies::shadergroup::escaper::*;
 use crate::utils::*;
 use std::f64::consts::*;
 use std::time::*;

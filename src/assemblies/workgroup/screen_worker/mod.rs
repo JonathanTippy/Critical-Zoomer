@@ -1,11 +1,11 @@
 use std::cmp::min;
 use std::ops::{Add, Mul, Sub};
 use steady_state::*;
-use crate::actor::window::sampling::{index_from_relative_location, relative_location_i32_row_and_seat, transform_relative_location_i32};
+use crate::assemblies::headgroup::window::sampling::{index_from_relative_location, relative_location_i32_row_and_seat, transform_relative_location_i32};
 use crate::utils::ObjectivePosAndZoom;
 //use crate::actor::work_collector::*;
-use crate::actor::work_controller::*;
-use crate::actor::screen_worker::workshift::*;
+use crate::assemblies::workgroup::work_controller::*;
+use crate::assemblies::workgroup::screen_worker::workshift::*;
 
 pub(crate) mod workshift;
 

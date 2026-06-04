@@ -2,26 +2,19 @@ use steady_state::*;
 use arg::MainArg;
 mod arg;
 
-use crate::utils::*;
 use rug::*;
 // The actor module contains all the actor implementations for this pipeline.
 // Each actor is in its own submodule for clarity and separation of concerns.
-pub(crate) mod actor {
-    pub(crate) mod window;
-    pub(crate) mod work_controller;
-    pub(crate) mod screen_worker;
-    pub(crate) mod colorer;
-    pub(crate) mod work_collector;
-    pub(crate) mod escaper;
-
-}
+pub(crate) mod actor {}
 pub(crate) mod settings;
 
 pub(crate) mod utils;
 pub(crate) mod partial_knowledge;
 pub(crate) mod constants;
+mod assemblies;
 
 use std::thread;
+use assemblies::{headgroup, shadergroup, workgroup};
 
 const STACK_SIZE:usize = 200 * 1024 * 1024; // 200 MiB
 fn main() {
@@ -43,7 +36,7 @@ fn main() {
 
         // Build the actor graph with all channels and actors, using the parsed arguments.
         let mut graph = GraphBuilder::default()
-            .with_telemtry_production_rate_ms(200)
+            .with_telemtry_production_rate_ms(40)
             .with_default_actor_stack_size(STACK_SIZE)
             .build(cli_args);
 
@@ -54,7 +47,7 @@ fn main() {
         graph.start();
 
         // The system runs until an actor requests shutdown or the timeout is reached.
-        graph.block_until_stopped(Duration::from_secs(1));
+        graph.block_until_stopped(Duration::from_millis(100));
     }).expect("Failed to spawn thread");
 
     handler.join().expect("Thread panicked");
@@ -171,42 +164,42 @@ fn build_graph(graph: &mut Graph) {
     let state = new_state();
     actor_builder.with_name(NAME_WINDOW)
         .build(move |context|
-            actor::window::run(context, window_rx_from_colorer.clone(), window_tx_to_work_controller.clone(), window_tx_to_stuff.clone(), window_tx_to_worker.clone(), state.clone()) //#!#//
+            headgroup::window::run(context, window_rx_from_colorer.clone(), window_tx_to_work_controller.clone(), window_tx_to_stuff.clone(), window_tx_to_worker.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
                , SoloAct);
 
     let state = new_state();
     actor_builder.with_name(NAME_COLORER)
         .build(move |context|
-                   actor::colorer::run(context, colorer_rx_from_escaper.clone(), colorer_settings.clone(), colorer_tx_to_window.clone(), state.clone()) //#!#//
+                   shadergroup::colorer::run(context, colorer_rx_from_escaper.clone(), colorer_settings.clone(), colorer_tx_to_window.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
                , SoloAct);
 
     let state = new_state();
     actor_builder.with_name(NAME_WORK_CONTROLLER)
         .build(move |context|
-                   actor::work_controller::run(context, work_controller_rx_from_window.clone(), work_controller_tx_to_screen_worker.clone(), state.clone()) //#!#//
+                   workgroup::work_controller::run(context, work_controller_rx_from_window.clone(), work_controller_tx_to_screen_worker.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
                , SoloAct);
 
     let state = new_state();
     actor_builder.with_name(NAME_SCREEN_WORKER)
         .build(move |context|
-                   actor::screen_worker::run(context, screen_worker_rx_from_work_controller.clone(), screen_worker_tx_to_work_collector.clone(), worker_rx_from_window.clone(), state.clone()) //#!#//
+                   workgroup::screen_worker::run(context, screen_worker_rx_from_work_controller.clone(), screen_worker_tx_to_work_collector.clone(), worker_rx_from_window.clone(), state.clone()) //#!#//
                //, MemberOf(&mut responsive_team));
                , SoloAct);
 
     let state = new_state();
     actor_builder.with_name(NAME_WORK_COLLECTOR)
         .build(move |context|
-            actor::work_collector::run(context, work_collector_rx_from_screen_worker.clone(), work_collector_tx_to_escaper.clone(), state.clone())
+            workgroup::work_collector::run(context, work_collector_rx_from_screen_worker.clone(), work_collector_tx_to_escaper.clone(), state.clone())
             , SoloAct
         );
 
     let state = new_state();
     actor_builder.with_name(NAME_ESCAPER)
         .build(move |context|
-                   actor::escaper::run(context, escaper_rx_from_work_collector.clone(), escaper_settings.clone(), escaper_tx_to_colorer.clone(), state.clone())
+                   shadergroup::escaper::run(context, escaper_rx_from_work_collector.clone(), escaper_settings.clone(), escaper_tx_to_colorer.clone(), state.clone())
                , SoloAct
         );
 }

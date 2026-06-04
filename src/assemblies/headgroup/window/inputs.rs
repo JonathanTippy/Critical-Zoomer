@@ -1,11 +1,11 @@
 use std::cmp::min;
 use eframe::emath::Pos2;
 use rug::Integer;
-use crate::actor::window::{WindowState, ZoomerCommand};
-use crate::actor::work_controller::PIXELS_PER_UNIT_POT;
+use crate::assemblies::headgroup::window::{WindowState, ZoomerCommand};
+use crate::assemblies::workgroup::work_controller::PIXELS_PER_UNIT_POT;
 use crate::utils::{IntExp, ObjectivePosAndZoom};
 
-use crate::actor::window::sampling::*;
+use crate::assemblies::headgroup::window::sampling::*;
 
 #[derive(Clone, Debug)]
 pub(crate) struct MouseDragStart {

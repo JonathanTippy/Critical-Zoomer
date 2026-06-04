@@ -76,9 +76,10 @@ a mandelbrot set zoomer written in rust
 
 - misc
 
-## minor bugfix (v0.0.8)
+## minor bugfix (v0.0.8) done
 
-- fix work noncomplete | WIP...
+- fix work noncomplete | done
+- fix unclean shutdown | done
 
 ## NASA V (v0.0.9) WIP...
 
