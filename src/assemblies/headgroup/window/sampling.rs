@@ -20,7 +20,7 @@ pub(crate) enum ZoomerCommand {
     ,
     Zoom { pot: i32, center_screenspace_pos: (i32, i32) } // zoom in or out
     ,
-    Move { pixels_x: i32, pixels_y: i32 }
+    Move { pixels_x: IntExp, pixels_y: IntExp }
     ,
     MoveTo { x: IntExp, y: IntExp }
     ,
@@ -148,8 +148,8 @@ pub(crate) fn sample(
             }
             ZoomerCommand::Move{pixels_x, pixels_y} => {
                 context.location.pos = (
-                    context.location.pos.0.clone() + IntExp::from(*pixels_x).shift(-context.location.zoom_pot).shift(-PIXELS_PER_UNIT_POT)
-                    , context.location.pos.1.clone() + IntExp::from(*pixels_y).shift(-context.location.zoom_pot).shift(-PIXELS_PER_UNIT_POT)
+                    context.location.pos.0.clone() + pixels_x.clone().shift(-context.location.zoom_pot).shift(-PIXELS_PER_UNIT_POT)
+                    , context.location.pos.1.clone() + pixels_y.clone().shift(-context.location.zoom_pot).shift(-PIXELS_PER_UNIT_POT)
                 );
                 context.updated = true;
             }

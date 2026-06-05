@@ -88,6 +88,7 @@ pub(crate) struct WindowState {
     , pub(crate) timer: Instant
     , pub(crate) fps_margin: f32
     , pub(crate) timer2: Instant
+    , pub(crate) controls_timer: Instant
 }
 
 /// Entry point for the window actor.
@@ -143,11 +144,10 @@ async fn internal_behavior<A: SteadyActor>(
         , controls_settings: ControlsSettings::H
         , rolling_frame_info: (VecDeque::new(), VecDeque::new(), VecDeque::new(), None)
         , texturing_things: vec!()
-        //, sampling_resolution_multiplier: 1.0
         , timer: Instant::now()
         , fps_margin: 0.0
-
         , timer2: Instant::now()
+        , controls_timer: Instant::now()
 
     }).await;
 
@@ -200,7 +200,7 @@ async fn internal_behavior<A: SteadyActor>(
     eframe::run_native(
         "Critical Zoomer",
         options,
-        Box::new(|_cc| Ok(Box::new(passthrough))),
+        Box::new(|_cc| Ok(Box::new(passthrough)))
     ).unwrap();
 
 

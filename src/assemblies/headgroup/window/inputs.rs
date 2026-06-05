@@ -5,6 +5,7 @@ use crate::assemblies::headgroup::window::{WindowState, ZoomerCommand};
 use crate::assemblies::workgroup::work_controller::PIXELS_PER_UNIT_POT;
 use crate::utils::{IntExp, ObjectivePosAndZoom};
 
+use crate::constants::*;
 use crate::assemblies::headgroup::window::sampling::*;
 
 #[derive(Clone, Debug)]
@@ -15,6 +16,10 @@ pub(crate) struct MouseDragStart {
 }
 
 pub(crate) fn parse_inputs(ctx: &egui::Context, state: &mut WindowState, sampling_size: (usize, usize)) -> (Vec<ZoomerCommand>, (i32, i32)) {
+
+    let time_elapsed = state.controls_timer.elapsed();
+    state.controls_timer = std::time::Instant::now();
+
     let settings = &state.controls_settings;
 
     let mut returned = (vec!(), (0, 0));
@@ -158,18 +163,31 @@ pub(crate) fn parse_inputs(ctx: &egui::Context, state: &mut WindowState, samplin
             );
         }
 
+        let small_edge = min(sampling_size.0, sampling_size.1);
+        let pixels_per_second = small_edge as f32 * MOVE_SPEED_IN_SCREENS;
 
-        if input_state.key_down(egui::Key::ArrowDown) {
-            returned.0.push(ZoomerCommand::Move { pixels_x: 0, pixels_y: 1 });
+        let delta = pixels_per_second * (time_elapsed.as_secs_f64() as f32);
+
+        let delta = IntExp{
+            val: Integer::from((delta * 1024.0) as i32)
+            , exp: -10
+        };
+
+        if input_state.key_down(egui::Key::S)
+            && !input_state.key_pressed(egui::Key::S) {
+            returned.0.push(ZoomerCommand::Move { pixels_x: IntExp::from(0), pixels_y: delta.clone() });
         }
-        if input_state.key_down(egui::Key::ArrowUp) {
-            returned.0.push(ZoomerCommand::Move { pixels_x: 0, pixels_y: -1 });
+        if input_state.key_down(egui::Key::W)
+            && !input_state.key_pressed(egui::Key::W) {
+            returned.0.push(ZoomerCommand::Move { pixels_x: IntExp::from(0), pixels_y: IntExp::from(0)-delta.clone() });
         }
-        if input_state.key_down(egui::Key::ArrowLeft) {
-            returned.0.push(ZoomerCommand::Move { pixels_x: -1, pixels_y: 0 });
+        if input_state.key_down(egui::Key::A)
+            && !input_state.key_pressed(egui::Key::A) {
+            returned.0.push(ZoomerCommand::Move { pixels_x: IntExp::from(0)-delta.clone(), pixels_y: IntExp::from(0) });
         }
-        if input_state.key_down(egui::Key::ArrowRight) {
-            returned.0.push(ZoomerCommand::Move { pixels_x: 1, pixels_y: 0 });
+        if input_state.key_down(egui::Key::D)
+            && !input_state.key_pressed(egui::Key::D) {
+            returned.0.push(ZoomerCommand::Move { pixels_x: delta.clone(), pixels_y: IntExp::from(0) });
         }
     });
 
