@@ -49,34 +49,27 @@ III. When zooming out
 
 When doing best-res output:
 
- 1. For points outside the set, the workgroup must interpolate rather than using large square pixels:
-For a given point C, At a given iteration count, 
-the magnitude of Z can be estimated by averaging the magnitudes of Z at that iteration count of two points either side C weighting the distances, where one of the chosen points has at least as large an escape time as C itself.
-This is assumed to yield the iteration count at which C escaped; it will be necessary that all pixels store Z at smallest iteration count of escape of any of its neighbors. 
-From these Zs, the Mandelbrot function allows deriving the subsequent Zs. The algorithm can then advance until escape, checking the interpolated Z until it escapes, and assigns it the estimate escape time, which is the smallest escape time of its parents plus however many steps the interpolation took.
-
- 2. For points inside the set, squares are fine.
+ Pixels must be properly aligned so structures don't appear to shift when greater detail is available.
 
 
- 3. Interpolation 
+When transforming older work:
 
-When 
-
-The Workgroup must send hoarded work for the current frame to the Shadegroup anytime it is remapped due to a transform or progress is made.
+  The code used for transforming old work must be the same code used in the Headgroup to sample rgb values and provided the same transform as input and ensured to be the same frame position, zoom, and resolution as the RGB buffer in the Headgroup so the results are guaranteed to match.
 
 
+The Workgroup must send hoarded work for the current frame to the Shadergroup anytime it is remapped due to a transform or 50ms has passed and the screen is not yet complete.
+When the screen is not yet complete, the Workgroup must always have some new work at this interval; it must be able to pause a particularly difficult point and continue it in the next workshift.
 
 
+### Shadergroup
 
-### Shadegroup
-
-The shadegroup must be responsible for cosmetic layers generated from work.
+The shadergroup must be responsible for cosmetic layers generated from work.
 It must recieve the current frame from the hoard (at least the current frame according to the Workgroup)
 and processes it into RGB pixels.
 One of its responsibilities is custom bailout raidii; 
 it must satisfy the [2, ∞] bailout radius range. It must do so by continuing from the escape location, which must be included in the completed work by the Workgroup.
 
-The Shadegroup must send RGB pixels and their location to the Headgroup whenever they have changed, and at framerate when animating.
+The Shadergroup must send RGB pixels and their location to the Headgroup whenever they have changed, and at framerate when animating.
 
 ## Technologies
 
@@ -101,14 +94,14 @@ Rug is the current standard for large numbers.
 
 ## Requirements Allocation
 
-Form Factor: All
-System Policy: All
+Form Factor: Headgroup
+System Policy: Workgroup, Shadergroup
 Control Scheme: Headgroup
 Display Scheme: Headgroup
-Cosmetic Options: Headgroup & Shadegroup
-Controls Mechanics: Headgroup
+Cosmetic Options: Headgroup & Shadergroup
+Controls Mechanics: Headgroup & Workgroup
 Seamless: Headgroup & Workgroup
-Deep: All
-Tenacious: All
+Deep: Workgroup
+Tenacious: Workgroup
 Hoarding: Workgroup
 Fast: All
