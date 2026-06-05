@@ -16,7 +16,7 @@ mod assemblies;
 use std::thread;
 use assemblies::{headgroup, shadergroup, workgroup};
 
-const STACK_SIZE:usize = 200 * 1024 * 1024; // 200 MiB
+const STACK_SIZE:usize = 100 * 1024 * 1024; // 100 MiB
 fn main() {
 
 
