@@ -30,6 +30,7 @@ pub(crate) mod rolling;
 pub(crate) mod widgetize;
 pub(crate) mod inputs;
 pub(crate) mod sampling;
+pub mod transforms;
 
 const RECOVER_EGUI_CRASHES:bool = false;
 // ^ half implimented; in cases where the window is supposed to

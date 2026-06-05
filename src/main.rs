@@ -78,7 +78,7 @@ fn build_graph(graph: &mut Graph) {
         .with_filled_trigger(Trigger::AvgAbove(Filled::p60()), AlertColor::Orange)
         // Track average message rate for each channel
         .with_avg_rate()
-        .with_capacity(2);
+        .with_capacity(10);
 
     // Channel capacities are set extremely large for high-throughput, batch-friendly operation.
     // - Heartbeat channel: moderate size for timing signals
