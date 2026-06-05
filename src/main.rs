@@ -18,9 +18,10 @@ use assemblies::{headgroup, shadergroup, workgroup};
 
 const STACK_SIZE:usize = 100 * 1024 * 1024; // 100 MiB
 fn main() {
-
-
-
+    #[cfg(target_os = "linux")]
+    if std::env::var("WINIT_X11_SCALE_FACTOR").is_err() {
+        std::env::set_var("WINIT_X11_SCALE_FACTOR", "1");
+    }
 
 
     let builder = thread::Builder::new()
