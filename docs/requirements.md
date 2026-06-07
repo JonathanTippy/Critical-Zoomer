@@ -84,7 +84,7 @@ The app must allow specifying the base color for each layer, its opacity inside 
 
 The app must highlight features such as in filaments, out filaments, and minibrots (nodes), and allow including these results in the coloration or not.
 
-The app must allow customizing the bailout radius to any value in: [2, ∞].
+The app must allow customizing the bailout radius to at least any value in: [2, 255].
 
 All these cosmetic features must run quickly because they start from hoarded work.
 All cosmetic features (that are continuous rather than enumerated) must animate at 60fps 1080p.
@@ -161,7 +161,7 @@ Across viewport transforms, work still in frame must still be hoarded, and read 
 That work must be actually saved (not redone):
 - When moving
 - When zooming out
-- Not necessary when zooming in: the savings would be tiny.
+- May / May not when zooming in: the savings would be tiny. Depends if its in the way of the other two.
 
 Display settings (including highlighting, bailout, and coloring) change how pixels look but must start from hoarded work, not replace it.
 
@@ -180,3 +180,15 @@ The user must see an immediate step on every wheel tick, and fast spinning must 
 Work might not keep up the pace; it Should, but if it doesn't, 
 the user must see what they just saw, just magnified, so they must see big square pixels / low-res.
 The user must see their movements and zooms on this or the next frame; 17ms at 60hz.
+
+### Calibrated
+
+Don't get it twisted, the workgroup must interpolate and output low-res where appropriate.
+Ranges must be used to keep track of in-progress work.
+For example, in WIP points,
+- Some lower bound of the escape time is known.
+- Some lower bound of min magnitude time is also known
+- The escape location is known to be somewhere in the ring between circle r=2 and circle r=6 (2^2=4+2=6)
+- Some min magnitude upper bound is known
+
+When low-res work is proven incorrect by bounds, it should be nudged by them by the smallest amount to make the result possible.

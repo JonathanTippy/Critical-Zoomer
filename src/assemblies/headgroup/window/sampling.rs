@@ -10,7 +10,7 @@ use crate::assemblies::shadergroup::colorer::*;
 use crate::utils::*;
 
 use rug::{Float, Integer};
-use crate::assemblies::workgroup::work_controller::PIXELS_PER_UNIT_POT;
+use crate::constants::PIXELS_PER_UNIT_POT;
 
 
 pub(crate) enum ZoomerCommand {

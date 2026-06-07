@@ -286,83 +286,14 @@ pub(crate) fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<
             continue;
         }
 
-        //if context.workshifts > 100 {
-            /*match step {
-                Step::In => {
-                    point.period = context.in_queue[0].1;
-                    context.completed_points.push((CompletedPoint::Repeats{period: context.in_queue[0].1}, index));
-                    point.delivered = true;
-                    queue_incomplete_neighbors_in(&pos, context.res, &context.points, &mut context.in_queue);
-                    let _ =  context.in_queue.pop_front();
-                    continue;
-                }
-                _ => {}
-            }*/
-        //}
+
 
 
 
         let old_iterations = point.iterations;
 
-        /*match step {
-            Step::Scredge => {
-                iterate_max_n_times(point, 4.0f32.into(), episilon, 1000);
-            }
-            Step::Random => {
-                iterate_max_n_times(point, 4.0f32.into(), episilon, 1000);
-            }
-            Step::Out => {
-                let difficulty = context.out_queue[0].1;
-                let eta = difficulty as i32 - point.iterations as i32;
-                if eta > 2000 {
-                    let warp = min(eta/2, 1000000);
-                    if !timewarp_n_iterations(point, 4.0f32.into(), warp as u32) {
-                        context.out_queue[0].1 = 0;
-                    };
-                } else {
-                    iterate_max_n_times(point, 4.0f32.into(), episilon, 100);
-                }
-            }
-            Step::In => {
-                let difficulty = context.in_queue[0].1;
-                let eta = difficulty as i32 - point.iterations as i32;
-                if eta > 2000 {
-                    let warp = min(eta/2, 1000000);
-                    if !timewarp_n_iterations(point, 4.0f32.into(), warp as u32) {
-                        context.in_queue[0].1 = 0;
-                    };
-                } else {
-                    iterate_max_n_times(point, 4.0f32.into(), episilon, 100);
-                }
-            }
-            Step::Edge => {
-                let difficulty = context.edge_queue[0].1;
-                let eta = difficulty as i32 - point.iterations as i32;
-                if eta > 2000 {
-                    let warp = min(eta/2, 10000000);
-                    if !timewarp_n_iterations(point, 4.0f32.into(), warp as u32) {
-                        context.edge_queue[0].1 = 0;
-                    };
-                } else {
-                    iterate_max_n_times(point, 4.0f32.into(), episilon, 100);
-                }
-            }
-        }
-*/
-        iterate_max_n_times(point, 4.0f32.into(), episilon, 10000);
-        /*if let Some(t) = point.escaped_time {
-            let warp = (t-point.iterations)/2;
-            if !timewarp_n_iterations(point, 4.0, warp) {
-                point.escaped_time = Some(point.iterations + warp);
-                context.total_iterations_today+=warp;
-            }
-        } else {
-            let warp = min(point.iterations/2, 1000);
-            if !timewarp_n_iterations(point, 4.0, warp) {
-                point.escaped_time = Some(point.iterations + warp);
-                context.total_iterations_today+=warp;
-            }
-        }*/
+
+        iterate_max_n_times(point, 4.0f32.into(), episilon, 1000);
 
 
 

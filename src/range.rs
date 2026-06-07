@@ -2,23 +2,28 @@ use std::ops::*;
 use rand::*;
 use num_traits::*;
 use std::fmt::*;
+
+use rand::distr::uniform::{SampleRange, SampleUniform};
+
 trait Value:
 PartialOrd + Expand
 + Add<Output=Self> + Sub<Output=Self> + Mul<Output=Self>
-+ From<u8> + From<i16> + From<u32> + From<i32>
++ Zero + One
 + Copy + Clone
 + Float
 + Debug
++ SampleUniform
 {}
 
 impl<T> Value for T
 where
     T: PartialOrd + Expand
     + Add<Output=Self> + Sub<Output=Self> + Mul<Output=Self>
-    + From<u8> + From<i16> + From<u32> + From<i32>
+    + Zero + One
     + Copy + Clone
     + Float
     + Debug
+    + SampleUniform
 {}
 
 // special min and max which propagate NAN values to conserve ignorance
@@ -51,70 +56,67 @@ impl Expand for f64 {
 
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct PartialKnowledge<T: Value> {
+pub(crate) struct Range<T: Value, const MUST_INTEGER: bool> {
     pub(crate) lower_bound: T
     , pub(crate) upper_bound: T
-    , pub(crate) must_integer: bool
 }
 
-impl<T: Value> PartialKnowledge<T> {
+impl<T: Value, const MUST_INTEGER:bool> Range<T, MUST_INTEGER> {
     fn new(value: T) -> Self {
-        PartialKnowledge {
+        Range {
             lower_bound: value
             , upper_bound: value
-            , must_integer: value.floor() == value
         }
     }
 
-    fn result(lower_bound: T, upper_bound: T, must_integer: bool) -> Self {
-        let returned = {
-            if must_integer {
+    fn result(lower_bound: T, upper_bound: T) -> Range::<T, MUST_INTEGER> {
+        let returned:Range::<T, MUST_INTEGER> = {
+            if MUST_INTEGER {
                 let lower_bound = lower_bound.next_down().ceil();
                 let upper_bound = upper_bound.next_up().floor();
                 if lower_bound > upper_bound {panic!("Must integer failed to integer")}
-                PartialKnowledge {
-                    lower_bound // non-integer results can be discarded
-                    , upper_bound // non-integer results can be discarded
-                    , must_integer: true
+                Range {
+                    lower_bound
+                    , upper_bound
                 }
             } else {
-                PartialKnowledge {
+                Range::<T, MUST_INTEGER> {
                     lower_bound: lower_bound.next_down()
                     , upper_bound: upper_bound.next_up()
-                    , must_integer: false
+
                 }
             }
         };
-        println!("new partialKnowledge: {:?}", returned);
+        println!("new Range: {:?}", returned);
         returned
     }
 
     fn square(self) -> Self {
         if !self.can_be_zero() {
-            PartialKnowledge::choose([
+            Range::choose([
                                          self.lower_bound * self.lower_bound
                                          , self.upper_bound * self.upper_bound
-                                     ], self.must_integer)
+                                     ])
         } else {
-            PartialKnowledge::choose([
+            Range::choose([
                                          self.lower_bound * self.lower_bound
                                          , self.upper_bound * self.upper_bound
-                                         , 0.into()
-                                     ], self.must_integer)
+                                         , T::zero()
+                                     ])
         }
     }
 
     fn can_be_zero(&self) -> bool {
-        self.lower_bound <= 0.into() && self.upper_bound >= 0.into()
+        self.lower_bound <= T::zero() && self.upper_bound >= T::zero()
     }
 
     fn is_agnostic(&self) -> bool {
         self.lower_bound != self.lower_bound || self.upper_bound != self.upper_bound
     }
 
-    fn choose<const N:usize>(options:[T;N], must_integer: bool) -> PartialKnowledge<T> {
+    fn choose<const N:usize>(options:[T;N]) -> Range<T, MUST_INTEGER> {
         assert!(N>0);
-        PartialKnowledge::result(
+        Range::<T, MUST_INTEGER>::result(
             {
                 let mut lower = options[0];
                 for n in options {lower = min(lower, n)}
@@ -123,7 +125,7 @@ impl<T: Value> PartialKnowledge<T> {
                 let mut upper = options[0];
                 for n in options {upper = max(upper, n)}
                 upper
-            }, must_integer
+            }
         )
     }
 
@@ -164,25 +166,25 @@ impl<T: Value> PartialKnowledge<T> {
 
     fn ln (self) -> Self {
         Self::choose(
-            [self.upper_bound.ln(), self.lower_bound.ln()], false
+            [self.upper_bound.ln(), self.lower_bound.ln()]
         )
     }
     fn exp (self) -> Self {
         Self::choose(
-            [self.upper_bound.exp(), self.lower_bound.exp()], false
+            [self.upper_bound.exp(), self.lower_bound.exp()]
         )
     }
 
     fn guess_middle(self) -> T {
-        if self.must_integer {
-            ((self.lower_bound + self.upper_bound) / 2.into()).floor()
+        if MUST_INTEGER {
+            ((self.lower_bound + self.upper_bound) / (T::one() + T::one())).floor()
         } else {
-            (self.lower_bound + self.upper_bound) / 2.into()
+            (self.lower_bound + self.upper_bound) / (T::one() + T::one())
         }
     }
 
     fn guess_left(self) -> T {
-        if self.must_integer {
+        if MUST_INTEGER {
             self.lower_bound.ceil()
         } else {
             self.lower_bound
@@ -190,7 +192,7 @@ impl<T: Value> PartialKnowledge<T> {
     }
 
     fn guess_right(self) -> T {
-        if self.must_integer {
+        if MUST_INTEGER {
             self.upper_bound.floor()
         } else {
             self.upper_bound
@@ -198,12 +200,26 @@ impl<T: Value> PartialKnowledge<T> {
     }
 
     fn guess_random(self) -> T {
-        let mut rng = rand::rng();
-        if self.must_integer {
-            self.upper_bound.floor()
+        if self.is_agnostic() {
+            return T::nan();
+        }
+        if self.guess_left() > self.guess_right() {
+            panic!("bounds inverted");
+        }
+        if MUST_INTEGER {
+            let mut rng = rand::rng();
+            let random = rng.random_range(
+                self.guess_left() - (T::one()/(T::one()+ T::one()))
+                    ..=self.guess_right() + (T::one() / (T::one() + T::one()))
+            );
+            {if (random.floor() - random).abs() < (random.ceil() - random).abs() {
+                random.floor()
+            } else {
+                random.ceil()
+            }}.clamp(self.guess_left(), self.guess_right())
         } else {
-            let a = rng.random_range(0.5..5.5);
-            self.upper_bound
+            let mut rng = rand::rng();
+            rng.random_range(self.lower_bound..=self.upper_bound)
         }
     }
 }
@@ -214,71 +230,67 @@ fn get_uuid() -> u64 {
     random_number
 }
 
-impl<T: Value> Add<Self> for PartialKnowledge<T> {
+impl<T: Value, const Int: bool> Add<Self> for Range<T, Int> {
     type Output = Self;
     fn add (self, other:Self) -> Self {
-        PartialKnowledge::result(
+        Range::result(
             self.lower_bound + other.lower_bound
             , self.upper_bound + other.upper_bound
-            , self.must_integer && other.must_integer
         )
     }
 }
-impl<T: Value> Add<T> for PartialKnowledge<T> {
+impl<T: Value, const Int: bool> Add<T> for Range<T, Int> {
     type Output = Self;
     fn add (self, other:T) -> Self {
-        PartialKnowledge::result(
+        Range::result(
             self.lower_bound + other
             , self.upper_bound + other
-            , self.must_integer && other.floor() == other
         )
     }
 }
 
-impl<T: Value> Sub<Self> for PartialKnowledge<T> {
+impl<T: Value, const Int: bool> Sub<Self> for Range<T, Int> {
     type Output = Self;
     fn sub (self, other:Self) -> Self {
-        PartialKnowledge::result (
+        Range::result (
             self.lower_bound - other.upper_bound
             , self.upper_bound - other.lower_bound
-            , self.must_integer && other.must_integer
         )
     }
 }
-impl<T: Value> Sub<T> for PartialKnowledge<T> {
+impl<T: Value, const Int: bool> Sub<T> for Range<T, Int> {
     type Output = Self;
     fn sub (self, other:T) -> Self {
-        PartialKnowledge::result (
+        Range::result (
             self.lower_bound - other
             , self.upper_bound - other
-            , self.must_integer && other.floor() == other
         )
     }
 }
 
-impl<T: Value> Mul<Self> for PartialKnowledge<T> {
+impl<T: Value, const Int: bool> Mul<Self> for Range<T, Int> {
     type Output = Self;
     fn mul (self, other:Self) -> Self {
-        PartialKnowledge::choose( [
+        Range::choose([
                                       self.lower_bound * other.lower_bound
                                       , self.lower_bound * other.upper_bound
                                       , self.upper_bound * other.lower_bound
                                       , self.upper_bound * other.upper_bound
-                                  ], self.must_integer && other.must_integer)
+                                  ])
     }
 }
-impl<T: Value> Mul<T> for PartialKnowledge<T> {
+impl<T: Value, const Int: bool> Mul<T> for Range<T, Int> {
     type Output = Self;
     fn mul (self, other:T) -> Self {
-        PartialKnowledge::choose([
+        Range::choose([
                                      self.lower_bound * other
                                      , self.lower_bound * other
-                                 ], self.must_integer && other.floor() == other)
+                                 ])
     }
 }
 
 fn comptest() {
-    let mut  a = PartialKnowledge::new(1.1);
+    let mut  a = Range::<f64, false>::new(1.1);
     a = a + 1.1;
     //let c = rug::Float::with_val(10, 5);
     //let mut d = PartialKnowledge::new(c);
@@ -287,32 +299,32 @@ fn comptest() {
 
 #[test]
 fn int_test() {
-    let mut a = PartialKnowledge::new(5.0);
-    let mut b = PartialKnowledge{lower_bound: 0.9, upper_bound: 1.1, must_integer: true};
-    assert!((a + b).must_eq(PartialKnowledge::new(6.0)));
+    let mut a = Range::<f64, true>::new(5.0);
+    let mut b = Range {lower_bound: 0.9, upper_bound: 1.1};
+    assert!((a + b).must_eq(Range::new(6.0)));
 }
 
 #[test]
 fn int_test_2() {
-    let mut a = PartialKnowledge::new(5.0);
-    let mut b = PartialKnowledge{lower_bound: 0.9, upper_bound: 1.1, must_integer: true};
-    assert!((a * b).must_eq(PartialKnowledge::new(5.0)));
+    let mut a = Range::<f64, true>::new(5.0);
+    let mut b = Range {lower_bound: 0.9, upper_bound: 1.1};
+    assert!((a * b).must_eq(Range::new(5.0)));
 }
 
 #[test]
 fn test_addition() {
-    let a = PartialKnowledge::new(10.0);
-    let b = PartialKnowledge::new(5.0);
+    let a = Range::<f64, true>::new(10.0);
+    let b = Range::<f64, true>::new(5.0);
     let c = a + b;
-    // Knowledge of exact values should still encompass the sum.
-    assert!(c.can_eq(PartialKnowledge::new(15.0)));
+    // Knowledge of exact values remain exact.
+    assert!(c.can_eq(Range::new(15.0)));
 }
 
 #[test]
 fn test_subtraction_range() {
     // [9, 11] - [1, 2] = [7, 10]
-    let a = PartialKnowledge { lower_bound: 9.0, upper_bound: 11.0, must_integer: false };
-    let b = PartialKnowledge { lower_bound: 1.0, upper_bound: 2.0, must_integer: false };
+    let a = Range::<f64, false> { lower_bound: 9.0, upper_bound: 11.0 };
+    let b = Range::<f64, false> { lower_bound: 1.0, upper_bound: 2.0 };
     let c = a - b;
     assert!(c.lower_bound <= 8.0); // account for next_down
     assert!(c.upper_bound >= 10.0); // account for next_up
@@ -320,29 +332,21 @@ fn test_subtraction_range() {
 
 #[test]
 fn test_multiplication_by_zero() {
-    let a = PartialKnowledge { lower_bound: -100.0, upper_bound: 100.0, must_integer: false };
-    let b = PartialKnowledge::new(0.0);
+    let a = Range::<f64, false> { lower_bound: -100.0, upper_bound: 100.0 };
+    let b = Range::new(0.0);
     let c = a * b;
     // Anything times zero is zero, despite ignorance of 'a'
-    assert!(c.can_eq(PartialKnowledge::new(0.0)));
-}
-
-#[test]
-fn test_integer_constraint_propagation() {
-    let a = PartialKnowledge { lower_bound: 1.0, upper_bound: 1.0, must_integer: true };
-    let b = PartialKnowledge { lower_bound: 2.0, upper_bound: 2.0, must_integer: true };
-    let c = a + b;
-    assert!(c.must_integer);
+    assert!(c.can_eq(Range::new(0.0)));
 }
 
 #[test]
 fn test_integer_collapse_addition() {
     // [5.0, 5.0] + [0.1, 1.9] (must be integer)
     // Possible integers in [5.1, 6.9] is only 6.
-    let a = PartialKnowledge::new(5.0);
-    let b = PartialKnowledge { lower_bound: 0.1, upper_bound: 1.9, must_integer: true };
+    let a = Range::<f64, true>::new(5.0);
+    let b = Range::<f64, true> { lower_bound: 0.1, upper_bound: 1.9};
     let c = a + b;
-    assert!(c.must_eq(PartialKnowledge::new(6.0)));
+    assert!(c.must_eq(Range::new(6.0)));
 }
 
 #[test]
@@ -350,15 +354,15 @@ fn test_integer_collapse_addition() {
 fn test_integer_collapse_multiplication() {
     // [2.0, 2.0] * [0.6, 0.9] (must be integer)
     // Range is [1.2, 1.8]. No integers exist.
-    let a = PartialKnowledge::new(2.0);
-    let b = PartialKnowledge { lower_bound: 0.6, upper_bound: 0.9, must_integer: true };
+    let a = Range::<f64, true>::new(2.0);
+    let b = Range::<f64, true> { lower_bound: 0.6, upper_bound: 0.9};
     let c = a * b;
 }
 
 #[test]
 fn test_square_negative_range() {
     // [-2, 3]^2 should be [0, 9]
-    let a = PartialKnowledge { lower_bound: -2.0, upper_bound: 3.0, must_integer: false };
+    let a = Range::<f64, false> { lower_bound: -2.0, upper_bound: 3.0};
     let b = a.square();
     assert!(b.lower_bound <= 0.0);
     assert!(b.upper_bound >= 9.0);
@@ -366,49 +370,41 @@ fn test_square_negative_range() {
 
 #[test]
 fn test_must_gt_logic() {
-    let a = PartialKnowledge { lower_bound: 10.0, upper_bound: 11.0, must_integer: false };
-    let b = PartialKnowledge { lower_bound: 5.0, upper_bound: 6.0, must_integer: false };
+    let a = Range::<f64, false> { lower_bound: 10.0, upper_bound: 11.0 };
+    let b = Range::<f64, false> { lower_bound: 5.0, upper_bound: 6.0 };
     assert!(a.must_gt(b));
     assert!(!b.must_gt(a));
 }
 
 #[test]
 fn test_can_eq_overlap() {
-    let a = PartialKnowledge { lower_bound: 1.0, upper_bound: 10.0, must_integer: false };
-    let b = PartialKnowledge { lower_bound: 5.0, upper_bound: 15.0, must_integer: false };
+    let a = Range::<f64, false> { lower_bound: 1.0, upper_bound: 10.0 };
+    let b = Range::<f64, false> { lower_bound: 5.0, upper_bound: 15.0 };
     assert!(a.can_eq(b));
 }
 
 #[test]
 fn test_must_ne_separation() {
-    let a = PartialKnowledge { lower_bound: 1.0, upper_bound: 2.0, must_integer: false };
-    let b = PartialKnowledge { lower_bound: 3.0, upper_bound: 4.0, must_integer: false };
+    let a = Range::<f64, false> { lower_bound: 1.0, upper_bound: 2.0 };
+    let b = Range::<f64, false> { lower_bound: 3.0, upper_bound: 4.0 };
     assert!(a.must_ne(b));
 }
 
 #[test]
 fn test_nan_propagation_ignorance() {
     // If one bound is NaN, the result is agnostic.
-    let a = PartialKnowledge { lower_bound: f64::NAN, upper_bound: 1.0, must_integer: false };
-    let b = PartialKnowledge::new(1.0);
+    let a = Range::<f64, false> { lower_bound: f64::NAN, upper_bound: 1.0 };
+    let b = Range::new(1.0);
     let c = a + b;
     assert!(c.is_agnostic());
 }
 
-#[test]
-fn test_mixed_integer_float_addition() {
-    // If an integer is added to a non-integer, the result must_integer property should be false.
-    let a = PartialKnowledge { lower_bound: 1.0, upper_bound: 1.0, must_integer: true };
-    let b = PartialKnowledge { lower_bound: 0.5, upper_bound: 0.5, must_integer: false };
-    let c = a + b;
-    assert!(!c.must_integer);
-}
 
 #[test]
 fn test_infinity_collision() {
     // Multiplying infinity by zero should produce NaN, resulting in an agnostic range.
-    let a = PartialKnowledge::new(f64::INFINITY);
-    let b = PartialKnowledge::new(0.0);
+    let a = Range::<f64, false>::new(f64::INFINITY);
+    let b = Range::<f64, false>::new(0.0);
     let c = a * b;
     assert!(c.is_agnostic(), "Inf * 0 must conserve ignorance via NaN: {:?}", c);
 }
@@ -416,17 +412,17 @@ fn test_infinity_collision() {
 #[test]
 #[should_panic]
 fn test_integer_impossibility_vacuum() {
-    // [0.1, 0.9] with must_integer=true contains no valid members.
-    let empty_int = PartialKnowledge { lower_bound: 0.1, upper_bound: 0.9, must_integer: true };
-    let base = PartialKnowledge::new(10.0);
+    // [0.1, 0.9] with Int=true contains no valid members.
+    let empty_int = Range::<f64, true> { lower_bound: 0.1, upper_bound: 0.9};
+    let base = Range::new(10.0);
     let result = base + empty_int;
 }
 
 #[test]
 fn test_alternating_nan_bounds() {
     // One-sided ignorance: lower bound is known, upper bound is a mystery.
-    let known_low = PartialKnowledge { lower_bound: 5.0, upper_bound: f64::NAN, must_integer: false };
-    let known_high = PartialKnowledge { lower_bound: f64::NAN, upper_bound: 10.0, must_integer: false };
+    let known_low = Range::<f64, false> { lower_bound: 5.0, upper_bound: f64::NAN };
+    let known_high = Range::<f64, false> { lower_bound: f64::NAN, upper_bound: 10.0 };
     let sum = known_low + known_high;
     // (5 + NaN) and (NaN + 10) should both be NaN.
     assert!(sum.is_agnostic(), "Mixed NaN bounds must conserve ignorance");

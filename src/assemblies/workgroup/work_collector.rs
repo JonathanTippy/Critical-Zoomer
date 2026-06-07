@@ -6,7 +6,7 @@ use crate::assemblies::workgroup::screen_worker::workshift::*;
 use crate::assemblies::headgroup::window::sampling::*;
 use crate::assemblies::workgroup::screen_worker::*;
 use crate::constants::*;
-
+use crate::constants::*;
 
 use rand::prelude::SliceRandom;
 use crate::utils::*;
@@ -157,8 +157,8 @@ fn sample_old_values<T:Clone>(old_package: &ResultsPackage<T>, new_location: Obj
     );
 
     let relative_pos_in_pixels:(i32, i32) = (
-        relative_pos.0.clone().shift(new_location.zoom_pot).shift(crate::assemblies::workgroup::work_controller::PIXELS_PER_UNIT_POT).into()
-        , relative_pos.1.clone().shift(new_location.zoom_pot).shift(crate::assemblies::workgroup::work_controller::PIXELS_PER_UNIT_POT).into()
+        relative_pos.0.clone().shift(new_location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
+        , relative_pos.1.clone().shift(new_location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
     );
 
     let relative_zoom = new_location.zoom_pot - old_package.location.zoom_pot;

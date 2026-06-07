@@ -29,7 +29,7 @@ Critical Zoomer aims to fix this accessability gap.
 
 ## Central Expectations
 
-Critical Zoomer must be Seamless, Deep, Tenacious, Hoarding, and Fast. Details follow.
+Critical Zoomer must be Seamless, Deep, Tenacious, Hoarding, Fast, and Calibrated. Details follow.
 
 ### Seamless
 
@@ -61,3 +61,7 @@ Extensive optimization, work saving, and lookahead will all be must.
 
 All settings must apply instantly and not trigger a re-compute;
 there must be no computational settings.
+
+### Calibrated
+
+The outputs must be reasonably believed to be correct and known.

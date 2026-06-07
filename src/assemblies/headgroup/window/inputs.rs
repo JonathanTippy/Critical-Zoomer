@@ -2,7 +2,7 @@ use std::cmp::min;
 use eframe::emath::Pos2;
 use rug::Integer;
 use crate::assemblies::headgroup::window::{WindowState, ZoomerCommand};
-use crate::assemblies::workgroup::work_controller::PIXELS_PER_UNIT_POT;
+use crate::constants::PIXELS_PER_UNIT_POT;
 use crate::utils::{IntExp, ObjectivePosAndZoom};
 
 use crate::constants::*;
@@ -30,7 +30,7 @@ pub(crate) fn parse_inputs(ctx: &egui::Context, state: &mut WindowState, samplin
 
     ctx.input(|input_state| {
         if let Some(pos) = input_state.pointer.latest_pos() {
-            returned.1 = ((pos.x as i32).clamp(0, sampling_size.0 as i32), (pos.y as i32).clamp(0, sampling_size.1 as i32));
+            returned.1 = ((pos.x as i32).clamp(0, sampling_size.0 as i32-1), (pos.y as i32).clamp(0, sampling_size.1 as i32-1));
         }
 
         // begin a new drag if neither of the buttons are held and one or both has just been pressed

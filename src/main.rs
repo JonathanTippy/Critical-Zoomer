@@ -9,7 +9,7 @@ pub(crate) mod actor {}
 pub(crate) mod settings;
 
 pub(crate) mod utils;
-pub(crate) mod partial_knowledge;
+pub(crate) mod range;
 pub(crate) mod constants;
 mod assemblies;
 
