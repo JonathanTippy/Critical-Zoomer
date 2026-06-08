@@ -22,6 +22,12 @@ fn line_segments_overlap(a: (IntExp, IntExp), b: (IntExp, IntExp)) -> bool {
     || (a.1 > b.0 && a.1 < b.1)
 }
 
+fn line_segment_a_is_subset_of_b(a: (IntExp, IntExp), b: (IntExp, IntExp)) -> bool {
+    // left edge inclusive right edge limit
+    (a.0 >= b.0 && a.0 < b.1)
+        && (a.1 > b.0 && a.1 < b.1)
+}
+
 
 pub(crate) struct PixelStencil {
     location: (IntExp, IntExp, i32) // real, imag, magnification POT
@@ -57,6 +63,16 @@ impl PixelStencil {
                 , (other.corners().0.1, other.corners().1.1)
                 )
     }
+
+    fn subset_of(&self, other: &Self) -> bool {
+        line_segment_a_is_subset_of_b(
+            (self.corners().0.0, self.corners().1.0)
+            , (other.corners().0.0, other.corners().1.0)
+        ) && line_segment_a_is_subset_of_b(
+            (self.corners().0.1, self.corners().1.1)
+            , (other.corners().0.1, other.corners().1.1)
+        )
+    }
 }
 
 pub(crate) struct View<T> {
@@ -72,50 +88,52 @@ impl<T: Copy> View<T> {
     pub(crate) fn fill_from(&mut self, new: &Self) {
         assert!(self.is_valid() && new.is_valid());
 
-        if !(
-            self.stencil.space() > new.stencil.space()
-                * IntExp::from(max(new.stencil.resolution.0, new.stencil.resolution.1))
-            || new.stencil.space() > self.stencil.space()
-                * IntExp::from(max(self.stencil.resolution.0, self.stencil.resolution.1))
-        ) {
-
-        } else {
-
-        }
-
         let delta = (
             new.stencil.location.0.clone() - self.stencil.location.0.clone()
             , new.stencil.location.1.clone() - self.stencil.location.1.clone()
             , new.stencil.location.2 - self.stencil.location.2
         );
 
-        let (pan_pixel_delta, ratio_step): ((isize, isize), usize)
-            = (
-                (
-                    delta.0.shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT).into()
-                    , (IntExp::from(0) - delta.1).shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT).into()
-                )
-                , if delta.2 == 0 {
-                    1
-                } else if delta.2 > 0 {
-                    1 << delta.2
-                } else {
-                    1 << -delta.2
-                }
-            );
+        let pan_pixel_delta: (isize, isize) = (
+            delta.0.shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT).into()
+            , (IntExp::from(0) - delta.1).shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT).into()
+        );
 
-        if self_to_new.0 == 1 {
-
+        let pixel_ratio:(usize, usize) = if !(
+            self.stencil.space() > new.stencil.space()
+                * IntExp::from(max(new.stencil.resolution.0, new.stencil.resolution.1))
+            || new.stencil.space() > self.stencil.space()
+                * IntExp::from(max(self.stencil.resolution.0, self.stencil.resolution.1))
+        ) {
+            if delta.2>0 {
+                (1<<delta.2, 1)
+            } else if delta.2<0 {
+                (1, 1 << -delta.2)
+            } else {
+                (1, 1)
+            }
         } else {
-
-        }
+            (1, 1) // TODO! this part
+        };
 
         for row in 0..self.stencil.resolution.1 {
             for seat in 0..self.stencil.resolution.0 {
-                self.data[row * self.stencil.resolution.0 + seat]
-                = new.data[
-                    row * self.stencil.resolution.0 + seat
-                    ]
+                self.data[
+                    ((((row * self.stencil.resolution.0) * pixel_ratio.0) as isize + pan_pixel_delta.0).clamp(0, (self.stencil.resolution.0-1) as isize)
+                    + ((((seat) * pixel_ratio.0) as isize) + pan_pixel_delta.0).clamp(0, (self.stencil.resolution.1 - 1) as isize)) as usize
+                ]
+                = (
+                    new.data[
+                    ((row * self.stencil.resolution.0) * pixel_ratio.0).clamp(0, new.stencil.resolution.0 - 1)
+                    + ((seat) * pixel_ratio.0).clamp(0, new.stencil.resolution.1 - 1)
+                ].0, false,
+                    (seat) * pixel_ratio.0 < new.stencil.resolution.1
+                    && (row * self.stencil.resolution.0) * pixel_ratio.0 < new.stencil.resolution.0
+                    && ((row * self.stencil.resolution.0) * pixel_ratio.0) as isize + pan_pixel_delta.0 >= 0
+                    && ((row * self.stencil.resolution.0) * pixel_ratio.0) as isize + pan_pixel_delta.0 < self.stencil.resolution.0 as isize
+                    && (((seat) * pixel_ratio.0) as isize) + pan_pixel_delta.0 >= 0
+                    && (((seat) * pixel_ratio.0) as isize) + pan_pixel_delta.0 < self.stencil.resolution.1 as isize
+                );
             }
         }
     }
@@ -150,4 +168,16 @@ pub(crate) enum MandelbrotResult {
 
 pub(crate) struct Color {
     pub(crate) rgb: (u8, u8, u8)
+}
+
+#[test]
+fn two_by_two_test() {
+    let a = View(
+        stencil: Stencil{
+            
+        }
+        , data: vec!(
+
+        )
+    )
 }

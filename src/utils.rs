@@ -53,9 +53,14 @@ pub(crate) struct IntExp {
 
 impl Into<isize> for IntExp {
     fn into(self) -> isize {
+        if self.val > Integer::from(isize::MAX) {
+            return isize::MAX
+        }
+        if self.val < Integer::from(isize::MIN) {
+            return isize::MIN
+        }
         self.val.shift(self.exp)
-            .to_isize()
-            .expect("Error: IntExp was too large as an isize.")
+            .to_isize().unwrap()
     }
 }
 
