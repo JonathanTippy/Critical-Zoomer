@@ -1,6 +1,7 @@
 use crate::utils::IntExp;
 use crate::range::Range;
 use rug::Integer;
+use crate::constants::*;
 
 // The stencil defines the set of complex points that make up a view.
 // It is used with a vec equal to resolution.0 * resolution.1 in length.
@@ -15,13 +16,46 @@ use rug::Integer;
 // The actual spacing distance between points is given by 1/(2^(PPU POT)).
 
 pub(crate) struct PixelStencil {
-    location: (IntExp, IntExp, i32)
+    location: (IntExp, IntExp, i32) // real, imag, magnification POT
     , resolution: (usize, usize)
+}
+
+fn line_segments_overlap(a: (IntExp, IntExp), b: (IntExp, IntExp)) -> bool {
+    (a.0 >= b.0 && a.0 <= b.1)
+        || (a.1 >= b.0 && a.1 <= b.1)
+}
+
+impl PixelStencil {
+    fn space(&self) -> IntExp {
+        let one = IntExp::from(1);
+        one.shift(-(self.location.2 + PIXELS_PER_UNIT_POT))
+    }
+    fn corners(&self) -> ((IntExp, IntExp), (IntExp, IntExp)) {
+        let top_left:(IntExp, IntExp) = (self.location.0.clone(), self.location.1.clone());
+        let bottom_right: (IntExp, IntExp) = (
+            self.location.0.clone() + self.space() * IntExp::from(self.resolution.0)
+            , self.location.1.clone() - self.space() * IntExp::from(self.resolution.1)
+        );
+        (
+            top_left
+            , bottom_right
+        )
+    }
+
+    fn overlaps(&self, other: &Self) -> bool {
+        line_segments_overlap(
+            (self.corners().0.0, self.corners().1.0)
+            , (other.corners().0.0, other.corners().1.0)
+        ) && line_segments_overlap(
+            (self.corners().0.1, self.corners().1.1)
+            , (other.corners().0.1, other.corners().1.1)
+        )
+    }
 }
 
 pub(crate) struct View<T> {
     stencil: PixelStencil
-    , data: Vec<T>
+    , data: Vec<(T, bool)>
 }
 
 impl<T: Copy> View<T> {
@@ -31,6 +65,7 @@ impl<T: Copy> View<T> {
 
     pub(crate) fn fill_from(&mut self, new: &Self) {
         assert!(self.is_valid() && new.is_valid());
+        assert!(self.stencil.overlaps(&new.stencil));
 
         let delta = (
             new.stencil.location.0.clone() - self.stencil.location.0.clone()
@@ -38,19 +73,20 @@ impl<T: Copy> View<T> {
             , new.stencil.location.2 - self.stencil.location.2
         );
 
-
-        let (x_pixel_delta, y_pixel_delta, skip): (isize, isize, usize)
-            = if delta.2 == 0 {
-            (
-                delta.0
-                ,
-                , 1
-            )
-        } else if delta.2 > 0 {
-
-        } else {
-
-        };
+        let (pan_pixel_delta, ratio_step): ((isize, isize), usize)
+            = (
+                (
+                    delta.0.shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT).into()
+                    , (IntExp::from(0) - delta.1).shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT).into()
+                )
+                , if delta.2 == 0 {
+                    1
+                } else if delta.2 > 0 {
+                    1 << delta.2
+                } else {
+                    1 << -delta.2
+                }
+            );
 
         if self_to_new.0 == 1 {
 

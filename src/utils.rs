@@ -45,11 +45,54 @@ pub(crate) struct ObjectivePosAndZoom {
 
 
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub(crate) struct IntExp {
     pub(crate) val: Integer
     , pub(crate) exp: i32
 }
+
+impl Into<isize> for IntExp {
+    fn into(self) -> isize {
+        self.val.shift(self.exp)
+            .to_isize()
+            .expect("Error: IntExp was too large as an isize.")
+    }
+}
+
+impl From<usize> for IntExp {
+    fn from(value: usize) -> IntExp {
+        IntExp{
+            val: Integer::from(value)
+            , exp: 1
+        }
+    }
+}
+
+impl PartialEq for IntExp {
+    fn eq(&self, other: &Self) -> bool {
+        (self.clone() - other.clone()).val == 0
+    }
+}
+
+impl PartialOrd for IntExp {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        None
+    }
+    fn lt(&self, other: &Self) -> bool {
+        (self.clone() - other.clone()).val < 0
+    }
+    fn gt(&self, other: &Self) -> bool {
+        (self.clone() - other.clone()).val > 0
+    }
+    fn le(&self, other: &Self) -> bool {
+        !((self.clone() - other.clone()).val > 0)
+    }
+    fn ge(&self, other: &Self) -> bool {
+        !((self.clone() - other.clone()).val < 0)
+    }
+
+}
+
 
 impl Add for IntExp {
     type Output = Self;
