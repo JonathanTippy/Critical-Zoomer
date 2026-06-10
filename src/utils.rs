@@ -45,7 +45,7 @@ pub(crate) struct ObjectivePosAndZoom {
 
 
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Ord, Eq)]
 pub(crate) struct IntExp {
     pub(crate) val: Integer
     , pub(crate) exp: i32
@@ -61,6 +61,12 @@ impl Into<isize> for IntExp {
         }
         self.val.shift(self.exp)
             .to_isize().unwrap()
+    }
+}
+
+impl From<isize> for IntExp {
+    fn from(val:isize) -> IntExp {
+        IntExp{val: Integer::from(val), exp: 0}
     }
 }
 
@@ -198,6 +204,8 @@ impl std::fmt::Display for IntExp {
 
 
 impl IntExp {
+    pub(crate) const ZERO: IntExp = IntExp {val: Integer::ZERO, exp: 0};
+
     pub(crate) fn shift(self, exp: i32) -> IntExp {
         if exp >= 0 {
             return self << exp as u32;
