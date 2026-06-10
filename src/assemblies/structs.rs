@@ -1,8 +1,8 @@
 use crate::utils::IntExp;
-use crate::range::Range;
 use rug::Integer;
 use crate::constants::*;
 use std::cmp::*;
+use std::time::Instant;
 
 // Conventions:
 // location.2 is magnification which is not the precision exponent.
@@ -72,7 +72,12 @@ impl PixelStencil {
 #[derive(PartialEq)]
 pub(crate) struct View<T> {
     stencil: PixelStencil
-    , data: Vec<(T, u8)> // value, 7: exact, 6: representative
+    , data: Vec<(T, u8)>
+    // value,
+    // 7: exact
+    // , 6: representative / estimate from parent pixel
+    ,
+    updated_at: Instant
 }
 
 const EXACT: u8 = 0b1000_0000;
@@ -93,6 +98,8 @@ impl<T: Copy> View<T> {
             , IntExp::ZERO - (self.stencil.location.1.clone() - source.stencil.location.1.clone())
             , self.stencil.location.2 - source.stencil.location.2
         );
+
+        let source_is_newer = source.updated_at > self.updated_at;
 
         match screenspace_delta.2.cmp(&0) {
             Ordering::Equal => {
@@ -120,13 +127,17 @@ impl<T: Copy> View<T> {
                         let value = source.data[source.stencil.index(clamped_source_seat_row)];
                         let exact = representative && value.1 & EXACT == EXACT;
 
-                        let new_value = (
-                            value.0
-                            , {if exact {EXACT} else {0}} + {if representative {EST} else {0}}
-                        );
+                        let self_alignment = self.data[self.stencil.index((seat as isize, row as isize))].1;
+                        let source_alignment = { if exact { EXACT } else { 0 } } + { if representative { EST } else { 0 } };
 
-                        self.data[self.stencil.index((seat as isize, row as isize))]
-                        = new_value;
+                        if source_alignment > self_alignment
+                            || source_is_newer && source_alignment >= self_alignment
+                        {
+                            self.data[self.stencil.index((seat as isize, row as isize))] = (
+                                value.0
+                                , source_alignment
+                            );
+                        }
                     }
                 }
             }
@@ -171,19 +182,23 @@ impl<T: Copy> View<T> {
 
                             let representative = preferred_source_seat_row == clamped_source_seat_row;
                             let value = source.data[source.stencil.index(clamped_source_seat_row)];
-                            let exact = representative && representative && value.1 & EXACT == EXACT && aligned;
+                            let exact = representative && value.1 & EXACT == EXACT && aligned;
 
-                            let new_value = (
-                                value.0
-                                , { if exact { EXACT } else { 0 } } + { if representative { EST } else { 0 } }
-                            );
+                            let self_alignment = self.data[self.stencil.index((seat as isize, row as isize))].1;
+                            let source_alignment = { if exact { EXACT } else { 0 } } + { if representative { EST } else { 0 } };
 
-                            self.data[self.stencil.index((seat as isize, row as isize))]
-                                = new_value;
+                            if source_alignment > self_alignment
+                                || source_is_newer && source_alignment >= self_alignment
+                            {
+                                self.data[self.stencil.index((seat as isize, row as isize))] = (
+                                    value.0
+                                    , source_alignment
+                                );
+                            }
                         }
                     }
                 } else {
-
+                    panic!("Unimplemented block!")
                 }
             }
             , Ordering::Less => {
@@ -226,29 +241,27 @@ impl<T: Copy> View<T> {
 
                             let representative = preferred_source_seat_row == clamped_source_seat_row;
                             let value = source.data[source.stencil.index(clamped_source_seat_row)];
-                            let exact = representative && representative && value.1 & EXACT == EXACT && aligned;
+                            let exact = representative && value.1 & EXACT == EXACT && aligned;
 
-                            let new_value = (
-                                value.0
-                                , { if exact { EXACT } else { 0 } } + { if representative { EST } else { 0 } }
-                            );
+                            let self_alignment = self.data[self.stencil.index((seat as isize, row as isize))].1;
+                            let source_alignment = { if exact { EXACT } else { 0 } } + { if representative { EST } else { 0 } };
 
-                            self.data[self.stencil.index((seat as isize, row as isize))]
-                                = new_value;
+                            if source_alignment > self_alignment
+                                || source_is_newer && source_alignment >= self_alignment
+                            {
+                                self.data[self.stencil.index((seat as isize, row as isize))] = (
+                                    value.0
+                                    , source_alignment
+                                );
+                            }
                         }
                     }
                 } else {
-
+                    panic!("Unimplemented block!")
                 }
             }
         }
-
-
-
-
     }
-
-
 }
 
 pub(crate) struct Answer {
@@ -288,6 +301,7 @@ fn invalid_test_bad_data() {
         }
         ,
         data: vec!()
+        , updated_at: Instant::now()
     };
     let b: View<i32> = View {
         stencil: PixelStencil {
@@ -301,6 +315,8 @@ fn invalid_test_bad_data() {
         }
         ,
         data: vec!()
+        ,
+        updated_at: Instant::now()
     };
     a.fill_from(&b);
 }
@@ -320,6 +336,8 @@ fn invalid_test_misaligned() {
         }
         ,
         data: vec!()
+        ,
+        updated_at: Instant::now()
     };
     let b: View<i32> = View {
         stencil: PixelStencil {
@@ -333,6 +351,8 @@ fn invalid_test_misaligned() {
         }
         ,
         data: vec!()
+        ,
+        updated_at: Instant::now()
     };
     a.fill_from(&b);
 }
@@ -350,6 +370,8 @@ fn identity_test() {
         }
         ,
         data: vec!((1, EXACT+EST), (2, EXACT + EST), (3, EXACT + EST), (4, EXACT + EST))
+        ,
+        updated_at: Instant::now()
     };
     let b: View<i32> = View {
         stencil: PixelStencil {
@@ -361,14 +383,15 @@ fn identity_test() {
             , resolution: (2, 2)
         }
         ,
-        data: vec!((1, EXACT + EST), (2, EXACT + EST), (3, EXACT + EST), (4, EXACT + EST))
+        data: vec!((1, EXACT + EST), (2, EXACT + EST), (3, EXACT + EST), (4, EXACT + EST)),
+        updated_at: Instant::now()
     };
     a.fill_from(&b);
-    if a != b {
+    if a.data != b.data {
         eprintln!("actual: {:?}", a.data);
         eprintln!("expect: {:?}", b.data);
     }
-    assert!(a == b);
+    assert!(a.data == b.data);
 }
 
 #[test]
@@ -384,7 +407,8 @@ fn improve_test() {
             resolution: (2, 2)
         }
         ,
-        data: vec!((0, EST), (0, EST), (0, EST), (0, EST))
+        data: vec!((0, EST), (0, EST), (0, EST), (0, EST)),
+        updated_at: Instant::now()
     };
     let b: View<i32> = View {
         stencil: PixelStencil {
@@ -397,14 +421,15 @@ fn improve_test() {
             resolution: (2, 2)
         }
         ,
-        data: vec!((1, EXACT + EST), (2, EXACT + EST), (3, EXACT + EST), (4, EXACT + EST))
+        data: vec!((1, EXACT + EST), (2, EXACT + EST), (3, EXACT + EST), (4, EXACT + EST)),
+        updated_at: Instant::now()
     };
     a.fill_from(&b);
-    if a != b {
+    if a.data != b.data {
         eprintln!("actual: {:?}", a.data);
         eprintln!("expect: {:?}", b.data);
     }
-    assert!(a == b);
+    assert!(a.data == b.data);
 }
 
 #[test]
@@ -420,7 +445,8 @@ fn zoom_in_test() {
             resolution: (2, 2)
         }
         ,
-        data: vec!((0, 0), (0, 0), (0, 0), (0, 0))
+        data: vec!((0, 0), (0, 0), (0, 0), (0, 0)),
+        updated_at: Instant::now()
     };
     let b: View<i32> = View {
         stencil: PixelStencil {
@@ -433,7 +459,8 @@ fn zoom_in_test() {
             resolution: (2, 2)
         }
         ,
-        data: vec!((1, EXACT + EST), (2, EXACT + EST), (3, EXACT + EST), (4, EXACT + EST))
+        data: vec!((1, EXACT + EST), (2, EXACT + EST), (3, EXACT + EST), (4, EXACT + EST)),
+        updated_at: Instant::now()
     };
 
     let expect: View<i32> = View {
@@ -447,14 +474,15 @@ fn zoom_in_test() {
             resolution: (2, 2)
         }
         ,
-        data: vec!((1, EXACT + EST), (1, EST), (1, EST), (1, EST))
+        data: vec!((1, EXACT + EST), (1, EST), (1, EST), (1, EST)),
+        updated_at: Instant::now()
     };
     a.fill_from(&b);
-    if a != expect {
+    if a.data != expect.data {
         eprintln!("actual: {:?}", a.data);
         eprintln!("expect: {:?}", expect.data);
     }
-    assert!(a == expect);
+    assert!(a.data == expect.data);
 }
 
 #[test]
@@ -470,7 +498,8 @@ fn zoom_out_test() {
             resolution: (2, 2)
         }
         ,
-        data: vec!((0, 0), (0, 0), (0, 0), (0, 0))
+        data: vec!((0, 0), (0, 0), (0, 0), (0, 0)),
+        updated_at: Instant::now()
     };
     let b: View<i32> = View {
         stencil: PixelStencil {
@@ -483,7 +512,8 @@ fn zoom_out_test() {
             resolution: (2, 2)
         }
         ,
-        data: vec!((1, EXACT + EST), (2, EXACT + EST), (3, EXACT + EST), (4, EXACT + EST))
+        data: vec!((1, EXACT + EST), (2, EXACT + EST), (3, EXACT + EST), (4, EXACT + EST)),
+        updated_at: Instant::now()
     };
 
     let expect: View<i32> = View {
@@ -497,14 +527,15 @@ fn zoom_out_test() {
             resolution: (2, 2)
         }
         ,
-        data: vec!((1, EXACT + EST), (2, 0), (3, 0), (4, 0))
+        data: vec!((1, EXACT + EST), (2, 0), (3, 0), (4, 0)),
+        updated_at: Instant::now()
     };
     a.fill_from(&b);
-    if a != expect {
+    if a.data != expect.data {
         eprintln!("actual: {:?}", a.data);
         eprintln!("expect: {:?}", expect.data);
     }
-    assert!(a == expect);
+    assert!(a.data == expect.data);
 }
 
 #[test]
@@ -520,7 +551,8 @@ fn pan_one_test() {
             resolution: (2, 2)
         }
         ,
-        data: vec!((0, 0), (0, 0), (0, 0), (0, 0))
+        data: vec!((0, 0), (0, 0), (0, 0), (0, 0)),
+        updated_at: Instant::now()
     };
     let b: View<i32> = View {
         stencil: PixelStencil {
@@ -533,7 +565,8 @@ fn pan_one_test() {
             resolution: (2, 2)
         }
         ,
-        data: vec!((1, EXACT + EST), (2, EXACT + EST), (3, EXACT + EST), (4, EXACT + EST))
+        data: vec!((1, EXACT + EST), (2, EXACT + EST), (3, EXACT + EST), (4, EXACT + EST)),
+        updated_at: Instant::now()
     };
 
     let expect: View<i32> = View {
@@ -547,14 +580,15 @@ fn pan_one_test() {
             resolution: (2, 2)
         }
         ,
-        data: vec!((2, 0), (2, 0), (2, EXACT+EST), (2, 0))
+        data: vec!((2, 0), (2, 0), (2, EXACT+EST), (2, 0)),
+        updated_at: Instant::now()
     };
     a.fill_from(&b);
-    if a != expect {
+    if a.data != expect.data {
         eprintln!("actual: {:?}", a.data);
         eprintln!("expect: {:?}", expect.data);
     }
-    assert!(a == expect);
+    assert!(a.data == expect.data);
 }
 
 #[test]
@@ -570,7 +604,8 @@ fn nonzero_phase_test() {
             resolution: (2, 2)
         }
         ,
-        data: vec!((0, 0), (0, 0), (0, 0), (0, 0))
+        data: vec!((0, 0), (0, 0), (0, 0), (0, 0)),
+        updated_at: Instant::now()
     };
     let b: View<i32> = View {
         stencil: PixelStencil {
@@ -583,7 +618,8 @@ fn nonzero_phase_test() {
             resolution: (2, 2)
         }
         ,
-        data: vec!((1, EXACT + EST), (2, EXACT + EST), (3, EXACT + EST), (4, EXACT + EST))
+        data: vec!((1, EXACT + EST), (2, EXACT + EST), (3, EXACT + EST), (4, EXACT + EST)),
+        updated_at: Instant::now()
     };
 
     let expect: View<i32> = View {
@@ -597,12 +633,13 @@ fn nonzero_phase_test() {
             resolution: (2, 2)
         }
         ,
-        data: vec!((1, EST), (2, EST), (3, EST), (4, EXACT + EST))
+        data: vec!((1, EST), (2, EST), (3, EST), (4, EXACT + EST)),
+        updated_at: Instant::now()
     };
     a.fill_from(&b);
-    if a != expect {
+    if a.data != expect.data {
         eprintln!("actual: {:?}", a.data);
         eprintln!("expect: {:?}", expect.data);
     }
-    assert!(a == expect);
+    assert!(a.data == expect.data);
 }
