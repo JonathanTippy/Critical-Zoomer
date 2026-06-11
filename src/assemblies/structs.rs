@@ -26,7 +26,11 @@ impl<T: Clone> View<T> {
     pub(crate) fn new(resolution: (usize, usize), location: (IntExp, IntExp, i32), fill_value: T) -> View<T> {
         View {
             stencil: PixelStencil {
-                location
+                location: (
+                location.0.set_precision(location.2 + PIXELS_PER_UNIT_POT)
+                , location.1.set_precision(location.2 + PIXELS_PER_UNIT_POT)
+                , location.2
+                )
                 ,
                 resolution
             }

@@ -201,7 +201,7 @@ impl std::fmt::Display for IntExp {
 
     }
 }
-
+use std::cmp::Ordering::*;
 
 impl IntExp {
     pub(crate) const ZERO: IntExp = IntExp {val: Integer::ZERO, exp: 0};
@@ -217,6 +217,27 @@ impl IntExp {
         IntExp{
             val: self.val >> 1
             , exp: self.exp + 1
+        }
+    }
+    pub(crate) fn set_precision(self, POT: i32) -> IntExp {
+        match (-self.exp).cmp(&POT) {
+            Equal => {
+                self
+            },
+            Greater => {
+                IntExp {
+                    val: self.val >> (-self.exp - POT)
+                    ,
+                    exp: -POT
+                }
+            },
+            Less => {
+                IntExp {
+                    val: self.val << -(-self.exp - POT)
+                    ,
+                    exp: -POT
+                }
+            }
         }
     }
 }
