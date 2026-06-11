@@ -1,3 +1,3 @@
-pub(crate) mod colorer;
-pub(crate) mod escaper;
+pub mod colorer;
+pub mod escaper;
 pub mod structs;

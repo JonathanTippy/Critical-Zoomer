@@ -5,16 +5,18 @@ mod arg;
 use rug::*;
 // The actor module contains all the actor implementations for this pipeline.
 // Each actor is in its own submodule for clarity and separation of concerns.
-pub(crate) mod actor {}
-pub(crate) mod settings;
 
-pub(crate) mod utils;
-pub(crate) mod range;
-pub(crate) mod constants;
-mod assemblies;
 
 use std::thread;
 use assemblies::{headgroup, shadergroup, workgroup};
+
+pub mod actor {}
+pub mod settings;
+
+pub mod utils;
+pub mod range;
+pub mod constants;
+pub mod assemblies;
 
 const STACK_SIZE:usize = 100 * 1024 * 1024; // 100 MiB
 fn main() {

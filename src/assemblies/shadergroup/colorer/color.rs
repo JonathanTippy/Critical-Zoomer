@@ -3,7 +3,7 @@ use crate::assemblies::shadergroup::escaper::*;
 use crate::utils::*;
 use std::f64::consts::*;
 use std::time::*;
-pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<(u8, u8, u8)> {
+pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<(u8, u8, u8)> {
     let mut returned = vec!((0,0,0);(values.res.0*values.res.1) as usize);
     let res = values.res;
     if let Some(instructions) = &mut settings.coloring_script {
@@ -293,7 +293,7 @@ pub(crate) fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<
     returned
 }
 
-pub(crate) fn layer_colors (bottom: (u8, u8, u8), top:(u8, u8, u8, u8)) -> (u8, u8, u8) {
+pub fn layer_colors (bottom: (u8, u8, u8), top:(u8, u8, u8, u8)) -> (u8, u8, u8) {
     let top_share = top.3;
     let bottom_share = 255-top_share;
     (
@@ -304,7 +304,7 @@ pub(crate) fn layer_colors (bottom: (u8, u8, u8), top:(u8, u8, u8, u8)) -> (u8, 
 }
 
 use std::cmp::*;
-pub(crate) fn modify_color (color:(u8, u8, u8), brightness: f64, range:f64) -> (u8, u8, u8) {
+pub fn modify_color (color:(u8, u8, u8), brightness: f64, range:f64) -> (u8, u8, u8) {
 let mut delta_b = (((brightness*255.0)-127.0) * range) as i32;
 let color_max = max(max(color.0, color.1), color.2) as i32;
 let color_min = min(min(color.0, color.1), color.2) as i32;
@@ -317,7 +317,7 @@ if color_max + delta_b > 255 {delta_b = 255-color_max}
     )
 }
 
-pub(crate) fn is_in_filament(values: &ZoomerValuesScreen, pos: (i32, i32)) -> bool {
+pub fn is_in_filament(values: &ZoomerValuesScreen, pos: (i32, i32)) -> bool {
 
     let points = [
         pos
@@ -341,7 +341,7 @@ pub(crate) fn is_in_filament(values: &ZoomerValuesScreen, pos: (i32, i32)) -> bo
 }
 
 
-pub(crate) fn is_out_filament(values: &ZoomerValuesScreen, pos: (i32, i32)) -> bool {
+pub fn is_out_filament(values: &ZoomerValuesScreen, pos: (i32, i32)) -> bool {
 
     let points = [
         pos
@@ -376,7 +376,7 @@ pub(crate) fn is_out_filament(values: &ZoomerValuesScreen, pos: (i32, i32)) -> b
 
 
 
-pub(crate) fn is_node_tree(values: &ZoomerValuesScreen, pos: (i32, i32)) -> bool {
+pub fn is_node_tree(values: &ZoomerValuesScreen, pos: (i32, i32)) -> bool {
 
     let points = [
         pos
@@ -399,7 +399,7 @@ pub(crate) fn is_node_tree(values: &ZoomerValuesScreen, pos: (i32, i32)) -> bool
     )
 }
 
-pub(crate) fn is_node(values: &ZoomerValuesScreen, pos: (i32, i32), thickness: u8) -> bool {
+pub fn is_node(values: &ZoomerValuesScreen, pos: (i32, i32), thickness: u8) -> bool {
 
     let points = [
         pos
@@ -422,7 +422,7 @@ pub(crate) fn is_node(values: &ZoomerValuesScreen, pos: (i32, i32), thickness: u
     )// && is_node_tree(values, pos)
 }
 
-pub(crate) fn is_increased<T: PartialOrd > (value: Option<T>, up:Option<T>, down:Option<T>, left:Option<T>, right:Option<T>) -> bool {
+pub fn is_increased<T: PartialOrd > (value: Option<T>, up:Option<T>, down:Option<T>, left:Option<T>, right:Option<T>) -> bool {
     if let (Some(value), Some(up)) = (&value, up) {
         if up < *value {
             return true
@@ -446,7 +446,7 @@ pub(crate) fn is_increased<T: PartialOrd > (value: Option<T>, up:Option<T>, down
     false
 }
 
-pub(crate) fn is_decreased<T: PartialOrd > (value: Option<T>, up:Option<T>, down:Option<T>, left:Option<T>, right:Option<T>) -> bool {
+pub fn is_decreased<T: PartialOrd > (value: Option<T>, up:Option<T>, down:Option<T>, left:Option<T>, right:Option<T>) -> bool {
     if let (Some(value), Some(up)) = (&value, up) {
         if up > *value {
             return true
@@ -470,7 +470,7 @@ pub(crate) fn is_decreased<T: PartialOrd > (value: Option<T>, up:Option<T>, down
     false
 }
 
-pub(crate) fn is_changed<T: PartialOrd > (value: Option<T>, up:Option<T>, down:Option<T>, left:Option<T>, right:Option<T>) -> bool {
+pub fn is_changed<T: PartialOrd > (value: Option<T>, up:Option<T>, down:Option<T>, left:Option<T>, right:Option<T>) -> bool {
     if let (Some(value), Some(up)) = (&value, up) {
         if up != *value {
             return true
@@ -495,7 +495,7 @@ pub(crate) fn is_changed<T: PartialOrd > (value: Option<T>, up:Option<T>, down:O
 }
 
 
-pub(crate) fn slope_sign_changed<T: PartialOrd > (value: Option<T>, up:Option<T>, down:Option<T>, left:Option<T>, right:Option<T>) -> bool {
+pub fn slope_sign_changed<T: PartialOrd > (value: Option<T>, up:Option<T>, down:Option<T>, left:Option<T>, right:Option<T>) -> bool {
 
     if let (Some(value), Some(up), Some(down)) = (&value, up, down) {
         if down < *value && *value > up {
@@ -512,7 +512,7 @@ pub(crate) fn slope_sign_changed<T: PartialOrd > (value: Option<T>, up:Option<T>
     false
 }
 
-pub(crate) fn is_local_minimum<T: PartialOrd > (value: Option<T>, up:Option<T>, down:Option<T>, left:Option<T>, right:Option<T>) -> bool {
+pub fn is_local_minimum<T: PartialOrd > (value: Option<T>, up:Option<T>, down:Option<T>, left:Option<T>, right:Option<T>) -> bool {
 
     if let (Some(value), Some(up), Some(down), Some(left), Some(right)) = (&value, up, down, left, right) {
         if down > *value && *value < up
@@ -524,7 +524,7 @@ pub(crate) fn is_local_minimum<T: PartialOrd > (value: Option<T>, up:Option<T>, 
     false
 }
 
-pub(crate) fn get_loop_period(value: Option<&ScreenValue>) -> Option<u32> {
+pub fn get_loop_period(value: Option<&ScreenValue>) -> Option<u32> {
 
     if let Some(v) = value {
         match v {
@@ -537,7 +537,7 @@ pub(crate) fn get_loop_period(value: Option<&ScreenValue>) -> Option<u32> {
 
 }
 
-pub(crate) fn get_escape_time(value: Option<&ScreenValue>) -> Option<u32> {
+pub fn get_escape_time(value: Option<&ScreenValue>) -> Option<u32> {
 
     if let Some(v) = value {
         match v {
@@ -548,7 +548,7 @@ pub(crate) fn get_escape_time(value: Option<&ScreenValue>) -> Option<u32> {
 
 }
 
-pub(crate) fn get_small_time(value: Option<&ScreenValue>) -> Option<u32> {
+pub fn get_small_time(value: Option<&ScreenValue>) -> Option<u32> {
 
     if let Some(v) = value {
         match v {
@@ -559,7 +559,7 @@ pub(crate) fn get_small_time(value: Option<&ScreenValue>) -> Option<u32> {
 
 }
 
-pub(crate) fn get_smallness(value: Option<&ScreenValue>) -> Option<f64> {
+pub fn get_smallness(value: Option<&ScreenValue>) -> Option<f64> {
 
     if let Some(v) = value {
         match v {
@@ -573,6 +573,6 @@ pub(crate) fn get_smallness(value: Option<&ScreenValue>) -> Option<f64> {
 
 
 use std::ops::*;
-pub(crate) fn safe_sample<T: Index<usize, Output=J>, J>(stuff:&T, pos:(i32, i32), res:(u32, u32)) -> Option<&J> {
+pub fn safe_sample<T: Index<usize, Output=J>, J>(stuff:&T, pos:(i32, i32), res:(u32, u32)) -> Option<&J> {
     if let Some(i) = index_from_pos_safe(&pos, res) {Some(&stuff[i])} else {None}
 }

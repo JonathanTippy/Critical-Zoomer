@@ -11,21 +11,21 @@ use crate::assemblies::shadergroup::escaper::*;
 use crate::settings::*;
 
 use crate::assemblies::shadergroup::colorer::color::*;
-pub(crate) mod color;
+pub mod color;
 
 #[derive(Clone, Debug)]
 
-pub(crate) struct ZoomerScreen {
-    pub(crate) pixels: Vec<(u8, u8, u8)>
-    , pub(crate) screen_size: (u32, u32)
-    , pub(crate) objective_location: ObjectivePosAndZoom
+pub struct ZoomerScreen {
+    pub pixels: Vec<(u8, u8, u8)>
+    , pub screen_size: (u32, u32)
+    , pub objective_location: ObjectivePosAndZoom
 }
 
 
-pub(crate) struct ColorerState {
-    pub(crate) values:Option<ZoomerValuesScreen>,
-    pub(crate) start:Instant,
-    pub(crate) settings:Settings
+pub struct ColorerState {
+    pub values:Option<ZoomerValuesScreen>,
+    pub start:Instant,
+    pub settings:Settings
 }
 
 pub async fn run(

@@ -1,18 +1,18 @@
-pub(crate) struct WorkContext {
+pub struct WorkContext {
     active_point: Option<PointInProgress>
     , pos: (i32, i32)
     , res: (u32, u32)
     , step: fn((i32, i32), (u32, u32)) -> Option<(i32, i32)>
 }
 
-pub(crate) struct Z {
+pub struct Z {
     real: f64
     , imag: f64
     , real_squared: f64
     , imag_squared: f64
 }
 
-pub(crate) enum IterationResult {
+pub enum IterationResult {
     Incomplete{}
     , Escaped{}
     , Repeated{}
@@ -66,7 +66,7 @@ impl PointInProgress {
 }
 
 
-pub(crate) struct PointInProgress {
+pub struct PointInProgress {
     c: (f64, f64)
     , z: Z
     , iteration_count: u64

@@ -22,9 +22,9 @@ const MIN_FRAME_RATE:f64 = 20.0;
 const MAX_FRAME_TIME:f64 = 1.0 / MIN_FRAME_RATE;
 const VSYNC:bool = true;
 
-pub(crate) const DEFAULT_SETTINGS_WINDOW_RES:(u32, u32) = (500, 800);
+pub const DEFAULT_SETTINGS_WINDOW_RES:(u32, u32) = (500, 800);
 
-pub(crate) const DEFAULT_COLORING_SCRIPT:[ColoringInstruction;7] = [
+pub const DEFAULT_COLORING_SCRIPT:[ColoringInstruction;7] = [
     ColoringInstruction::PaintEscapeTime{id: 0, opacity:255
         , color:(128,128,128), range:64
         , shading_method: ShadingInstruction{
@@ -108,7 +108,7 @@ pub(crate) const DEFAULT_COLORING_SCRIPT:[ColoringInstruction;7] = [
 
 
 impl Settings {
-    pub(crate) const DEFAULT:Settings = Settings{
+    pub const DEFAULT:Settings = Settings{
         coloring_script: None
         , bailout_radius: Animable{start:None,period:Duration::from_secs(10)
             , value:2.0
@@ -133,26 +133,26 @@ pub const DEFAULT_SETTINGS_WINDOW_CONTEXT:SettingsWindowContext = SettingsWindow
 };
 
 #[derive(Clone, Debug)]
-pub(crate) struct Settings {
-    pub(crate) coloring_script:Option<Vec<ColoringInstruction>>
-    , pub(crate) bailout_radius:Animable
-    , pub(crate) bailout_max_additional_iterations:u32
-    , pub(crate) estimate_extra_iterations:bool
-    , pub(crate) currently_selected_coloring_instruction: u64
-    , pub(crate) id_counter: u64
+pub struct Settings {
+    pub coloring_script:Option<Vec<ColoringInstruction>>
+    , pub bailout_radius:Animable
+    , pub bailout_max_additional_iterations:u32
+    , pub estimate_extra_iterations:bool
+    , pub currently_selected_coloring_instruction: u64
+    , pub id_counter: u64
 }
 
 
 #[derive(Clone, Debug, Copy)]
 
-pub(crate) struct Animable {
-    pub(crate) start: Option<Instant>
-    , pub(crate) period: Duration
-    , pub(crate) value: f64
-    , pub(crate) animated: bool
-    , pub(crate) range: (f64, f64)
-    , pub(crate) limits: (f64, f64)
-    , pub(crate) normalizing: Normalizing
+pub struct Animable {
+    pub start: Option<Instant>
+    , pub period: Duration
+    , pub value: f64
+    , pub animated: bool
+    , pub range: (f64, f64)
+    , pub limits: (f64, f64)
+    , pub normalizing: Normalizing
 }
 
 use core::ops::RangeInclusive;
@@ -162,7 +162,7 @@ use core::ops::RangeInclusive;
 
 use std::f64::consts::*;
 impl Animable {
-    pub(crate) fn determine(&mut self) -> f64 {
+    pub fn determine(&mut self) -> f64 {
         match self {
             Animable{mut start, period, range, limits, normalizing, animated, value, ..} => {
                 if *animated {
@@ -190,7 +190,7 @@ impl Animable {
 
 #[derive(Clone, Debug, Copy, PartialEq)]
 
-pub(crate) enum Normalizing {
+pub enum Normalizing {
     None{}
     , LnLn{}
     , Ln{}
@@ -199,7 +199,7 @@ pub(crate) enum Normalizing {
 }
 
 impl Normalizing {
-    pub(crate) fn normalize(&self, input:&f64) -> f64 {
+    pub fn normalize(&self, input:&f64) -> f64 {
         match self {
             Normalizing::None{..} => {*input}
             Normalizing::LnLn{..} => {
@@ -215,7 +215,7 @@ impl Normalizing {
         }
     }
 
-    pub(crate) fn denormalize(&self, input:&f64) -> f64 {
+    pub fn denormalize(&self, input:&f64) -> f64 {
         match self {
             Normalizing::None{..} => {*input}
             Normalizing::LnLn{..} => {
@@ -231,7 +231,7 @@ impl Normalizing {
         }
     }
 
-    pub(crate) fn reshape_input(&self, limits:&(f64, f64), input:&f64) -> f64 {
+    pub fn reshape_input(&self, limits:&(f64, f64), input:&f64) -> f64 {
 
         let scalar_input = (input-limits.0)/(limits.1-limits.0);
 
@@ -241,7 +241,7 @@ impl Normalizing {
         self.denormalize(&(normalized_min + (normalized_range*scalar_input)))
     }
 
-    pub(crate) fn get_normalizer(&self) -> Normalizer {
+    pub fn get_normalizer(&self) -> Normalizer {
         match self {
             Normalizing::None{..} => {
                 Normalizer{
@@ -289,24 +289,24 @@ impl Normalizing {
 
 #[derive(Clone, Debug, Copy, PartialEq)]
 
-pub(crate) struct Normalizer {
-    pub(crate) normalize64: fn(&f64)->f64
-    , pub(crate) denormalize64: fn(&f64)->f64
-    , pub(crate) normalize32: fn(&f32)->f32
-    , pub(crate) denormalize32: fn(&f32)->f32
+pub struct Normalizer {
+    pub normalize64: fn(&f64)->f64
+    , pub denormalize64: fn(&f64)->f64
+    , pub normalize32: fn(&f32)->f32
+    , pub denormalize32: fn(&f32)->f32
 }
 
 #[derive(Clone, Debug, Copy)]
 
 
-pub(crate) struct ShadingInstruction {
-    pub(crate) period:Animable, pub(crate) phase:Animable
-    , pub(crate) shading: Shading
+pub struct ShadingInstruction {
+    pub period:Animable, pub phase:Animable
+    , pub shading: Shading
 }
 
 #[derive(Clone, Debug, Copy, PartialEq)]
 
-pub(crate) enum Shading {
+pub enum Shading {
     Modular{}
     , Sinus{}
 }
@@ -314,7 +314,7 @@ pub(crate) enum Shading {
 
 #[derive(Clone, Debug, Copy)]
 
-pub(crate) enum ColoringInstruction {
+pub enum ColoringInstruction {
     PaintEscapeTime{
          opacity:u8
         , color:(u8,u8,u8), range:u8
@@ -359,7 +359,7 @@ pub(crate) enum ColoringInstruction {
 }
 
 impl ColoringInstruction {
-    pub(crate) fn id(self) -> u64 {
+    pub fn id(self) -> u64 {
         match self {
             ColoringInstruction::PaintEscapeTime{id, ..
             } => {id}
@@ -438,28 +438,28 @@ impl From<ColoringInstruction> for WidgetText {
 
 
 #[derive(Clone, Debug)]
-pub(crate) enum ControlsSettings {
+pub enum ControlsSettings {
     H
 }
 
-pub(crate) struct SettingsWindowResult {
-    pub(crate) will_close: bool,
-    pub(crate) settings: Settings
+pub struct SettingsWindowResult {
+    pub will_close: bool,
+    pub settings: Settings
 }
 
 
 #[derive(Clone, Debug)]
-pub(crate) struct SettingsWindowContext {
-    pub(crate) settings: Settings
-    , pub(crate) size: Vec2
-    , pub(crate) location: Option<Pos2>
-    , pub(crate) will_close: bool
-    , pub(crate) checked: bool
-    , pub(crate) id_counter: u64
+pub struct SettingsWindowContext {
+    pub settings: Settings
+    , pub size: Vec2
+    , pub location: Option<Pos2>
+    , pub will_close: bool
+    , pub checked: bool
+    , pub id_counter: u64
 }
 
 
-pub(crate) fn settings (
+pub fn settings (
     ctx: &egui::Context,
     state: Arc<Mutex<SettingsWindowContext>>,
 ) -> SettingsWindowResult {

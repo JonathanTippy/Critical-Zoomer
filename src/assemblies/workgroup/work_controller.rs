@@ -10,12 +10,12 @@ use rand::prelude::SliceRandom;
 use crate::utils::*;
 use crate::constants::*;
 
-pub(crate) enum WorkerCommand<T:Copy> {
+pub enum WorkerCommand<T:Copy> {
     Replace{frame_info: (ObjectivePosAndZoom, (u32, u32)), context: WorkContext<T>}
 }
 
 
-pub(crate) struct WorkControllerState {
+pub struct WorkControllerState {
     mixmap: Vec<usize>
     , loc: (IntExp, IntExp)
     , zoom_pot: i64
@@ -25,11 +25,11 @@ pub(crate) struct WorkControllerState {
 }
 
 
-pub(crate) const WORKER_INIT_RES:(u32, u32) = DEFAULT_WINDOW_RES;
-pub(crate) const WORKER_INIT_ZOOM_POT: i64 = -2;
-pub(crate) const WORKER_INIT_ZOOM:f64 = if WORKER_INIT_ZOOM_POT>0 {(1<<WORKER_INIT_ZOOM_POT) as f64} else {1.0 / (1<<-WORKER_INIT_ZOOM_POT) as f64};
+pub const WORKER_INIT_RES:(u32, u32) = DEFAULT_WINDOW_RES;
+pub const WORKER_INIT_ZOOM_POT: i64 = -2;
+pub const WORKER_INIT_ZOOM:f64 = if WORKER_INIT_ZOOM_POT>0 {(1<<WORKER_INIT_ZOOM_POT) as f64} else {1.0 / (1<<-WORKER_INIT_ZOOM_POT) as f64};
 
-pub(crate) const PIXELS_PER_UNIT: u64 = 1<<(PIXELS_PER_UNIT_POT);
+pub const PIXELS_PER_UNIT: u64 = 1<<(PIXELS_PER_UNIT_POT);
 
 pub async fn run(
     actor: SteadyActorShadow,

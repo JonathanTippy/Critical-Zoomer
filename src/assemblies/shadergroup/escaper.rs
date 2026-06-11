@@ -10,10 +10,10 @@ use crate::assemblies::workgroup::screen_worker::workshift::*;
 use crate::settings::*;
 
 
-pub(crate) const BAILOUT_MAX_ITERATIONS:usize = 100;
+pub const BAILOUT_MAX_ITERATIONS:usize = 100;
 
 
-pub(crate) enum ScreenValue {
+pub enum ScreenValue {
     Outside{
         big_time:u32
         , small_time: u32
@@ -28,22 +28,22 @@ pub(crate) enum ScreenValue {
 
 #[derive(Clone, Debug)]
 
-pub(crate) struct ZoomerScreen {
-    pub(crate) pixels: Vec<(u8, u8, u8)>
-    , pub(crate) screen_size: (u32, u32)
-    , pub(crate) objective_location: ObjectivePosAndZoom
+pub struct ZoomerScreen {
+    pub pixels: Vec<(u8, u8, u8)>
+    , pub screen_size: (u32, u32)
+    , pub objective_location: ObjectivePosAndZoom
 }
 
-pub(crate) struct ZoomerValuesScreen {
-    pub(crate) values: Vec<ScreenValue>
-    , pub(crate) res: (u32, u32)
-    , pub(crate) objective_location: ObjectivePosAndZoom
+pub struct ZoomerValuesScreen {
+    pub values: Vec<ScreenValue>
+    , pub res: (u32, u32)
+    , pub objective_location: ObjectivePosAndZoom
 }
 
 
-pub(crate) struct EscaperState<T> {
-    pub(crate) values:Option<ResultsPackage<T>>,
-    pub(crate) settings:Settings
+pub struct EscaperState<T> {
+    pub values:Option<ResultsPackage<T>>,
+    pub settings:Settings
 }
 
 pub async fn run(

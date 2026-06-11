@@ -3,7 +3,7 @@ use egui::{color_picker, Ui};
 use egui_dnd::dnd;
 use crate::settings::*;
 impl Settings {
-    pub(crate) fn widgetize(&mut self, ui:&mut Ui) {
+    pub fn widgetize(&mut self, ui:&mut Ui) {
 
         ui.label("bailout radius:");
         self.bailout_radius.widgetize(ui);
@@ -45,7 +45,7 @@ impl Settings {
 }
 
 impl ColoringInstruction {
-    pub(crate) fn widgetize(&mut self, ui: &mut Ui) {
+    pub fn widgetize(&mut self, ui: &mut Ui) {
         match self {
             ColoringInstruction::PaintEscapeTime{
                 opacity, color, range, shading_method, normalizing_method, ..
@@ -160,7 +160,7 @@ impl ColoringInstruction {
 }
 
 impl ShadingInstruction {
-    pub(crate) fn widgetize(&mut self, ui:&mut Ui) {
+    pub fn widgetize(&mut self, ui:&mut Ui) {
         let cyclical = match self.shading {
             Shading::Modular{..} => {true}
             Shading::Sinus{..} => {true}
@@ -179,7 +179,7 @@ impl ShadingInstruction {
 }
 
 impl Shading {
-    pub(crate) fn widgetize(&mut self, ui:&mut Ui) {
+    pub fn widgetize(&mut self, ui:&mut Ui) {
         ui.radio_value(self, Shading::Modular{}, "Modular");
         ui.radio_value(self, Shading::Sinus{},"Sinus");
         /*ui.radio_value(self, Shading::Linear{},"Linear");
@@ -188,7 +188,7 @@ impl Shading {
 }
 use std::time::*;
 impl Animable {
-    pub(crate) fn widgetize(&mut self, ui:&mut Ui) {
+    pub fn widgetize(&mut self, ui:&mut Ui) {
 
         let formatter = |n, _| {
             let n2 = self.normalizing.reshape_input(&self.limits, &n);
@@ -216,7 +216,7 @@ impl Animable {
 }
 
 impl Normalizing {
-    pub(crate) fn widgetize(&mut self, ui:&mut Ui) {
+    pub fn widgetize(&mut self, ui:&mut Ui) {
 
         ui.radio_value(self, Normalizing::None{},"None");
         ui.radio_value(self, Normalizing::LnLn{},"LnLn");

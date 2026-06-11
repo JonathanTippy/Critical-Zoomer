@@ -8,7 +8,7 @@ use crate::constants::*;
 use crate::utils::*;
 
 impl PixelStencil {
-    pub(crate) fn assert_validity(&self) {
+    pub fn assert_validity(&self) {
         assert!(
             self.location.0.exp == -(self.location.2 + PIXELS_PER_UNIT_POT)
             && self.location.0.exp == self.location.1.exp
@@ -23,12 +23,12 @@ impl PixelStencil {
             , "Invalid Stencil: No resolution side length may be 0 pixels."
         );
     }
-    pub(crate) fn index(&self, seat_and_row: (isize, isize)) -> usize {
-        assert!(
+    fn index_trust_input(&self, seat_and_row: (isize, isize)) -> usize {
+        /*assert!(
             seat_and_row.0 >= 0 && seat_and_row.0 < self.resolution.0 as isize
                 && seat_and_row.1 >= 0 && seat_and_row.1 < self.resolution.1 as isize
             , "Index Failure: nonexistent seat."
-        );
+        );*/
         seat_and_row.1 as usize * self.resolution.0 + seat_and_row.0 as usize
     }
     fn clamp_seat_and_row(&self, seat_and_row: (isize, isize)) -> (isize, isize) {
@@ -39,9 +39,9 @@ impl PixelStencil {
     }
 }
 
-impl<T: Clone> View<T> {
-    pub(crate) fn new(resolution: (usize, usize), location: (IntExp, IntExp, i32), fill_value: T) -> View<T> {
-        View {
+impl<T: Copy + Clone> View<T> {
+    pub fn new(resolution: (usize, usize), location: (IntExp, IntExp, i32), fill_value: T) -> View<T> {
+        let returned = View {
             stencil: PixelStencil {
                 location: (
                     location.0.set_precision(location.2 + PIXELS_PER_UNIT_POT)
@@ -57,7 +57,9 @@ impl<T: Clone> View<T> {
             bitmap: vec!(0u8; resolution.0 * resolution.1)
             ,
             updated_at: Instant::now()
-        }
+        };
+        returned.assert_validity();
+        returned
     }
 }
 
@@ -65,18 +67,18 @@ use std::ops::{Index, IndexMut};
 impl<T> Index<(usize, usize)> for View<T> {
     type Output = T;
     fn index(&self, seat_row: (usize, usize)) -> &Self::Output {
-        &self.data[self.stencil.index((seat_row.0 as isize, seat_row.1 as isize))]
+        &self.data[self.stencil.index_trust_input((seat_row.0 as isize, seat_row.1 as isize))]
     }
 }
 
 impl<T> IndexMut<(usize, usize)> for View<T> {
     fn index_mut(&mut self, seat_row: (usize, usize)) -> &mut Self::Output {
-        &mut self.data[self.stencil.index((seat_row.0 as isize, seat_row.1 as isize))]
+        &mut self.data[self.stencil.index_trust_input((seat_row.0 as isize, seat_row.1 as isize))]
     }
 }
 
 impl<T: Copy> View<T> {
-    pub(crate) fn assert_validity(&self) {
+    pub fn assert_validity(&self) {
         self.stencil.assert_validity();
         assert_eq!(
             self.data.len(), self.stencil.resolution.0 * self.stencil.resolution.1
@@ -88,7 +90,7 @@ impl<T: Copy> View<T> {
         )
     }
 
-    pub(crate) fn fill_from(&mut self, source: &Self) {
+    pub fn fill_from(&mut self, source: &Self) {
 
         self.assert_validity();
 
@@ -109,6 +111,21 @@ impl<T: Copy> View<T> {
                         .clamp(IntExp::from(isize::MIN), IntExp::from(isize::MAX)).into()
                 );
 
+                let clamped_rows = {
+                    let mut clamped: Vec<isize> = (0 as isize..self.stencil.resolution.1 as isize).collect();
+                    for row in &mut clamped {
+                        *row = (*row + pan_pixel_delta.1).clamp((0 as isize), (source.stencil.resolution.1 as isize - 1));
+                    };
+                    clamped
+                };
+                let clamped_seats = {
+                    let mut clamped: Vec<isize> = (0 as isize..self.stencil.resolution.0 as isize).collect();
+                    for seat in &mut clamped {
+                        *seat = (*seat + pan_pixel_delta.0).clamp((0 as isize), (source.stencil.resolution.0 as isize - 1));
+                    };
+                    clamped
+                };
+
                 for row in 0..self.stencil.resolution.1 {
                     for seat in 0..self.stencil.resolution.0 {
                         let preferred_source_seat_row = (
@@ -116,24 +133,31 @@ impl<T: Copy> View<T> {
                             , row as isize + pan_pixel_delta.1
                         );
 
-                        let clamped_source_seat_row = source
+                        /*let clamped_source_seat_row = source
                             .stencil
-                            .clamp_seat_and_row(preferred_source_seat_row);
+                            .clamp_seat_and_row(preferred_source_seat_row);*/
+                        let clamped_source_seat_row = (
+                            clamped_seats[seat]
+                            , clamped_rows[row]
+                            );
+
+                        let source_index = source.stencil.index_trust_input(clamped_source_seat_row);
+                        let self_index = self.stencil.index_trust_input((seat as isize, row as isize));
 
                         let representative = preferred_source_seat_row == clamped_source_seat_row;
-                        let value = source.data[source.stencil.index(clamped_source_seat_row)];
-                        let source_alignment = source.bitmap[source.stencil.index(clamped_source_seat_row)];
+                        let value = source.data[source_index];
+                        let source_alignment = source.bitmap[source_index];
                         let exact = representative && source_alignment & EXACT == EXACT;
 
                         let source_real_alignment = { if exact { EXACT } else { 0 } } + { if representative { EST } else { 0 } };
-                        let self_alignment = self.bitmap[self.stencil.index((seat as isize, row as isize))];
+                        let self_alignment = self.bitmap[self_index];
 
                         if source_real_alignment > self_alignment
                             || source_is_newer && source_real_alignment >= self_alignment
                             || self_alignment == 0
                         {
-                            self.data[self.stencil.index((seat as isize, row as isize))] = value;
-                            self.bitmap[self.stencil.index((seat as isize, row as isize))] = source_real_alignment;
+                            self.data[self_index] = value;
+                            self.bitmap[self_index] = source_real_alignment;
                         }
                     }
                 }
@@ -162,6 +186,9 @@ impl<T: Copy> View<T> {
 
                     let frequency = 1 << screenspace_delta.2;
 
+
+
+
                     for row in 0..self.stencil.resolution.1 {
                         for seat in 0..self.stencil.resolution.0 {
                             let preferred_source_seat_row = (
@@ -177,19 +204,19 @@ impl<T: Copy> View<T> {
                                 .clamp_seat_and_row(preferred_source_seat_row);
 
                             let representative = preferred_source_seat_row == clamped_source_seat_row;
-                            let value = source.data[source.stencil.index(clamped_source_seat_row)];
-                            let source_alignment = source.bitmap[source.stencil.index(clamped_source_seat_row)];
+                            let value = source.data[source.stencil.index_trust_input(clamped_source_seat_row)];
+                            let source_alignment = source.bitmap[source.stencil.index_trust_input(clamped_source_seat_row)];
                             let exact = representative && source_alignment & EXACT == EXACT;
 
                             let source_real_alignment = { if exact { EXACT } else { 0 } } + { if representative { EST } else { 0 } };
-                            let self_alignment = self.bitmap[self.stencil.index((seat as isize, row as isize))];
+                            let self_alignment = self.bitmap[self.stencil.index_trust_input((seat as isize, row as isize))];
 
                             if source_real_alignment > self_alignment
                                 || source_is_newer && source_real_alignment >= self_alignment
                                 || self_alignment == 0
                             {
-                                self.data[self.stencil.index((seat as isize, row as isize))] = value;
-                                self.bitmap[self.stencil.index((seat as isize, row as isize))] = source_real_alignment;
+                                self.data[self.stencil.index_trust_input((seat as isize, row as isize))] = value;
+                                self.bitmap[self.stencil.index_trust_input((seat as isize, row as isize))] = source_real_alignment;
                             }
                         }
                     }
@@ -236,19 +263,19 @@ impl<T: Copy> View<T> {
                                 .clamp_seat_and_row(preferred_source_seat_row);
 
                             let representative = preferred_source_seat_row == clamped_source_seat_row;
-                            let value = source.data[source.stencil.index(clamped_source_seat_row)];
-                            let source_alignment = source.bitmap[source.stencil.index(clamped_source_seat_row)];
+                            let value = source.data[source.stencil.index_trust_input(clamped_source_seat_row)];
+                            let source_alignment = source.bitmap[source.stencil.index_trust_input(clamped_source_seat_row)];
                             let exact = representative && source_alignment & EXACT == EXACT;
 
                             let source_real_alignment = { if exact { EXACT } else { 0 } } + { if representative { EST } else { 0 } };
-                            let self_alignment = self.bitmap[self.stencil.index((seat as isize, row as isize))];
+                            let self_alignment = self.bitmap[self.stencil.index_trust_input((seat as isize, row as isize))];
 
                             if source_real_alignment > self_alignment
                                 || source_is_newer && source_real_alignment >= self_alignment
                                 || self_alignment == 0
                             {
-                                self.data[self.stencil.index((seat as isize, row as isize))] = value;
-                                self.bitmap[self.stencil.index((seat as isize, row as isize))] = source_real_alignment;
+                                self.data[self.stencil.index_trust_input((seat as isize, row as isize))] = value;
+                                self.bitmap[self.stencil.index_trust_input((seat as isize, row as isize))] = source_real_alignment;
                             }
                         }
                     }
@@ -656,12 +683,15 @@ fn nonzero_phase_test() {
 }
 
 
+
+
 // Conventions:
 // location.2 is magnification which is not the precision exponent.
 // magnification goes up as you zoom in.
 // Usually, when seat and row go in a tuple together, the order is seat then row.
 // This is to align better with the x then y standard order.
-
+// W/H and Width / Height are banned. This project uses seats and rows,
+// and anytime both dimensions are together, a tuple called resolution.
 
 // The stencil defines the set of complex points that make up a view.
 // It is used with a vec equal to resolution.0 * resolution.1 in length.

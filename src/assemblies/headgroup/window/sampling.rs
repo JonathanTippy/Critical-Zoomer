@@ -13,7 +13,7 @@ use rug::{Float, Integer};
 use crate::constants::PIXELS_PER_UNIT_POT;
 
 
-pub(crate) enum ZoomerCommand {
+pub enum ZoomerCommand {
     SetFocus { pixel_x: u32, pixel_y: u32 }
     ,
     SetZoom { pot: i32 }
@@ -32,25 +32,25 @@ pub(crate) enum ZoomerCommand {
     ,
     UntrackAllPoints
 }
-pub(crate) const NUMBER_OF_COMMANDS: u16 = 10;
+pub const NUMBER_OF_COMMANDS: u16 = 10;
 
 #[derive(Clone, Debug)]
-pub(crate) struct SamplingContext {
-    pub(crate) screen: Option<ZoomerScreen>
-    , pub(crate) screen_size: (u32, u32)
-    , pub(crate) location: ObjectivePosAndZoom
-    , pub(crate) updated: bool
-    , pub(crate) mouse_drag_start: Option<(ObjectivePosAndZoom, Pos2)>
+pub struct SamplingContext {
+    pub screen: Option<ZoomerScreen>
+    , pub screen_size: (u32, u32)
+    , pub location: ObjectivePosAndZoom
+    , pub updated: bool
+    , pub mouse_drag_start: Option<(ObjectivePosAndZoom, Pos2)>
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct ViewportLocation {
-    pub(crate) pos: (i32, i32) // This is objective
-    , pub(crate) zoom_pot: i32
-    , pub(crate) counter: u64
+pub struct ViewportLocation {
+    pub pos: (i32, i32) // This is objective
+    , pub zoom_pot: i32
+    , pub counter: u64
 }
 
-pub(crate) fn sample(
+pub fn sample(
     mut command_package: Vec<ZoomerCommand>,
     output_buffer: &mut Vec<Color32>,
     sampling_context: &mut SamplingContext
@@ -280,7 +280,7 @@ fn sample_color(
 
 
 #[inline]
-pub(crate) fn relative_location_i32_row_and_seat(seat: usize, row: usize) -> (i32, i32) {
+pub fn relative_location_i32_row_and_seat(seat: usize, row: usize) -> (i32, i32) {
 
     let seat = seat as u32;
     let row = row as u32;
@@ -293,7 +293,7 @@ pub(crate) fn relative_location_i32_row_and_seat(seat: usize, row: usize) -> (i3
 }
 
 #[inline]
-pub(crate) fn index_from_relative_location(l: (i32, i32), data_res: (u32, u32), data_length: usize) -> usize {
+pub fn index_from_relative_location(l: (i32, i32), data_res: (u32, u32), data_length: usize) -> usize {
 
     let normalized_l = (
         max(min(l.0, (data_res.0-1) as i32), 0)
@@ -310,7 +310,7 @@ pub(crate) fn index_from_relative_location(l: (i32, i32), data_res: (u32, u32), 
 }
 
 #[inline]
-pub(crate) fn optional_index_from_relative_location(l: (i32, i32), data_res: (u32, u32), data_length: usize) -> Option<usize> {
+pub fn optional_index_from_relative_location(l: (i32, i32), data_res: (u32, u32), data_length: usize) -> Option<usize> {
 
     if l.0 >= 0 && l.0 <= (data_res.0-1) as i32 && l.1 >= 0 && l.1 <= (data_res.1-1) as i32 {
         let i =
@@ -325,7 +325,7 @@ pub(crate) fn optional_index_from_relative_location(l: (i32, i32), data_res: (u3
 }
 
 #[inline]
-pub(crate) fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom: i64) -> (i32, i32) {
+pub fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom: i64) -> (i32, i32) {
     // move + zoom
 
     (
@@ -334,7 +334,7 @@ pub(crate) fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom
     )
 }
 
-pub(crate) fn update_sampling_context(context: &mut SamplingContext, screen: ZoomerScreen) {
+pub fn update_sampling_context(context: &mut SamplingContext, screen: ZoomerScreen) {
 
     if context.location == screen.objective_location {
         context.updated = false;

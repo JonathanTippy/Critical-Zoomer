@@ -9,13 +9,13 @@ use crate::constants::*;
 use crate::assemblies::headgroup::window::sampling::*;
 
 #[derive(Clone, Debug)]
-pub(crate) struct MouseDragStart {
-    pub(crate) objective_drag_start: ObjectivePosAndZoom
+pub struct MouseDragStart {
+    pub objective_drag_start: ObjectivePosAndZoom
     ,
-    pub(crate) screenspace_drag_start: Pos2
+    pub screenspace_drag_start: Pos2
 }
 
-pub(crate) fn parse_inputs(ctx: &egui::Context, state: &mut WindowState, sampling_size: (usize, usize)) -> (Vec<ZoomerCommand>, (i32, i32)) {
+pub fn parse_inputs(ctx: &egui::Context, state: &mut WindowState, sampling_size: (usize, usize)) -> (Vec<ZoomerCommand>, (i32, i32)) {
 
     let time_elapsed = state.controls_timer.elapsed();
     state.controls_timer = std::time::Instant::now();

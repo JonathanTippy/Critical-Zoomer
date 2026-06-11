@@ -26,10 +26,10 @@ use crate::assemblies::headgroup::window::inputs::*;
 use crate::assemblies::headgroup::window::sampling::*;
 
 
-pub(crate) mod rolling;
-pub(crate) mod widgetize;
-pub(crate) mod inputs;
-pub(crate) mod sampling;
+pub mod rolling;
+pub mod widgetize;
+pub mod inputs;
+pub mod sampling;
 pub mod transforms;
 
 const RECOVER_EGUI_CRASHES:bool = false;
@@ -41,54 +41,54 @@ const VSYNC:bool = false;
 
 
 
- //pub(crate) const MIN_PIXELS:u32 = 40; // min_pixels is prioritized over min_fps and should be greater than ~6
-//pub(crate) const MIN_FPS:f32 = 10.0;
+ //pub const MIN_PIXELS:u32 = 40; // min_pixels is prioritized over min_fps and should be greater than ~6
+//pub const MIN_FPS:f32 = 10.0;
 
 /// State struct for the window actor.
 
-pub(crate) struct ZoomerState {
-    pub(crate) settings_window_open: bool
-    , pub(crate) position: (String, String)
-    , pub(crate) zoom: String
+pub struct ZoomerState {
+    pub settings_window_open: bool
+    , pub position: (String, String)
+    , pub zoom: String
 }
 
-pub(crate) struct ZoomerReport {
-    pub(crate) actor_start: Instant,
-    pub(crate) actor_wake: Instant,
-    pub(crate) time_to_xyz: Vec<(String, Duration)>
+pub struct ZoomerReport {
+    pub actor_start: Instant,
+    pub actor_wake: Instant,
+    pub time_to_xyz: Vec<(String, Duration)>
 }
 
 
 
-pub(crate) struct ZoomerCommandPackage {
-    pub(crate) start_time: Instant
-    , pub(crate) commands: Vec<ZoomerCommand>
+pub struct ZoomerCommandPackage {
+    pub start_time: Instant
+    , pub commands: Vec<ZoomerCommand>
 }
 
 
 #[derive(Clone)]
-pub(crate) struct WindowState {
-    pub(crate) size: Vec2
-    , pub(crate) location: Option<Pos2>
-    , pub(crate) last_frame_period: Option<(Instant, Instant)>
-    , pub(crate) buffers: Vec<Vec<Color32>>
-    , pub(crate) id_counter:u64
-    , pub(crate) sampling_context: SamplingContext
-    , pub(crate) settings_window_context: Arc<Mutex<SettingsWindowContext>>
-    , pub(crate) settings_window_open: bool
-    , pub(crate) controls_settings: ControlsSettings
-    , pub(crate) rolling_frame_info: (
+pub struct WindowState {
+    pub size: Vec2
+    , pub location: Option<Pos2>
+    , pub last_frame_period: Option<(Instant, Instant)>
+    , pub buffers: Vec<Vec<Color32>>
+    , pub id_counter:u64
+    , pub sampling_context: SamplingContext
+    , pub settings_window_context: Arc<Mutex<SettingsWindowContext>>
+    , pub settings_window_open: bool
+    , pub controls_settings: ControlsSettings
+    , pub rolling_frame_info: (
         VecDeque<(Instant, u64, Duration, Duration)>
         , VecDeque<(Instant, u64, Duration, Duration)>
         , VecDeque<(Instant, u64, Duration, Duration)>
         , Option<Instant>
     )
-    , pub(crate) texturing_things: Vec<(TextureHandle, ColorImage, Vec<Color32>)>
-    //, pub(crate) sampling_resolution_multiplier: f32
-    , pub(crate) timer: Instant
-    , pub(crate) fps_margin: f32
-    , pub(crate) timer2: Instant
-    , pub(crate) controls_timer: Instant
+    , pub texturing_things: Vec<(TextureHandle, ColorImage, Vec<Color32>)>
+    //, pub sampling_resolution_multiplier: f32
+    , pub timer: Instant
+    , pub fps_margin: f32
+    , pub timer2: Instant
+    , pub controls_timer: Instant
 }
 
 /// Entry point for the window actor.
@@ -293,7 +293,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             );
 
 
-            // make sure we run every frame
+            // prevent vsync
             ctx.request_repaint();
 
             let size = (state.size.x as usize, state.size.y as usize);

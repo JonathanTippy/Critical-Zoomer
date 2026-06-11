@@ -56,9 +56,9 @@ impl Expand for f64 {
 
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Range<T: Value, const MUST_INTEGER: bool> {
-    pub(crate) lower_bound: T
-    , pub(crate) upper_bound: T
+pub struct Range<T: Value, const MUST_INTEGER: bool> {
+    pub lower_bound: T
+    , pub upper_bound: T
 }
 
 impl<T: Value, const MUST_INTEGER:bool> Range<T, MUST_INTEGER> {

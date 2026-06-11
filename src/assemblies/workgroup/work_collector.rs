@@ -14,26 +14,26 @@ use crate::utils::*;
 
 #[derive(Clone, Debug)]
 
-pub(crate) struct ResultsPackage<T> {
-    pub(crate) results: Vec<CompletedPoint<T>>
-    , pub(crate) screen_res: (u32, u32)
-    , pub(crate) location: ObjectivePosAndZoom
-    , pub(crate) complete: bool
+pub struct ResultsPackage<T> {
+    pub results: Vec<CompletedPoint<T>>
+    , pub screen_res: (u32, u32)
+    , pub location: ObjectivePosAndZoom
+    , pub complete: bool
 }
 
-pub(crate) struct WorkCollectorState<T> {
+pub struct WorkCollectorState<T> {
     completed_work: Option<ResultsPackage<T>>
     , surrounding_work: Option<ResultsPackage<T>>
 }
 
 
-pub(crate) const WORKER_INIT_RES:(u32, u32) = DEFAULT_WINDOW_RES;
-pub(crate) const WORKER_INIT_LOC:(f64, f64) = (0.0, 0.0);
-pub(crate) const WORKER_INIT_ZOOM_POT: i64 = -2;
-pub(crate) const WORKER_INIT_ZOOM:f64 = if WORKER_INIT_ZOOM_POT>0 {(1<<WORKER_INIT_ZOOM_POT) as f64} else {1.0 / (1<<-WORKER_INIT_ZOOM_POT) as f64};
+pub const WORKER_INIT_RES:(u32, u32) = DEFAULT_WINDOW_RES;
+pub const WORKER_INIT_LOC:(f64, f64) = (0.0, 0.0);
+pub const WORKER_INIT_ZOOM_POT: i64 = -2;
+pub const WORKER_INIT_ZOOM:f64 = if WORKER_INIT_ZOOM_POT>0 {(1<<WORKER_INIT_ZOOM_POT) as f64} else {1.0 / (1<<-WORKER_INIT_ZOOM_POT) as f64};
 
-pub(crate) const PIXELS_PER_UNIT_POT:i32 = 9;
-pub(crate) const PIXELS_PER_UNIT: u64 = 1<<(PIXELS_PER_UNIT_POT);
+pub const PIXELS_PER_UNIT_POT:i32 = 9;
+pub const PIXELS_PER_UNIT: u64 = 1<<(PIXELS_PER_UNIT_POT);
 
 
 

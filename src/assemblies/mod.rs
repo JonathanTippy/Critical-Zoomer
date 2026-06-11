@@ -1,5 +1,5 @@
-pub(crate) mod headgroup;
-pub(crate) mod shadergroup;
-pub(crate) mod workgroup;
+pub mod headgroup;
+pub mod shadergroup;
+pub mod workgroup;
 pub mod structs;
 pub mod views;

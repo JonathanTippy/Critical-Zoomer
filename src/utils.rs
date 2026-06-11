@@ -4,15 +4,15 @@ use std::ops::*;
 
 use crate::constants::*;
 
-pub(crate) const INTEXP_WARNING_SIZE:u32 = 100;
+pub const INTEXP_WARNING_SIZE:u32 = 100;
 
 #[inline]
-pub(crate) fn zoom_from_pot(zoom: i32) -> f64 {
+pub fn zoom_from_pot(zoom: i32) -> f64 {
     if zoom > 0 {(1 << zoom) as f64} else {1.0 / (1<<-zoom) as f64}
 }
 
 #[inline]
-pub(crate) fn signed_shift(input: i32, shift: i64) -> i32 {
+pub fn signed_shift(input: i32, shift: i64) -> i32 {
     (input << ((shift + (shift.abs()))>>1)) >> (-((shift - (shift.abs()))>>1))
     /*if shift >= 0 {
         input << shift
@@ -22,7 +22,7 @@ pub(crate) fn signed_shift(input: i32, shift: i64) -> i32 {
 }
 
 #[inline]
-pub(crate) fn shift(input:i32, shift:i32) -> i32 {
+pub fn shift(input:i32, shift:i32) -> i32 {
     if shift >= 0 {
         input << shift as u32
     } else {
@@ -31,24 +31,24 @@ pub(crate) fn shift(input:i32, shift:i32) -> i32 {
 }
 
 /*#[inline]
-pub(crate) fn shift_signed_assume_left(input: i32, shift: i64) -> i32 {
+pub fn shift_signed_assume_left(input: i32, shift: i64) -> i32 {
     if shift >= 0 {
         input
     }
 }*/
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct ObjectivePosAndZoom {
-    pub(crate) pos: (IntExp, IntExp)
-    , pub(crate) zoom_pot: i32
+pub struct ObjectivePosAndZoom {
+    pub pos: (IntExp, IntExp)
+    , pub zoom_pot: i32
 }
 
 
 
 #[derive(Clone, Debug, Ord, Eq)]
-pub(crate) struct IntExp {
-    pub(crate) val: Integer
-    , pub(crate) exp: i32
+pub struct IntExp {
+    pub val: Integer
+    , pub exp: i32
 }
 
 impl Into<isize> for IntExp {
@@ -204,22 +204,22 @@ impl std::fmt::Display for IntExp {
 use std::cmp::Ordering::*;
 
 impl IntExp {
-    pub(crate) const ZERO: IntExp = IntExp {val: Integer::ZERO, exp: 0};
+    pub const ZERO: IntExp = IntExp {val: Integer::ZERO, exp: 0};
 
-    pub(crate) fn shift(self, exp: i32) -> IntExp {
+    pub fn shift(self, exp: i32) -> IntExp {
         if exp >= 0 {
             return self << exp as u32;
         } else {
             return self >> (-exp) as u32;
         }
     }
-    pub(crate) fn round(self, bits: usize) -> IntExp {
+    pub fn round(self, bits: usize) -> IntExp {
         IntExp{
             val: self.val >> 1
             , exp: self.exp + 1
         }
     }
-    pub(crate) fn set_precision(self, POT: i32) -> IntExp {
+    pub fn set_precision(self, POT: i32) -> IntExp {
         match (-self.exp).cmp(&POT) {
             Equal => {
                 self
@@ -292,23 +292,23 @@ impl Shiftable for f64 {
     }
 }
 
-pub(crate) fn f32_to_i16(input: f32) -> i16 {
+pub fn f32_to_i16(input: f32) -> i16 {
     let p = input * (2<<12) as f32;
     p as i16
 }
 
-pub(crate) fn i16_to_f32(input: i16) -> f32 {
+pub fn i16_to_f32(input: i16) -> f32 {
     let p:f32 = input as f32 / (2<<12) as f32;
     p
 }
 
 #[inline]
-pub(crate) fn index_from_pos(pos:&(i32, i32), wid:u32) -> usize {
+pub fn index_from_pos(pos:&(i32, i32), wid:u32) -> usize {
     (pos.0 + pos.1*wid as i32) as usize
 }
 
 #[inline]
-pub(crate) fn index_from_pos_safe(pos:&(i32, i32), res:(u32, u32)) -> Option<usize> {
+pub fn index_from_pos_safe(pos:&(i32, i32), res:(u32, u32)) -> Option<usize> {
 
     let valid = (
         res.0 as i32 > pos.0 && pos.0 >= 0
@@ -320,7 +320,7 @@ pub(crate) fn index_from_pos_safe(pos:&(i32, i32), res:(u32, u32)) -> Option<usi
     } else {None}
 }
 
-pub(crate) fn pos_from_index(i: usize, wid:u32) -> (i32, i32) {
+pub fn pos_from_index(i: usize, wid:u32) -> (i32, i32) {
     (i as i32 % wid as i32, i as i32/wid as i32)
 }
 

@@ -1,2 +1,2 @@
-pub(crate) mod window;
+pub mod window;
 mod structs;

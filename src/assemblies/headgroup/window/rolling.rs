@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 use std::collections::*;
-pub(crate) fn rolling_frame_calc(
+pub fn rolling_frame_calc(
     rolling_frame_info: &mut (
         VecDeque<(Instant, u64, Duration, Duration)>
         , VecDeque<(Instant, u64, Duration, Duration)>

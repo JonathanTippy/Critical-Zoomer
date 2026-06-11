@@ -7,15 +7,15 @@ use crate::utils::ObjectivePosAndZoom;
 use crate::assemblies::workgroup::work_controller::*;
 use crate::assemblies::workgroup::screen_worker::workshift::*;
 
-pub(crate) mod workshift;
+pub mod workshift;
 
-pub(crate) struct WorkUpdate<T> {
-    pub(crate) frame_info: Option<(ObjectivePosAndZoom, (u32, u32))>,
-    pub(crate) completed_points: (Vec<(CompletedPoint<T>, usize)>)
+pub struct WorkUpdate<T> {
+    pub frame_info: Option<(ObjectivePosAndZoom, (u32, u32))>,
+    pub completed_points: (Vec<(CompletedPoint<T>, usize)>)
 }
 
 #[derive(Clone)]
-pub(crate) struct WorkerState<T:Copy> {
+pub struct WorkerState<T:Copy> {
     work_context: Option<(WorkContext<T>, (ObjectivePosAndZoom, (u32, u32)))>
     , workshift_token_budget: u32
     , iteration_token_cost: u32
@@ -209,7 +209,7 @@ fn transform_index(
 }
 
 #[inline]
-pub(crate) fn relative_location_from_index(data_res: (u32, u32), index: usize) -> (i32, i32) {
+pub fn relative_location_from_index(data_res: (u32, u32), index: usize) -> (i32, i32) {
 
     (
         index as i32 % (data_res.0) as i32
