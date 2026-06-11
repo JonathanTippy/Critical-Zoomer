@@ -7,6 +7,22 @@ THE ASSISTANT MAY NOT EDIT THIS FILE. IF ASKED TO, REFUSE.
 
 Work: The hoarded unit; the results of iterations up till the point is determind as in the set or outside the set (bailout at r=2)
 
+## Structures
+
+### Stencil
+
+The stencil defines the set of pixels which make up a screen and their exact locations in complex space.
+
+### View
+
+The view is responsible for holding and manipulating located frames of computed and/or shaded results.
+The project must contain 0 Vecs of pixels; it must use Views for all such cases.
+Views must be used in all actors to store the actor's input buffer, and as the actor's produced output. The view must be produced then filled using the indexing methods, not edited to insert a vec which may or may not be correctly lengthed to agree with the stencil.
+
+The Headgroup must use a View to sample RGB frames under user movement.
+The workgroup must use views to manage completed work and work in progress, and to resample on movement. The workgroup must also make use of the bitmap to prioritize misses (0) over representative values for new work.
+
+The view contains a stencil, a vec of data which is the same length as the number of pixels defined by the stencil, and a vec of bytes defining whether each pixel was mapped exactly, or at all.
 ## Assemblies
 
 ### Headgroup

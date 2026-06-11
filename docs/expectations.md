@@ -34,9 +34,9 @@ Critical Zoomer must be Seamless, Deep, Tenacious, Hoarding, Fast, and Calibrate
 ### Seamless
 
 There must be no "increase the max iteration count" wall which asks the bewildered user 
-to increase this setting if they wish to continue.
+to somehow just know to increase this setting if they wish to continue. This results in incorrect and damaging misonceptions about the Mandelbrot set: limited iteration count make it appear limited in depth and smooth, which is completely incorrect.
 
-There must be no "turn on perturbation" wall which asks the bewildered user to "choose a reference orbit".
+There must be no "turn on perturbation" wall which asks the bewildered user to somehow just know to "choose a reference orbit".
 It must choose reference orbits automatically, and perturbation must be on from the start.
 
 ### Deep
@@ -56,7 +56,8 @@ Once done, work must be stored in a buffer, so its never re-done owing to a cosm
 ### Fast
 
 The user must be allowed to zoom in as fast as he would care to go. 
-To this aim, the app must not be stingy with zooming speed. It must zoom at the most natural feeling speed.
+To this aim, the app must not be stingy with zooming speed. 
+It must zoom at the most natural feeling speed.
 Extensive optimization, work saving, and lookahead will all be must.
 
 All settings must apply instantly and not trigger a re-compute;
@@ -65,3 +66,5 @@ there must be no computational settings.
 ### Calibrated
 
 The outputs must be reasonably believed to be correct and known.
+The app must notpresent work not finished yet as inside the set, 
+unless it has a reasonable belief that it probably is in the set.
