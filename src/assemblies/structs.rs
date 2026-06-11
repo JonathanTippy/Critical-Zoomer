@@ -22,41 +22,7 @@ pub(crate) struct View<T> {
     , pub(crate) updated_at: Instant
 }
 
-impl<T: Clone> View<T> {
-    pub(crate) fn new(resolution: (usize, usize), location: (IntExp, IntExp, i32), fill_value: T) -> View<T> {
-        View {
-            stencil: PixelStencil {
-                location: (
-                location.0.set_precision(location.2 + PIXELS_PER_UNIT_POT)
-                , location.1.set_precision(location.2 + PIXELS_PER_UNIT_POT)
-                , location.2
-                )
-                ,
-                resolution
-            }
-            ,
-            data: vec!(fill_value; resolution.0 * resolution.1)
-            ,
-            bitmap: vec!(0u8; resolution.0 * resolution.1)
-            ,
-            updated_at: Instant::now()
-        }
-    }
-}
 
-use std::ops::{Index, IndexMut};
-impl<T> Index<(usize, usize)> for View<T> {
-    type Output = T;
-    fn index(&self, seat_row:(usize, usize)) -> &Self::Output {
-        &self.data[self.stencil.index((seat_row.0 as isize, seat_row.1 as isize))]
-    }
-}
-
-impl<T> IndexMut<(usize, usize)> for View<T> {
-    fn index_mut(&mut self, seat_row: (usize, usize)) -> &mut Self::Output {
-        &mut self.data[self.stencil.index((seat_row.0 as isize, seat_row.1 as isize))]
-    }
-}
 
 
     pub(crate) const EXACT: u8 = 0b1000_0000;

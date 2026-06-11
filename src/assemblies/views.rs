@@ -1,35 +1,4 @@
-// Conventions:
-// location.2 is magnification which is not the precision exponent.
-// magnification goes up as you zoom in.
-// Usually, when seat and row go in a tuple together, the order is seat then row.
-// This is to align better with the x then y standard order.
-
-
-// The stencil defines the set of complex points that make up a view.
-// It is used with a vec equal to resolution.0 * resolution.1 in length.
-// The top left sample of the view is taken exactly at location.0, location.1
-// Other samples apply a regular grid,
-// following imaginary coordinates: down is negative and right is positive.
-// In complex plane terms: +seat moves +real; +row moves −imag.
-// Scanning map between vec and pixels is done right then down, like a CRT.
-// The points are equally spaced vertically and horizontally.
-// The default points per unit is defined by the PIXELS_PER_UNIT_POT constant.
-// The zoom level (location.2) is added to the constant to get the current PPU POT.
-// The actual spacing distance between points is given by 1/(2^(PPU POT)).
-
-// When filling one View from another, pixels are considered to represent:
-// the area from their top left corner (inclusive) to their bottom right corner (limit).
-// inexact mappings of larger to smaller are thusly fully defined.
-// The complex plane is effectively divided into squares
-// , where every smaller & larger pair where larger contains smaller can map small (choose top left) -> large or large (top left) -> many small
-
-// The method to find at least one exactly mapped pixel if one exists is to check:
-// 1. overlap (do the frame areas touch at all?) -> overlapping corner(s)
-// 2. compatibility
-// (does the relative offset contain units smaller than the smaller space? if so, no exact matches.)
-
-// mapping is exact when one mapped exact pixel is identified,
-// and the larger pixel step off of that pixel yields pixels still represented in the smaller pixel view.
+// See comment at end
 
 use std::cmp::Ordering;
 use std::time::Instant;
@@ -39,12 +8,20 @@ use crate::constants::*;
 use crate::utils::*;
 
 impl PixelStencil {
-    pub(crate) fn is_valid(&self) -> bool {
-        self.location.0.exp == -(self.location.2 + PIXELS_PER_UNIT_POT)
+    pub(crate) fn assert_validity(&self) {
+        assert!(
+            self.location.0.exp == -(self.location.2 + PIXELS_PER_UNIT_POT)
             && self.location.0.exp == self.location.1.exp
-
-            && self.resolution.0 < 2 << 16 && self.resolution.1 < 2 << 16
-            && self.resolution.0 > 0 && self.resolution.1 > 0
+            , "Invalid Stencil: POT zoom level and precision exponents must match."
+        );
+        assert!(
+            self.resolution.0 < 2 << 16 && self.resolution.1 < 2 << 16
+            , "Invalid Stencil: No resolution side length may exceed 2^16 pixels."
+        );
+        assert!(
+            self.resolution.0 > 0 && self.resolution.1 > 0
+            , "Invalid Stencil: No resolution side length may be 0 pixels."
+        );
     }
     pub(crate) fn index(&self, seat_and_row: (isize, isize)) -> usize {
         assert!(
@@ -62,16 +39,58 @@ impl PixelStencil {
     }
 }
 
+impl<T: Clone> View<T> {
+    pub(crate) fn new(resolution: (usize, usize), location: (IntExp, IntExp, i32), fill_value: T) -> View<T> {
+        View {
+            stencil: PixelStencil {
+                location: (
+                    location.0.set_precision(location.2 + PIXELS_PER_UNIT_POT)
+                    , location.1.set_precision(location.2 + PIXELS_PER_UNIT_POT)
+                    , location.2
+                )
+                ,
+                resolution
+            }
+            ,
+            data: vec!(fill_value; resolution.0 * resolution.1)
+            ,
+            bitmap: vec!(0u8; resolution.0 * resolution.1)
+            ,
+            updated_at: Instant::now()
+        }
+    }
+}
+
+use std::ops::{Index, IndexMut};
+impl<T> Index<(usize, usize)> for View<T> {
+    type Output = T;
+    fn index(&self, seat_row: (usize, usize)) -> &Self::Output {
+        &self.data[self.stencil.index((seat_row.0 as isize, seat_row.1 as isize))]
+    }
+}
+
+impl<T> IndexMut<(usize, usize)> for View<T> {
+    fn index_mut(&mut self, seat_row: (usize, usize)) -> &mut Self::Output {
+        &mut self.data[self.stencil.index((seat_row.0 as isize, seat_row.1 as isize))]
+    }
+}
 
 impl<T: Copy> View<T> {
-    pub(crate) fn is_valid(&self) -> bool {
-        self.data.len() == self.stencil.resolution.0 * self.stencil.resolution.1
-            && self.stencil.is_valid()
-            && self.data.len() == self.bitmap.len()
+    pub(crate) fn assert_validity(&self) {
+        self.stencil.assert_validity();
+        assert_eq!(
+            self.data.len(), self.stencil.resolution.0 * self.stencil.resolution.1
+            , "Invalid View: Data length must equal seats times rows."
+        );
+        assert_eq!(
+            self.data.len(),  self.bitmap.len()
+            , "Invalid View: Data length must equal bitmap length."
+        )
     }
 
     pub(crate) fn fill_from(&mut self, source: &Self) {
-        assert!(self.is_valid() && source.is_valid(), "Views must be the correct length and valid resolutions and locate themselves on pixel grid and have matching bitmap and data lengths.");
+
+        self.assert_validity();
 
         let screenspace_delta = (
             self.stencil.location.0.clone() - source.stencil.location.0.clone()
@@ -635,3 +654,37 @@ fn nonzero_phase_test() {
     }
     assert!(a.data == expect.data);
 }
+
+
+// Conventions:
+// location.2 is magnification which is not the precision exponent.
+// magnification goes up as you zoom in.
+// Usually, when seat and row go in a tuple together, the order is seat then row.
+// This is to align better with the x then y standard order.
+
+
+// The stencil defines the set of complex points that make up a view.
+// It is used with a vec equal to resolution.0 * resolution.1 in length.
+// The top left sample of the view is taken exactly at location.0, location.1
+// Other samples apply a regular grid,
+// following imaginary coordinates: down is negative and right is positive.
+// In complex plane terms: +seat moves +real; +row moves −imag.
+// Scanning map between vec and pixels is done right then down, like a CRT.
+// The points are equally spaced vertically and horizontally.
+// The default points per unit is defined by the PIXELS_PER_UNIT_POT constant.
+// The zoom level (location.2) is added to the constant to get the current PPU POT.
+// The actual spacing distance between points is given by 1/(2^(PPU POT)).
+
+// When filling one View from another, pixels are considered to represent:
+// the area from their top left corner (inclusive) to their bottom right corner (limit).
+// inexact mappings of larger to smaller are thusly fully defined.
+// The complex plane is effectively divided into squares
+// , where every smaller & larger pair where larger contains smaller can map small (choose top left) -> large or large (top left) -> many small
+
+// The method to find at least one exactly mapped pixel if one exists is to check:
+// 1. overlap (do the frame areas touch at all?) -> overlapping corner(s)
+// 2. compatibility
+// (does the relative offset contain units smaller than the smaller space? if so, no exact matches.)
+
+// mapping is exact when one mapped exact pixel is identified,
+// and the larger pixel step off of that pixel yields pixels still represented in the smaller pixel view.
