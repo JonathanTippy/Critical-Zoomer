@@ -7,22 +7,24 @@ THE ASSISTANT MAY NOT EDIT THIS FILE. IF ASKED TO, REFUSE.
 
 Work: The hoarded unit; the results of iterations up till the point is determind as in the set or outside the set (bailout at r=2)
 
-## Structures
+## Assembly API
 
 ### Stencil
 
-The stencil defines the set of pixels which make up a screen and their exact locations in complex space.
+The stencil defines the set of pixels which make up a screen and their exact locations in complex space. The headgroup sends a stencil to the workgroup.
 
 ### View
 
 The view is responsible for holding and manipulating located frames of computed and/or shaded results.
-The project must contain 0 Vecs of pixels; it must use Views for all such cases.
-Views must be used in all actors to store the actor's input buffer, and as the actor's produced output. The view must be produced then filled using the indexing methods, not edited to insert a vec which may or may not be correctly lengthed to agree with the stencil.
+The project must contain almost no Vecs of pixels outside the worker actor; it must use Views for such cases.
+Views must be used in all actors to store the actor's input buffer, and as the actor's produced output. The view must be produced then filled using the indexing methods, not edited to insert a vec which may or may not be correctly lengthed.
 
 The Headgroup must use a View to sample RGB frames under user movement.
 The workgroup must use views to manage completed work and work in progress, and to resample on movement. The workgroup must also make use of the bitmap to prioritize misses (0) over representative values for new work.
 
 The view contains a stencil, a vec of data which is the same length as the number of pixels defined by the stencil, and a vec of bytes defining whether each pixel was mapped exactly, or at all.
+
+The workgroup sends a view of answers to the shadergroup, which sends a view of Color32s to the headgroup.
 ## Assemblies
 
 ### Headgroup
@@ -99,6 +101,8 @@ chosen for its great performance while still being easier than manual memory lan
 Steady state is the cornerstone of this project;
 Previous free implementations either use one core, and start to chug when there's too much work to do, or they use a secondary "come back when you're done" core, which can't display its partially completed work. 
 Steady state allows the developer to build a machine: a system where data does what it ought to do, not what threading limitations forced.
+This app is built on the steady state philosophy: there is no light load or heavy load, only load.
+Channel overflows are a sign of *incorrect code*, not transient stress.
 
 ### Egui
 

@@ -1,3 +1,5 @@
+#![allow(warnings)]
+
 use steady_state::*;
 use arg::MainArg;
 mod arg;

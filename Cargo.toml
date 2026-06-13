@@ -28,3 +28,11 @@ criterion = "0.8.2"
 [[bench]]
 name = "my_bench"
 harness = false
+
+[lib]
+bench = false
+
+[[bin]]
+name = "critical_zoomer"
+path = "src/main.rs"
+bench = false

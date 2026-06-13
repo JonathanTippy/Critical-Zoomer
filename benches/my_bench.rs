@@ -1,3 +1,6 @@
+#![allow(warnings)]
+
+
 use std::hint::black_box;
 use criterion::{criterion_group, criterion_main, Criterion};
 
@@ -6,11 +9,40 @@ use critical_zoomer::assemblies::structs::*;
 
 use egui::Color32;
 
+fn HD_No_frame(loc_desired: (IntExp, IntExp, i32), source: &View<()>) -> View<()> {
+    let mut returned = black_box(View::new(
+PixelStencil{
+            location: loc_desired.clone()
+            , resolution: (1920, 1080)
+            , urgency: 0
+        }
+        , ()
+    ));
+    returned.fill_from(source);
+    returned
+}
+
 fn HD_Color_frame(loc_desired: (IntExp, IntExp, i32), source: &View<Color32>) -> View<Color32> {
     let mut returned = black_box(View::new(
-        (1920, 1080)
-        , loc_desired.clone()
+PixelStencil{
+            location: loc_desired.clone()
+            , resolution: (1920, 1080)
+            , urgency: 0
+        }
         , Color32::BLACK
+    ));
+    returned.fill_from(source);
+    returned
+}
+
+fn HD_Answer_frame(loc_desired: (IntExp, IntExp, i32), source: &View<Answer>) -> View<Answer> {
+    let mut returned = black_box(View::new(
+PixelStencil{
+            location: loc_desired.clone()
+            , resolution: (1920, 1080)
+            , urgency: 0
+        }
+        , Answer::TESTVAL
     ));
     returned.fill_from(source);
     returned
@@ -20,8 +52,11 @@ fn HD_Color_frame(loc_desired: (IntExp, IntExp, i32), source: &View<Color32>) ->
 
 fn HD_Color_Bench(c: &mut Criterion) {
     let source = View::new(
-        (1, 1)
-        , (IntExp::ZERO, IntExp::ZERO, 0).clone()
+        PixelStencil{
+            location: (IntExp::ZERO, IntExp::ZERO, 0)
+            , resolution: (1, 1)
+            , urgency: 0
+        }
         , Color32::BLACK
     );
 
@@ -35,9 +70,48 @@ fn HD_Color_Bench(c: &mut Criterion) {
     );
 }
 
+fn HD_Answer_Bench(c: &mut Criterion) {
+    let source = View::new(
+        PixelStencil{
+            location: (IntExp::ZERO, IntExp::ZERO, 0)
+            , resolution: (1, 1)
+            , urgency: 0
+        }
+        , Answer::TESTVAL
+    );
+
+
+    c.bench_function(
+        "hd 2"
+        , |b| b
+            .iter(|| HD_Answer_frame(black_box((IntExp::ZERO, IntExp::ZERO, 0)), black_box(
+                &source
+            )))
+    );
+}
+
+fn HD_No_Bench(c: &mut Criterion) {
+    let source = View::new(
+        PixelStencil{
+            location: (IntExp::ZERO, IntExp::ZERO, 0)
+            , resolution: (1, 1)
+            , urgency: 0
+        }
+        , ()
+    );
+
+    c.bench_function(
+        "hd 3"
+        , |b| b
+            .iter(|| HD_No_frame(black_box((IntExp::ZERO, IntExp::ZERO, 0)), black_box(
+                &source
+            )))
+    );
+}
+
 criterion_group! {
     name = benches;
     config = Criterion::default();
-    targets = HD_Color_Bench
+    targets = HD_No_Bench, HD_Answer_Bench, HD_Color_Bench
 }
 criterion_main!(benches);

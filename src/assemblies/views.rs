@@ -8,6 +8,14 @@ use crate::constants::*;
 use crate::utils::*;
 
 impl PixelStencil {
+
+    pub fn correct_precision(self) -> Self {
+        PixelStencil{location:(self.location.0.clone().set_precision(PIXELS_PER_UNIT_POT+self.location.2)
+        , self.location.1.clone().set_precision(PIXELS_PER_UNIT_POT +self.location.2), self.location.2)
+            , resolution: self.resolution
+            , urgency: self.urgency
+        }
+    }
     pub fn assert_validity(&self) {
         assert!(
             self.location.0.exp == -(self.location.2 + PIXELS_PER_UNIT_POT)
@@ -23,7 +31,7 @@ impl PixelStencil {
             , "Invalid Stencil: No resolution side length may be 0 pixels."
         );
     }
-    fn index_trust_input(&self, seat_and_row: (isize, isize)) -> usize {
+    pub fn index_trust_input(&self, seat_and_row: (isize, isize)) -> usize {
         /*assert!(
             seat_and_row.0 >= 0 && seat_and_row.0 < self.resolution.0 as isize
                 && seat_and_row.1 >= 0 && seat_and_row.1 < self.resolution.1 as isize
@@ -31,7 +39,7 @@ impl PixelStencil {
         );*/
         seat_and_row.1 as usize * self.resolution.0 + seat_and_row.0 as usize
     }
-    fn clamp_seat_and_row(&self, seat_and_row: (isize, isize)) -> (isize, isize) {
+    pub fn clamp_seat_and_row(&self, seat_and_row: (isize, isize)) -> (isize, isize) {
         return (
             seat_and_row.0.clamp(0, self.resolution.0 as isize - 1)
             , seat_and_row.1.clamp(0, self.resolution.1 as isize - 1)
@@ -39,43 +47,22 @@ impl PixelStencil {
     }
 }
 
+
 impl<T: Copy + Clone> View<T> {
-    pub fn new(resolution: (usize, usize), location: (IntExp, IntExp, i32), fill_value: T) -> View<T> {
+    pub fn new(stencil: PixelStencil, fill_value: T) -> View<T> {
         let returned = View {
-            stencil: PixelStencil {
-                location: (
-                    location.0.set_precision(location.2 + PIXELS_PER_UNIT_POT)
-                    , location.1.set_precision(location.2 + PIXELS_PER_UNIT_POT)
-                    , location.2
-                )
-                ,
-                resolution
-            }
+            stencil: stencil.clone().correct_precision()
             ,
-            data: vec!(fill_value; resolution.0 * resolution.1)
+            data: vec!(fill_value; stencil.resolution.0 * stencil.resolution.1)
             ,
-            bitmap: vec!(0u8; resolution.0 * resolution.1)
-            ,
-            updated_at: Instant::now()
+            bitmap: vec!(0u8; stencil.resolution.0 * stencil.resolution.1)
+
         };
         returned.assert_validity();
         returned
     }
 }
 
-use std::ops::{Index, IndexMut};
-impl<T> Index<(usize, usize)> for View<T> {
-    type Output = T;
-    fn index(&self, seat_row: (usize, usize)) -> &Self::Output {
-        &self.data[self.stencil.index_trust_input((seat_row.0 as isize, seat_row.1 as isize))]
-    }
-}
-
-impl<T> IndexMut<(usize, usize)> for View<T> {
-    fn index_mut(&mut self, seat_row: (usize, usize)) -> &mut Self::Output {
-        &mut self.data[self.stencil.index_trust_input((seat_row.0 as isize, seat_row.1 as isize))]
-    }
-}
 
 impl<T: Copy> View<T> {
     pub fn assert_validity(&self) {
@@ -100,7 +87,7 @@ impl<T: Copy> View<T> {
             , self.stencil.location.2 - source.stencil.location.2
         );
 
-        let source_is_newer = source.updated_at > self.updated_at;
+        let source_is_preferred = source.stencil.urgency > self.stencil.urgency;
 
         match screenspace_delta.2.cmp(&0) {
             Ordering::Equal => {
@@ -152,8 +139,8 @@ impl<T: Copy> View<T> {
                         let source_real_alignment = { if exact { EXACT } else { 0 } } + { if representative { EST } else { 0 } };
                         let self_alignment = self.bitmap[self_index];
 
-                        if source_real_alignment > self_alignment
-                            || source_is_newer && source_real_alignment >= self_alignment
+                        if source_real_alignment >= self_alignment
+                            || source_is_preferred && source_real_alignment >= self_alignment
                             || self_alignment == 0
                         {
                             self.data[self_index] = value;
@@ -186,9 +173,6 @@ impl<T: Copy> View<T> {
 
                     let frequency = 1 << screenspace_delta.2;
 
-
-
-
                     for row in 0..self.stencil.resolution.1 {
                         for seat in 0..self.stencil.resolution.0 {
                             let preferred_source_seat_row = (
@@ -205,18 +189,18 @@ impl<T: Copy> View<T> {
 
                             let representative = preferred_source_seat_row == clamped_source_seat_row;
                             let value = source.data[source.stencil.index_trust_input(clamped_source_seat_row)];
-                            let source_alignment = source.bitmap[source.stencil.index_trust_input(clamped_source_seat_row)];
-                            let exact = representative && source_alignment & EXACT == EXACT;
+                            let source_old_alignment = source.bitmap[source.stencil.index_trust_input(clamped_source_seat_row)];
+                            let exact = representative && source_old_alignment & EXACT == EXACT;
 
-                            let source_real_alignment = { if exact { EXACT } else { 0 } } + { if representative { EST } else { 0 } };
+                            let source_alignment = { if exact { EXACT } else { 0 } } + { if representative { EST } else { 0 } };
                             let self_alignment = self.bitmap[self.stencil.index_trust_input((seat as isize, row as isize))];
 
-                            if source_real_alignment > self_alignment
-                                || source_is_newer && source_real_alignment >= self_alignment
+                            if source_alignment > self_alignment
+                                || source_is_preferred && source_alignment >= self_alignment
                                 || self_alignment == 0
                             {
                                 self.data[self.stencil.index_trust_input((seat as isize, row as isize))] = value;
-                                self.bitmap[self.stencil.index_trust_input((seat as isize, row as isize))] = source_real_alignment;
+                                self.bitmap[self.stencil.index_trust_input((seat as isize, row as isize))] = source_alignment;
                             }
                         }
                     }
@@ -271,7 +255,7 @@ impl<T: Copy> View<T> {
                             let self_alignment = self.bitmap[self.stencil.index_trust_input((seat as isize, row as isize))];
 
                             if source_real_alignment > self_alignment
-                                || source_is_newer && source_real_alignment >= self_alignment
+                                || source_is_preferred && source_real_alignment >= self_alignment
                                 || self_alignment == 0
                             {
                                 self.data[self.stencil.index_trust_input((seat as isize, row as isize))] = value;
@@ -298,14 +282,13 @@ fn invalid_test_bad_data() {
                 , 0
             )
             ,
-            resolution: (2, 2)
+            resolution: (2, 2), urgency: 0
         }
         ,
         data: vec!()
         ,
         bitmap: vec!()
         ,
-        updated_at: Instant::now()
     };
     let b: View<i32> = View {
         stencil: PixelStencil {
@@ -315,7 +298,7 @@ fn invalid_test_bad_data() {
                 , 0
             )
             ,
-            resolution: (2, 2)
+            resolution: (2, 2), urgency: 0
         }
         ,
         data: vec!()
@@ -323,7 +306,6 @@ fn invalid_test_bad_data() {
         bitmap: vec!()
 
         ,
-        updated_at: Instant::now()
     };
     a.fill_from(&b);
 }
@@ -339,7 +321,7 @@ fn invalid_test_misaligned() {
                 , 0
             )
             ,
-            resolution: (2, 2)
+            resolution: (2, 2), urgency: 0
         }
         ,
         data: vec!()
@@ -347,7 +329,7 @@ fn invalid_test_misaligned() {
         bitmap: vec!()
 
         ,
-        updated_at: Instant::now()
+        
     };
     let b: View<i32> = View {
         stencil: PixelStencil {
@@ -357,14 +339,14 @@ fn invalid_test_misaligned() {
                 , 0
             )
             ,
-            resolution: (2, 2)
+            resolution: (2, 2), urgency: 0
         }
         ,
         data: vec!()
         ,
         bitmap: vec!()
         ,
-        updated_at: Instant::now()
+        
     };
     a.fill_from(&b);
 }
@@ -379,7 +361,7 @@ fn identity_test() {
                 , 0
             )
             ,
-            resolution: (2, 2)
+            resolution: (2, 2), urgency: 0
         }
         ,
         data: vec!(1, 2, 3, 4)
@@ -387,7 +369,7 @@ fn identity_test() {
         bitmap: vec!(EXACT + EST, EXACT + EST, EXACT + EST, EXACT + EST)
 
         ,
-        updated_at: Instant::now()
+        
     };
     let b: View<i32> = View {
         stencil: PixelStencil {
@@ -397,12 +379,12 @@ fn identity_test() {
                 , 0
             )
             ,
-            resolution: (2, 2)
+            resolution: (2, 2), urgency: 0
         }
         ,
         data: vec!(1, 2, 3, 4),
         bitmap: vec!(EXACT + EST, EXACT + EST, EXACT + EST, EXACT + EST),
-        updated_at: Instant::now()
+
     };
     a.fill_from(&b);
     if a.data != b.data {
@@ -422,13 +404,13 @@ fn improve_test() {
                 , 0
             )
             ,
-            resolution: (2, 2)
+            resolution: (2, 2), urgency: 0
         }
         ,
         data: vec!(0, 0, 0, 0)
         ,
         bitmap: vec!(EST, EST, EST, EST),
-        updated_at: Instant::now()
+        
     };
     let b: View<i32> = View {
         stencil: PixelStencil {
@@ -438,12 +420,12 @@ fn improve_test() {
                 , 0
             )
             ,
-            resolution: (2, 2)
+            resolution: (2, 2), urgency: 0
         }
         ,
         data: vec!(1, 2, 3, 4),
         bitmap: vec!(EXACT + EST, EXACT + EST, EXACT + EST, EXACT + EST),
-        updated_at: Instant::now()
+        
     };
     a.fill_from(&b);
     if a.data != b.data {
@@ -463,13 +445,13 @@ fn zoom_in_test() {
                 , 1
             )
             ,
-            resolution: (2, 2)
+            resolution: (2, 2), urgency: 0
         }
         ,
         data: vec!(0, 0, 0, 0)
         ,
         bitmap: vec!(0, 0, 0, 0),
-        updated_at: Instant::now()
+        
     };
     let b: View<i32> = View {
         stencil: PixelStencil {
@@ -479,12 +461,12 @@ fn zoom_in_test() {
                 , 0
             )
             ,
-            resolution: (2, 2)
+            resolution: (2, 2), urgency: 0
         }
         ,
         data: vec!(1, 2, 3, 4),
         bitmap: vec!(EXACT + EST, EXACT + EST, EXACT + EST, EXACT + EST),
-        updated_at: Instant::now()
+        
     };
 
     let expect: View<i32> = View {
@@ -495,12 +477,12 @@ fn zoom_in_test() {
                 , 1
             )
             ,
-            resolution: (2, 2)
+            resolution: (2, 2), urgency: 0
         }
         ,
         data: vec!(1, 1, 1, 1),
         bitmap: vec!(EXACT + EST, EST, EST, EST),
-        updated_at: Instant::now()
+        
     };
     a.fill_from(&b);
     if a.data != expect.data {
@@ -520,13 +502,13 @@ fn zoom_out_test() {
                 , -1
             )
             ,
-            resolution: (2, 2)
+            resolution: (2, 2), urgency: 0
         }
         ,
         data: vec!(0, 0, 0, 0)
         ,
         bitmap: vec!(0, 0, 0, 0),
-        updated_at: Instant::now()
+        
     };
     let b: View<i32> = View {
         stencil: PixelStencil {
@@ -536,12 +518,12 @@ fn zoom_out_test() {
                 , 0
             )
             ,
-            resolution: (2, 2)
+            resolution: (2, 2), urgency: 0
         }
         ,
         data: vec!(1, 2, 3, 4),
         bitmap: vec!(EXACT + EST, EXACT + EST, EXACT + EST, EXACT + EST),
-        updated_at: Instant::now()
+        
     };
 
     let expect: View<i32> = View {
@@ -552,12 +534,12 @@ fn zoom_out_test() {
                 , -1
             )
             ,
-            resolution: (2, 2)
+            resolution: (2, 2), urgency: 0
         }
         ,
         data: vec!(1, 2, 3, 4),
         bitmap: vec!(EXACT + EST, 0, 0, 0),
-        updated_at: Instant::now()
+        
     };
     a.fill_from(&b);
     if a.data != expect.data {
@@ -577,13 +559,13 @@ fn pan_one_test() {
                 , 0
             )
             ,
-            resolution: (2, 2)
+            resolution: (2, 2), urgency: 0
         }
         ,
         data: vec!(0, 0, 0, 0)
         ,
         bitmap: vec!(0, 0, 0, 0),
-        updated_at: Instant::now()
+        
     };
     let b: View<i32> = View {
         stencil: PixelStencil {
@@ -593,12 +575,12 @@ fn pan_one_test() {
                 , 0
             )
             ,
-            resolution: (2, 2)
+            resolution: (2, 2), urgency: 0
         }
         ,
         data: vec!(1, 2, 3, 4),
         bitmap: vec!(EXACT + EST, EXACT + EST, EXACT + EST, EXACT + EST),
-        updated_at: Instant::now()
+        
     };
 
     let expect: View<i32> = View {
@@ -609,13 +591,13 @@ fn pan_one_test() {
                 , 0
             )
             ,
-            resolution: (2, 2)
+            resolution: (2, 2), urgency: 0
         }
         ,
         data: vec!(2, 2, 2, 2)
         ,
         bitmap: vec!(0, 0, EXACT + EST, 0),
-        updated_at: Instant::now()
+        
     };
     a.fill_from(&b);
     if a.data != expect.data {
@@ -635,13 +617,13 @@ fn nonzero_phase_test() {
                 , 1
             )
             ,
-            resolution: (2, 2)
+            resolution: (2, 2), urgency: 0
         }
         ,
         data: vec!(0, 0, 0, 0)
         ,
         bitmap: vec!(0, 0, 0, 0),
-        updated_at: Instant::now()
+        
     };
     let b: View<i32> = View {
         stencil: PixelStencil {
@@ -651,12 +633,12 @@ fn nonzero_phase_test() {
                 , 0
             )
             ,
-            resolution: (2, 2)
+            resolution: (2, 2), urgency: 0
         }
         ,
         data: vec!(1, 2, 3, 4),
         bitmap: vec!(EXACT + EST, EXACT + EST, EXACT + EST, EXACT + EST),
-        updated_at: Instant::now()
+        
     };
 
     let expect: View<i32> = View {
@@ -667,12 +649,12 @@ fn nonzero_phase_test() {
                 , 1
             )
             ,
-            resolution: (2, 2)
+            resolution: (2, 2), urgency: 0
         }
         ,
         data: vec!(1, 2, 3, 4),
         bitmap: vec!(EST, EST, EST, EXACT + EST),
-        updated_at: Instant::now()
+        
     };
     a.fill_from(&b);
     if a.data != expect.data {

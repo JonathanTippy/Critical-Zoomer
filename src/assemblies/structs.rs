@@ -5,10 +5,11 @@ use std::cmp::*;
 use std::time::Instant;
 
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub struct PixelStencil {
     pub location: (IntExp, IntExp, i32) // real, imag, magnification POT
     , pub resolution: (usize, usize)
+    , pub urgency: u64
 }
 
 #[derive(PartialEq)]
@@ -19,7 +20,6 @@ pub struct View<T> {
     // value,
     // 7: exact
     // , 6: representative / estimate from parent pixel
-    , pub updated_at: Instant
 }
 
 
@@ -29,6 +29,7 @@ pub struct View<T> {
 pub const EST: u8 = 0b0100_0000;
 
 
+#[derive(Copy, Clone)]
 
 pub struct Answer {
     pub result: MandelbrotResult
@@ -36,16 +37,19 @@ pub struct Answer {
     , pub min_magnitude: f64
 }
 
-pub enum MandelbrotResult {
-    Outside {
-        escape_time: u64
-        , escape_location: (f32, f32)
-    }
-    , Inside {
-        period: u64
-    }
+impl Answer {
+    pub const TESTVAL: Answer = Answer {
+        result: MandelbrotResult {
+            iteration_count_or_period: 0
+            , final_z: (0.0, 0.0)
+        }
+        , min_magnitude_time: 0
+        , min_magnitude: 0.0
+    };
 }
+
 #[derive(Copy, Clone)]
-pub struct Color {
-    pub rgb: (u8, u8, u8)
+pub struct MandelbrotResult {
+    iteration_count_or_period: u64
+    , final_z: (f32, f32)
 }
