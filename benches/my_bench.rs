@@ -2,7 +2,7 @@
 
 
 use std::hint::black_box;
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::*;
 
 use critical_zoomer::utils::*;
 use critical_zoomer::assemblies::structs::*;
@@ -64,7 +64,7 @@ fn HD_Color_Bench(c: &mut Criterion) {
     c.bench_function(
         "hd 1"
         , |b| b
-            .iter(|| HD_Color_frame(black_box((IntExp::ZERO, IntExp::ZERO, 0)), black_box(
+            .iter_with_large_drop(|| HD_Color_frame(black_box((IntExp::ZERO, IntExp::ZERO, 0)), black_box(
                 &source
             )))
     );
@@ -84,7 +84,7 @@ fn HD_Answer_Bench(c: &mut Criterion) {
     c.bench_function(
         "hd 2"
         , |b| b
-            .iter(|| HD_Answer_frame(black_box((IntExp::ZERO, IntExp::ZERO, 0)), black_box(
+            .iter_with_large_drop(|| HD_Answer_frame(black_box((IntExp::ZERO, IntExp::ZERO, 0)), black_box(
                 &source
             )))
     );
@@ -103,15 +103,21 @@ fn HD_No_Bench(c: &mut Criterion) {
     c.bench_function(
         "hd 3"
         , |b| b
-            .iter(|| HD_No_frame(black_box((IntExp::ZERO, IntExp::ZERO, 0)), black_box(
+            .iter_with_large_drop(|| HD_No_frame(black_box((IntExp::ZERO, IntExp::ZERO, 0)), black_box(
                 &source
             )))
     );
 }
 
+use std::time::*;
+
 criterion_group! {
     name = benches;
-    config = Criterion::default();
+    config = Criterion::default()
+        .noise_threshold(0.10);
+        //.warm_up_time(Duration::from_secs(5));
+        //.significance_level(0.01)
+        //.measurement_time(Duration::from_secs(30));
     targets = HD_No_Bench, HD_Answer_Bench, HD_Color_Bench
 }
 criterion_main!(benches);

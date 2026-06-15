@@ -10,6 +10,8 @@ pub struct SparseView<T> {
     , map: HashMap<(usize, usize), usize>
 }
 
+
+
 impl<T: Copy + Clone> SparseView<T> {
 
     pub fn insert(&mut self, new: (T, (usize, usize))) {
@@ -50,14 +52,47 @@ impl<T: Copy + Clone> SparseView<T> {
                 let pan_pixel_delta: (isize, isize) = (
                     screenspace_delta.0.shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT)
                         .clamp(IntExp::from(isize::MIN), IntExp::from(isize::MAX)).into()
-                    , (screenspace_delta.1).shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                    , screenspace_delta.1.shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT)
                         .clamp(IntExp::from(isize::MIN), IntExp::from(isize::MAX)).into()
                 );
 
+                for &(value, source_alignment, (source_seat, source_row)) in &source.points {
+                    let seat = source_seat as isize - pan_pixel_delta.0;
+                    let row = source_row as isize - pan_pixel_delta.1;
 
-                for (_, _, (seat, row)) in &source.points {
+                    if seat < 0
+                        || row < 0
+                        || seat >= self.stencil.resolution.0 as isize
+                        || row >= self.stencil.resolution.1 as isize
+                    {
+                        continue;
+                    }
 
+                    let seat_and_row = (seat as usize, row as usize);
+                    let exact = source_alignment & EXACT == EXACT;
+                    let source_real_alignment =
+                        (if exact { EXACT } else { 0 }) + EST;
 
+                    let self_alignment = self.map.get(&seat_and_row)
+                        .map(|&index| self.points[index].1)
+                        .unwrap_or(0);
+
+                    if source_real_alignment >= self_alignment
+                        || source_is_preferred && source_real_alignment >= self_alignment
+                        || self_alignment == 0
+                    {
+                        match self.map.get(&seat_and_row) {
+                            Some(&index) => {
+                                self.points[index] = (value, source_real_alignment, seat_and_row);
+                            }
+                            ,
+                            None => {
+                                let index = self.points.len();
+                                self.points.push((value, source_real_alignment, seat_and_row));
+                                self.map.insert(seat_and_row, index);
+                            }
+                        }
+                    }
                 }
             }
             ,

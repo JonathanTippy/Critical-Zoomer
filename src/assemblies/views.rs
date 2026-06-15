@@ -190,7 +190,7 @@ impl<T: Copy> View<T> {
                             let representative = preferred_source_seat_row == clamped_source_seat_row;
                             let value = source.data[source.stencil.index_trust_input(clamped_source_seat_row)];
                             let source_old_alignment = source.bitmap[source.stencil.index_trust_input(clamped_source_seat_row)];
-                            let exact = representative && source_old_alignment & EXACT == EXACT;
+                            let exact = aligned && representative && source_old_alignment & EXACT == EXACT;
 
                             let source_alignment = { if exact { EXACT } else { 0 } } + { if representative { EST } else { 0 } };
                             let self_alignment = self.bitmap[self.stencil.index_trust_input((seat as isize, row as isize))];
@@ -249,7 +249,7 @@ impl<T: Copy> View<T> {
                             let representative = preferred_source_seat_row == clamped_source_seat_row;
                             let value = source.data[source.stencil.index_trust_input(clamped_source_seat_row)];
                             let source_alignment = source.bitmap[source.stencil.index_trust_input(clamped_source_seat_row)];
-                            let exact = representative && source_alignment & EXACT == EXACT;
+                            let exact = aligned && representative && source_alignment & EXACT == EXACT;
 
                             let source_real_alignment = { if exact { EXACT } else { 0 } } + { if representative { EST } else { 0 } };
                             let self_alignment = self.bitmap[self.stencil.index_trust_input((seat as isize, row as isize))];
