@@ -7,13 +7,14 @@ use crate::assemblies::structs::*;
 use crate::constants::*;
 use crate::utils::*;
 
-impl PixelStencil {
+impl PointStencil {
 
     pub fn correct_precision(self) -> Self {
-        PixelStencil{location:(self.location.0.clone().set_precision(PIXELS_PER_UNIT_POT+self.location.2)
-        , self.location.1.clone().set_precision(PIXELS_PER_UNIT_POT +self.location.2), self.location.2)
+        PointStencil {
+            location:(self.location.0.clone().set_precision(PIXELS_PER_UNIT_POT+self.location.2)
+            , self.location.1.clone().set_precision(PIXELS_PER_UNIT_POT +self.location.2), self.location.2)
             , resolution: self.resolution
-            , urgency: self.urgency
+            , serial_number: self.serial_number
         }
     }
     pub fn assert_validity(&self) {
@@ -49,7 +50,7 @@ impl PixelStencil {
 
 
 impl<T: Copy + Clone> View<T> {
-    pub fn new(stencil: PixelStencil, fill_value: T) -> View<T> {
+    pub fn new(stencil: PointStencil, fill_value: T) -> View<T> {
         let returned = View {
             stencil: stencil.clone().correct_precision()
             ,
@@ -87,7 +88,7 @@ impl<T: Copy> View<T> {
             , self.stencil.location.2 - source.stencil.location.2
         );
 
-        let source_is_preferred = source.stencil.urgency > self.stencil.urgency;
+        let source_is_preferred = source.stencil.serial_number > self.stencil.serial_number;
 
         match screenspace_delta.2.cmp(&0) {
             Ordering::Equal => {
@@ -175,10 +176,16 @@ impl<T: Copy> View<T> {
 
                     for row in 0..self.stencil.resolution.1 {
                         for seat in 0..self.stencil.resolution.0 {
+                            // smaller pixels inherit top left larger pixel
                             let preferred_source_seat_row = (
                                 (seat as isize + pan_self_pixel_delta.0) >> screenspace_delta.2
                                 , (row as isize + pan_self_pixel_delta.1) >> screenspace_delta.2
                             );
+                            // smaller pixels inherit closest larger pixel, bias top left on ties.
+                            /*let preferred_source_seat_row = (
+                                (seat as isize + pan_self_pixel_delta.0 + (frequency >> 1) - 1) >> screenspace_delta.2
+                                , (row as isize + pan_self_pixel_delta.1 + (frequency >> 1) - 1) >> screenspace_delta.2
+                            );*/
 
                             let aligned = (seat as isize - phase.0) % frequency == 0
                                 && (row as isize - phase.1) % frequency == 0;
@@ -225,11 +232,6 @@ impl<T: Copy> View<T> {
                             .clamp(IntExp::from(isize::MIN), IntExp::from(isize::MAX)).into()
                     );
 
-                    let phase = (
-                        pan_source_pixel_delta.0 - (pan_self_pixel_delta.0 << screenspace_delta.2)
-                        , pan_source_pixel_delta.1 - (pan_self_pixel_delta.1 << screenspace_delta.2)
-                    );
-
                     let frequency = 1 << -screenspace_delta.2;
 
                     for row in 0..self.stencil.resolution.1 {
@@ -239,8 +241,6 @@ impl<T: Copy> View<T> {
                                 , (row as isize + pan_self_pixel_delta.1) << -screenspace_delta.2
                             );
 
-                            let aligned = (preferred_source_seat_row.0 - phase.0) % frequency == 0
-                                && (preferred_source_seat_row.1 - phase.1) % frequency == 0;
 
                             let clamped_source_seat_row = source
                                 .stencil
@@ -249,7 +249,7 @@ impl<T: Copy> View<T> {
                             let representative = preferred_source_seat_row == clamped_source_seat_row;
                             let value = source.data[source.stencil.index_trust_input(clamped_source_seat_row)];
                             let source_alignment = source.bitmap[source.stencil.index_trust_input(clamped_source_seat_row)];
-                            let exact = aligned && representative && source_alignment & EXACT == EXACT;
+                            let exact = representative && source_alignment & EXACT == EXACT;
 
                             let source_real_alignment = { if exact { EXACT } else { 0 } } + { if representative { EST } else { 0 } };
                             let self_alignment = self.bitmap[self.stencil.index_trust_input((seat as isize, row as isize))];
@@ -275,14 +275,14 @@ impl<T: Copy> View<T> {
 #[should_panic]
 fn invalid_test_bad_data() {
     let mut a: View<i32> = View {
-        stencil: PixelStencil {
+        stencil: PointStencil {
             location: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , 0
             )
             ,
-            resolution: (2, 2), urgency: 0
+            resolution: (2, 2), serial_number: 0
         }
         ,
         data: vec!()
@@ -291,14 +291,14 @@ fn invalid_test_bad_data() {
         ,
     };
     let b: View<i32> = View {
-        stencil: PixelStencil {
+        stencil: PointStencil {
             location: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , 0
             )
             ,
-            resolution: (2, 2), urgency: 0
+            resolution: (2, 2), serial_number: 0
         }
         ,
         data: vec!()
@@ -314,14 +314,14 @@ fn invalid_test_bad_data() {
 #[should_panic]
 fn invalid_test_misaligned() {
     let mut a: View<i32> = View {
-        stencil: PixelStencil {
+        stencil: PointStencil {
             location: (
                 IntExp::ZERO
                 , IntExp::ZERO
                 , 0
             )
             ,
-            resolution: (2, 2), urgency: 0
+            resolution: (2, 2), serial_number: 0
         }
         ,
         data: vec!()
@@ -332,14 +332,14 @@ fn invalid_test_misaligned() {
         
     };
     let b: View<i32> = View {
-        stencil: PixelStencil {
+        stencil: PointStencil {
             location: (
                 IntExp::ZERO
                 , IntExp::ZERO
                 , 0
             )
             ,
-            resolution: (2, 2), urgency: 0
+            resolution: (2, 2), serial_number: 0
         }
         ,
         data: vec!()
@@ -354,14 +354,14 @@ fn invalid_test_misaligned() {
 #[test]
 fn identity_test() {
     let mut a: View<i32> = View {
-        stencil: PixelStencil {
+        stencil: PointStencil {
             location: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , 0
             )
             ,
-            resolution: (2, 2), urgency: 0
+            resolution: (2, 2), serial_number: 0
         }
         ,
         data: vec!(1, 2, 3, 4)
@@ -372,14 +372,14 @@ fn identity_test() {
         
     };
     let b: View<i32> = View {
-        stencil: PixelStencil {
+        stencil: PointStencil {
             location: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , 0
             )
             ,
-            resolution: (2, 2), urgency: 0
+            resolution: (2, 2), serial_number: 0
         }
         ,
         data: vec!(1, 2, 3, 4),
@@ -397,14 +397,14 @@ fn identity_test() {
 #[test]
 fn improve_test() {
     let mut a: View<i32> = View {
-        stencil: PixelStencil {
+        stencil: PointStencil {
             location: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , 0
             )
             ,
-            resolution: (2, 2), urgency: 0
+            resolution: (2, 2), serial_number: 0
         }
         ,
         data: vec!(0, 0, 0, 0)
@@ -413,14 +413,14 @@ fn improve_test() {
         
     };
     let b: View<i32> = View {
-        stencil: PixelStencil {
+        stencil: PointStencil {
             location: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , 0
             )
             ,
-            resolution: (2, 2), urgency: 0
+            resolution: (2, 2), serial_number: 0
         }
         ,
         data: vec!(1, 2, 3, 4),
@@ -438,14 +438,14 @@ fn improve_test() {
 #[test]
 fn zoom_in_test() {
     let mut a: View<i32> = View {
-        stencil: PixelStencil {
+        stencil: PointStencil {
             location: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT - 1 }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT - 1 }
                 , 1
             )
             ,
-            resolution: (2, 2), urgency: 0
+            resolution: (2, 2), serial_number: 0
         }
         ,
         data: vec!(0, 0, 0, 0)
@@ -454,14 +454,14 @@ fn zoom_in_test() {
         
     };
     let b: View<i32> = View {
-        stencil: PixelStencil {
+        stencil: PointStencil {
             location: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , 0
             )
             ,
-            resolution: (2, 2), urgency: 0
+            resolution: (2, 2), serial_number: 0
         }
         ,
         data: vec!(1, 2, 3, 4),
@@ -470,14 +470,14 @@ fn zoom_in_test() {
     };
 
     let expect: View<i32> = View {
-        stencil: PixelStencil {
+        stencil: PointStencil {
             location: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT - 1 }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT - 1 }
                 , 1
             )
             ,
-            resolution: (2, 2), urgency: 0
+            resolution: (2, 2), serial_number: 0
         }
         ,
         data: vec!(1, 1, 1, 1),
@@ -493,16 +493,77 @@ fn zoom_in_test() {
 }
 
 #[test]
+fn zoom_in_test_3() {
+    let mut a: View<i32> = View {
+        stencil: PointStencil {
+            location: (
+                IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT - 1 }
+                , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT - 1 }
+                , 1
+            )
+            ,
+            resolution: (3, 3),
+            serial_number: 0
+        }
+        ,
+        data: vec!(0, 0, 0, 0, 0, 0, 0, 0, 0)
+        ,
+        bitmap: vec!(0, 0, 0, 0, 0, 0, 0, 0, 0),
+
+    };
+    let b: View<i32> = View {
+        stencil: PointStencil {
+            location: (
+                IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
+                , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
+                , 0
+            )
+            ,
+            resolution: (3, 3),
+            serial_number: 0
+        }
+        ,
+        data: vec!(1, 2, 3, 4, 5, 6, 7, 8, 9),
+        bitmap: vec!(EXACT + EST, EXACT + EST, EXACT + EST, EXACT + EST, EXACT + EST, EXACT + EST, EXACT + EST, EXACT + EST, EXACT + EST,),
+
+    };
+
+    let expect: View<i32> = View {
+        stencil: PointStencil {
+            location: (
+                IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT - 1 }
+                , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT - 1 }
+                , 1
+            )
+            ,
+            resolution: (2, 2),
+            serial_number: 0
+        }
+        ,
+        data: vec!(1, 1, 2, 1, 1, 2, 4, 4, 5),
+        bitmap: vec!(EXACT + EST, EST, EXACT + EST, EST, EST, EST, EST, EXACT + EST, EST, EXACT + EST),
+
+    };
+    a.fill_from(&b);
+    if a.data != expect.data {
+        eprintln!("actual: {:?}", a.data);
+        eprintln!("expect: {:?}", expect.data);
+    }
+    assert!(a.data == expect.data);
+}
+
+
+#[test]
 fn zoom_out_test() {
     let mut a: View<i32> = View {
-        stencil: PixelStencil {
+        stencil: PointStencil {
             location: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT + 1 }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT + 1 }
                 , -1
             )
             ,
-            resolution: (2, 2), urgency: 0
+            resolution: (2, 2), serial_number: 0
         }
         ,
         data: vec!(0, 0, 0, 0)
@@ -511,14 +572,14 @@ fn zoom_out_test() {
         
     };
     let b: View<i32> = View {
-        stencil: PixelStencil {
+        stencil: PointStencil {
             location: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , 0
             )
             ,
-            resolution: (2, 2), urgency: 0
+            resolution: (2, 2), serial_number: 0
         }
         ,
         data: vec!(1, 2, 3, 4),
@@ -527,14 +588,14 @@ fn zoom_out_test() {
     };
 
     let expect: View<i32> = View {
-        stencil: PixelStencil {
+        stencil: PointStencil {
             location: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT + 1 }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT + 1 }
                 , -1
             )
             ,
-            resolution: (2, 2), urgency: 0
+            resolution: (2, 2), serial_number: 0
         }
         ,
         data: vec!(1, 2, 3, 4),
@@ -552,14 +613,14 @@ fn zoom_out_test() {
 #[test]
 fn pan_one_test() {
     let mut a: View<i32> = View {
-        stencil: PixelStencil {
+        stencil: PointStencil {
             location: (
                 IntExp { val: Integer::ONE.clone(), exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ONE.clone(), exp: -PIXELS_PER_UNIT_POT }
                 , 0
             )
             ,
-            resolution: (2, 2), urgency: 0
+            resolution: (2, 2), serial_number: 0
         }
         ,
         data: vec!(0, 0, 0, 0)
@@ -568,14 +629,14 @@ fn pan_one_test() {
         
     };
     let b: View<i32> = View {
-        stencil: PixelStencil {
+        stencil: PointStencil {
             location: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , 0
             )
             ,
-            resolution: (2, 2), urgency: 0
+            resolution: (2, 2), serial_number: 0
         }
         ,
         data: vec!(1, 2, 3, 4),
@@ -584,14 +645,14 @@ fn pan_one_test() {
     };
 
     let expect: View<i32> = View {
-        stencil: PixelStencil {
+        stencil: PointStencil {
             location: (
                 IntExp { val: Integer::ONE.clone(), exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ONE.clone(), exp: -PIXELS_PER_UNIT_POT }
                 , 0
             )
             ,
-            resolution: (2, 2), urgency: 0
+            resolution: (2, 2), serial_number: 0
         }
         ,
         data: vec!(2, 2, 2, 2)
@@ -610,14 +671,14 @@ fn pan_one_test() {
 #[test]
 fn nonzero_phase_test() {
     let mut a: View<i32> = View {
-        stencil: PixelStencil {
+        stencil: PointStencil {
             location: (
                 IntExp { val: Integer::ONE.clone(), exp: -PIXELS_PER_UNIT_POT - 1 }
                 , IntExp { val: -Integer::ONE.clone(), exp: -PIXELS_PER_UNIT_POT - 1 }
                 , 1
             )
             ,
-            resolution: (2, 2), urgency: 0
+            resolution: (2, 2), serial_number: 0
         }
         ,
         data: vec!(0, 0, 0, 0)
@@ -626,14 +687,14 @@ fn nonzero_phase_test() {
         
     };
     let b: View<i32> = View {
-        stencil: PixelStencil {
+        stencil: PointStencil {
             location: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , 0
             )
             ,
-            resolution: (2, 2), urgency: 0
+            resolution: (2, 2), serial_number: 0
         }
         ,
         data: vec!(1, 2, 3, 4),
@@ -642,14 +703,14 @@ fn nonzero_phase_test() {
     };
 
     let expect: View<i32> = View {
-        stencil: PixelStencil {
+        stencil: PointStencil {
             location: (
                 IntExp { val: Integer::ONE.clone(), exp: -PIXELS_PER_UNIT_POT - 1 }
                 , IntExp { val: -Integer::ONE.clone(), exp: -PIXELS_PER_UNIT_POT - 1 }
                 , 1
             )
             ,
-            resolution: (2, 2), urgency: 0
+            resolution: (2, 2), serial_number: 0
         }
         ,
         data: vec!(1, 2, 3, 4),
@@ -690,6 +751,19 @@ fn nonzero_phase_test() {
 // When filling one View from another, pixels are considered to represent:
 // the area from their top left corner (inclusive) to their bottom right corner (limit).
 // inexact mappings of larger to smaller are thusly fully defined.
+// Optionally, the inexact (less important) values can be determined with a half-offset to
+// closer approximate the nearest value and mitigate visual layout shift.
+
+// Importantly, exact values are maintained and checked so that there are always some exact plotted pixels.
+// This way, the results are "pixel imperfect": 2x zoom looks the same as a shift right,
+// but greater zooms follow the rule that exact pixels don't represent an area,
+// but a perfect plotted point. inexact pixels are filled best-effort.
+// The best known algorithm for this is nearest with top left bias.
+// A .5px bias will be present for the whole frame, which is easily accounted for and not visually noticeable.
+// EDIT: unproven; likely to introduce a small error.
+// Shelfed this concept because fill_from must yield the same result for a 4x zoom and two 2x zooms for example;
+// functions which combine views must be associative.
+
 // The complex plane is effectively divided into squares
 // , where every smaller & larger pair where larger contains smaller can map small (choose top left) -> large or large (top left) -> many small
 
@@ -697,6 +771,8 @@ fn nonzero_phase_test() {
 // 1. overlap (do the frame areas touch at all?) -> overlapping corner(s)
 // 2. compatibility
 // (does the relative offset contain units smaller than the smaller space? if so, no exact matches.)
+// EDIT: no longer true; precision is folded in. each frame has a precision mapping its magnificaoitn level,
+// so if there is overlap, there is compatibility.
 
 // mapping is exact when one mapped exact pixel is identified,
 // and the larger pixel step off of that pixel yields pixels still represented in the smaller pixel view.

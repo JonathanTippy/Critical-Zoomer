@@ -6,15 +6,15 @@ use std::time::Instant;
 
 
 #[derive(PartialEq, Clone)]
-pub struct PixelStencil {
+pub struct PointStencil {
     pub location: (IntExp, IntExp, i32) // real, imag, magnification POT
     , pub resolution: (usize, usize)
-    , pub urgency: u64
+    , pub serial_number: u64
 }
 
 #[derive(PartialEq)]
 pub struct View<T> {
-    pub stencil: PixelStencil
+    pub stencil: PointStencil
     , pub data: Vec<(T)>
     , pub bitmap: Vec<(u8)>
     // value,

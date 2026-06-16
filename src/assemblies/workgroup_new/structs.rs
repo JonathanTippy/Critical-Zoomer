@@ -5,7 +5,7 @@ use crate::constants::PIXELS_PER_UNIT_POT;
 use crate::utils::IntExp;
 
 pub struct SparseView<T> {
-    stencil: PixelStencil
+    stencil: PointStencil
     , points: Vec<(T, u8, (usize, usize))>
     , map: HashMap<(usize, usize), usize>
 }
@@ -45,7 +45,7 @@ impl<T: Copy + Clone> SparseView<T> {
             , self.stencil.location.2 - source.stencil.location.2
         );
 
-        let source_is_preferred = source.stencil.urgency > self.stencil.urgency;
+        let source_is_preferred = source.stencil.serial_number > self.stencil.serial_number;
 
         match screenspace_delta.2.cmp(&0) {
             Ordering::Equal => {
@@ -64,9 +64,7 @@ impl<T: Copy + Clone> SparseView<T> {
                         || row < 0
                         || seat >= self.stencil.resolution.0 as isize
                         || row >= self.stencil.resolution.1 as isize
-                    {
-                        continue;
-                    }
+                    { continue; }
 
                     let seat_and_row = (seat as usize, row as usize);
                     let exact = source_alignment & EXACT == EXACT;
@@ -98,6 +96,7 @@ impl<T: Copy + Clone> SparseView<T> {
             ,
             Ordering::Greater => {
                 if screenspace_delta.2 < 16 {
+
 
                 } else {
                     panic!("Unimplemented block!")
