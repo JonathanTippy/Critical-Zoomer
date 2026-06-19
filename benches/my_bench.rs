@@ -11,10 +11,10 @@ use egui::Color32;
 
 fn HD_No_frame(loc_desired: (IntExp, IntExp, i32), source: &View<()>) -> View<()> {
     let mut returned = black_box(View::new(
-PixelStencil{
+PointStencil{
             location: loc_desired.clone()
             , resolution: (1920, 1080)
-            , urgency: 0
+            , serial_number : 0
         }
         , ()
     ));
@@ -24,10 +24,10 @@ PixelStencil{
 
 fn HD_Color_frame(loc_desired: (IntExp, IntExp, i32), source: &View<Color32>) -> View<Color32> {
     let mut returned = black_box(View::new(
-PixelStencil{
+PointStencil{
             location: loc_desired.clone()
             , resolution: (1920, 1080)
-            , urgency: 0
+            , serial_number : 0
         }
         , Color32::BLACK
     ));
@@ -37,10 +37,10 @@ PixelStencil{
 
 fn HD_Answer_frame(loc_desired: (IntExp, IntExp, i32), source: &View<Answer>) -> View<Answer> {
     let mut returned = black_box(View::new(
-PixelStencil{
+PointStencil{
             location: loc_desired.clone()
             , resolution: (1920, 1080)
-            , urgency: 0
+            , serial_number : 0
         }
         , Answer::TESTVAL
     ));
@@ -52,10 +52,10 @@ PixelStencil{
 
 fn HD_Color_Bench(c: &mut Criterion) {
     let source = View::new(
-        PixelStencil{
+        PointStencil{
             location: (IntExp::ZERO, IntExp::ZERO, 0)
             , resolution: (1, 1)
-            , urgency: 0
+            , serial_number : 0
         }
         , Color32::BLACK
     );
@@ -72,10 +72,10 @@ fn HD_Color_Bench(c: &mut Criterion) {
 
 fn HD_Answer_Bench(c: &mut Criterion) {
     let source = View::new(
-        PixelStencil{
+        PointStencil{
             location: (IntExp::ZERO, IntExp::ZERO, 0)
             , resolution: (1, 1)
-            , urgency: 0
+            , serial_number : 0
         }
         , Answer::TESTVAL
     );
@@ -92,10 +92,10 @@ fn HD_Answer_Bench(c: &mut Criterion) {
 
 fn HD_No_Bench(c: &mut Criterion) {
     let source = View::new(
-        PixelStencil{
+        PointStencil{
             location: (IntExp::ZERO, IntExp::ZERO, 0)
             , resolution: (1, 1)
-            , urgency: 0
+            , serial_number : 0
         }
         , ()
     );

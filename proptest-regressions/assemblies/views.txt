@@ -1,0 +1,11 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 034ef6735e9a9bb303be05334ed962b656bff6f209a0c3a550f2e60e8fd10b64 # shrinks to base_zoom = 0, zoom_steps = [0, 0, 0, 0], pan_real_steps = [0, 0, 0, 0], pan_imag_steps = [0, 0, 0, -1], split_index = 1, source_real = 0, source_imag = 0, source_seats = 1, source_rows = 1, layer_1_seats = 1, layer_1_rows = 1, layer_2_seats = 1, layer_2_rows = 1, layer_3_seats = 1, layer_3_rows = 2, layer_4_seats = 1, layer_4_rows = 1, layer_5_seats = 1, layer_5_rows = 1, layer_6_seats = 1, layer_6_rows = 1, layer_7_seats = 1, layer_7_rows = 1, layer_8_seats = 1, layer_8_rows = 1, layer_9_seats = 1, layer_9_rows = 1
+cc 34630d2471e0a9f47bac9bf1647a1141c663acf7af2269ab437b48bbabfdca3b # shrinks to base_zoom = 0, zoom_steps = [0, 0, 0, 0, 0, 0], pan_real_steps = [0, 0, 0, 0], pan_imag_steps = [0, 0, 0, -1], split_index = 1, source_real = 0, source_imag = 0, source_seats = 1, source_rows = 1, layer_1_seats = 1, layer_1_rows = 1, layer_2_seats = 1, layer_2_rows = 1, layer_3_seats = 1, layer_3_rows = 1, layer_4_seats = 1, layer_4_rows = 1, layer_5_seats = 1, layer_5_rows = 1, layer_6_seats = 1, layer_6_rows = 1, layer_7_seats = 1, layer_7_rows = 1, layer_8_seats = 1, layer_8_rows = 1, layer_9_seats = 1, layer_9_rows = 1
+cc 5e27b6b6c8452e90c0e8a43ad628b2869acb454ea8f677a7420a055b46659593 # shrinks to seats = 4, rows = 1, base_zoom = 0, zoom_step_0 = 1, zoom_step_1 = 1, source_real = 1, source_imag = 0
+cc 03d321aa0140e23fb5f2fd9f405a8d22b43a922951ff0877cacca10cda595e45 # shrinks to location = (0, 0), resolution = (1, 33), initial_zoom = 0, zoom_direction = -1, zoom_delta_A = 1, zoom_delta_B = 1
+cc b25f9ad1676247062512bc4483fa56e935458cd445b4896d8c6bd0568f0136d9 # shrinks to location = (1, 0), resolution = (3, 1), initial_zoom = 0, zoom_direction = -1, zoom_delta_A = 1, zoom_delta_B = 1

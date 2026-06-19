@@ -183,7 +183,7 @@ The user must see their movements and zooms on this or the next frame; 17ms at 6
 
 ### Calibrated
 
-Don't get it twisted, the workgroup must interpolate and output low-res where appropriate.
+The workgroup must interpolate and output low-res where appropriate.
 Ranges must be used to keep track of in-progress work.
 For example, in WIP points,
 - Some lower bound of the escape time is known.

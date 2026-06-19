@@ -12,7 +12,7 @@ Exploring the mandelbrot set.
 - Xaos (strongest UX, current Linux King)
 - Kalles Fraktaler (strongest math)
 - Superfractalthing (seamless perturbation)
-- Ultra Fractal (perfect but paid)
+- Ultra Fractal (assumed good, but not for linux, and paid.)
 
 ## Why create another?
 
@@ -21,11 +21,11 @@ Apps which don't move as quickly and go as deep as desired get dropped instantly
 Alternatives are either deeply functional but awkward to use,
 or nicely put together but use standard methods;
 the field splits polish and depth across different programs.
-UltraFractal is the strongest alternative, but its inaccessable. Not everyone has money.
+UltraFractal is the strongest alternative, but does not ship to linux, and its paid.
 
 No listed alternative is free, deep, and user-friendly in one app.
 
-Critical Zoomer aims to fix this accessability gap.
+Critical Zoomer aims to fill this feature gap.
 
 ## Central Expectations
 
@@ -66,5 +66,5 @@ there must be no computational settings.
 ### Calibrated
 
 The outputs must be reasonably believed to be correct and known.
-The app must notpresent work not finished yet as inside the set, 
+The app must not present work not finished yet as inside the set, 
 unless it has a reasonable belief that it probably is in the set.

@@ -132,12 +132,13 @@ impl<T: Copy> View<T> {
                         let source_index = source.stencil.index_trust_input(clamped_source_seat_row);
                         let self_index = self.stencil.index_trust_input((seat as isize, row as isize));
 
-                        let representative = preferred_source_seat_row == clamped_source_seat_row;
+                        let represented = preferred_source_seat_row == clamped_source_seat_row;
                         let value = source.data[source_index];
                         let source_alignment = source.bitmap[source_index];
-                        let exact = representative && source_alignment & EXACT == EXACT;
+                        let est = represented && source_alignment & EST == EST;
+                        let exact = represented && source_alignment & EXACT == EXACT;
 
-                        let source_real_alignment = { if exact { EXACT } else { 0 } } + { if representative { EST } else { 0 } };
+                        let source_real_alignment = { if exact { EXACT } else { 0 } } + { if est { EST } else { 0 } };
                         let self_alignment = self.bitmap[self_index];
 
                         if source_real_alignment >= self_alignment
@@ -194,12 +195,13 @@ impl<T: Copy> View<T> {
                                 .stencil
                                 .clamp_seat_and_row(preferred_source_seat_row);
 
-                            let representative = preferred_source_seat_row == clamped_source_seat_row;
+                            let represented = preferred_source_seat_row == clamped_source_seat_row;
                             let value = source.data[source.stencil.index_trust_input(clamped_source_seat_row)];
                             let source_old_alignment = source.bitmap[source.stencil.index_trust_input(clamped_source_seat_row)];
-                            let exact = aligned && representative && source_old_alignment & EXACT == EXACT;
+                            let est = source_old_alignment & EST == EST && represented && aligned;
+                            let exact = aligned && represented && source_old_alignment & EXACT == EXACT;
 
-                            let source_alignment = { if exact { EXACT } else { 0 } } + { if representative { EST } else { 0 } };
+                            let source_alignment = { if exact { EXACT } else { 0 } } + { if est { EST } else { 0 } };
                             let self_alignment = self.bitmap[self.stencil.index_trust_input((seat as isize, row as isize))];
 
                             if source_alignment > self_alignment
@@ -237,8 +239,8 @@ impl<T: Copy> View<T> {
                     for row in 0..self.stencil.resolution.1 {
                         for seat in 0..self.stencil.resolution.0 {
                             let preferred_source_seat_row = (
-                                (seat as isize + pan_self_pixel_delta.0) << -screenspace_delta.2
-                                , (row as isize + pan_self_pixel_delta.1) << -screenspace_delta.2
+                                ((seat as isize).saturating_add(pan_self_pixel_delta.0)) << -screenspace_delta.2
+                                , ((row as isize).saturating_add(pan_self_pixel_delta.1)) << -screenspace_delta.2
                             );
 
 
@@ -246,12 +248,13 @@ impl<T: Copy> View<T> {
                                 .stencil
                                 .clamp_seat_and_row(preferred_source_seat_row);
 
-                            let representative = preferred_source_seat_row == clamped_source_seat_row;
+                            let represented = preferred_source_seat_row == clamped_source_seat_row;
                             let value = source.data[source.stencil.index_trust_input(clamped_source_seat_row)];
                             let source_alignment = source.bitmap[source.stencil.index_trust_input(clamped_source_seat_row)];
-                            let exact = representative && source_alignment & EXACT == EXACT;
+                            let exact = represented && source_alignment & EXACT == EXACT;
+                            let est = represented && source_alignment & EST == EST;
 
-                            let source_real_alignment = { if exact { EXACT } else { 0 } } + { if representative { EST } else { 0 } };
+                            let source_real_alignment = { if exact { EXACT } else { 0 } } + { if est { EST } else { 0 } };
                             let self_alignment = self.bitmap[self.stencil.index_trust_input((seat as isize, row as isize))];
 
                             if source_real_alignment > self_alignment
@@ -725,7 +728,72 @@ fn nonzero_phase_test() {
     assert!(a.data == expect.data);
 }
 
+use proptest::prelude::*;
 
+proptest!{
+    #[test]
+    fn zoom_in_associativity_test(
+        location in (i128::MIN..i128::MAX, i128::MIN..i128::MAX)
+        , resolution in (1usize..=100, 1usize..=100)
+        , initial_zoom in -1i32<<15..1i32<<15
+        //, zoom_direction in prop::sample::select(vec![-1i32, 1i32])
+        , zoom_delta_A in 0i32..7i32
+        , zoom_delta_B in 0i32..7i32
+    ) {
+
+        //let zoom_delta_A = zoom_delta_A * zoom_direction;
+        //let zoom_delta_B = zoom_delta_B * zoom_direction;
+
+        let location = (
+                IntExp { val: Integer::from(location.0), exp: -PIXELS_PER_UNIT_POT-initial_zoom }
+                , IntExp { val: Integer::from(location.1), exp: -PIXELS_PER_UNIT_POT-initial_zoom }
+                , initial_zoom
+            );
+
+        let stencil_A = PointStencil{
+            resolution
+            , location: location.clone()
+            , serial_number: 0
+        };
+
+        let stencil_B = PointStencil{
+            resolution
+            , location: (
+                location.0.clone().set_precision(PIXELS_PER_UNIT_POT+initial_zoom+zoom_delta_A)
+                , location.1.clone().set_precision(PIXELS_PER_UNIT_POT+initial_zoom+zoom_delta_A)
+                , initial_zoom + zoom_delta_A
+            )
+            , serial_number: 1
+        };
+
+        let stencil_C = PointStencil{
+            resolution
+            , location: (
+                location.0.set_precision(PIXELS_PER_UNIT_POT+initial_zoom+zoom_delta_A+zoom_delta_B)
+                , location.1.set_precision(PIXELS_PER_UNIT_POT+initial_zoom+zoom_delta_A+zoom_delta_B)
+                , initial_zoom + zoom_delta_A + zoom_delta_B
+            )
+            , serial_number: 2
+        };
+
+        let mut source_view = View::new(stencil_A, 0);
+
+        for seat in 0..resolution.0*resolution.1 {
+            source_view.data[seat]=seat;
+        }
+
+        let mut one_step = View::new(stencil_C.clone(), 0);
+        one_step.fill_from(&source_view);
+
+        let mut two_step_one = View::new(stencil_B, 0);
+        let mut two_step_two = View::new(stencil_C, 0);
+
+        two_step_one.fill_from(&source_view);
+        two_step_two.fill_from(&two_step_one);
+
+        prop_assert_eq!(one_step, two_step_two);
+    }
+}
 
 
 // Conventions:

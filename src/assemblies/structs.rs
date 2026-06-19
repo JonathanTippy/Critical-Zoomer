@@ -5,14 +5,14 @@ use std::cmp::*;
 use std::time::Instant;
 
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 pub struct PointStencil {
     pub location: (IntExp, IntExp, i32) // real, imag, magnification POT
     , pub resolution: (usize, usize)
     , pub serial_number: u64
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Debug)]
 pub struct View<T> {
     pub stencil: PointStencil
     , pub data: Vec<(T)>
