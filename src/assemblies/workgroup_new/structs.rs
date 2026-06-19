@@ -31,7 +31,7 @@ impl<T: Copy + Clone> SparseView<T> {
     pub fn into(self, fill_value: T) -> View<T> {
         let mut returned = View::new(self.stencil, fill_value);
         for p in self.points {
-            let index = returned.stencil.index_trust_input((p.2.0 as isize, p.2.1 as isize));
+            let index = returned.stencil.index((p.2.0 as isize, p.2.1 as isize));
             returned.data[index] = p.0;
             returned.bitmap[index] = p.1
         }

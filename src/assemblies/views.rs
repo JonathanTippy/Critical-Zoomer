@@ -32,12 +32,12 @@ impl PointStencil {
             , "Invalid Stencil: No resolution side length may be 0 pixels."
         );
     }
-    pub fn index_trust_input(&self, seat_and_row: (isize, isize)) -> usize {
-        /*assert!(
+    pub fn index(&self, seat_and_row: (isize, isize)) -> usize {
+        debug_assert!(
             seat_and_row.0 >= 0 && seat_and_row.0 < self.resolution.0 as isize
                 && seat_and_row.1 >= 0 && seat_and_row.1 < self.resolution.1 as isize
             , "Index Failure: nonexistent seat."
-        );*/
+        );
         seat_and_row.1 as usize * self.resolution.0 + seat_and_row.0 as usize
     }
     pub fn clamp_seat_and_row(&self, seat_and_row: (isize, isize)) -> (isize, isize) {
@@ -45,6 +45,14 @@ impl PointStencil {
             seat_and_row.0.clamp(0, self.resolution.0 as isize - 1)
             , seat_and_row.1.clamp(0, self.resolution.1 as isize - 1)
         );
+    }
+
+    pub fn bottom_right_point(&self) -> (IntExp, IntExp) {
+        let space = IntExp::from(1).shift(-self.location.2 - PIXELS_PER_UNIT_POT);
+        return (
+            self.location.0.clone() + space.clone() * IntExp::from(self.resolution.0-1)
+            , self.location.1.clone() + space * IntExp::from(self.resolution.1-1)
+        )
     }
 }
 
@@ -61,6 +69,39 @@ impl<T: Copy + Clone> View<T> {
         };
         returned.assert_validity();
         returned
+    }
+
+    fn fill_rectangle(
+        &mut self
+        , top_left_seat: (isize, isize)
+        , bottom_right_seat: (isize, isize)
+        , top_left_is_exact: bool
+        , fill_value: T
+        , est: bool
+        , source_is_preferred: bool
+    ) {
+        for row in top_left_seat.1..bottom_right_seat.1 {
+            for seat in top_left_seat.0..bottom_right_seat.0 {
+                let self_index = self.stencil.index((seat, row));
+                if (seat, row) != top_left_seat || !top_left_is_exact {
+                    let source_real_alignment = { if est { EST } else { 0 }};
+
+                    let self_alignment = self.bitmap[self.stencil.index((seat, row))];
+
+                    if source_real_alignment >= self_alignment
+                        || source_is_preferred && source_real_alignment >= self_alignment
+                        || self_alignment == 0
+                    {
+                        self.data[self_index] = fill_value;
+                        self.bitmap[self_index] = source_real_alignment;
+                    }
+
+                } else {
+                    self.data[self_index] = fill_value;
+                    self.bitmap[self_index] = EXACT + EST;
+                }
+            }
+        }
     }
 }
 
@@ -129,8 +170,8 @@ impl<T: Copy> View<T> {
                             , clamped_rows[row]
                             );
 
-                        let source_index = source.stencil.index_trust_input(clamped_source_seat_row);
-                        let self_index = self.stencil.index_trust_input((seat as isize, row as isize));
+                        let source_index = source.stencil.index(clamped_source_seat_row);
+                        let self_index = self.stencil.index((seat as isize, row as isize));
 
                         let represented = preferred_source_seat_row == clamped_source_seat_row;
                         let value = source.data[source_index];
@@ -196,25 +237,206 @@ impl<T: Copy> View<T> {
                                 .clamp_seat_and_row(preferred_source_seat_row);
 
                             let represented = preferred_source_seat_row == clamped_source_seat_row;
-                            let value = source.data[source.stencil.index_trust_input(clamped_source_seat_row)];
-                            let source_old_alignment = source.bitmap[source.stencil.index_trust_input(clamped_source_seat_row)];
+                            let value = source.data[source.stencil.index(clamped_source_seat_row)];
+                            let source_old_alignment = source.bitmap[source.stencil.index(clamped_source_seat_row)];
                             let est = source_old_alignment & EST == EST && represented && aligned;
                             let exact = aligned && represented && source_old_alignment & EXACT == EXACT;
 
                             let source_alignment = { if exact { EXACT } else { 0 } } + { if est { EST } else { 0 } };
-                            let self_alignment = self.bitmap[self.stencil.index_trust_input((seat as isize, row as isize))];
+                            let self_alignment = self.bitmap[self.stencil.index((seat as isize, row as isize))];
 
                             if source_alignment > self_alignment
                                 || source_is_preferred && source_alignment >= self_alignment
                                 || self_alignment == 0
                             {
-                                self.data[self.stencil.index_trust_input((seat as isize, row as isize))] = value;
-                                self.bitmap[self.stencil.index_trust_input((seat as isize, row as isize))] = source_alignment;
+                                self.data[self.stencil.index((seat as isize, row as isize))] = value;
+                                self.bitmap[self.stencil.index((seat as isize, row as isize))] = source_alignment;
                             }
                         }
                     }
                 } else {
-                    panic!("Unimplemented block!")
+                    // zooming in such that one pixel necessarily fills the entire screen.
+                    // There are four cases, identified by whether the screen is split
+                    // horizontally or vertically or both along pixel boundaries.
+
+                    let self_bottom_right_corner = self.stencil.bottom_right_point();
+
+                    let cut = (
+                        self_bottom_right_corner.0
+                            .set_precision(source.stencil.location.2+PIXELS_PER_UNIT_POT)
+                        , self_bottom_right_corner.1
+                            .set_precision(source.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                    );
+
+                    let case:(Option<isize>, Option<isize>) = (
+                        if cut.0 <= self.stencil.location.0 {
+                            None
+                        } else {
+                            Some(
+                                (cut.0.clone()-self.stencil.location.0.clone()).shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT).into()
+                            )
+                        }
+                        , if cut.1 <= self.stencil.location.1 {
+                            None
+                        } else {
+                            Some(
+                                (cut.1.clone() - self.stencil.location.1.clone()).shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT).into()
+                            )
+                        }
+                    );
+
+                    match case {
+                        (None, None) => {
+                            let preferred_source_seat = (
+                                cut.0.shift(source.stencil.location.2).into()
+                                , cut.1.shift(source.stencil.location.2).into()
+                            );
+                            let clamped_source_seat = source.stencil.clamp_seat_and_row(preferred_source_seat);
+                            let source_index= source.stencil.index(clamped_source_seat);
+                            self.fill_rectangle(
+                                (0, 0)
+                                , (self.stencil.resolution.0 as isize, self.stencil.resolution.1 as isize)
+                                , false
+                                , source.data[source_index]
+                                , source.bitmap[source_index] & EST == EST
+                                    && clamped_source_seat==preferred_source_seat
+                                , source.stencil.serial_number > self.stencil.serial_number
+                            );
+                        }
+                        , (None, Some(vertical_edge)) => {
+
+                            let preferred_source_seat_bottom = (
+                                cut.0.shift(source.stencil.location.2).into()
+                                , cut.1.shift(source.stencil.location.2).into()
+                            );
+                            let preferred_source_seat_top = (
+                                preferred_source_seat_bottom.0
+                                , preferred_source_seat_bottom.1 - 1
+                            );
+                            let clamped_source_seat_top = source.stencil.clamp_seat_and_row(preferred_source_seat_top);
+                            let clamped_source_seat_bottom = source.stencil.clamp_seat_and_row(preferred_source_seat_bottom);
+
+                            let source_index_top = source.stencil.index(clamped_source_seat_top);
+                            let source_index_bottom = source.stencil.index(clamped_source_seat_bottom);
+                            self.fill_rectangle(
+                                (0, 0)
+                                , (self.stencil.resolution.0 as isize, vertical_edge)
+                                , false
+                                , source.data[source_index_top]
+                                , source.bitmap[source_index_top] & EST == EST
+                                    && clamped_source_seat_top == preferred_source_seat_top
+                                , source.stencil.serial_number > self.stencil.serial_number
+                            );
+                            self.fill_rectangle(
+                                (0, vertical_edge)
+                                , (self.stencil.resolution.0 as isize, self.stencil.resolution.1 as isize)
+                                , false
+                                , source.data[source_index_bottom]
+                                , source.bitmap[source_index_bottom] & EST == EST
+                                    && clamped_source_seat_bottom == preferred_source_seat_bottom
+                                , source.stencil.serial_number > self.stencil.serial_number
+                            );
+                        }
+                        , (Some(horizontal_edge), None) => {
+                            let preferred_source_seat_right = (
+                                cut.0.shift(source.stencil.location.2).into()
+                                , cut.1.shift(source.stencil.location.2).into()
+                            );
+                            let preferred_source_seat_left = (
+                                preferred_source_seat_right.0 - 1
+                                , preferred_source_seat_right.1
+                            );
+                            let clamped_source_seat_right = source.stencil.clamp_seat_and_row(preferred_source_seat_right);
+                            let clamped_source_seat_left = source.stencil.clamp_seat_and_row(preferred_source_seat_left);
+
+                            let source_index_right = source.stencil.index(clamped_source_seat_right);
+                            let source_index_left = source.stencil.index(clamped_source_seat_left);
+                            self.fill_rectangle(
+                                (0, 0)
+                                , (horizontal_edge, self.stencil.resolution.1 as isize)
+                                , false
+                                , source.data[source_index_right]
+                                , source.bitmap[source_index_right] & EST == EST
+                                    && clamped_source_seat_right == preferred_source_seat_right
+                                , source.stencil.serial_number > self.stencil.serial_number
+                            );
+                            self.fill_rectangle(
+                                (horizontal_edge, 0)
+                                , (self.stencil.resolution.0 as isize, self.stencil.resolution.1 as isize)
+                                , false
+                                , source.data[source_index_left]
+                                , source.bitmap[source_index_left] & EST == EST
+                                    && clamped_source_seat_left == preferred_source_seat_left
+                                , source.stencil.serial_number > self.stencil.serial_number
+                            );
+                        }
+                        ,
+                        (Some(horizontal_edge), Some(vertical_edge)) => {
+                            let preferred_source_seat_bottom_right = (
+                                cut.0.shift(source.stencil.location.2).into()
+                                , cut.1.shift(source.stencil.location.2).into()
+                            );
+                            let preferred_source_seat_bottom_left = (
+                                preferred_source_seat_bottom_right.0 - 1
+                                , preferred_source_seat_bottom_right.1
+                            );
+                            let preferred_source_seat_top_right = (
+                                preferred_source_seat_bottom_right.0
+                                , preferred_source_seat_bottom_right.1 - 1
+                            );
+                            let preferred_source_seat_top_left = (
+                                preferred_source_seat_bottom_right.0 - 1
+                                , preferred_source_seat_bottom_right.1 - 1
+                            );
+
+                            let clamped_source_seat_top_left = source.stencil.clamp_seat_and_row(preferred_source_seat_top_left);
+                            let clamped_source_seat_top_right = source.stencil.clamp_seat_and_row(preferred_source_seat_top_right);
+                            let clamped_source_seat_bottom_left = source.stencil.clamp_seat_and_row(preferred_source_seat_bottom_left);
+                            let clamped_source_seat_bottom_right = source.stencil.clamp_seat_and_row(preferred_source_seat_bottom_right);
+
+                            let source_index_top_left = source.stencil.index(clamped_source_seat_top_left);
+                            let source_index_top_right = source.stencil.index(clamped_source_seat_top_right);
+                            let source_index_bottom_left = source.stencil.index(clamped_source_seat_bottom_left);
+                            let source_index_bottom_right = source.stencil.index(clamped_source_seat_bottom_right);
+
+                            self.fill_rectangle(
+                                (0, 0)
+                                , (horizontal_edge, vertical_edge)
+                                , false
+                                , source.data[source_index_top_right]
+                                , source.bitmap[source_index_top_right] & EST == EST
+                                    && clamped_source_seat_top_right == preferred_source_seat_top_right
+                                , source.stencil.serial_number > self.stencil.serial_number
+                            );
+                            self.fill_rectangle(
+                                (horizontal_edge, 0)
+                                , (self.stencil.resolution.0 as isize, vertical_edge)
+                                , false
+                                , source.data[source_index_top_left]
+                                , source.bitmap[source_index_top_left] & EST == EST
+                                    && clamped_source_seat_top_left == preferred_source_seat_top_left
+                                , source.stencil.serial_number > self.stencil.serial_number
+                            );
+                            self.fill_rectangle(
+                                (0, vertical_edge)
+                                , (horizontal_edge, self.stencil.resolution.1 as isize)
+                                , true
+                                , source.data[source_index_bottom_right]
+                                , source.bitmap[source_index_bottom_right] & EST == EST
+                                    && clamped_source_seat_bottom_right == preferred_source_seat_bottom_right
+                                , source.stencil.serial_number > self.stencil.serial_number
+                            );
+                            self.fill_rectangle(
+                                (horizontal_edge, vertical_edge)
+                                , (self.stencil.resolution.0 as isize, self.stencil.resolution.1 as isize)
+                                , false
+                                , source.data[source_index_bottom_left]
+                                , source.bitmap[source_index_bottom_left] & EST == EST
+                                    && clamped_source_seat_bottom_left == preferred_source_seat_bottom_left
+                                , source.stencil.serial_number > self.stencil.serial_number
+                            );
+                        }
+                    }
                 }
             }
             ,
@@ -249,20 +471,20 @@ impl<T: Copy> View<T> {
                                 .clamp_seat_and_row(preferred_source_seat_row);
 
                             let represented = preferred_source_seat_row == clamped_source_seat_row;
-                            let value = source.data[source.stencil.index_trust_input(clamped_source_seat_row)];
-                            let source_alignment = source.bitmap[source.stencil.index_trust_input(clamped_source_seat_row)];
+                            let value = source.data[source.stencil.index(clamped_source_seat_row)];
+                            let source_alignment = source.bitmap[source.stencil.index(clamped_source_seat_row)];
                             let exact = represented && source_alignment & EXACT == EXACT;
                             let est = represented && source_alignment & EST == EST;
 
                             let source_real_alignment = { if exact { EXACT } else { 0 } } + { if est { EST } else { 0 } };
-                            let self_alignment = self.bitmap[self.stencil.index_trust_input((seat as isize, row as isize))];
+                            let self_alignment = self.bitmap[self.stencil.index((seat as isize, row as isize))];
 
                             if source_real_alignment > self_alignment
                                 || source_is_preferred && source_real_alignment >= self_alignment
                                 || self_alignment == 0
                             {
-                                self.data[self.stencil.index_trust_input((seat as isize, row as isize))] = value;
-                                self.bitmap[self.stencil.index_trust_input((seat as isize, row as isize))] = source_real_alignment;
+                                self.data[self.stencil.index((seat as isize, row as isize))] = value;
+                                self.bitmap[self.stencil.index((seat as isize, row as isize))] = source_real_alignment;
                             }
                         }
                     }
@@ -728,6 +950,10 @@ fn nonzero_phase_test() {
     assert!(a.data == expect.data);
 }
 
+
+
+
+
 use proptest::prelude::*;
 
 proptest!{
@@ -735,10 +961,10 @@ proptest!{
     fn zoom_in_associativity_test(
         location in (i128::MIN..i128::MAX, i128::MIN..i128::MAX)
         , resolution in (1usize..=100, 1usize..=100)
-        , initial_zoom in -1i32<<15..1i32<<15
+        , initial_zoom in -1000000i32..1000000i32
         //, zoom_direction in prop::sample::select(vec![-1i32, 1i32])
-        , zoom_delta_A in 0i32..7i32
-        , zoom_delta_B in 0i32..7i32
+        , zoom_delta_A in 0i32..1000000i32
+        , zoom_delta_B in 0i32..1000000i32
     ) {
 
         //let zoom_delta_A = zoom_delta_A * zoom_direction;
