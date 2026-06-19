@@ -13,15 +13,8 @@ use crate::settings::*;
 use crate::assemblies::shadergroup::colorer::color::*;
 pub mod color;
 
+use crate::assemblies::structs::*;
 use egui::Color32;
-#[derive(Clone, Debug)]
-
-pub struct ZoomerScreen {
-    pub pixels: Vec<Color32>
-    , pub screen_size: (u32, u32)
-    , pub objective_location: ObjectivePosAndZoom
-}
-
 
 pub struct ColorerState {
     pub values:Option<ZoomerValuesScreen>,
@@ -33,7 +26,7 @@ pub async fn run(
     actor: SteadyActorShadow,
     values_in: SteadyRx<ZoomerValuesScreen>,
     settings_in: SteadyRx<Settings>,
-    screens_out: SteadyTx<ZoomerScreen>,
+    screens_out: SteadyTx<View<Color32>>,
     state: SteadyState<ColorerState>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
@@ -51,7 +44,7 @@ async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
     values_in: SteadyRx<ZoomerValuesScreen>,
     settings_in: SteadyRx<Settings>,
-    screens_out: SteadyTx<ZoomerScreen>,
+    screens_out: SteadyTx<View<Color32>>,
     state: SteadyState<ColorerState>,
 ) -> Result<(), Box<dyn Error>> {
     let mut values_in = values_in.lock().await;
@@ -137,10 +130,18 @@ async fn internal_behavior<A: SteadyActor>(
         if let Some(v) = &mut state.values {
             let output = color(v, &mut settings);
 
-            actor.try_send(&mut screens_out, ZoomerScreen{
-                pixels: output
-                , screen_size: v.res.clone()
-                , objective_location:  v.objective_location.clone()
+            actor.try_send(&mut screens_out, View{
+                data: output.clone()
+                , bitmap: vec!(0u8;output.len())
+                , stencil: PointStencil{
+                    resolution: (v.res.0 as usize, v.res.1 as usize)
+                    , location: (
+                        v.objective_location.clone().pos.0
+                        , v.objective_location.clone().pos.1
+                        , v.objective_location.clone().zoom_pot
+                    )
+                    , serial_number: 0
+                }
             });
             //info!("sent colors to window");
         }

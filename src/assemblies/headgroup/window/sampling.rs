@@ -12,7 +12,7 @@ use crate::utils::*;
 use rug::{Float, Integer};
 use crate::constants::PIXELS_PER_UNIT_POT;
 
-
+use crate::assemblies::structs::*;
 pub enum ZoomerCommand {
     SetFocus { pixel_x: u32, pixel_y: u32 }
     ,
@@ -36,7 +36,7 @@ pub const NUMBER_OF_COMMANDS: u16 = 10;
 
 #[derive(Clone, Debug)]
 pub struct SamplingContext {
-    pub screen: Option<ZoomerScreen>
+    pub screen: Option<View<Color32>>
     , pub screen_size: (u32, u32)
     , pub location: ObjectivePosAndZoom
     , pub updated: bool
@@ -182,15 +182,15 @@ pub fn sample(
 
         let res = context.screen_size;
 
-        let data_size = current_screen.screen_size.clone();
+        let data_size = current_screen.stencil.resolution.clone();
 
-        let data_len = current_screen.pixels.len();
+        let data_len = current_screen.data.len();
 
-        let data = &current_screen.pixels;
+        let data = &current_screen.data;
 
         let relative_pos = (
-            current_screen.objective_location.pos.0.clone()-context.location.pos.0.clone()
-            , current_screen.objective_location.pos.1.clone()-context.location.pos.1.clone()
+            current_screen.stencil.location.0.clone()-context.location.pos.0.clone()
+            , current_screen.stencil.location.1.clone()-context.location.pos.1.clone()
         );
 
         let relative_pos_in_pixels:(i32, i32) = (
@@ -198,7 +198,7 @@ pub fn sample(
             , relative_pos.1.clone().shift(context.location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
         );
 
-        let relative_zoom = context.location.zoom_pot - current_screen.objective_location.zoom_pot;
+        let relative_zoom = context.location.zoom_pot - current_screen.stencil.location.2;
 
         /*let relative_pos_in_pixels = (
             relative_pos_in_pixels.0 + shift(1, relative_zoom-1)
@@ -229,7 +229,7 @@ pub fn sample(
                     sample_color(
                         data
                         , min_side
-                        , data_size
+                        , (data_size.0 as u32, data_size.1 as u32)
                         , data_len
                         , row
                         , seat
@@ -334,9 +334,14 @@ pub fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom: i64) 
     )
 }
 
-pub fn update_sampling_context(context: &mut SamplingContext, screen: ZoomerScreen) {
+pub fn update_sampling_context(context: &mut SamplingContext, screen: View<Color32>) {
 
-    if context.location == screen.objective_location {
+    let l = ObjectivePosAndZoom {
+        pos: (screen.stencil.clone().location.0, screen.stencil.clone().location.1)
+        , zoom_pot: screen.stencil.clone().location.2
+    };
+
+    if context.location == l {
         context.updated = false;
     }
     

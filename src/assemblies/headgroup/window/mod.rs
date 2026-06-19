@@ -22,6 +22,7 @@ use crate::constants::*;
 use crate::assemblies::headgroup::window::rolling::*;
 use crate::assemblies::headgroup::window::widgetize::*;
 
+use crate::assemblies::structs::*;
 use crate::assemblies::headgroup::window::inputs::*;
 use crate::assemblies::headgroup::window::sampling::*;
 
@@ -94,7 +95,7 @@ pub struct WindowState {
 /// Entry point for the window actor.
 pub async fn run(
     actor: SteadyActorShadow,
-    pixels_in: SteadyRx<ZoomerScreen>,
+    pixels_in: SteadyRx<View<Color32>>,
     sampler_out: SteadyTx<(ObjectivePosAndZoom, (u32, u32))>,
     settings_out: SteadyTxBundle<Settings,2>,
     attention_out: SteadyTx<(i32, i32)>,
@@ -114,7 +115,7 @@ pub async fn run(
 
 async fn internal_behavior<A: SteadyActor>(
     actor: A,
-    pixels_in: SteadyRx<ZoomerScreen>,
+    pixels_in: SteadyRx<View<Color32>>,
     sampler_out: SteadyTx<(ObjectivePosAndZoom, (u32, u32))>,
     settings_out: SteadyTxBundle<Settings, 2>,
     attention_out: SteadyTx<(i32, i32)>,
@@ -230,7 +231,7 @@ async fn internal_behavior<A: SteadyActor>(
 
 struct EguiWindowPassthrough<'a, A> {
     portable_actor: Arc<Mutex<A>>,
-    pixels_in: SteadyRx<ZoomerScreen>,
+    pixels_in: SteadyRx<View<Color32>>,
     sampler_out: SteadyTx<(ObjectivePosAndZoom, (u32, u32))>,
     settings_out: SteadyTxBundle<Settings, 2>,
     attention_out: SteadyTx<(i32, i32)>,
