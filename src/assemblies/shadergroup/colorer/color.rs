@@ -3,7 +3,9 @@ use crate::assemblies::shadergroup::escaper::*;
 use crate::utils::*;
 use std::f64::consts::*;
 use std::time::*;
-pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<(u8, u8, u8)> {
+
+use egui::Color32;
+pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32> {
     let mut returned = vec!((0,0,0);(values.res.0*values.res.1) as usize);
     let res = values.res;
     if let Some(instructions) = &mut settings.coloring_script {
@@ -56,7 +58,8 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<(u8, u8
                                     (color.0,color.1,color.2,*opacity)
                                 }
                             };
-                            returned[index]=layer_colors(returned[index], color)
+                            returned[index]= layer_colors(returned[index], color)
+
                         }
                     }
                     //println!("painted escape time in {:6}", start.elapsed().as_secs_f64())
@@ -290,7 +293,13 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<(u8, u8
             }
         }
     }
-    returned
+    let mut returned_color32 = vec!();
+    for c in returned {
+        returned_color32.push(
+            Color32::from_rgb(c.0,c.1,c.2)
+        )
+    }
+    returned_color32
 }
 
 pub fn layer_colors (bottom: (u8, u8, u8), top:(u8, u8, u8, u8)) -> (u8, u8, u8) {

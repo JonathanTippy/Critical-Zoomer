@@ -20,6 +20,8 @@ Shadergroup ----> Window ----> Workgroup
 # actor responsibilities desc:
 
 The Window actor receives input from the user and displays the viewport.
+It also converts these inputs into stencils which it sends to the workgroup, and
+fills the viewport with the latest view from the shadergroup.
 
 ### Window
 

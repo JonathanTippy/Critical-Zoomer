@@ -1,7 +1,7 @@
 # Generated files
 /target/
 /logs/
-
+mutants.out/
 # Ide stuff
 /.idea/
 /.cursor/

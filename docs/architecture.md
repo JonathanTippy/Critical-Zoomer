@@ -11,7 +11,7 @@ Work: The hoarded unit; the results of iterations up till the point is determind
 
 ### Stencil
 
-The stencil defines the set of pixels which make up a screen and their exact locations in complex space. The headgroup sends a stencil to the workgroup.
+The stencil defines the set of points which make up a screen and their exact locations in complex space. The headgroup sends a stencil to the workgroup to notify it of the most urgently needed screen.
 
 ### View
 

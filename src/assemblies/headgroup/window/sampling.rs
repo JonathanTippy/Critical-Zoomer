@@ -252,7 +252,7 @@ pub fn sample(
 
 #[inline]
 fn sample_color(
-    pixels: &Vec<(u8,u8,u8)>
+    pixels: &Vec<Color32>
     , min_side: u32
     , data_res: (u32, u32)
     , data_len: usize
@@ -275,7 +275,7 @@ fn sample_color(
                 , data_len
             )
         ];
-    Color32::from_rgb(color.0, color.1, color.2)
+    color
 }
 
 

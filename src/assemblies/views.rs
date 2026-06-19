@@ -7,6 +7,20 @@ use crate::assemblies::structs::*;
 use crate::constants::*;
 use crate::utils::*;
 
+
+fn line_segments_overlap(a: (IntExp, IntExp), b: (IntExp, IntExp)) -> bool {
+    // left edge inclusive right edge limit
+    (a.0 >= b.0 && a.0 < b.1)
+        || (a.1 > b.0 && a.1 < b.1)
+}
+
+fn line_segment_a_is_subset_of_b(a: (IntExp, IntExp), b: (IntExp, IntExp)) -> bool {
+    // left edge inclusive right edge limit
+    (a.0 >= b.0 && a.0 < b.1)
+        && (a.1 > b.0 && a.1 < b.1)
+}
+
+
 impl PointStencil {
 
     pub fn correct_precision(self) -> Self {
@@ -52,6 +66,42 @@ impl PointStencil {
         return (
             self.location.0.clone() + space.clone() * IntExp::from(self.resolution.0-1)
             , self.location.1.clone() + space * IntExp::from(self.resolution.1-1)
+        )
+    }
+    fn space(&self) -> IntExp {
+        let one = IntExp::from(1);
+        one.shift(-(self.location.2 + PIXELS_PER_UNIT_POT))
+    }
+
+    fn corners(&self) -> ((IntExp, IntExp), (IntExp, IntExp)) {
+        let top_left: (IntExp, IntExp) = (self.location.0.clone(), self.location.1.clone());
+
+        let bottom_right: (IntExp, IntExp) = (
+            self.location.0.clone() + self.space() * IntExp::from(self.resolution.0)
+            , self.location.1.clone() - self.space() * IntExp::from(self.resolution.1)
+        );
+        (
+            top_left
+            , bottom_right
+        )
+    }
+    fn overlaps(&self, other: &Self) -> bool {
+        line_segments_overlap(
+            (self.corners().0.0, self.corners().1.0)
+            , (other.corners().0.0, other.corners().1.0)
+        ) && line_segments_overlap(
+            (self.corners().0.1, self.corners().1.1)
+            , (other.corners().0.1, other.corners().1.1)
+        )
+    }
+
+    fn subset_of(&self, other: &Self) -> bool {
+        line_segment_a_is_subset_of_b(
+            (self.corners().0.0, self.corners().1.0)
+            , (other.corners().0.0, other.corners().1.0)
+        ) && line_segment_a_is_subset_of_b(
+            (self.corners().0.1, self.corners().1.1)
+            , (other.corners().0.1, other.corners().1.1)
         )
     }
 }
@@ -961,14 +1011,11 @@ proptest!{
     fn zoom_in_associativity_test(
         location in (i128::MIN..i128::MAX, i128::MIN..i128::MAX)
         , resolution in (1usize..=100, 1usize..=100)
-        , initial_zoom in -1000000i32..1000000i32
-        //, zoom_direction in prop::sample::select(vec![-1i32, 1i32])
-        , zoom_delta_A in 0i32..1000000i32
-        , zoom_delta_B in 0i32..1000000i32
+        , initial_zoom in -100000i32..100000i32
+        , zoom_delta_A in 0i32..100000i32
+        , zoom_delta_B in 0i32..100000i32
     ) {
 
-        //let zoom_delta_A = zoom_delta_A * zoom_direction;
-        //let zoom_delta_B = zoom_delta_B * zoom_direction;
 
         let location = (
                 IntExp { val: Integer::from(location.0), exp: -PIXELS_PER_UNIT_POT-initial_zoom }
@@ -1020,6 +1067,7 @@ proptest!{
         prop_assert_eq!(one_step, two_step_two);
     }
 }
+
 
 
 // Conventions:

@@ -13,10 +13,11 @@ use crate::settings::*;
 use crate::assemblies::shadergroup::colorer::color::*;
 pub mod color;
 
+use egui::Color32;
 #[derive(Clone, Debug)]
 
 pub struct ZoomerScreen {
-    pub pixels: Vec<(u8, u8, u8)>
+    pub pixels: Vec<Color32>
     , pub screen_size: (u32, u32)
     , pub objective_location: ObjectivePosAndZoom
 }
