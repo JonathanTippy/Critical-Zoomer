@@ -96,7 +96,7 @@ async fn internal_behavior<A: SteadyActor, T:Clone + From<f32> + From<f32> + Clo
                 &mut state
                 ,(
                     ObjectivePosAndZoom {
-                        pos: (stuff.location.0.clone(), stuff.location.1.clone())
+                        pos: (stuff.location.0.clone(), IntExp::ZERO-stuff.location.1.clone())
                         , zoom_pot: stuff.location.2
                     }
                     , (stuff.resolution.0 as u32
@@ -104,7 +104,7 @@ async fn internal_behavior<A: SteadyActor, T:Clone + From<f32> + From<f32> + Clo
                 )
             ) {
                 actor.try_send(&mut to_worker, WorkerCommand::Replace{frame_info: (ObjectivePosAndZoom {
-                    pos: (stuff.location.0, stuff.location.1)
+                    pos: (stuff.location.0, IntExp::ZERO-stuff.location.1)
                     ,
                     zoom_pot: stuff.location.2
                 }, (stuff.resolution.0 as u32
