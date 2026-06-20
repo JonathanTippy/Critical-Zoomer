@@ -137,7 +137,7 @@ async fn internal_behavior<A: SteadyActor>(
                     resolution: (v.res.0 as usize, v.res.1 as usize)
                     , location: (
                         v.objective_location.clone().pos.0
-                        , v.objective_location.clone().pos.1
+                        , IntExp::ZERO-v.objective_location.clone().pos.1
                         , v.objective_location.clone().zoom_pot
                     )
                     , serial_number: 0

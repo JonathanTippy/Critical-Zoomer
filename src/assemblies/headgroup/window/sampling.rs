@@ -337,7 +337,7 @@ pub fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom: i64) 
 pub fn update_sampling_context(context: &mut SamplingContext, screen: View<Color32>) {
 
     let l = ObjectivePosAndZoom {
-        pos: (screen.stencil.clone().location.0, screen.stencil.clone().location.1)
+        pos: (screen.stencil.clone().location.0, IntExp::ZERO-screen.stencil.clone().location.1)
         , zoom_pot: screen.stencil.clone().location.2
     };
 
@@ -348,6 +348,14 @@ pub fn update_sampling_context(context: &mut SamplingContext, screen: View<Color
     /*if let Some(old_screen) = context.screen.take() {
         drop(old_screen);
     }*/
-    context.screen = Some(screen);
+    context.screen = Some(View{
+        data: screen.data
+        , bitmap: screen.bitmap
+,         stencil: PointStencil{
+            location:(screen.stencil.location.0, IntExp::ZERO-screen.stencil.location.1, screen.stencil.location.2)
+            , resolution: screen.stencil.resolution
+            , serial_number: screen.stencil.serial_number
+        }
+    });
 
 }
