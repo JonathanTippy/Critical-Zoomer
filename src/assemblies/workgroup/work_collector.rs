@@ -113,7 +113,7 @@ async fn internal_behavior<A: SteadyActor>(
                     actor.try_send(&mut values_out,
                                    View{
                                        stencil: PointStencil{
-                                           location: (completed_work.location.clone().pos.0, completed_work.location.clone().pos.1, completed_work.location.zoom_pot)
+                                           location: (completed_work.location.clone().pos.0, IntExp::ZERO-completed_work.location.clone().pos.1, completed_work.location.zoom_pot)
                                            , resolution: (completed_work.screen_res.0 as usize, completed_work.screen_res.1 as usize)
                                            , serial_number: 0
                                        }
@@ -174,7 +174,7 @@ async fn internal_behavior<A: SteadyActor>(
                     }
                     actor.try_send(&mut values_out, View {
                         stencil: PointStencil {
-                            location: (completed_work.location.clone().pos.0, completed_work.location.clone().pos.1, completed_work.location.zoom_pot)
+                            location: (completed_work.location.clone().pos.0, IntExp::ZERO-completed_work.location.clone().pos.1, completed_work.location.zoom_pot)
                             ,
                             resolution: (completed_work.screen_res.0 as usize, completed_work.screen_res.1 as usize)
                             ,
