@@ -90,21 +90,22 @@ pub struct WindowState {
     , pub fps_margin: f32
     , pub timer2: Instant
     , pub controls_timer: Instant
+    , pub stencil_serial_number_counter: u64
 }
 
 /// Entry point for the window actor.
 pub async fn run(
     actor: SteadyActorShadow,
     pixels_in: SteadyRx<View<Color32>>,
-    sampler_out: SteadyTx<(ObjectivePosAndZoom, (u32, u32))>,
+    stencil_out: SteadyTx<(PointStencil)>,
     settings_out: SteadyTxBundle<Settings,2>,
     attention_out: SteadyTx<(i32, i32)>,
     state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
     internal_behavior(
-        actor.into_spotlight([&pixels_in], [&sampler_out, &settings_out[0], &settings_out[1], &attention_out]),
+        actor.into_spotlight([&pixels_in], [&stencil_out, &settings_out[0], &settings_out[1], &attention_out]),
         pixels_in,
-        sampler_out,
+        stencil_out,
         settings_out,
         attention_out,
         state,
@@ -116,7 +117,7 @@ pub async fn run(
 async fn internal_behavior<A: SteadyActor>(
     actor: A,
     pixels_in: SteadyRx<View<Color32>>,
-    sampler_out: SteadyTx<(ObjectivePosAndZoom, (u32, u32))>,
+    stencil_out: SteadyTx<(PointStencil)>,
     settings_out: SteadyTxBundle<Settings, 2>,
     attention_out: SteadyTx<(i32, i32)>,
     state: SteadyState<WindowState>,
@@ -149,7 +150,7 @@ async fn internal_behavior<A: SteadyActor>(
         , fps_margin: 0.0
         , timer2: Instant::now()
         , controls_timer: Instant::now()
-
+        , stencil_serial_number_counter: 0
     }).await;
 
     {
@@ -192,7 +193,7 @@ async fn internal_behavior<A: SteadyActor>(
     let passthrough = EguiWindowPassthrough{
         portable_actor: portable_actor.clone()
         , pixels_in: pixels_in.clone()
-        , sampler_out: sampler_out.clone()
+        , stencil_out: stencil_out.clone()
         , settings_out: settings_out.clone()
         , attention_out: attention_out.clone()
         , portable_state: portable_state.clone()
@@ -206,7 +207,7 @@ async fn internal_behavior<A: SteadyActor>(
 
 
     let mut actor = portable_actor.lock().unwrap();
-    let sampler_out = sampler_out.try_lock().unwrap();
+    let sampler_out = stencil_out.try_lock().unwrap();
     let pixels_in = pixels_in.try_lock().unwrap();
     let state = portable_state.lock().unwrap();
 
@@ -232,7 +233,7 @@ async fn internal_behavior<A: SteadyActor>(
 struct EguiWindowPassthrough<'a, A> {
     portable_actor: Arc<Mutex<A>>,
     pixels_in: SteadyRx<View<Color32>>,
-    sampler_out: SteadyTx<(ObjectivePosAndZoom, (u32, u32))>,
+    stencil_out: SteadyTx<(PointStencil)>,
     settings_out: SteadyTxBundle<Settings, 2>,
     attention_out: SteadyTx<(i32, i32)>,
     portable_state:Arc<Mutex<StateGuard<'a, WindowState>>>
@@ -249,7 +250,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
         // init hybrid actor
         let mut actor = self.portable_actor.lock().unwrap();
         let mut pixels_in = self.pixels_in.try_lock().unwrap();
-        let mut sampler_out = self.sampler_out.try_lock().unwrap();
+        let mut stencil_out = self.stencil_out.try_lock().unwrap();
         let settings_out = [
             self.settings_out[0].try_lock().unwrap()
             ,self.settings_out[1].try_lock().unwrap()
@@ -317,7 +318,15 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             if state.sampling_context.updated
             {
-                actor.try_send(&mut sampler_out, (state.sampling_context.location.clone(), (state.size.x as u32, state.size.y as u32)));
+                actor.try_send(&mut stencil_out, PointStencil{
+                    location: (state.sampling_context.location.pos.0.clone()
+                    , state.sampling_context.location.pos.1.clone()
+                    , state.sampling_context.location.zoom_pot.clone()
+                    )
+                    , resolution: (state.size.x as usize, state.size.y as usize)
+                    , serial_number: state.stencil_serial_number_counter
+                });
+                state.stencil_serial_number_counter +=1;
                 state.sampling_context.updated = false;
             }
 

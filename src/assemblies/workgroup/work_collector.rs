@@ -8,6 +8,8 @@ use crate::assemblies::workgroup::screen_worker::*;
 use crate::constants::*;
 use crate::constants::*;
 
+use crate::assemblies::structs::*;
+
 use rand::prelude::SliceRandom;
 use crate::utils::*;
 
@@ -18,7 +20,6 @@ pub struct ResultsPackage<T> {
     pub results: Vec<CompletedPoint<T>>
     , pub screen_res: (u32, u32)
     , pub location: ObjectivePosAndZoom
-    , pub complete: bool
 }
 
 pub struct WorkCollectorState<T> {
@@ -40,14 +41,14 @@ pub const PIXELS_PER_UNIT: u64 = 1<<(PIXELS_PER_UNIT_POT);
 pub async fn run(
     actor: SteadyActorShadow,
     from_worker: SteadyRx<WorkUpdate<f64>>,
-    points_out: SteadyTx<ResultsPackage<f64>>,
+    answers_out: SteadyTx<View<Answer>>,
     state: SteadyState<WorkCollectorState<f64>>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
-        actor.into_spotlight([&from_worker], [&points_out]),
+        actor.into_spotlight([&from_worker], [&answers_out]),
         from_worker,
-        points_out,
+        answers_out,
         state,
     )
         .await
@@ -56,11 +57,11 @@ pub async fn run(
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
     from_worker: SteadyRx<WorkUpdate<f64>>,
-    values_out: SteadyTx<ResultsPackage<f64>>,
+    answers_out: SteadyTx<View<Answer>>,
     state: SteadyState<WorkCollectorState<f64>>,
 ) -> Result<(), Box<dyn Error>> {
 
-    let mut values_out = values_out.lock().await;
+    let mut values_out = answers_out.lock().await;
     let mut from_worker = from_worker.lock().await;
 
     let mut state = state.lock(|| WorkCollectorState {
@@ -109,7 +110,51 @@ async fn internal_behavior<A: SteadyActor>(
                         let W = vs[i].clone();
                         completed_work.results[W.1] = W.0;
                     }
-                    actor.try_send(&mut values_out, completed_work.clone());
+                    actor.try_send(&mut values_out,
+                                   View{
+                                       stencil: PointStencil{
+                                           location: (completed_work.location.clone().pos.0, completed_work.location.clone().pos.1, completed_work.location.zoom_pot)
+                                           , resolution: (completed_work.screen_res.0 as usize, completed_work.screen_res.1 as usize)
+                                           , serial_number: 0
+                                       }
+                                       , data: completed_work.clone().results.into_iter().map(|x| -> Answer {
+                                           match x {
+                                               CompletedPoint::Escapes{escape_time, escape_location, smallness, small_time, ..} => {
+                                                   Answer{
+                                                       result: MandelbrotResult::Outside {
+                                                           escape_time_r2: escape_time as u64
+                                                           , escape_z: (escape_location.0 as f32, escape_location.1 as f32)
+                                                       }
+                                                       , min_magnitude_time: small_time as u64
+                                                       , min_magnitude: smallness
+                                                   }
+                                               }
+                                               , CompletedPoint::Repeats{ period, smallness, small_time} => {
+                                                   Answer{
+                                                       result: MandelbrotResult::Inside {
+                                                           period: period as u64
+                                                       }
+                                                       ,
+                                                       min_magnitude_time: small_time as u64
+                                                       ,
+                                                       min_magnitude: smallness
+                                                   }
+                                               }
+                                               , CompletedPoint::Dummy{} => {
+                                                   Answer {
+                                                       result: MandelbrotResult::Inside {
+                                                           period: 0
+                                                       }
+                                                       ,
+                                                       min_magnitude_time: 0
+                                                       ,
+                                                       min_magnitude: 0.0
+                                                   }
+                                               }
+                                           }
+                                       }).collect()
+                                       , bitmap: vec!(0;completed_work.results.len())
+                                   });
                 }
             } else {
                 let f = U.frame_info.expect("work collector recieved an initial work update without any info");
@@ -118,7 +163,6 @@ async fn internal_behavior<A: SteadyActor>(
                         results: vec![CompletedPoint::Dummy{}; (f.1.0 * f.1.1) as usize]
                         , screen_res: f.1
                         , location: f.0
-                        , complete: false
                     }
                 );
                 if let Some(completed_work) = &mut state.completed_work {
@@ -128,7 +172,59 @@ async fn internal_behavior<A: SteadyActor>(
                         let W = vs[i].clone();
                         completed_work.results[W.1] = W.0;
                     }
-                    actor.try_send(&mut values_out, completed_work.clone());
+                    actor.try_send(&mut values_out, View {
+                        stencil: PointStencil {
+                            location: (completed_work.location.clone().pos.0, completed_work.location.clone().pos.1, completed_work.location.zoom_pot)
+                            ,
+                            resolution: (completed_work.screen_res.0 as usize, completed_work.screen_res.1 as usize)
+                            ,
+                            serial_number: 0
+                        }
+                        ,
+                        data: completed_work.clone().results.into_iter().map(|x| -> Answer {
+                            match x {
+                                CompletedPoint::Escapes { escape_time, escape_location, smallness, small_time, .. } => {
+                                    Answer {
+                                        result: MandelbrotResult::Outside {
+                                            escape_time_r2: escape_time as u64
+                                            ,
+                                            escape_z: (escape_location.0 as f32, escape_location.1 as f32)
+                                        }
+                                        ,
+                                        min_magnitude_time: small_time as u64
+                                        ,
+                                        min_magnitude: smallness
+                                    }
+                                }
+                                ,
+                                CompletedPoint::Repeats { period, smallness, small_time } => {
+                                    Answer {
+                                        result: MandelbrotResult::Inside {
+                                            period: period as u64
+                                        }
+                                        ,
+                                        min_magnitude_time: small_time as u64
+                                        ,
+                                        min_magnitude: smallness
+                                    }
+                                }
+                                ,
+                                CompletedPoint::Dummy {} => {
+                                    Answer {
+                                        result: MandelbrotResult::Inside {
+                                            period: 0
+                                        }
+                                        ,
+                                        min_magnitude_time: 0
+                                        ,
+                                        min_magnitude: 0.0
+                                    }
+                                }
+                            }
+                        }).collect()
+                        ,
+                        bitmap: vec!(0; completed_work.results.len())
+                    });
                 }
 
             }
@@ -144,7 +240,6 @@ fn sample_old_values<T:Clone>(old_package: &ResultsPackage<T>, new_location: Obj
         results: vec!()
         , screen_res: new_res
         , location: new_location.clone()
-        , complete: false
     };
 
     let old_size = old_package.screen_res.0 * old_package.screen_res.1;

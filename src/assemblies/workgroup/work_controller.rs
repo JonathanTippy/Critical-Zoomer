@@ -5,7 +5,7 @@ use crate::assemblies::headgroup::window::*;
 use crate::assemblies::workgroup::screen_worker::workshift::*;
 use crate::assemblies::headgroup::window::sampling::*;
 use crate::assemblies::workgroup::screen_worker::*;
-
+use crate::assemblies::structs::*;
 use rand::prelude::SliceRandom;
 use crate::utils::*;
 use crate::constants::*;
@@ -33,7 +33,7 @@ pub const PIXELS_PER_UNIT: u64 = 1<<(PIXELS_PER_UNIT_POT);
 
 pub async fn run(
     actor: SteadyActorShadow,
-    from_sampler: SteadyRx<(ObjectivePosAndZoom, (u32, u32))>,
+    from_sampler: SteadyRx<(PointStencil)>,
     to_worker: SteadyTx<WorkerCommand<f64>>,
     state: SteadyState<WorkControllerState>,
 ) -> Result<(), Box<dyn Error>> {
@@ -49,7 +49,7 @@ pub async fn run(
 
 async fn internal_behavior<A: SteadyActor, T:Clone + From<f32> + From<f32> + Clone + From<IntExp> + Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + crate::assemblies::workgroup::screen_worker::workshift::Finite + crate::assemblies::workgroup::screen_worker::workshift::Gt + crate::assemblies::workgroup::screen_worker::workshift::Abs + From<f32> + Into<f64> + Copy>(
     mut actor: A,
-    from_sampler: SteadyRx<(ObjectivePosAndZoom, (u32, u32))>,
+    from_sampler: SteadyRx<(PointStencil)>,
     to_worker: SteadyTx<WorkerCommand<T>>,
     state: SteadyState<WorkControllerState>,
 ) -> Result<(), Box<dyn Error>> {
@@ -94,9 +94,21 @@ async fn internal_behavior<A: SteadyActor, T:Clone + From<f32> + From<f32> + Clo
 
             if let Some(ctx) = handle_sampler_stuff(
                 &mut state
-                , stuff.clone()
+                ,(
+                    ObjectivePosAndZoom {
+                        pos: (stuff.location.0.clone(), stuff.location.1.clone())
+                        , zoom_pot: stuff.location.2
+                    }
+                    , (stuff.resolution.0 as u32
+                    , stuff.resolution.1 as u32)
+                )
             ) {
-                actor.try_send(&mut to_worker, WorkerCommand::Replace{frame_info: (stuff.0, stuff.1), context:ctx});
+                actor.try_send(&mut to_worker, WorkerCommand::Replace{frame_info: (ObjectivePosAndZoom {
+                    pos: (stuff.location.0, stuff.location.1)
+                    ,
+                    zoom_pot: stuff.location.2
+                }, (stuff.resolution.0 as u32
+                    , stuff.resolution.1 as u32)), context:ctx});
             };
         }
     }

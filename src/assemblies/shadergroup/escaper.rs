@@ -9,8 +9,11 @@ use crate::assemblies::workgroup::work_collector::*;
 use crate::assemblies::workgroup::screen_worker::workshift::*;
 use crate::settings::*;
 
+use crate::assemblies::structs::*;
 
 pub const BAILOUT_MAX_ITERATIONS:usize = 100;
+
+
 
 
 pub enum ScreenValue {
@@ -48,15 +51,15 @@ pub struct EscaperState<T> {
 
 pub async fn run(
     actor: SteadyActorShadow,
-    points_in: SteadyRx<ResultsPackage<f64>>,
+    answers_in: SteadyRx<View<Answer>>,
     settings_in: SteadyRx<Settings>,
     values_out: SteadyTx<ZoomerValuesScreen>,
     state: SteadyState<EscaperState<f64>>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
-        actor.into_spotlight([&settings_in, &points_in], [&values_out]),
-        points_in,
+        actor.into_spotlight([&settings_in, &answers_in], [&values_out]),
+        answers_in,
         settings_in,
         values_out,
         state,
@@ -64,14 +67,14 @@ pub async fn run(
         .await
 }
 
-async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f64> + PartialOrd + Finite + Gt + Abs + From<f32> + Into<f64> + Copy + Send>(
+async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f64> + PartialOrd + From<f64> + Into<f64> + Finite + Gt + Abs + From<f32> + Into<f64> + Copy + Send>(
     mut actor: A,
-    points_in: SteadyRx<ResultsPackage<T>>,
+    answers_in: SteadyRx<View<Answer>>,
     settings_in: SteadyRx<Settings>,
     values_out: SteadyTx<ZoomerValuesScreen>,
     state: SteadyState<EscaperState<T>>,
 ) -> Result<(), Box<dyn Error>> {
-    let mut values_in = points_in.lock().await;
+    let mut values_in = answers_in.lock().await;
     let mut screens_out = values_out.lock().await;
     let mut settings_in = settings_in.lock().await;
 
@@ -123,9 +126,42 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
             };
             match actor.try_take(&mut values_in) {
                 Some(v) => {
+                    let location_f64:(f64, f64) = (v.stencil.location.clone().0.into(), (IntExp::ZERO-v.stencil.location.clone().1).into());
+                    let space_f64:f64 = IntExp::from(1).shift (-v.stencil.location.2 - PIXELS_PER_UNIT_POT).into();
+
                     let mut rng = rand::thread_rng();
                     //info!("recieved values");
-                    state.values = Some(v);
+                    state.values = Some(ResultsPackage{
+                        results: v.data.into_iter().enumerate().map(|(i, x)| -> CompletedPoint<T> {
+                            match x.result {
+                                MandelbrotResult::Inside{period} => {
+                                    CompletedPoint::<T>::Repeats{
+                                        period: period as u32
+                                        , smallness: x.min_magnitude.into()
+                                        , small_time: x.min_magnitude_time as u32
+                                    }
+                                }, MandelbrotResult::Outside{escape_time_r2, escape_z} => {
+                                    CompletedPoint::<T>::Escapes {
+                                        escape_time: escape_time_r2 as u32
+                                        , escape_location: (escape_z.0.into(), escape_z.1.into())
+                                        ,
+                                        smallness: x.min_magnitude.into()
+                                        ,
+                                        small_time: x.min_magnitude_time as u32
+                                        , start_location: (
+                                            (location_f64.0 + v.stencil.clone().seat_and_row(i).0 as f64 * space_f64).into()
+                                            , (location_f64.1 - v.stencil.clone().seat_and_row(i).1 as f64 * space_f64).into()
+                                        )
+                                    }
+                                }
+                            }
+                        }).collect()
+                        , screen_res: (v.stencil.resolution.0 as u32, v.stencil.resolution.1 as u32)
+                        , location: ObjectivePosAndZoom{
+                            pos: (v.stencil.location.0, v.stencil.location.1)
+                            , zoom_pot: v.stencil.location.2
+                        }
+                    });
                 }
                 None => {}
             }

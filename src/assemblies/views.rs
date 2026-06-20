@@ -23,6 +23,8 @@ fn line_segment_a_is_subset_of_b(a: (IntExp, IntExp), b: (IntExp, IntExp)) -> bo
 
 impl PointStencil {
 
+
+
     pub fn correct_precision(self) -> Self {
         PointStencil {
             location:(self.location.0.clone().set_precision(PIXELS_PER_UNIT_POT+self.location.2)
@@ -54,6 +56,14 @@ impl PointStencil {
         );
         seat_and_row.1 as usize * self.resolution.0 + seat_and_row.0 as usize
     }
+    pub fn seat_and_row(&self, index: usize) -> (usize, usize) {
+        debug_assert!(
+            index < self.resolution.0 * self.resolution.1
+            , "Index Failure: nonexistent seat."
+        );
+        (index % self.resolution.0, index / self.resolution.0)
+    }
+
     pub fn clamp_seat_and_row(&self, seat_and_row: (isize, isize)) -> (isize, isize) {
         return (
             seat_and_row.0.clamp(0, self.resolution.0 as isize - 1)
@@ -65,7 +75,7 @@ impl PointStencil {
         let space = IntExp::from(1).shift(-self.location.2 - PIXELS_PER_UNIT_POT);
         return (
             self.location.0.clone() + space.clone() * IntExp::from(self.resolution.0-1)
-            , self.location.1.clone() + space * IntExp::from(self.resolution.1-1)
+            , self.location.1.clone() - space * IntExp::from(self.resolution.1-1)
         )
     }
     fn space(&self) -> IntExp {

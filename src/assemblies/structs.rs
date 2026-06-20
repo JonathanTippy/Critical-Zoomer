@@ -39,9 +39,9 @@ pub struct Answer {
 
 impl Answer {
     pub const TESTVAL: Answer = Answer {
-        result: MandelbrotResult {
-            iteration_count_or_period: 0
-            , final_z: (0.0, 0.0)
+        result: MandelbrotResult::Outside {
+            escape_time_r2: 0
+            , escape_z: (0.0, 0.0)
         }
         , min_magnitude_time: 0
         , min_magnitude: 0.0
@@ -49,7 +49,12 @@ impl Answer {
 }
 
 #[derive(Copy, Clone)]
-pub struct MandelbrotResult {
-    iteration_count_or_period: u64
-    , final_z: (f32, f32)
+pub enum MandelbrotResult {
+    Outside {
+        escape_time_r2: u64
+        , escape_z: (f32, f32)
+    }
+    , Inside {
+        period: u64
+    }
 }
