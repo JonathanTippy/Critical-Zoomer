@@ -91,6 +91,7 @@ pub struct WindowState {
     , pub timer2: Instant
     , pub controls_timer: Instant
     , pub stencil_serial_number_counter: u64
+    , pub scroll_debt: f32
 }
 
 /// Entry point for the window actor.
@@ -151,6 +152,7 @@ async fn internal_behavior<A: SteadyActor>(
         , timer2: Instant::now()
         , controls_timer: Instant::now()
         , stencil_serial_number_counter: 0
+        , scroll_debt: 0.0
     }).await;
 
     {

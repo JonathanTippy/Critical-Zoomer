@@ -20,14 +20,15 @@ pub struct View<T> {
     // value,
     // 7: exact
     // , 6: representative / estimate from parent pixel
+    // , 5: result is final/done/complete
 }
 
 
 
 
-    pub const EXACT: u8 = 0b1000_0000;
-pub const EST: u8 = 0b0100_0000;
-
+pub const EXACT: u8 = 0b1000_0000;
+pub const PROX: u8 = 0b0100_0000;
+pub const DONE: u8 = 0b0010_0000;
 
 #[derive(Copy, Clone)]
 

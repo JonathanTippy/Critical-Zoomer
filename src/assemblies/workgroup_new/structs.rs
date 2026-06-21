@@ -19,11 +19,11 @@ impl<T: Copy + Clone> SparseView<T> {
         match self.map.get(&new.1) {
             None => {
                 let index = self.points.len();
-                self.points.push((new.0, EXACT + EST, new.1));
+                self.points.push((new.0, EXACT + PROX, new.1));
                 self.map.insert(new.1, index);
             }
             , Some(s) => {
-                self.points[*s] = (new.0, EXACT + EST, new.1);
+                self.points[*s] = (new.0, EXACT + PROX, new.1);
             }
         }
     }
@@ -69,7 +69,7 @@ impl<T: Copy + Clone> SparseView<T> {
                     let seat_and_row = (seat as usize, row as usize);
                     let exact = source_alignment & EXACT == EXACT;
                     let source_real_alignment =
-                        (if exact { EXACT } else { 0 }) + EST;
+                        (if exact { EXACT } else { 0 }) + PROX;
 
                     let self_alignment = self.map.get(&seat_and_row)
                         .map(|&index| self.points[index].1)

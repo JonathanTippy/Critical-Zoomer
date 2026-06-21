@@ -136,9 +136,12 @@ pub fn parse_inputs(
         }
 
 
-        let scroll = input_state.raw_scroll_delta.y;
 
-        if scroll != 0.0 {
+        state.scroll_debt += input_state.raw_scroll_delta.y;
+        let threshold = 40.0;
+        while state.scroll_debt.abs() >= threshold {
+            let step = state.scroll_debt.signum();
+
 
             //info!("scrolling");
 
@@ -150,7 +153,7 @@ pub fn parse_inputs(
             );
 
             returned.0.push(
-                if scroll > 0.0 {
+                if step > 0.0 {
                     //info!("zooming in");
                     ZoomerCommand::Zoom {
                         pot: 1
@@ -166,7 +169,10 @@ pub fn parse_inputs(
                     }
                 }
             );
+            state.scroll_debt -= step * threshold;
         }
+
+
 
         let small_edge = min(sampling_size.0, sampling_size.1);
         let pixels_per_second = small_edge as f32 * MOVE_SPEED_IN_SCREENS;
