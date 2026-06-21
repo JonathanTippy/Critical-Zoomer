@@ -136,9 +136,13 @@ pub fn parse_inputs(
         }
 
 
+        let delta = input_state.raw_scroll_delta.y;
+        if delta != 0.0 && state.scroll_debt != 0.0 && delta.signum() != state.scroll_debt.signum() {
+            state.scroll_debt = delta.signum() * SCROLL_SPEED/2.0;
+        }
+        state.scroll_debt += delta;
 
-        state.scroll_debt += input_state.raw_scroll_delta.y;
-        let threshold = 40.0;
+        let threshold = SCROLL_SPEED;
         while state.scroll_debt.abs() >= threshold {
             let step = state.scroll_debt.signum();
 

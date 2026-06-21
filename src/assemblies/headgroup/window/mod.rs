@@ -152,7 +152,7 @@ async fn internal_behavior<A: SteadyActor>(
         , timer2: Instant::now()
         , controls_timer: Instant::now()
         , stencil_serial_number_counter: 0
-        , scroll_debt: 0.0
+        , scroll_debt: SCROLL_SPEED/2.0
     }).await;
 
     {
