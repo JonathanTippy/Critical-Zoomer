@@ -137,7 +137,7 @@ pub fn parse_inputs(
 
 
         let delta = input_state.raw_scroll_delta.y;
-        if delta != 0.0 && state.scroll_debt != 0.0 && delta.signum() != state.scroll_debt.signum() {
+        if delta != 0.0 && delta.signum() != state.scroll_debt.signum() {
             state.scroll_debt = delta.signum() * SCROLL_SPEED/2.0;
         }
         state.scroll_debt += delta;
