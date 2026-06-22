@@ -340,7 +340,8 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             state.sampling_context.screen_size = (size.0 as u32, size.1 as u32);
 
             if state.sampling_context.screen.is_some() {
-                sample(command_package, &mut sampler_buffer, &mut state.sampling_context);
+                transform(command_package, &mut state.sampling_context);
+                resample(&mut sampler_buffer, &mut state.sampling_context);
             }
 
             let start = Instant::now();
