@@ -137,10 +137,14 @@ pub fn parse_inputs(
 
 
         let delta = input_state.raw_scroll_delta.y;
-        if delta != 0.0 && delta.signum() != state.scroll_debt.signum() {
+
+
+        if delta != 0.0 && state.scroll_debt != 0.0 && delta.signum() != state.scroll_debt.signum() {
+
             state.scroll_debt = delta.signum() * SCROLL_SPEED/2.0;
         }
         state.scroll_debt += delta;
+
 
         let threshold = SCROLL_SPEED;
         while state.scroll_debt.abs() >= threshold {
@@ -174,9 +178,8 @@ pub fn parse_inputs(
                 }
             );
             state.scroll_debt -= step * threshold;
+            //state.scroll_debt = delta.signum() * SCROLL_SPEED / 2.0;
         }
-
-
 
         let small_edge = min(sampling_size.0, sampling_size.1);
         let pixels_per_second = small_edge as f32 * MOVE_SPEED_IN_SCREENS;
@@ -208,3 +211,4 @@ pub fn parse_inputs(
 
     returned
 }
+
