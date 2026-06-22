@@ -549,7 +549,8 @@ impl<T: Copy> View<T> {
                         }
                     }
                 } else {
-                    panic!("Unimplemented block!")
+                    //large zoom out, very little relevant data
+                    //TODO! decide what to do here
                 }
             }
         }

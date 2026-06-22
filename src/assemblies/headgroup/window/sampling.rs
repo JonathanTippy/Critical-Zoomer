@@ -160,87 +160,28 @@ pub fn transform(
 }
 
 pub fn resample(
-    output_buffer: &mut Vec<Color32>,
     sampling_context: &mut SamplingContext
-) {
-    let bucket = output_buffer;
+) -> Vec<Color32> {
+    //let bucket = output_buffer;
     let context = sampling_context;
 
-    let size = context.screen_size;
-    let min_side = min(context.screen_size.0, context.screen_size.1);
-
-    if let Some(current_screen) = &context.screen {
-        // go over the sampling size in rows and seats, and sample the colors
-
-        /*info!("zoom: {}, location: {} + {}i"
-        , current_screen.objective_location.zoom_pot
-        , current_screen.objective_location.pos.0
-        , current_screen.objective_location.pos.1
-    );*/
-
-        let res = context.screen_size;
-
-        let data_size = current_screen.stencil.resolution.clone();
-
-        let data_len = current_screen.data.len();
-
-        let data = &current_screen.data;
-
-        let relative_pos = (
-            current_screen.stencil.location.0.clone()-context.location.pos.0.clone()
-            , current_screen.stencil.location.1.clone()-context.location.pos.1.clone()
-        );
-
-        let relative_pos_in_pixels:(i32, i32) = (
-            relative_pos.0.clone().shift(context.location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
-            , relative_pos.1.clone().shift(context.location.zoom_pot).shift(PIXELS_PER_UNIT_POT).into()
-        );
-
-        let relative_zoom = context.location.zoom_pot - current_screen.stencil.location.2;
-
-        /*let relative_pos_in_pixels = (
-            relative_pos_in_pixels.0 + shift(1, relative_zoom-1)
-            , relative_pos_in_pixels.1 + shift(1, relative_zoom-1)
-        );*/
-
-        let factor:f64;
-
-        if relative_zoom > 0 {
-            factor = (1<<relative_zoom) as f64;
-        } else {
-            factor =  1.0 / (1<<-relative_zoom) as f64;
-        }
-
-        let relative_zoom_recip = ((1.0 / factor) * ((1<<16) as f64)) as u32;
-
-        let min_side_recip = (1<<32) / (min_side as i64);
-        //let res_recip = (     (1<<16) / size.0,    (1<<16) / size.1    );
+    let viewport_stencil = PointStencil {
+        location: (
+            context.location.pos.0.clone()
+            , IntExp::ZERO-context.location.pos.1.clone()
+            , context.location.zoom_pot
+        )
+        , resolution: (context.screen_size.0 as usize, context.screen_size.1 as usize)
+        , serial_number: 0
+    }.correct_precision();
 
 
-        //info!("data res: {}, {}", data_size.0, data_size.1);
+    let mut viewport_view = View::new(viewport_stencil, Color32::BLACK);
 
-
-        //let mut i = 0;
-        for row in 0..size.1 as usize {
-            for seat in 0..size.0 as usize {
-                bucket.push(
-                    sample_color(
-                        data
-                        , min_side
-                        , (data_size.0 as u32, data_size.1 as u32)
-                        , data_len
-                        , row
-                        , seat
-                        //, res_recip
-                        , min_side_recip
-                        , relative_pos_in_pixels
-                        , relative_zoom as i64
-                    )
-                );
-                //i+=1;
-            }
-        }
+    if let Some(source) = &context.screen {
+        viewport_view.fill_from(source)
     }
+    viewport_view.data
 }
 
 //screen space uses fixed point i32, 1<<16 is 1.
@@ -350,7 +291,7 @@ pub fn update_sampling_context(context: &mut SamplingContext, screen: View<Color
         data: screen.data
         , bitmap: screen.bitmap
 ,         stencil: PointStencil{
-            location:(screen.stencil.location.0, IntExp::ZERO-screen.stencil.location.1, screen.stencil.location.2)
+            location:(screen.stencil.location.0, screen.stencil.location.1, screen.stencil.location.2)
             , resolution: screen.stencil.resolution
             , serial_number: screen.stencil.serial_number
         }
