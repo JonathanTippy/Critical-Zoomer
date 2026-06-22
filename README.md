@@ -81,6 +81,10 @@ a mandelbrot set zoomer written in rust
 - fix work noncomplete | done
 - fix unclean shutdown | done
 
+## better zooming (v0.0.9) done
+
+- scrolling is handled properly across input devices | ✔️
+
 ## NASA V (v0.0.9) WIP...
 
 - algoritm study | WIP...
