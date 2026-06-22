@@ -1,8 +1,8 @@
-use std::cmp::min;
+use std::cmp::{max, min};
 use std::ops::{Add, Mul, Sub};
+use eframe::epaint::Color32;
 use steady_state::*;
-use crate::assemblies::headgroup::window::sampling::{index_from_relative_location, relative_location_i32_row_and_seat, transform_relative_location_i32};
-use crate::utils::ObjectivePosAndZoom;
+use crate::utils::{signed_shift, ObjectivePosAndZoom};
 //use crate::actor::work_collector::*;
 use crate::assemblies::workgroup::work_controller::*;
 use crate::assemblies::workgroup::screen_worker::workshift::*;
@@ -215,4 +215,89 @@ pub fn relative_location_from_index(data_res: (u32, u32), index: usize) -> (i32,
         index as i32 % (data_res.0) as i32
         , index as i32 / (data_res.1) as i32
         )
+}
+
+
+//screen space uses fixed point i32, 1<<16 is 1.
+//multiplication results in an extra 1<<16 which means we have to >> 16
+//addition is fine as long as all values invloved are already fixed points
+//division cancels the 1<<16 so we have to add it back with << 16
+
+#[inline]
+fn sample_color(
+    pixels: &Vec<Color32>
+    , min_side: u32
+    , data_res: (u32, u32)
+    , data_len: usize
+    , row: usize
+    , seat: usize
+    //, res_recip: (u32, u32)
+    , min_side_recip: i64
+    , relative_pos: (i32, i32)
+    , relative_zoom_pot: i64
+) -> Color32 {
+    let color =
+        pixels[
+            index_from_relative_location(
+                transform_relative_location_i32(
+                    relative_location_i32_row_and_seat(seat, row)
+                    , (relative_pos.0, relative_pos.1)
+                    , relative_zoom_pot
+                )
+                , data_res
+                , data_len
+            )
+            ];
+    color
+}
+
+
+#[inline]
+pub fn relative_location_i32_row_and_seat(seat: usize, row: usize) -> (i32, i32) {
+    let seat = seat as u32;
+    let row = row as u32;
+
+    (
+        seat as i32
+        , row as i32
+    )
+}
+
+#[inline]
+pub fn index_from_relative_location(l: (i32, i32), data_res: (u32, u32), data_length: usize) -> usize {
+    let normalized_l = (
+        max(min(l.0, (data_res.0 - 1) as i32), 0)
+        , max(min(l.1, (data_res.1 - 1) as i32), 0)
+    );
+
+    let i =
+        (
+            (normalized_l.1 as u32 * data_res.0)
+                + normalized_l.0 as u32
+        ) as usize;
+
+    i
+}
+
+#[inline]
+pub fn optional_index_from_relative_location(l: (i32, i32), data_res: (u32, u32), data_length: usize) -> Option<usize> {
+    if l.0 >= 0 && l.0 <= (data_res.0 - 1) as i32 && l.1 >= 0 && l.1 <= (data_res.1 - 1) as i32 {
+        let i =
+            (
+                (l.1 as u32 * data_res.0)
+                    + l.0 as u32
+            ) as usize;
+
+        Some(i)
+    } else { None }
+}
+
+#[inline]
+pub fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom: i64) -> (i32, i32) {
+    // move + zoom
+
+    (
+        signed_shift(l.0 - m.0, -zoom)
+        , signed_shift(l.1 - m.1, -zoom)
+    )
 }
