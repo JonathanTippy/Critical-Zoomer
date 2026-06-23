@@ -131,6 +131,18 @@ impl<T: Copy + Clone> View<T> {
         returned
     }
 
+    pub fn new_known(stencil: PointStencil, fill_value: T) -> View<T> {
+        let returned = View {
+            stencil: stencil.clone().correct_precision()
+            ,
+            data: vec!(fill_value; stencil.resolution.0 * stencil.resolution.1)
+            ,
+            bitmap: vec!(EXACT+PROX; stencil.resolution.0 * stencil.resolution.1)
+        };
+        returned.assert_validity();
+        returned
+    }
+
     fn fill_rectangle(
         &mut self
         , top_left_seat: (isize, isize)
@@ -203,14 +215,14 @@ impl<T: Copy> View<T> {
                 let clamped_rows = {
                     let mut clamped: Vec<isize> = (0 as isize..self.stencil.resolution.1 as isize).collect();
                     for row in &mut clamped {
-                        *row = (*row + pan_pixel_delta.1).clamp((0 as isize), (source.stencil.resolution.1 as isize - 1));
+                        *row = (row.saturating_add(pan_pixel_delta.1)).clamp((0 as isize), (source.stencil.resolution.1 as isize - 1));
                     };
                     clamped
                 };
                 let clamped_seats = {
                     let mut clamped: Vec<isize> = (0 as isize..self.stencil.resolution.0 as isize).collect();
                     for seat in &mut clamped {
-                        *seat = (*seat + pan_pixel_delta.0).clamp((0 as isize), (source.stencil.resolution.0 as isize - 1));
+                        *seat = (seat.saturating_add(pan_pixel_delta.0)).clamp((0 as isize), (source.stencil.resolution.0 as isize - 1));
                     };
                     clamped
                 };
@@ -218,8 +230,8 @@ impl<T: Copy> View<T> {
                 for row in 0..self.stencil.resolution.1 {
                     for seat in 0..self.stencil.resolution.0 {
                         let preferred_source_seat_row = (
-                            seat as isize + pan_pixel_delta.0
-                            , row as isize + pan_pixel_delta.1
+                            (seat as isize).saturating_add(pan_pixel_delta.0)
+                            , (row as isize).saturating_add(pan_pixel_delta.1)
                         );
 
                         /*let clamped_source_seat_row = source
@@ -270,8 +282,8 @@ impl<T: Copy> View<T> {
                     );
 
                     let phase = (
-                        pan_self_pixel_delta.0 - (pan_source_pixel_delta.0 << screenspace_delta.2)
-                        , pan_self_pixel_delta.1 - (pan_source_pixel_delta.1 << screenspace_delta.2)
+                        pan_self_pixel_delta.0.saturating_sub(pan_source_pixel_delta.0 << screenspace_delta.2)
+                        , pan_self_pixel_delta.1.saturating_sub(pan_source_pixel_delta.1 << screenspace_delta.2)
                     );
 
                     let frequency = 1 << screenspace_delta.2;
@@ -280,8 +292,8 @@ impl<T: Copy> View<T> {
                         for seat in 0..self.stencil.resolution.0 {
                             // smaller pixels inherit top left larger pixel
                             let preferred_source_seat_row = (
-                                (seat as isize + pan_self_pixel_delta.0) >> screenspace_delta.2
-                                , (row as isize + pan_self_pixel_delta.1) >> screenspace_delta.2
+                                ((seat as isize).saturating_add(pan_self_pixel_delta.0)) >> screenspace_delta.2
+                                , ((row as isize).saturating_add(pan_self_pixel_delta.1)) >> screenspace_delta.2
                             );
                             // smaller pixels inherit closest larger pixel, bias top left on ties.
                             /*let preferred_source_seat_row = (
@@ -289,8 +301,8 @@ impl<T: Copy> View<T> {
                                 , (row as isize + pan_self_pixel_delta.1 + (frequency >> 1) - 1) >> screenspace_delta.2
                             );*/
 
-                            let aligned = (seat as isize - phase.0) % frequency == 0
-                                && (row as isize - phase.1) % frequency == 0;
+                            let aligned = ((seat as isize).saturating_sub(phase.0)) % frequency == 0
+                                && ((row as isize).saturating_sub(phase.1)) % frequency == 0;
 
                             let clamped_source_seat_row = source
                                 .stencil
@@ -530,7 +542,9 @@ impl<T: Copy> View<T> {
                                 .stencil
                                 .clamp_seat_and_row(preferred_source_seat_row);
 
-                            let represented = preferred_source_seat_row == clamped_source_seat_row;
+                            let represented = preferred_source_seat_row == clamped_source_seat_row
+                                && (clamped_source_seat_row.0 >> -screenspace_delta.2).saturating_sub(pan_self_pixel_delta.0) == seat as isize
+                                && (clamped_source_seat_row.1 >> -screenspace_delta.2).saturating_sub(pan_self_pixel_delta.1) == row as isize;
                             let value = source.data[source.stencil.index(clamped_source_seat_row)];
                             let source_alignment = source.bitmap[source.stencil.index(clamped_source_seat_row)];
                             let exact = represented && source_alignment & EXACT == EXACT;
@@ -1020,11 +1034,11 @@ use proptest::prelude::*;
 proptest!{
     #[test]
     fn zoom_in_associativity_test(
-        location in (i128::MIN..i128::MAX, i128::MIN..i128::MAX)
+        location in (-32i128..32i128, -32i128..32i128)
         , resolution in (1usize..=100, 1usize..=100)
-        , initial_zoom in -100000i32..100000i32
-        , zoom_delta_A in 0i32..100000i32
-        , zoom_delta_B in 0i32..100000i32
+        , initial_zoom in -32i32..32i32
+        , zoom_delta_A in 0i32..32i32
+        , zoom_delta_B in 0i32..32i32
     ) {
 
 

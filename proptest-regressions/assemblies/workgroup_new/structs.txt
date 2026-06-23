@@ -1,0 +1,12 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc a07785d44c84192acf80d73f6d94b56c71048a14de44af6308d35246b0508851 # shrinks to location = (0, 0), resolution = (1, 1), initial_zoom = 0, zoom_delta = 16
+cc bff29c941a9f774ddfaa40a36c16b134e498f390922dba7c0415de48c4095de8 # shrinks to location = (0, 0), resolution = (1, 1), initial_zoom = 0, zoom_delta = 1
+cc f8e8cf2ae9706963800eec968acb521e730ec0172dda35ab600073ce1b46354a # shrinks to resolution = (1, 1), location = (0, 0), initial_zoom = 0, location_delta = (0, 144115188075855873), zoom_delta = 6
+cc 406593ffc3b0e0d0d4d75b44e1ade8b886b4bda9f068df434bec70ec3ace358c # shrinks to resolution = (1, 1), location = (0, 0), initial_zoom = 0, location_delta = (-9223372036854775809, 9223372036854808576), zoom_delta = -1
+cc 32b94e2d189abea6e993d442f0a1720c7bdb82dad459a5622538df3f04a03cb9 # shrinks to resolution = (1, 1), location = (0, 0), initial_zoom = 0, location_delta = (0, -144115188075855872), zoom_delta = 6
+cc 683706512a9d79b2e4084f588999631f7461fbb025425c97d73ca4bde5be3315 # shrinks to resolution = (1, 1), location = (0, 0), initial_zoom = 0, location_delta = (0, 0), zoom_delta = 16

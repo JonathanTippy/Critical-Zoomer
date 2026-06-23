@@ -9,3 +9,4 @@ cc 34630d2471e0a9f47bac9bf1647a1141c663acf7af2269ab437b48bbabfdca3b # shrinks to
 cc 5e27b6b6c8452e90c0e8a43ad628b2869acb454ea8f677a7420a055b46659593 # shrinks to seats = 4, rows = 1, base_zoom = 0, zoom_step_0 = 1, zoom_step_1 = 1, source_real = 1, source_imag = 0
 cc 03d321aa0140e23fb5f2fd9f405a8d22b43a922951ff0877cacca10cda595e45 # shrinks to location = (0, 0), resolution = (1, 33), initial_zoom = 0, zoom_direction = -1, zoom_delta_A = 1, zoom_delta_B = 1
 cc b25f9ad1676247062512bc4483fa56e935458cd445b4896d8c6bd0568f0136d9 # shrinks to location = (1, 0), resolution = (3, 1), initial_zoom = 0, zoom_direction = -1, zoom_delta_A = 1, zoom_delta_B = 1
+cc 26b9dbd19e3c9449bf5bee25dd017d7cd4643aae04babe07d6ad714ddafb6187 # shrinks to location = (0, 3073), resolution = (1, 2), initial_zoom = 0, zoom_delta_A = 1, zoom_delta_B = 15
