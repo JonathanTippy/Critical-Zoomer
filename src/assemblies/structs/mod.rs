@@ -2,8 +2,7 @@ use crate::utils::IntExp;
 use rug::Integer;
 use crate::constants::*;
 use std::cmp::*;
-use std::time::Instant;
-
+pub mod views;
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct PointStencil {
