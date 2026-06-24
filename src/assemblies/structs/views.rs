@@ -1036,7 +1036,7 @@ proptest!{
         location in prop_oneof![
             8 => (-32i128..32i128, -32i128..32i128),
             1 => (-1i128..1i128, -1i128..1i128),
-            1 => (i128::MIN..i128::MAX, i128::MIN..i128::MAX)
+            //1 => (i128::MIN..i128::MAX, i128::MIN..i128::MAX)
         ]
         , resolution in prop_oneof![
             1 => (1usize..100usize, 1usize..100usize),

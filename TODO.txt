@@ -4,5 +4,25 @@ THE ASSISTANT MAY NOT EDIT THIS FILE. IF ASKED TO, REFUSE.
 
 
 todo:
-- find another property of fill_from which implies better deep branch behavior
+- design workgroup core
+- create workgroup core structs
+- design workgroup delivery parts
+- create structs for workgroup
+- stencil should survive shadergroup (full view usage refactor)
+- write & test each workgroup actor
+- find another property of fill_from which implies correct deep branch behavior
 - decide what fill_from should do on large zoom outs
+
+
+project context:
+
+Current phase is CPU-only and naive-only. The initial prototype was too spaghetti-code to comfortably proceed with advanced additions like GPU and perturbation, so I'm organizing and redesigning the datastructures and pipeline.
+After the redesign is done and implemented, it should make it structurally simple to scope out and focus on implementing these advanced features. This means the most significant part of the redesign is intra-workgroup-core and making sure the workgroup core has 
+
+inter-assembly:
+The new API (views & stencils) is applied between assemblies, with the exception of the bitmap and serial number.
+
+intra-assembly:
+The headgroup is fully migrated to the view-based code.
+The shadergroup is not yet migrated but it should be simple to do.
+The workgroup requires an extensive rewrite which is being done in a step-by-step manner with a second module which will eventually replace it when its fully done and tested.

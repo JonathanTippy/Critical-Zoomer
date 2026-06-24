@@ -1,51 +1,29 @@
 use std::cmp::Ordering;
-use crate::assemblies::structs::*;
-use std::collections::*;
+use std::collections::HashMap;
+use crate::assemblies::structs::{PointStencil, View, EXACT, PROX};
+use crate::assemblies::workgroup_new::structs::SparseView;
 use crate::constants::PIXELS_PER_UNIT_POT;
 use crate::utils::IntExp;
 
-#[derive(PartialEq, Clone, Debug)]
-
-pub struct SparseView<T> {
-    stencil: PointStencil
-    , points: Vec<(T, u8, (usize, usize))>
-    , map: HashMap<(usize, usize), usize>
-}
-
-
-impl<T: Copy + Clone> From<View<T>> for SparseView<T> {
-    fn from(input: View<T>) -> SparseView<T> {
-        let mut returned = SparseView::new(input.stencil);
-        for i in 0..input.data.len() {
-            if input.bitmap[i] != 0 {
-                let value = input.data[i];
-                let align = input.bitmap[i];
-                returned.insert_with_align((value, align, returned.stencil.seat_and_row(i)));
-            }
-        }
-        returned
-    }
-}
-
 impl<T: Copy + Clone> SparseView<T> {
-
-    pub fn new(stencil: PointStencil) -> SparseView<T>{
-        SparseView{
+    pub fn new(stencil: PointStencil) -> SparseView<T> {
+        SparseView {
             stencil
-            , points: vec!()
-            , map: HashMap::new()
+            ,
+            points: vec!()
+            ,
+            map: HashMap::new()
         }
     }
 
     pub fn insert(&mut self, new: (T, (usize, usize))) {
-
         match self.map.get(&new.1) {
             None => {
                 let index = self.points.len();
                 self.points.push((new.0, EXACT + PROX, new.1));
                 self.map.insert(new.1, index);
             }
-            , Some(s) => {
+            Some(s) => {
                 self.points[*s] = (new.0, EXACT + PROX, new.1);
             }
         }
@@ -57,7 +35,6 @@ impl<T: Copy + Clone> SparseView<T> {
                 self.points.push((new.0, new.1, new.2));
                 self.map.insert(new.2, index);
             }
-            ,
             Some(s) => {
                 self.points[*s] = (new.0, new.1, new.2);
             }
@@ -73,7 +50,6 @@ impl<T: Copy + Clone> SparseView<T> {
         }
         returned
     }
-
 
 
     pub fn update_from(&mut self, source: &SparseView<T>) {
@@ -121,7 +97,6 @@ impl<T: Copy + Clone> SparseView<T> {
                             Some(&index) => {
                                 self.points[index] = (value, source_real_alignment, seat_and_row);
                             }
-                            ,
                             None => {
                                 let index = self.points.len();
                                 self.points.push((value, source_real_alignment, seat_and_row));
@@ -131,7 +106,6 @@ impl<T: Copy + Clone> SparseView<T> {
                     }
                 }
             }
-            ,
             Ordering::Greater => {
                 if screenspace_delta.2 < 16 {
                     let pan_sink_pixel_delta: (isize, isize) = (
@@ -200,7 +174,6 @@ impl<T: Copy + Clone> SparseView<T> {
                                         Some(&index) => {
                                             self.points[index] = (value, source_real_alignment, seat_and_row);
                                         }
-                                        ,
                                         None => {
                                             let index = self.points.len();
                                             self.points.push((value, source_real_alignment, seat_and_row));
@@ -272,7 +245,6 @@ impl<T: Copy + Clone> SparseView<T> {
                                                 Some(&index) => {
                                                     self.points[index] = (value, source_real_alignment, seat_and_row);
                                                 }
-                                                ,
                                                 None => {
                                                     let index = self.points.len();
                                                     self.points.push((value, source_real_alignment, seat_and_row));
@@ -284,7 +256,6 @@ impl<T: Copy + Clone> SparseView<T> {
                                 }
                             }
                         }
-                        ,
                         (None, Some(vertical_edge)) => {
                             let preferred_source_seat_bottom = (
                                 cut.0.shift(source.stencil.location.2).into()
@@ -319,7 +290,6 @@ impl<T: Copy + Clone> SparseView<T> {
                                                     Some(&index) => {
                                                         self.points[index] = (value, source_real_alignment, seat_and_row);
                                                     }
-                                                    ,
                                                     None => {
                                                         let index = self.points.len();
                                                         self.points.push((value, source_real_alignment, seat_and_row));
@@ -351,7 +321,6 @@ impl<T: Copy + Clone> SparseView<T> {
                                                     Some(&index) => {
                                                         self.points[index] = (value, source_real_alignment, seat_and_row);
                                                     }
-                                                    ,
                                                     None => {
                                                         let index = self.points.len();
                                                         self.points.push((value, source_real_alignment, seat_and_row));
@@ -364,7 +333,6 @@ impl<T: Copy + Clone> SparseView<T> {
                                 }
                             }
                         }
-                        ,
                         (Some(horizontal_edge), None) => {
                             let preferred_source_seat_right = (
                                 cut.0.shift(source.stencil.location.2).into()
@@ -399,7 +367,6 @@ impl<T: Copy + Clone> SparseView<T> {
                                                     Some(&index) => {
                                                         self.points[index] = (value, source_real_alignment, seat_and_row);
                                                     }
-                                                    ,
                                                     None => {
                                                         let index = self.points.len();
                                                         self.points.push((value, source_real_alignment, seat_and_row));
@@ -431,7 +398,6 @@ impl<T: Copy + Clone> SparseView<T> {
                                                     Some(&index) => {
                                                         self.points[index] = (value, source_real_alignment, seat_and_row);
                                                     }
-                                                    ,
                                                     None => {
                                                         let index = self.points.len();
                                                         self.points.push((value, source_real_alignment, seat_and_row));
@@ -444,7 +410,6 @@ impl<T: Copy + Clone> SparseView<T> {
                                 }
                             }
                         }
-                        ,
                         (Some(horizontal_edge), Some(vertical_edge)) => {
                             let preferred_source_seat_bottom_right = (
                                 cut.0.shift(source.stencil.location.2).into()
@@ -484,7 +449,6 @@ impl<T: Copy + Clone> SparseView<T> {
                                                     Some(&index) => {
                                                         self.points[index] = (value, source_real_alignment, seat_and_row);
                                                     }
-                                                    ,
                                                     None => {
                                                         let index = self.points.len();
                                                         self.points.push((value, source_real_alignment, seat_and_row));
@@ -516,7 +480,6 @@ impl<T: Copy + Clone> SparseView<T> {
                                                     Some(&index) => {
                                                         self.points[index] = (value, source_real_alignment, seat_and_row);
                                                     }
-                                                    ,
                                                     None => {
                                                         let index = self.points.len();
                                                         self.points.push((value, source_real_alignment, seat_and_row));
@@ -553,7 +516,6 @@ impl<T: Copy + Clone> SparseView<T> {
                                                     Some(&index) => {
                                                         self.points[index] = (value, source_real_alignment, seat_and_row);
                                                     }
-                                                    ,
                                                     None => {
                                                         let index = self.points.len();
                                                         self.points.push((value, source_real_alignment, seat_and_row));
@@ -585,7 +547,6 @@ impl<T: Copy + Clone> SparseView<T> {
                                                     Some(&index) => {
                                                         self.points[index] = (value, source_real_alignment, seat_and_row);
                                                     }
-                                                    ,
                                                     None => {
                                                         let index = self.points.len();
                                                         self.points.push((value, source_real_alignment, seat_and_row));
@@ -601,7 +562,6 @@ impl<T: Copy + Clone> SparseView<T> {
                     }
                 }
             }
-            ,
             Ordering::Less => {
                 if -screenspace_delta.2 < 16 {
                     let pan_sink_pixel_delta: (isize, isize) = (
@@ -658,7 +618,6 @@ impl<T: Copy + Clone> SparseView<T> {
                                 Some(&index) => {
                                     self.points[index] = (value, source_real_alignment, seat_and_row);
                                 }
-                                ,
                                 None => {
                                     let index = self.points.len();
                                     self.points.push((value, source_real_alignment, seat_and_row));
@@ -673,13 +632,13 @@ impl<T: Copy + Clone> SparseView<T> {
             }
         }
     }
-
-
 }
+
+
 use rug::Integer;
 
 use proptest::prelude::*;
-proptest!{
+proptest! {
 //    #![proptest_config(ProptestConfig::with_cases(2048))]
     #[test]
     fn test_sparse_view_parity(
