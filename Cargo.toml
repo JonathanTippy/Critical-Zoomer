@@ -36,3 +36,4 @@ bench = false
 name = "critical_zoomer"
 path = "src/main.rs"
 bench = false
+test = false

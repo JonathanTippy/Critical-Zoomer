@@ -7,7 +7,6 @@ use crate::assemblies::structs::*;
 use crate::constants::*;
 use crate::utils::*;
 
-
 fn line_segments_overlap(a: (IntExp, IntExp), b: (IntExp, IntExp)) -> bool {
     // left edge inclusive right edge limit
     (a.0 >= b.0 && a.0 < b.1)
@@ -360,8 +359,8 @@ impl<T: Copy> View<T> {
                     match case {
                         (None, None) => {
                             let preferred_source_seat = (
-                                cut.0.shift(source.stencil.location.2).into()
-                                , cut.1.shift(source.stencil.location.2).into()
+                                <IntExp as Into<i32>>::into(cut.0.shift(source.stencil.location.2)).saturating_sub(1) as isize
+                                , <IntExp as Into<i32>>::into(cut.1.shift(source.stencil.location.2)).saturating_sub(1) as isize
                             );
                             let clamped_source_seat = source.stencil.clamp_seat_and_row(preferred_source_seat);
                             let source_index= source.stencil.index(clamped_source_seat);
@@ -1030,15 +1029,46 @@ fn nonzero_phase_test() {
 
 
 use proptest::prelude::*;
-
 proptest!{
+//    #![proptest_config(ProptestConfig::with_cases(2048))]
     #[test]
     fn zoom_in_associativity_test(
-        location in (-32i128..32i128, -32i128..32i128)
-        , resolution in (1usize..=100, 1usize..=100)
-        , initial_zoom in -32i32..32i32
-        , zoom_delta_A in 0i32..32i32
-        , zoom_delta_B in 0i32..32i32
+        location in prop_oneof![
+            8 => (-32i128..32i128, -32i128..32i128),
+            1 => (-1i128..1i128, -1i128..1i128),
+            1 => (i128::MIN..i128::MAX, i128::MIN..i128::MAX)
+        ]
+        , resolution in prop_oneof![
+            1 => (1usize..100usize, 1usize..100usize),
+            9 => (1usize..5usize, 1..5usize),
+        ]
+        , initial_zoom in prop_oneof![
+            8 => -32i32..32i32,
+            1 => Just(0i32),
+            1 => Just(-16i32),
+            1 => Just(16i32),
+            1 => Just(-15i32),
+            1 => Just(15i32),
+            1 => Just(-8i32),
+            1 => Just(8i32),
+            1 => -1000000i32..1000000i32
+        ]
+        , zoom_delta_A in prop_oneof![
+            8 => 0i32..32i32,
+            1 => Just(0i32),
+            1 => Just(16i32),
+            1 => Just(15i32),
+            1 => Just(8i32),
+            1 => 0i32..1000000i32
+        ]
+        , zoom_delta_B in prop_oneof![
+            8 => 0i32..32i32,
+            1 => Just(0i32),
+            1 => Just(16i32),
+            1 => Just(15i32),
+            1 => Just(8i32),
+            1 => 0i32..1000000i32
+        ]
     ) {
 
 

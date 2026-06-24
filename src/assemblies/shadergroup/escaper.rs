@@ -16,7 +16,7 @@ pub const BAILOUT_MAX_ITERATIONS:usize = 100;
 
 
 
-pub enum ScreenValue {
+pub enum FinishedAnswer {
     Outside{
         big_time:u32
         , small_time: u32
@@ -38,7 +38,7 @@ pub struct ZoomerScreen {
 }
 
 pub struct ZoomerValuesScreen {
-    pub values: Vec<ScreenValue>
+    pub values: Vec<FinishedAnswer>
     , pub res: (u32, u32)
     , pub objective_location: ObjectivePosAndZoom
 }
@@ -198,7 +198,7 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
 }
 
 fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f64> + PartialOrd + Finite + Gt + Abs + From<f32> + Into<f64> + Copy>
-    (p: &CompletedPoint<T>, r: f32, pos:(i32, i32), points: &Vec<CompletedPoint<T>>, res: (u32, u32), settings:Settings) -> ScreenValue {
+    (p: &CompletedPoint<T>, r: f32, pos:(i32, i32), points: &Vec<CompletedPoint<T>>, res: (u32, u32), settings:Settings) -> FinishedAnswer {
     match p {
         CompletedPoint::Escapes{escape_time: t, escape_location: z, start_location: c , smallness:s, small_time:st} => {
 
@@ -289,7 +289,7 @@ fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f6
                 c+=1;
             }
 
-            ScreenValue::Outside{ big_time: p.iterations, smallness:<T as Into<f64>>::into(*s), small_time:*st}
+            FinishedAnswer::Outside{ big_time: p.iterations, smallness:<T as Into<f64>>::into(*s), small_time:*st}
         }
         CompletedPoint::Repeats{period: p, smallness:s, small_time:st} => {
             let neighbors: [(i32, i32);4] =[
@@ -326,15 +326,15 @@ fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f6
 
 
             if diff_sum < 0 {
-                ScreenValue::Inside{loop_period:*p, smallness:<T as Into<f64>>::into(*s), small_time:*st}
+                FinishedAnswer::Inside{loop_period:*p, smallness:<T as Into<f64>>::into(*s), small_time:*st}
             } else {
-                ScreenValue::Inside{loop_period:*p, smallness:<T as Into<f64>>::into(*s), small_time:*st}
+                FinishedAnswer::Inside{loop_period:*p, smallness:<T as Into<f64>>::into(*s), small_time:*st}
             }
 
         }
         CompletedPoint::Dummy{} => {
             //panic!("completed point was not completed");
-            ScreenValue::Inside{loop_period:0, smallness:100.0, small_time:0}
+            FinishedAnswer::Inside{loop_period:0, smallness:100.0, small_time:0}
         }
     }
 }

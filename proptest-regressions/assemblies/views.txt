@@ -10,3 +10,8 @@ cc 5e27b6b6c8452e90c0e8a43ad628b2869acb454ea8f677a7420a055b46659593 # shrinks to
 cc 03d321aa0140e23fb5f2fd9f405a8d22b43a922951ff0877cacca10cda595e45 # shrinks to location = (0, 0), resolution = (1, 33), initial_zoom = 0, zoom_direction = -1, zoom_delta_A = 1, zoom_delta_B = 1
 cc b25f9ad1676247062512bc4483fa56e935458cd445b4896d8c6bd0568f0136d9 # shrinks to location = (1, 0), resolution = (3, 1), initial_zoom = 0, zoom_direction = -1, zoom_delta_A = 1, zoom_delta_B = 1
 cc 26b9dbd19e3c9449bf5bee25dd017d7cd4643aae04babe07d6ad714ddafb6187 # shrinks to location = (0, 3073), resolution = (1, 2), initial_zoom = 0, zoom_delta_A = 1, zoom_delta_B = 15
+cc 84834e9e2b179f7d283dad79ee8e205a4db7704a7f9af75e03a23f7c73a7c350 # shrinks to location = (0, 0), resolution = (1, 33), initial_zoom = 0, zoom_delta_A = -5, zoom_delta_B = 1
+cc 2fcfa40bcbf6687f42d609e62dbd1e8cb8b52f4d51fd4a5ad22861f72161166d # shrinks to location = (0, 0), resolution = (1, 2), initial_zoom = 0, zoom_delta_A = -6, zoom_delta_B = -10
+cc 1ef0c0b81d19d4351962f3b4348abc36d2ecde1bfc62cc8e01e4e3f6a3729325 # shrinks to location = (0, 0), resolution = (1, 2), initial_zoom = 0, zoom_delta_A = 9, zoom_delta_B = -9
+cc efd3b561dbf0db1208d661b28abea23aa06598168fd0d9cd0c195b6a50f85b20 # shrinks to location = (0, 513), resolution = (1, 2), initial_zoom = 0, zoom_delta_A = 5, zoom_delta_B = 11
+cc 7f3bb4dffa00f66d758c83f37ff046418be612173524d1df03d160cd6d345375 # shrinks to location = (0, -108811073036695832675578340157587193856), resolution = (1, 2), initial_zoom = 0, zoom_delta_A = 1, zoom_delta_B = 15

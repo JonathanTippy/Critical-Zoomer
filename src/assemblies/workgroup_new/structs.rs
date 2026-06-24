@@ -22,7 +22,6 @@ impl<T: Copy + Clone> From<View<T>> for SparseView<T> {
                 let align = input.bitmap[i];
                 returned.insert_with_align((value, align, returned.stencil.seat_and_row(i)));
             }
-
         }
         returned
     }
@@ -246,8 +245,8 @@ impl<T: Copy + Clone> SparseView<T> {
                     match case {
                         (None, None) => {
                             let preferred_source_seat = (
-                                cut.0.shift(source.stencil.location.2).into()
-                                , cut.1.shift(source.stencil.location.2).into()
+                                <IntExp as Into<i32>>::into(cut.0.shift(source.stencil.location.2)).saturating_sub(1) as isize
+                                , <IntExp as Into<i32>>::into(cut.1.shift(source.stencil.location.2)).saturating_sub(1) as isize
                             );
                             let sink_top_left_seat = (0, 0);
                             let sink_bottom_right_seat = (
@@ -681,13 +680,45 @@ use rug::Integer;
 
 use proptest::prelude::*;
 proptest!{
+//    #![proptest_config(ProptestConfig::with_cases(2048))]
     #[test]
     fn test_sparse_view_parity(
-        resolution in (1usize..=100, 1usize..=100)
-        , location in (-32i128..32i128, -32i128..32i128)
-        , initial_zoom in -32i32..32i32
-        , location_delta in (-32i128..32i128, -32i128..32i128)
-        , zoom_delta in -32i32..32i32
+        resolution in prop_oneof![
+            1 => (1usize..100usize, 1usize..100usize),
+            9 => (1usize..5usize, 1..5usize),
+        ]
+        , location in prop_oneof![
+            8 => (-32i128..32i128, -32i128..32i128),
+            1 => (-1i128..1i128, -1i128..1i128),
+            //1 => (i128::MIN..i128::MAX, i128::MIN..i128::MAX)
+        ]
+        , initial_zoom in prop_oneof![
+            8 => -32i32..32i32,
+            1 => Just(0i32),
+            1 => Just(-16i32),
+            1 => Just(16i32),
+            1 => Just(-15i32),
+            1 => Just(15i32),
+            1 => Just(-8i32),
+            1 => Just(8i32),
+            1 => -1000000i32..1000000i32
+        ]
+        , location_delta in prop_oneof![
+            8 => (-32i128..32i128, -32i128..32i128),
+            1 => (-1i128..1i128, -1i128..1i128),
+            //1 => (i128::MIN..i128::MAX, i128::MIN..i128::MAX)
+        ]
+        , zoom_delta in prop_oneof![
+            8 => -32i32..32i32,
+            1 => Just(0i32),
+            1 => Just(-16i32),
+            1 => Just(16i32),
+            1 => Just(-15i32),
+            1 => Just(15i32),
+            1 => Just(-8i32),
+            1 => Just(8i32),
+            1 => -1000000i32..1000000i32
+        ]
     ) {
 
         let location_delta = (

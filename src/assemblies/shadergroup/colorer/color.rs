@@ -42,8 +42,8 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                             let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             let color = match value {
-                                ScreenValue::Inside{..} => {continue;}
-                                ScreenValue::Outside{big_time: escape_time, ..} => {
+                                FinishedAnswer::Inside{..} => {continue;}
+                                FinishedAnswer::Outside{big_time: escape_time, ..} => {
                                     let escape_time = *escape_time as f64;
                                     let escape_time = normalizing_method.normalize(&escape_time);
                                     let brightness = match shading_method.shading {
@@ -95,10 +95,10 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                             let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             let (smalltime, opacity) = match value {
-                                ScreenValue::Inside{small_time, ..} => {
+                                FinishedAnswer::Inside{small_time, ..} => {
                                     (small_time, &inside_opacity)
                                 }
-                                ScreenValue::Outside{small_time, ..} => {
+                                FinishedAnswer::Outside{small_time, ..} => {
                                     (small_time, &outside_opacity)
                                 }
                             };
@@ -146,10 +146,10 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                             let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             let (smallness, opacity) = match value {
-                                ScreenValue::Inside{smallness, ..} => {
+                                FinishedAnswer::Inside{smallness, ..} => {
                                     (smallness, &inside_opacity)
                                 }
-                                ScreenValue::Outside{smallness, ..} => {
+                                FinishedAnswer::Outside{smallness, ..} => {
                                     (smallness, &outside_opacity)
                                 }
                             };
@@ -177,8 +177,8 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                             let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             match value {
-                                ScreenValue::Inside{..} => {continue;}
-                                ScreenValue::Outside{..} => {
+                                FinishedAnswer::Inside{..} => {continue;}
+                                FinishedAnswer::Outside{..} => {
                                     let in_filament = is_in_filament(&values, pos);
                                     if in_filament {
                                         let color = (
@@ -206,7 +206,7 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                             let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             match value {
-                                ScreenValue::Inside{..} => {
+                                FinishedAnswer::Inside{..} => {
                                     let out_filament = is_out_filament(values, pos);
                                     if out_filament {
                                         let color = (
@@ -218,7 +218,7 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                                         returned[index]=layer_colors(returned[index], color)
                                     }
                                 }
-                                ScreenValue::Outside{..} => {continue;}
+                                FinishedAnswer::Outside{..} => {continue;}
                             }
                         }
                     }
@@ -235,11 +235,11 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                             let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             let (is_node, opacity) = match value {
-                                ScreenValue::Inside{..} => {
+                                FinishedAnswer::Inside{..} => {
                                     let node = is_node(values, pos, *thickness);
                                     (node, &inside_opacity)
                                 }
-                                ScreenValue::Outside{..} => {
+                                FinishedAnswer::Outside{..} => {
                                     let node = is_node(values, pos, *thickness);
                                     (node, &outside_opacity)
                                 }
@@ -268,11 +268,11 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                             let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             let (is_edge, opacity) = match value {
-                                ScreenValue::Inside{..} => {
+                                FinishedAnswer::Inside{..} => {
                                     let edge = is_node_tree(values, pos);
                                     (edge, &inside_opacity)
                                 }
-                                ScreenValue::Outside{..} => {
+                                FinishedAnswer::Outside{..} => {
                                     let edge = is_node_tree(values, pos);
                                     (edge, &outside_opacity)
                                 }
@@ -533,12 +533,12 @@ pub fn is_local_minimum<T: PartialOrd > (value: Option<T>, up:Option<T>, down:Op
     false
 }
 
-pub fn get_loop_period(value: Option<&ScreenValue>) -> Option<u32> {
+pub fn get_loop_period(value: Option<&FinishedAnswer>) -> Option<u32> {
 
     if let Some(v) = value {
         match v {
-            ScreenValue::Outside{..} => {return None}
-            ScreenValue::Inside{loop_period, ..} => {
+            FinishedAnswer::Outside{..} => {return None}
+            FinishedAnswer::Inside{loop_period, ..} => {
                 return Some(*loop_period)
             }
         }
@@ -546,34 +546,34 @@ pub fn get_loop_period(value: Option<&ScreenValue>) -> Option<u32> {
 
 }
 
-pub fn get_escape_time(value: Option<&ScreenValue>) -> Option<u32> {
+pub fn get_escape_time(value: Option<&FinishedAnswer>) -> Option<u32> {
 
     if let Some(v) = value {
         match v {
-            ScreenValue::Outside{big_time, ..} => {return Some(*big_time)}
-            ScreenValue::Inside{..} => {return None }
+            FinishedAnswer::Outside{big_time, ..} => {return Some(*big_time)}
+            FinishedAnswer::Inside{..} => {return None }
         }
     } else {None}
 
 }
 
-pub fn get_small_time(value: Option<&ScreenValue>) -> Option<u32> {
+pub fn get_small_time(value: Option<&FinishedAnswer>) -> Option<u32> {
 
     if let Some(v) = value {
         match v {
-            ScreenValue::Outside{small_time, ..} => {return Some(*small_time)}
-            ScreenValue::Inside{small_time, ..} => {return Some(*small_time)}
+            FinishedAnswer::Outside{small_time, ..} => {return Some(*small_time)}
+            FinishedAnswer::Inside{small_time, ..} => {return Some(*small_time)}
         }
     } else {None}
 
 }
 
-pub fn get_smallness(value: Option<&ScreenValue>) -> Option<f64> {
+pub fn get_smallness(value: Option<&FinishedAnswer>) -> Option<f64> {
 
     if let Some(v) = value {
         match v {
-            ScreenValue::Outside{smallness, ..} => {return Some(*smallness)}
-            ScreenValue::Inside{smallness, ..} => {return Some(*smallness)}
+            FinishedAnswer::Outside{smallness, ..} => {return Some(*smallness)}
+            FinishedAnswer::Inside{smallness, ..} => {return Some(*smallness)}
         }
     } else {None}
 
