@@ -4,7 +4,7 @@
 use std::hint::black_box;
 use criterion::*;
 
-use critical_zoomer::utils::*;
+use critical_zoomer::intexp::*;
 use critical_zoomer::assemblies::structs::*;
 
 use egui::Color32;

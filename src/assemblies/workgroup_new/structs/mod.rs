@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use crate::assemblies::structs::*;
 use std::collections::*;
 use crate::constants::PIXELS_PER_UNIT_POT;
-use crate::utils::IntExp;
+use crate::intexp::*;
 
 #[derive(PartialEq, Clone, Debug)]
 
@@ -38,8 +38,8 @@ enum SerialWorkUpdate {
     PointDone {}
 }
 
-struct ActivePoint<T: Mandelbrotable> {
+/*struct ActivePoint<T: Mandelbrotable> {
     z: (T, T)
-}
+}*/
 
 

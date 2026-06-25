@@ -1,4 +1,4 @@
-use crate::utils::IntExp;
+use crate::intexp::*;
 use rug::Integer;
 use crate::constants::*;
 use std::cmp::*;

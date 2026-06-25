@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::assemblies::structs::{PointStencil, View, EXACT, PROX};
 use crate::assemblies::workgroup_new::structs::SparseView;
 use crate::constants::PIXELS_PER_UNIT_POT;
-use crate::utils::IntExp;
+use crate::intexp::*;
 
 impl<T: Copy + Clone> SparseView<T> {
     pub fn new(stencil: PointStencil) -> SparseView<T> {

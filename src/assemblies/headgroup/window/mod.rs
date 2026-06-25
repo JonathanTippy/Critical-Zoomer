@@ -17,7 +17,7 @@ use crate::assemblies::shadergroup::colorer::*;
 use crate::assemblies::workgroup::work_controller::*;
 
 use crate::settings::*;
-use crate::utils::*;
+use crate::utils::*; use crate::intexp::*;
 use crate::constants::*;
 use crate::assemblies::headgroup::window::rolling::*;
 use crate::assemblies::headgroup::window::widgetize::*;
@@ -26,6 +26,7 @@ use crate::assemblies::structs::*;
 use crate::assemblies::headgroup::window::inputs::*;
 use crate::assemblies::headgroup::window::sampling::*;
 
+use crate::intexp::*;
 
 pub mod rolling;
 pub mod widgetize;
@@ -168,12 +169,18 @@ async fn internal_behavior<A: SteadyActor>(
 
     let viewport_options =
         egui::ViewportBuilder::default()
-        .with_inner_size(state.size.clone())
-            ;
-
+            .with_inner_size(state.size.clone())
+            .with_icon(
+                eframe::icon_data::from_png_bytes(
+                    include_bytes!("../../../../icons/assembly_chain_crosshair.png"),
+                )
+                    .expect("failed to load app icon"),
+                //  ^ cannot happen during runtime due to file paths; image is baked in
+            )
+        ;
     let viewport_options = match state.location {
-        Some(l) => {viewport_options.with_position(l)}
-        None => {viewport_options}
+        Some(l) => viewport_options.with_position(l),
+        None => viewport_options,
     };
 
     let options = eframe::NativeOptions {

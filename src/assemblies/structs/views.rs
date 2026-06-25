@@ -5,7 +5,7 @@ use std::time::Instant;
 use rug::Integer;
 use crate::assemblies::structs::*;
 use crate::constants::*;
-use crate::utils::*;
+use crate::utils::*; use crate::intexp::*;
 
 fn line_segments_overlap(a: (IntExp, IntExp), b: (IntExp, IntExp)) -> bool {
     // left edge inclusive right edge limit

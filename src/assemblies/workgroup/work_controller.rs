@@ -7,7 +7,7 @@ use crate::assemblies::headgroup::window::sampling::*;
 use crate::assemblies::workgroup::screen_worker::*;
 use crate::assemblies::structs::*;
 use rand::prelude::SliceRandom;
-use crate::utils::*;
+use crate::utils::*; use crate::intexp::*;
 use crate::constants::*;
 
 pub enum WorkerCommand<T:Copy> {

@@ -2,7 +2,7 @@ use rand::Rng;
 use steady_state::*;
 use crate::assemblies::headgroup::window::sampling::*;
 
-use crate::utils::*;
+use crate::utils::*; use crate::intexp::*;
 
 use crate::assemblies::workgroup::work_collector::*;
 

@@ -1,7 +1,7 @@
 use egui::{Color32, Pos2};
 use std::cmp::*;
 
-use crate::utils::*;
+use crate::utils::*; use crate::intexp::*;
 
 use crate::assemblies::structs::*;
 pub enum ZoomerCommand {

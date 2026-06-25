@@ -1,6 +1,7 @@
 use eframe::epaint::Color32;
 use steady_state::*;
-
+use crate::intexp::*;
+use crate::utils::*;
 use crate::assemblies::headgroup::window::*;
 use crate::assemblies::workgroup::screen_worker::workshift::*;
 use crate::assemblies::headgroup::window::sampling::*;
@@ -11,7 +12,7 @@ use crate::constants::*;
 use crate::assemblies::structs::*;
 
 use rand::prelude::SliceRandom;
-use crate::utils::*;
+use crate::intexp::*;
 
 
 #[derive(Clone, Debug)]

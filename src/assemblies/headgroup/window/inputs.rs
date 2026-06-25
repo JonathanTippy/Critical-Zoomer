@@ -3,7 +3,8 @@ use eframe::emath::Pos2;
 use rug::Integer;
 use crate::assemblies::headgroup::window::{WindowState, ZoomerCommand};
 use crate::constants::PIXELS_PER_UNIT_POT;
-use crate::utils::{IntExp, ObjectivePosAndZoom};
+use crate::utils::{ObjectivePosAndZoom};
+use crate::intexp::*;
 
 use crate::constants::*;
 use crate::assemblies::headgroup::window::sampling::*;

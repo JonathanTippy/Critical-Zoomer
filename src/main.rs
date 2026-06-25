@@ -19,6 +19,7 @@ pub mod utils;
 pub mod range;
 pub mod constants;
 pub mod assemblies;
+pub mod intexp;
 
 const STACK_SIZE:usize = 100 * 1024 * 1024; // 100 MiB
 fn main() {
