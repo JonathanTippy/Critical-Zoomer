@@ -9,14 +9,14 @@ use crate::assemblies::workgroup::screen_worker::workshift::*;
 
 pub mod workshift;
 
-pub struct WorkUpdate<T> {
+pub struct WorkUpdate {
     pub frame_info: Option<(ObjectivePosAndZoom, (u32, u32))>,
-    pub completed_points: (Vec<(CompletedPoint<T>, usize)>)
+    pub completed_points: (Vec<(CompletedPoint, usize)>)
 }
 
 #[derive(Clone)]
-pub struct WorkerState<T:Copy> {
-    work_context: Option<(WorkContext<T>, (ObjectivePosAndZoom, (u32, u32)))>
+pub struct WorkerState {
+    work_context: Option<(WorkContext, (ObjectivePosAndZoom, (u32, u32)))>
     , workshift_token_budget: u32
     , iteration_token_cost: u32
     , point_token_cost: u32
@@ -27,10 +27,10 @@ pub struct WorkerState<T:Copy> {
 
 pub async fn run(
     actor: SteadyActorShadow,
-    commands_in: SteadyRx<WorkerCommand<f64>>,
-    updates_out: SteadyTx<WorkUpdate<f64>>,
+    commands_in: SteadyRx<WorkerCommand>,
+    updates_out: SteadyTx<WorkUpdate>,
     attention_in: SteadyRx<(i32, i32)>,
-    state: SteadyState<WorkerState<f64>>,
+    state: SteadyState<WorkerState>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
@@ -43,12 +43,12 @@ pub async fn run(
         .await
 }
 
-async fn internal_behavior<A: SteadyActor, T: Send + std::fmt::Debug + Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + workshift::Finite + workshift::Gt + workshift::Abs + From<f32> + Into<f64> + Copy>(
+async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
-    commands_in: SteadyRx<WorkerCommand<T>>,
-    updates_out: SteadyTx<WorkUpdate<T>>,
+    commands_in: SteadyRx<WorkerCommand>,
+    updates_out: SteadyTx<WorkUpdate>,
     attention_in: SteadyRx<(i32, i32)>,
-    state: SteadyState<WorkerState<T>>,
+    state: SteadyState<WorkerState>,
 ) -> Result<(), Box<dyn Error>> {
 
     //actor.loglevel(LogLevel::Debug);
@@ -160,7 +160,7 @@ async fn internal_behavior<A: SteadyActor, T: Send + std::fmt::Debug + Sub<Outpu
     Ok(())
 }
 
-fn work_update<T:Copy>(ctx: &mut WorkContext<T>) -> Vec<(CompletedPoint<T>, usize)> {
+fn work_update(ctx: &mut WorkContext) -> Vec<(CompletedPoint, usize)> {
 
 
     //ctx.completed_points

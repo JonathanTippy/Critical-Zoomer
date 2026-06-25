@@ -17,15 +17,15 @@ use crate::intexp::*;
 
 #[derive(Clone, Debug)]
 
-pub struct ResultsPackage<T> {
-    pub results: Vec<CompletedPoint<T>>
+pub struct ResultsPackage {
+    pub results: Vec<CompletedPoint>
     , pub screen_res: (u32, u32)
     , pub location: ObjectivePosAndZoom
 }
 
-pub struct WorkCollectorState<T> {
-    completed_work: Option<ResultsPackage<T>>
-    , surrounding_work: Option<ResultsPackage<T>>
+pub struct WorkCollectorState {
+    completed_work: Option<ResultsPackage>
+    , surrounding_work: Option<ResultsPackage>
 }
 
 
@@ -41,9 +41,9 @@ pub const PIXELS_PER_UNIT: u64 = 1<<(PIXELS_PER_UNIT_POT);
 
 pub async fn run(
     actor: SteadyActorShadow,
-    from_worker: SteadyRx<WorkUpdate<f64>>,
+    from_worker: SteadyRx<WorkUpdate>,
     answers_out: SteadyTx<View<Answer>>,
-    state: SteadyState<WorkCollectorState<f64>>,
+    state: SteadyState<WorkCollectorState>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
@@ -57,9 +57,9 @@ pub async fn run(
 
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
-    from_worker: SteadyRx<WorkUpdate<f64>>,
+    from_worker: SteadyRx<WorkUpdate>,
     answers_out: SteadyTx<View<Answer>>,
-    state: SteadyState<WorkCollectorState<f64>>,
+    state: SteadyState<WorkCollectorState>,
 ) -> Result<(), Box<dyn Error>> {
 
     let mut values_out = answers_out.lock().await;
@@ -236,7 +236,7 @@ async fn internal_behavior<A: SteadyActor>(
     Ok(())
 }
 
-fn sample_old_values<T:Clone>(old_package: &ResultsPackage<T>, new_location: ObjectivePosAndZoom, new_res: (u32, u32)) -> ResultsPackage<T> {
+fn sample_old_values(old_package: &ResultsPackage, new_location: ObjectivePosAndZoom, new_res: (u32, u32)) -> ResultsPackage {
     let mut returned = ResultsPackage{
         results: vec!()
         , screen_res: new_res
@@ -310,15 +310,15 @@ fn get_random_mixmap(size: usize) -> Vec<usize> {
 
 
 #[inline]
-fn sample_value<T: Clone>(
-    pixels: &Vec<CompletedPoint<T>>
+fn sample_value(
+    pixels: &Vec<CompletedPoint>
     , data_res: (u32, u32)
     , data_len: usize
     , row: usize
     , seat: usize
     , relative_pos: (i32, i32)
     , relative_zoom_pot: i64
-) -> CompletedPoint<T> {
+) -> CompletedPoint {
     let color =
         pixels[
             index_from_relative_location(

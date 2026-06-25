@@ -259,24 +259,6 @@ impl TryFrom<IntExp> for f64 {
         if e.val.significant_bits() > SIG_BITS {
             return Err(InexactIntExp);
         }
-        Ok(f64::from(e))
-    }
-}
-
-impl TryFrom<IntExp> for f32 {
-    type Error = InexactIntExp;
-
-    fn try_from(e: IntExp) -> Result<f32, Self::Error> {
-        const MAX_EXP: i32 = 127;
-        const MIN_EXP: i32 = -149;
-        const SIG_BITS: u32 = 24;
-
-        if !e.val.is_zero() && (e.exp > MAX_EXP || e.exp < MIN_EXP) {
-            return Err(InexactIntExp);
-        }
-        if e.val.significant_bits() > SIG_BITS {
-            return Err(InexactIntExp);
-        }
-        Ok(e.into())
+        Ok(e.to_f64())
     }
 }

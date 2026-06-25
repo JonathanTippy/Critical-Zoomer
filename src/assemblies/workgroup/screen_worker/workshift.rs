@@ -13,16 +13,14 @@ pub const MAX_PIXELS:usize = 1920*1080*4;
 pub enum Step {Scredge, In, Out, Edge, Random}
 
 
-pub trait Floaty: Sub<Output=Self> + Add<Output=Self> + Mul<Output=Self> + Into<f64> + PartialOrd + Finite + Gt + Abs + From<f32> + Into<f64> + Copy {}
-
 #[derive(Clone, Debug)]
-pub struct Stec<T: Copy, const SIZE:usize> {
-    pub stuff: [T;SIZE]
+pub struct Stec<const SIZE:usize> {
+    pub stuff: [(CompletedPoint, usize);SIZE]
     , pub len: usize
 }
 
-impl<T: Copy, const SIZE:usize> Stec<T, SIZE> {
-    pub fn try_push(&mut self, thing:T) -> bool {
+impl<const SIZE:usize> Stec<SIZE> {
+    pub fn try_push(&mut self, thing:(CompletedPoint, usize)) -> bool {
         if self.len < SIZE {
             self.len+=1;
             self.stuff[self.len-1] = thing;
@@ -31,7 +29,7 @@ impl<T: Copy, const SIZE:usize> Stec<T, SIZE> {
             false
         }
     }
-    pub fn try_pop(&mut self) -> Option<T> {
+    pub fn try_pop(&mut self) -> Option<(CompletedPoint, usize)> {
         if self.len > 0 {
             self.len-=1;
             Some(self.stuff[self.len])
@@ -44,9 +42,9 @@ impl<T: Copy, const SIZE:usize> Stec<T, SIZE> {
 
 use std::collections::*;
 #[derive(Clone, Debug)]
-pub struct WorkContext<T:Copy> {
-    pub points: Vec<Point<T>>
-    , pub completed_points: Stec<(CompletedPoint<T>, usize), 100000>
+pub struct WorkContext {
+    pub points: Vec<Point>
+    , pub completed_points: Stec<100000>
     , pub last_update: usize
     , pub index: usize
     , pub random_index: usize
@@ -71,17 +69,17 @@ pub struct WorkContext<T:Copy> {
 
 
 #[derive(Clone, Copy, Debug)]
-pub enum CompletedPoint<T> {
+pub enum CompletedPoint {
     Repeats{
         period: u32,
-        smallness: T,
+        smallness: f64,
         small_time: u32
     }
     , Escapes{
         escape_time: u32
-        , escape_location: (T, T)
-        , start_location: (T, T)
-        , smallness: T
+        , escape_location: (f64, f64)
+        , start_location: (f64, f64)
+        , smallness: f64
         , small_time: u32
     }
     , Dummy{}
@@ -91,60 +89,29 @@ pub enum CompletedPoint<T> {
 //pub const SpeedTestPoint
 #[derive(Clone, Debug)]
 
-pub struct Point<T> {
-    pub c: (T, T)
-    , pub z: (T, T)
-    , pub real_squared: T
-    , pub imag_squared: T
-    , pub real_imag: T
+pub struct Point {
+    pub c: (f64, f64)
+    , pub z: (f64, f64)
+    , pub real_squared: f64
+    , pub imag_squared: f64
+    , pub real_imag: f64
     , pub iterations: u32
-    , pub loop_detection_point: ((T, T), u32)
+    , pub loop_detection_point: ((f64, f64), u32)
     , pub escapes: bool
     , pub repeats: bool
     , pub delivered: bool
     , pub period: u32
-    , pub smallness_squared: T
+    , pub smallness_squared: f64
     , pub small_time: u32
 }
 
 
-
-
-pub trait Abs {
-    fn abs(self) -> Self;
-}
-impl Abs for f32 {
-    fn abs(self) -> Self {
-        self.abs()
-    }
-}
-impl Abs for f64 {
-    fn abs(self) -> Self {
-        self.abs()
-    }
-}
-pub trait Gt {
-    fn gt(self, a:Self) -> bool;
-}
-
-impl Gt for f32 {
-    fn gt(self, a:Self) -> bool {
-        self > a
-    }
-}
-impl Gt for f64 {
-    fn gt(self, a:Self) -> bool {
-        self > a
-    }
-}
-
-
-pub fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<Output=T> + Into<f64> + PartialOrd + Finite + Gt + Abs + From<f32> + Into<f64> + Copy>(
+pub fn workshift(
     day_token_allowance: u32
     , iteration_token_cost: u32
     , point_token_cost: u32
     , bout_token_cost: u32
-    , context: &mut WorkContext<T>
+    , context: &mut WorkContext
 ) {
 
     context.time_workshift_started = Instant::now();
@@ -157,7 +124,7 @@ pub fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<Output=
 
 
 
-    let episilon = (context.points[0].c.0 - context.points[1].c.0).abs() * (T::from(1.0 * (1.0/256.0)));//0.0f32.into();//
+    let episilon = (context.points[0].c.0 - context.points[1].c.0).abs() * (1.0/256.0);
 
 
     let total_points = context.points.len();
@@ -293,7 +260,7 @@ pub fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<Output=
         let old_iterations = point.iterations;
 
 
-        iterate_max_n_times(point, 4.0f32.into(), episilon, 1000);
+        iterate_max_n_times(point, 4.0, episilon, 1000);
 
 
 
@@ -399,7 +366,7 @@ pub fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<Output=
 }
 
 #[inline]
-pub fn iterate_max_n_times<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Into<f64>+ PartialOrd + Gt +From<f32>+ Copy> (point: &mut Point<T>, r_squared:T, epsilon:T, n: u32) {
+pub fn iterate_max_n_times(point: &mut Point, r_squared:f64, epsilon:f64, n: u32) {
     for i in 0..n {
         update_point_results(point);
         point.escapes = bailout_point(point, r_squared);// || (!point.real_squared.is_finite()) || (!point.imag_squared.is_finite());
@@ -414,23 +381,7 @@ pub fn iterate_max_n_times<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Int
 }
 
 
-pub trait Finite {
-    fn is_finite(self) -> bool;
-}
-impl Finite for f32 {
-    fn is_finite(self) -> bool {
-        self.is_finite()
-    }
-}
-impl Finite for f64 {
-    fn is_finite(self) -> bool {
-        self.is_finite()
-    }
-}
-
-
-#[inline]
-pub fn timewarp_n_iterations<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + Into<f64>+ Finite + From<f32> + Gt + Copy> (point: &mut Point<T>, r_squared:T, n: u32) -> bool {
+pub fn timewarp_n_iterations(point: &mut Point, r_squared:f64, n: u32) -> bool {
 
 
     let c = point.c.clone();
@@ -445,7 +396,7 @@ pub fn timewarp_n_iterations<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + P
     for _ in 0..change {
         z = (
             z.0 * z.0 - z.1 * z.1 + c.0
-            , T::from(2.0.into()) * z.0 * z.1 + c.1
+            , 2.0 * z.0 * z.1 + c.1
         );
     }
 
@@ -461,11 +412,11 @@ pub fn timewarp_n_iterations<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + P
 }
 
 #[inline(always)]
-fn timewarp_4096<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + From<f32> + Copy> ( z:&mut (T, T), c:(T,T)) {
+fn timewarp_4096(z:&mut (f64, f64), c:(f64,f64)) {
     for _ in 0..4096 {
         *z = (
             z.0 * z.0 - z.1 * z.1 + c.0
-            , T::from(2.0f32.into()) * z.0 * z.1 + c.1
+            , 2.0 * z.0 * z.1 + c.1
         );
     }
 }
@@ -473,31 +424,28 @@ fn timewarp_4096<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + From<f32> + C
 use std::ops::*;
 
 #[inline(always)]
-pub fn iterate<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + From<f32> + Copy> (point: &mut Point<T>) {
-    // move z
+pub fn iterate(point: &mut Point) {
     point.z = (
         point.real_squared - point.imag_squared + point.c.0
-        , T::from(2.0f32.into()) * point.real_imag + point.c.1
+        , 2.0 * point.real_imag + point.c.1
     );
     point.iterations+=1;
 }
 
 use std::cmp::*;
 #[inline(always)]
-pub fn bailout_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Gt + PartialOrd + Copy> (point: & Point<T>, r_squared:T) -> bool {
-    // checks
-
+pub fn bailout_point(point: & Point, r_squared:f64) -> bool {
     point.real_squared + point.imag_squared > r_squared
 }
 
 #[inline(always)]
-fn points_near<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + Copy> (z1: (T, T), z2: (T, T), e: T) -> bool {
+fn points_near(z1: (f64, f64), z2: (f64, f64), e: f64) -> bool {
     z1.0 >= (z2.0 - e) && z1.0 <= (z2.0 + e)
     && z1.1 >= (z2.1 - e) && z1.1 <= (z2.1 + e)
 }
 
 #[inline(always)]
-fn loop_check_point<T:Sub<Output=T> + Add<Output=T> + PartialOrd + Mul<Output=T> + Copy> (point: &mut  Point<T>, epsilon:T) -> bool {
+fn loop_check_point(point: &mut  Point, epsilon:f64) -> bool {
     let near = points_near(point.z, point.loop_detection_point.0, epsilon);
 
     if near {point.period = point.iterations-point.loop_detection_point.1}
@@ -505,7 +453,7 @@ fn loop_check_point<T:Sub<Output=T> + Add<Output=T> + PartialOrd + Mul<Output=T>
 }
 
 #[inline(always)]
-fn update_loop_check_points<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Copy> (point: &mut Point<T>) {
+fn update_loop_check_points(point: &mut Point) {
 
     if point.iterations >= point.loop_detection_point.1 << 1 {
         point.loop_detection_point = (point.z, point.iterations);
@@ -513,16 +461,16 @@ fn update_loop_check_points<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Co
 
 }
 
-fn determine_period<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Gt + Finite + PartialOrd + Into<f64> +From<f32> + Copy> (point: &mut Point<T>, epsilon:T) -> bool {
+fn determine_period(point: &mut Point, epsilon:f64) -> bool {
     let max_period = 100000;
 
-    timewarp_n_iterations(point, 4.0f32.into(), 100000);
+    timewarp_n_iterations(point, 4.0, 100000);
 
     point.loop_detection_point = (point.z, point.iterations);
     for _ in 0..max_period {
         update_point_results(point);
         iterate(point);
-        if loop_check_point(point, epsilon*(1.0/8.0).into()) {
+        if loop_check_point(point, epsilon*(1.0/8.0)) {
             return true
         }
     }
@@ -530,19 +478,18 @@ fn determine_period<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Gt + Finit
 }
 
 #[inline]
-pub fn update_point_results<T:Sub<Output=T> + Add<Output=T> + Into<f64> + Gt + Mul<Output=T> + Copy>(point: &mut Point<T>) {
-    // update values
+pub fn update_point_results(point: &mut Point) {
     point.real_squared = point.z.0 * point.z.0;
     point.imag_squared = point.z.1 * point.z.1;
     point.real_imag = point.z.0 * point.z.1;
     let rad = point.real_squared + point.imag_squared;
-    if rad.into() < point.smallness_squared.into() {point.smallness_squared =rad;point.small_time=point.iterations}
+    if rad < point.smallness_squared {point.smallness_squared =rad;point.small_time=point.iterations}
 
 }
 
 
 
-pub fn queue_incomplete_neighbors<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Copy>(pos:&(i32, i32), res: (u32, u32), points: &Vec<Point<T>>, queue: &mut VecDeque<((i32, i32), u32)>) {
+pub fn queue_incomplete_neighbors(pos:&(i32, i32), res: (u32, u32), points: &Vec<Point>, queue: &mut VecDeque<((i32, i32), u32)>) {
 
     let difficulty = points[index_from_pos(pos, res.0)].iterations;
 
@@ -568,7 +515,7 @@ pub fn queue_incomplete_neighbors<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T
     }
 }
 
-pub fn queue_incomplete_neighbors_in<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Copy>(pos:&(i32, i32), res: (u32, u32), points: &Vec<Point<T>>, queue: &mut VecDeque<((i32, i32), u32)>) {
+pub fn queue_incomplete_neighbors_in(pos:&(i32, i32), res: (u32, u32), points: &Vec<Point>, queue: &mut VecDeque<((i32, i32), u32)>) {
 
     let period = points[index_from_pos(&pos, res.0)].period;
 
@@ -594,7 +541,7 @@ pub fn queue_incomplete_neighbors_in<T:Sub<Output=T> + Add<Output=T> + Mul<Outpu
     }
 }
 
-pub fn point_is_edge<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Copy> (pos:&(i32, i32), res: (u32, u32), points: &Vec<Point<T>>) -> Option<((i32, i32), (i32, i32))> {
+pub fn point_is_edge(pos:&(i32, i32), res: (u32, u32), points: &Vec<Point>) -> Option<((i32, i32), (i32, i32))> {
     let neighbors: [(i32, i32);4] = [
         (pos.0+1, pos.1)
         , (pos.0-1, pos.1)
@@ -626,7 +573,7 @@ pub fn point_is_edge<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Copy> (po
     None
 }
 
-pub fn queue_incomplete_neighbors_of_edge<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Copy>(pos1:&(i32, i32), pos2:&(i32, i32), res: (u32, u32), points: &Vec<Point<T>>, queue: &mut VecDeque<((i32, i32), u32)>) {
+pub fn queue_incomplete_neighbors_of_edge(pos1:&(i32, i32), pos2:&(i32, i32), res: (u32, u32), points: &Vec<Point>, queue: &mut VecDeque<((i32, i32), u32)>) {
 
     let difficulty = points[index_from_pos(pos1, res.0)].iterations;
 
