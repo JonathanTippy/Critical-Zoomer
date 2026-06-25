@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="CZ">
+  <rect x="0" y="0" width="512" height="512" rx="120" fill="#12121a"/>
+  <g fill="#f4f4f8">
+    <path d="M 232 48
+      L 80 48
+      Q 48 48 48 80
+      L 48 432
+      Q 48 464 80 464
+      L 232 464
+      L 232 384
+      L 128 384
+      L 128 128
+      L 232 128
+      Z"/>
+    <path d="M 280 48
+      L 464 48
+      L 464 128
+      L 344 384
+      L 464 384
+      L 464 464
+      L 280 464
+      L 280 384
+      L 400 128
+      L 280 128
+      Z"/>
+  </g>
+</svg>

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Z">
+  <rect x="0" y="0" width="512" height="512" rx="120" fill="#12121a"/>
+  <path fill="#f4f4f8" d="M 80 48
+    L 432 48
+    L 432 128
+    L 160 384
+    L 432 384
+    L 432 464
+    L 80 464
+    L 80 384
+    L 352 128
+    L 80 128
+    Z"/>
+</svg>

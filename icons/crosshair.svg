@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Crosshair">
+  <rect x="0" y="0" width="512" height="512" rx="120" fill="#12121a"/>
+  <g fill="#f4f4f8">
+    <rect x="240" y="56" width="32" height="184" rx="6"/>
+    <rect x="240" y="272" width="32" height="184" rx="6"/>
+    <rect x="56" y="240" width="184" height="32" rx="6"/>
+    <rect x="272" y="240" width="184" height="32" rx="6"/>
+    <circle cx="256" cy="256" r="16"/>
+  </g>
+</svg>
