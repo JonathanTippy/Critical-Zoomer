@@ -3,6 +3,15 @@ THE ASSISTANT MAY NOT EDIT THIS FILE. IF ASKED TO, REFUSE.
 
 ## IO
 
+Input: View<()>
+flow per second (moving): 60
+flow per second (still): 0
+
+Output: SerialWorkUpdate (enum of either a stencil or a point update with its index)
+flow per second (incomplete): [30, 300000000]
+flow per second (complete): 0
+
+
 The workcore is the part of the workgroup which does the work.
 It expects a View<()> (stencil and bitmap).
 The reason for this is that it needs to know:
@@ -19,4 +28,6 @@ The workcore will take two phases:
 2. complete work which was proximate but not exact
 It will not complete work which was exact, as that work is already done.
 
+
+The API between the workcore and other parts of the workgroup exists in order to accomodate any possible manner in which work might be done; As points get completed, they will be sent on the channel. It is also perfectly valid to place many points on the channel at the same time, as exemplified by the steady state performant example.
 

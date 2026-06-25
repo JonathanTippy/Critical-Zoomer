@@ -29,14 +29,35 @@ The workgroup sends a view of answers to the shadergroup, which sends a view of 
 
 ### Headgroup
 
+#### IO
+
+Input: View<Color32>
+flow per second: 60
+
+Output: Stencil
+flow per second (moving): 60
+flow per second (still): 0
+
 The headgroup must be responsible for all things which run strictly at window framerate and face the user.
 It must ensure that the user sees what they expect immediately, even if the work really hasn't quite caught up.
-It must also contains all settings and IO.
+It must also contains all settings and application IO.
 
 The Headgroup must send the viewport position, factor of zoom, and screen size to the workgroup whenever any of those change.
 The Headgroup must send the settings to the other two groups anytime they change.
 
 ### Workgroup
+
+#### IO
+
+Input: Stencil
+flow per second (moving): 60
+flow per second (still): 0
+
+Output: View<Answer>
+
+flow per second (incomplete): [30, 60]
+flow per second (complete): 0
+
 
 The workgroup must be responsible for completing and hoarding work.
 It must immediately pause or discard work which is no longer present in the viewport.
@@ -80,6 +101,14 @@ When the screen is not yet complete, the Workgroup must always have some new wor
 
 
 ### Shadergroup
+
+#### IO
+
+Input: View<Answer>
+flow per second: [0, 60]
+
+Output: View<Color32>
+flow per second: 60
 
 The shadergroup must be responsible for cosmetic layers generated from work.
 It must recieve the current frame from the hoard (at least the current frame according to the Workgroup)

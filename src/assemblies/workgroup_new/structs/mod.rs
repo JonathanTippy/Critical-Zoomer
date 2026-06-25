@@ -29,4 +29,16 @@ impl<T: Copy + Clone> From<View<T>> for SparseView<T> {
     }
 }
 
+enum SerialWorkUpdate {
+    NewStencil {
+        stencil: PointStencil
+    }
+    ,
+    PointDone {}
+}
+
+struct ActivePoint<T: Mandelbrotable> {
+    z: (T, T)
+}
+
 
