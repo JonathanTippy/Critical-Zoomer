@@ -1,4 +1,5 @@
 pub mod sparse_views;
+pub mod mandelbrotable;
 
 use std::cmp::Ordering;
 use crate::assemblies::structs::*;
