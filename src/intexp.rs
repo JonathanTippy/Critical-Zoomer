@@ -9,6 +9,13 @@ use std::cmp::{min, Ordering};
 use std::cmp::Ordering::{Equal, Greater, Less};
 use std::ops::{Add, Mul, Shl, Shr, Sub};
 
+#[derive(Clone, Debug, Ord, Eq)]
+pub struct IntExp {
+    pub val: Integer
+    ,
+    pub exp: i32
+}
+
 impl IntExp {
     pub const ZERO: IntExp = IntExp { val: Integer::ZERO, exp: 0 };
 
@@ -73,22 +80,13 @@ impl From<IntExp> for f64 {
         self.val.to_f64() * 2.0f64.powf(self.exp as f64)
     }
 }*/
-impl Into<f32> for IntExp {
-    fn into(self) -> f32 {
-        self.val.to_f32() * 2.0f32.powf(self.exp as f32)
-    }
-}
-
-#[derive(Clone, Debug, Ord, Eq)]
-pub struct IntExp {
-    pub val: Integer
-    ,
-    pub exp: i32
-}
-
 impl IntExp {
     pub fn to_f64(self) -> f64 {
         self.val.to_f64() * 2.0f64.powf(self.exp as f64)
+    }
+
+    pub fn to_f32(self) -> f32 {
+        self.val.to_f32() * 2.0f32.powf(self.exp as f32)
     }
 }
 impl Into<isize> for IntExp {
@@ -260,5 +258,23 @@ impl TryFrom<IntExp> for f64 {
             return Err(InexactIntExp);
         }
         Ok(e.to_f64())
+    }
+}
+
+impl TryFrom<IntExp> for f32 {
+    type Error = InexactIntExp;
+
+    fn try_from(e: IntExp) -> Result<f32, Self::Error> {
+        const MAX_EXP: i32 = 127;
+        const MIN_EXP: i32 = -149;
+        const SIG_BITS: u32 = 24;
+
+        if !e.val.is_zero() && (e.exp > MAX_EXP || e.exp < MIN_EXP) {
+            return Err(InexactIntExp);
+        }
+        if e.val.significant_bits() > SIG_BITS {
+            return Err(InexactIntExp);
+        }
+        Ok(e.to_f32())
     }
 }
