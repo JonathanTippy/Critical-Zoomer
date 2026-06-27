@@ -8,7 +8,7 @@ flow per second (moving): 60
 flow per second (still): 0
 
 Output: SerialWorkUpdate (enum of either a stencil or a point update with its index)
-flow per second (incomplete): [30, 300000000]
+flow per second (incomplete): [30, unlimited]
 flow per second (complete): 0
 
 
@@ -30,4 +30,8 @@ It will not complete work which was exact, as that work is already done.
 
 
 The API between the workcore and other parts of the workgroup exists in order to accomodate any possible manner in which work might be done; As points get completed, they will be sent on the channel. It is also perfectly valid to place many points on the channel at the same time, as exemplified by the steady state performant example.
+
+
+
+
 

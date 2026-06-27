@@ -5,7 +5,7 @@ use std::fmt::*;
 
 use rand::distr::uniform::{SampleRange, SampleUniform};
 
-trait Value:
+pub trait Value:
 PartialOrd + Expand
 + Add<Output=Self> + Sub<Output=Self> + Mul<Output=Self>
 + Zero + One
@@ -110,7 +110,7 @@ impl<T: Value, const MUST_INTEGER:bool> Range<T, MUST_INTEGER> {
         self.lower_bound <= T::zero() && self.upper_bound >= T::zero()
     }
 
-    fn is_agnostic(&self) -> bool {
+    pub fn is_agnostic(&self) -> bool {
         self.lower_bound != self.lower_bound || self.upper_bound != self.upper_bound
     }
 
@@ -129,7 +129,7 @@ impl<T: Value, const MUST_INTEGER:bool> Range<T, MUST_INTEGER> {
         )
     }
 
-    fn can_eq(&self, other:Self) -> bool {
+    pub fn can_eq(&self, other:Self) -> bool {
         self.lower_bound <= other.upper_bound && self.upper_bound >= other.lower_bound
     }
 
@@ -152,7 +152,7 @@ impl<T: Value, const MUST_INTEGER:bool> Range<T, MUST_INTEGER> {
         self.lower_bound < other.upper_bound
     }
 
-    fn must_lt (&self, other:Self) -> bool {
+    pub fn must_lt (&self, other:Self) -> bool {
         self.upper_bound < other.lower_bound
     }
 
@@ -160,7 +160,7 @@ impl<T: Value, const MUST_INTEGER:bool> Range<T, MUST_INTEGER> {
         self.upper_bound > other.lower_bound
     }
 
-    fn must_gt (&self, other:Self) -> bool {
+    pub fn must_gt (&self, other:Self) -> bool {
         self.lower_bound > other.upper_bound
     }
 
@@ -183,7 +183,7 @@ impl<T: Value, const MUST_INTEGER:bool> Range<T, MUST_INTEGER> {
         }
     }
 
-    fn guess_left(self) -> T {
+    pub fn guess_left(self) -> T {
         if MUST_INTEGER {
             self.lower_bound.ceil()
         } else {
@@ -191,7 +191,7 @@ impl<T: Value, const MUST_INTEGER:bool> Range<T, MUST_INTEGER> {
         }
     }
 
-    fn guess_right(self) -> T {
+    pub fn guess_right(self) -> T {
         if MUST_INTEGER {
             self.upper_bound.floor()
         } else {

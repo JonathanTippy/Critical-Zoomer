@@ -12,6 +12,7 @@ todo:
 - write & test each workgroup actor
 - find another property of fill_from which implies correct deep branch behavior
 - decide what fill_from should do on large zoom outs
+- hexogonal View APIs for headgroup and workgroup/escaper
 
 
 project context:

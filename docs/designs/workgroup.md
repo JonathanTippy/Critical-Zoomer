@@ -77,3 +77,7 @@ The hoarder publisher retains the current frame of T, remaps it on transforms, c
 
 The worker can trust the new unit view and swap out its bitmap, besides, even if its slightly imperfect, the worker doesn't have time to perform the remap which checking would necessitate.
 
+## Mandelbrotable Trait
+
+The workgroup needs a mathematical trait allowing various algorithms to be run using various types. It lives in the workgroup so it can be sent from the core to the integrator; the integrator is responsible for actually terminating active work into answers.
+

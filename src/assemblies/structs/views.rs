@@ -19,10 +19,7 @@ fn line_segment_a_is_subset_of_b(a: (IntExp, IntExp), b: (IntExp, IntExp)) -> bo
         && (a.1 > b.0 && a.1 < b.1)
 }
 
-
 impl PointStencil {
-
-
 
     pub fn correct_precision(self) -> Self {
         PointStencil {

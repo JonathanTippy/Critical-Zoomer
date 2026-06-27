@@ -16,10 +16,14 @@ pub struct View<T> {
     pub stencil: PointStencil
     , pub data: Vec<(T)>
     , pub bitmap: Vec<(u8)>
-    // value,
     // 7: exact
     // , 6: representative / estimate from parent pixel
     // , 5: result is final/done/complete
+    // , 4: result is determined inside set
+    // , 3: result is determined outside the set
+    // , 2: result was computed to be in-filament
+    // , 1: result was computed to be out-filament
+    // , 0: result was computed to be small-time edge
 }
 
 
