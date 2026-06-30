@@ -5,6 +5,8 @@ Artwork by Deborah Tippy
 # Critical Zoomer
 a mandelbrot set zoomer written in rust
 
+# Come back later, currently not working due to some updates.
+
 
 ## How to use (linux)
 - download & run the latest binary
@@ -12,8 +14,6 @@ a mandelbrot set zoomer written in rust
 ## Controls
 - movement: mouse drag
 - adjust zoom: scroll
-
-## Demo
 
 ## Scope
 - the mandelbrot set, and tracking a given point and overlaying its path. (and maybe displaying a given point's julia set)
