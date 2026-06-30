@@ -16,4 +16,5 @@ pub const NORES_ANSWER:Answer = Answer{
     }
     , min_magnitude_time: 0
     , min_magnitude: f64::INFINITY
+    , highlights: NODE+IN
 };

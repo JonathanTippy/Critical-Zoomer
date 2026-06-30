@@ -25,7 +25,7 @@ where
     + Debug
     + SampleUniform
 {}
-
+ 
 // special min and max which propagate NAN values to conserve ignorance
 fn min<T: PartialOrd>(a: T, b: T) -> T {
     if a==a {} else {return a}
