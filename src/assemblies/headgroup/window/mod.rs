@@ -330,6 +330,8 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     )
                     , resolution: (state.size.x as usize, state.size.y as usize)
                     , serial_number: state.stencil_serial_number_counter
+                    , focus: None
+                    , hover: None
                 });
                 state.stencil_serial_number_counter +=1;
                 state.sampling_context.updated = false;

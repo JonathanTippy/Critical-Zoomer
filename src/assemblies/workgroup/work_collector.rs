@@ -117,6 +117,8 @@ async fn internal_behavior<A: SteadyActor>(
                                            location: (completed_work.location.clone().pos.0, IntExp::ZERO-completed_work.location.clone().pos.1, completed_work.location.zoom_pot)
                                            , resolution: (completed_work.screen_res.0 as usize, completed_work.screen_res.1 as usize)
                                            , serial_number: 0
+, focus: None
+, hover: None
                                        }
                                        , data: completed_work.clone().results.into_iter().map(|x| -> Answer {
                                            match x {
@@ -128,6 +130,7 @@ async fn internal_behavior<A: SteadyActor>(
                                                        }
                                                        , min_magnitude_time: small_time as u64
                                                        , min_magnitude: smallness
+                                                       , highlights: 0u8
                                                    }
                                                }
                                                , CompletedPoint::Repeats{ period, smallness, small_time} => {
@@ -139,6 +142,8 @@ async fn internal_behavior<A: SteadyActor>(
                                                        min_magnitude_time: small_time as u64
                                                        ,
                                                        min_magnitude: smallness
+                                                       ,
+                                                       highlights: 0u8
                                                    }
                                                }
                                                , CompletedPoint::Dummy{} => {
@@ -150,6 +155,8 @@ async fn internal_behavior<A: SteadyActor>(
                                                        min_magnitude_time: 0
                                                        ,
                                                        min_magnitude: 0.0
+                                                       ,
+                                                       highlights: 0u8
                                                    }
                                                }
                                            }
@@ -179,7 +186,7 @@ async fn internal_behavior<A: SteadyActor>(
                             ,
                             resolution: (completed_work.screen_res.0 as usize, completed_work.screen_res.1 as usize)
                             ,
-                            serial_number: 0
+                            serial_number: 0, focus: None, hover: None
                         }
                         ,
                         data: completed_work.clone().results.into_iter().map(|x| -> Answer {
@@ -195,6 +202,7 @@ async fn internal_behavior<A: SteadyActor>(
                                         min_magnitude_time: small_time as u64
                                         ,
                                         min_magnitude: smallness
+                                        , highlights: 0u8
                                     }
                                 }
                                 ,
@@ -207,6 +215,7 @@ async fn internal_behavior<A: SteadyActor>(
                                         min_magnitude_time: small_time as u64
                                         ,
                                         min_magnitude: smallness
+                                        , highlights: 0u8
                                     }
                                 }
                                 ,
@@ -219,6 +228,7 @@ async fn internal_behavior<A: SteadyActor>(
                                         min_magnitude_time: 0
                                         ,
                                         min_magnitude: 0.0
+                                        , highlights: 0u8
                                     }
                                 }
                             }

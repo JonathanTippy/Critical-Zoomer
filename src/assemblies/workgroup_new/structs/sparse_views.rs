@@ -696,6 +696,8 @@ proptest! {
             resolution
             , location: location.clone()
             , serial_number: 0
+, focus: None
+, hover: None
         };
 
         let stencil_B = PointStencil{
@@ -706,6 +708,7 @@ proptest! {
                 , initial_zoom + zoom_delta
             )
             , serial_number: 1
+            , focus: None, hover: None
         };
 
 

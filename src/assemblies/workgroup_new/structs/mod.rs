@@ -31,15 +31,30 @@ impl<T: Copy + Clone> From<View<T>> for SparseView<T> {
     }
 }
 
-pub enum SerialWorkUpdate<T> {
-    NewStencil {
-        stencil: PointStencil
-    }
-    , PointUpdate{
-        update: T
-        , seat: (usize, usize)
+pub struct PointUpdate<T>{
+    update: T
+    , seat: (usize, usize)
+    , stencil_serial_number: u64
+}
+
+pub struct BitmapUpdate{
+    update: u8
+    , seat: (usize, usize)
+    , stencil_serial_number: u64
+}
+
+pub struct Calibrated<T> {
+    pub upper_bound: T
+    , pub lower_bound: T
+}
+
+impl<T> Calibrated<T> {
+    fn biased_guess(&self, bias:&T) {
+
     }
 }
+
+
 
 #[derive(Clone, Copy, Debug)]
 

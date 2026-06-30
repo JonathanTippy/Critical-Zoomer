@@ -55,6 +55,8 @@ pub fn resample(
         )
         , resolution: (context.screen_size.0 as usize, context.screen_size.1 as usize)
         , serial_number: 0
+        , focus: None
+        , hover: None
     }.correct_precision();
 
 
@@ -87,6 +89,8 @@ pub fn update_sampling_context(context: &mut SamplingContext, screen: View<Color
             location:(screen.stencil.location.0, screen.stencil.location.1, screen.stencil.location.2)
             , resolution: screen.stencil.resolution
             , serial_number: screen.stencil.serial_number
+            , focus: None
+            , hover: None
         }
     });
 

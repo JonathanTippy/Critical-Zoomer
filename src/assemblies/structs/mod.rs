@@ -9,6 +9,8 @@ pub struct PointStencil {
     pub location: (IntExp, IntExp, i32) // real, imag, magnification POT
     , pub resolution: (usize, usize)
     , pub serial_number: u64
+    , pub focus: Option<(usize, usize)>
+    , pub hover: Option<(usize, usize)>
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -19,11 +21,7 @@ pub struct View<T> {
     // 7: exact
     // , 6: representative / estimate from parent pixel
     // , 5: result is final/done/complete
-    // , 4: result is determined inside set
-    // , 3: result is determined outside the set
-    // , 2: result was computed to be in-filament
-    // , 1: result was computed to be out-filament
-    // , 0: result was computed to be small-time edge
+    // , 4: WIP - workcore only
 }
 
 
@@ -39,7 +37,17 @@ pub struct Answer {
     pub result: MandelbrotResult
     , pub min_magnitude_time: u64
     , pub min_magnitude: f64
+    , pub highlights: u8
+    // 7: in filament
+    // 6: out filament
+    // 5: min mag time edge
+    // 4: node
 }
+pub const IN: u8 = 0b1000_0000;
+pub const OUT: u8 = 0b0100_0000;
+pub const TREE: u8 = 0b0010_0000;
+pub const NODE: u8 = 0b0001_0000;
+
 
 impl Answer {
     pub const TESTVAL: Answer = Answer {
@@ -49,6 +57,7 @@ impl Answer {
         }
         , min_magnitude_time: 0
         , min_magnitude: 0.0
+        , highlights: 0u8
     };
 }
 

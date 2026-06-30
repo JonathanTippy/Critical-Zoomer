@@ -141,6 +141,8 @@ async fn internal_behavior<A: SteadyActor>(
                         , v.objective_location.clone().zoom_pot
                     )
                     , serial_number: 0
+                    , focus: None
+                    , hover: None
                 }
             });
             //info!("sent colors to window");
