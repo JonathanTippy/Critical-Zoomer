@@ -132,7 +132,7 @@ async fn internal_behavior<A: SteadyActor>(
 
             actor.try_send(&mut screens_out, View{
                 data: output.clone()
-                , bitmap: vec!(0u8;output.len())
+                , alignment: vec!(0u8; output.len())
                 , stencil: PointStencil{
                     resolution: (v.res.0 as usize, v.res.1 as usize)
                     , location: (

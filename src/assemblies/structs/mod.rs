@@ -3,6 +3,7 @@ use rug::Integer;
 use crate::constants::*;
 use std::cmp::*;
 pub mod views;
+use crate::range::*;
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct PointStencil {
@@ -17,19 +18,14 @@ pub struct PointStencil {
 pub struct View<T> {
     pub stencil: PointStencil
     , pub data: Vec<(T)>
-    , pub bitmap: Vec<(u8)>
-    // 7: exact
-    // , 6: representative / estimate from parent pixel
-    // , 5: result is final/done/complete
-    // , 4: WIP - workcore only
+    , pub alignment: Vec<(u8)>
+    // 7: exact / original: aligned with original C value
+    // , 6: representative / proximate estimate: not aligned with original C value
 }
-
-
-
 
 pub const EXACT: u8 = 0b1000_0000;
 pub const PROX: u8 = 0b0100_0000;
-pub const DONE: u8 = 0b0010_0000;
+
 
 #[derive(Copy, Clone)]
 
@@ -37,16 +33,8 @@ pub struct Answer {
     pub result: MandelbrotResult
     , pub min_magnitude_time: u64
     , pub min_magnitude: f64
-    , pub highlights: u8
-    // 7: in filament
-    // 6: out filament
-    // 5: min mag time edge
-    // 4: node
+    , pub highlights: Highlights
 }
-pub const IN: u8 = 0b1000_0000;
-pub const OUT: u8 = 0b0100_0000;
-pub const TREE: u8 = 0b0010_0000;
-pub const NODE: u8 = 0b0001_0000;
 
 
 impl Answer {
@@ -57,9 +45,34 @@ impl Answer {
         }
         , min_magnitude_time: 0
         , min_magnitude: 0.0
-        , highlights: 0u8
+        , highlights: Highlights{
+            in_filament: false
+            , out_filament: false
+            , small_time_edge: false
+            , node: false
+        }
     };
 }
+
+#[derive(Copy, Clone)]
+pub struct Highlights {
+    pub in_filament: bool
+    , pub out_filament: bool
+    , pub small_time_edge: bool
+    , pub node: bool
+}
+
+impl Highlights {
+    pub fn new() -> Self {
+        Highlights{
+            in_filament: false
+            , out_filament: false
+            , small_time_edge: false
+            , node: false
+        }
+    }
+}
+
 
 #[derive(Copy, Clone)]
 pub enum MandelbrotResult {

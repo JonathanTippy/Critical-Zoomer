@@ -84,7 +84,7 @@ pub fn update_sampling_context(context: &mut SamplingContext, screen: View<Color
     }*/
     context.screen = Some(View{
         data: screen.data
-        , bitmap: screen.bitmap
+        , alignment: screen.alignment
 ,         stencil: PointStencil{
             location:(screen.stencil.location.0, screen.stencil.location.1, screen.stencil.location.2)
             , resolution: screen.stencil.resolution

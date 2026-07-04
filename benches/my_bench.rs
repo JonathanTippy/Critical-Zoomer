@@ -9,12 +9,13 @@ use critical_zoomer::assemblies::structs::*;
 
 use egui::Color32;
 
-fn HD_No_frame(loc_desired: (IntExp, IntExp, i32), source: &View<()>) -> View<()> {
+fn HD_Unit_frame(loc_desired: (IntExp, IntExp, i32), source: &View<()>) -> View<()> {
     let mut returned = black_box(View::new(
 PointStencil{
             location: loc_desired.clone()
             , resolution: (1920, 1080)
             , serial_number : 0
+            , focus: None, hover: None
         }
         , ()
     ));
@@ -28,6 +29,7 @@ PointStencil{
             location: loc_desired.clone()
             , resolution: (1920, 1080)
             , serial_number : 0
+            , focus: None, hover: None
         }
         , Color32::BLACK
     ));
@@ -41,6 +43,7 @@ PointStencil{
             location: loc_desired.clone()
             , resolution: (1920, 1080)
             , serial_number : 0
+            , focus: None, hover: None
         }
         , Answer::TESTVAL
     ));
@@ -56,13 +59,14 @@ fn HD_Color_Bench(c: &mut Criterion) {
             location: (IntExp::ZERO, IntExp::ZERO, 0)
             , resolution: (1, 1)
             , serial_number : 0
+            , focus: None, hover: None
         }
         , Color32::BLACK
     );
 
 
     c.bench_function(
-        "hd 1"
+        "HD_Color_frame"
         , |b| b
             .iter_with_large_drop(|| HD_Color_frame(black_box((IntExp::ZERO, IntExp::ZERO, 0)), black_box(
                 &source
@@ -76,13 +80,14 @@ fn HD_Answer_Bench(c: &mut Criterion) {
             location: (IntExp::ZERO, IntExp::ZERO, 0)
             , resolution: (1, 1)
             , serial_number : 0
+            , focus: None, hover: None
         }
         , Answer::TESTVAL
     );
 
 
     c.bench_function(
-        "hd 2"
+        "HD_Answer_frame"
         , |b| b
             .iter_with_large_drop(|| HD_Answer_frame(black_box((IntExp::ZERO, IntExp::ZERO, 0)), black_box(
                 &source
@@ -90,20 +95,21 @@ fn HD_Answer_Bench(c: &mut Criterion) {
     );
 }
 
-fn HD_No_Bench(c: &mut Criterion) {
+fn HD_Unit_Bench(c: &mut Criterion) {
     let source = View::new(
         PointStencil{
             location: (IntExp::ZERO, IntExp::ZERO, 0)
             , resolution: (1, 1)
             , serial_number : 0
+            , focus: None, hover: None
         }
         , ()
     );
 
     c.bench_function(
-        "hd 3"
+        "HD_Unit_frame"
         , |b| b
-            .iter_with_large_drop(|| HD_No_frame(black_box((IntExp::ZERO, IntExp::ZERO, 0)), black_box(
+            .iter_with_large_drop(|| HD_Unit_frame(black_box((IntExp::ZERO, IntExp::ZERO, 0)), black_box(
                 &source
             )))
     );
@@ -118,6 +124,6 @@ criterion_group! {
         //.warm_up_time(Duration::from_secs(5));
         //.significance_level(0.01)
         //.measurement_time(Duration::from_secs(30));
-    targets = HD_No_Bench, HD_Answer_Bench, HD_Color_Bench
+    targets = HD_Unit_Bench, HD_Answer_Bench, HD_Color_Bench
 }
 criterion_main!(benches);

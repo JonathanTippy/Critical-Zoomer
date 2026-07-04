@@ -21,9 +21,9 @@ impl<T: Copy + Clone> From<View<T>> for SparseView<T> {
     fn from(input: View<T>) -> SparseView<T> {
         let mut returned = SparseView::new(input.stencil);
         for i in 0..input.data.len() {
-            if input.bitmap[i] != 0 {
+            if input.alignment[i] != 0 {
                 let value = input.data[i];
-                let align = input.bitmap[i];
+                let align = input.alignment[i];
                 returned.insert_with_align((value, align, returned.stencil.seat_and_row(i)));
             }
         }
@@ -37,67 +37,58 @@ pub struct PointUpdate<T>{
     , stencil_serial_number: u64
 }
 
-pub struct BitmapUpdate{
-    update: u8
-    , seat: (usize, usize)
-    , stencil_serial_number: u64
-}
-
-pub struct Calibrated<T> {
-    pub upper_bound: T
-    , pub lower_bound: T
-}
-
-impl<T> Calibrated<T> {
-    fn biased_guess(&self, bias:&T) {
-
-    }
-}
-
-
-
 #[derive(Clone, Copy, Debug)]
 
 pub struct CalibratedAnswer {
     pub result: CalibratedMandelbrotResult
-    , pub min_magnitude_time: Range<f64, true>
-    , pub min_magnitude: Range<f64, false>
+    , pub min_magnitude_time: Range<u64>
+    , pub min_magnitude: Range<f64>
+    , pub highlights: CalibratedHighlights
 }
+
+#[derive(Copy, Clone, Debug)]
+pub struct CalibratedHighlights {
+    pub in_filament: Range<bool>
+    , pub out_filament: Range<bool>
+    , pub small_time_edge: Range<bool>
+    , pub node: Range<bool>
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum CalibratedMandelbrotResult {
     Agnostic{
-        period: Range<f64, true>
-        , escape_time_r2: Range<f64, true>
-        , escape_z: (Range<f32, false>, Range<f32, false>)
+        period: Range<u64>
+        , escape_time_r2: Range<u64>
+        , escape_z: (Range<f32>, Range<f32>)
     }
     , Inside{
-        period: Range<f64, true>
+        period: Range<u64>
     }
     , Outside{
-        escape_time_r2: Range<f64, true>
-        , escape_z: (Range<f32, false>, Range<f32, false>)
+        escape_time_r2: Range<u64>
+        , escape_z: (Range<f32>, Range<f32>)
     }
 }
 
 impl CalibratedAnswer {
-    fn guess(&self, bias: Answer) -> Answer {
+    fn guess_biased(&self, bias: Answer) -> Answer {
         let result = match self.result {
             CalibratedMandelbrotResult::Agnostic{period, escape_time_r2, escape_z} => {
                 match bias.result {
                     MandelbrotResult::Inside { period: bias_period } => {
                         MandelbrotResult::Inside {
-                            period: guess_integer_value(period, bias_period)
+                            period: period.guess_biased(bias_period)
                         }
                     }
                     ,
                     MandelbrotResult::Outside { escape_time_r2:bias_escape_time_r2, escape_z:bias_escape_z } => {
                         MandelbrotResult::Outside {
-                            escape_time_r2: guess_integer_value(
-                                escape_time_r2, bias_escape_time_r2
-                            )
+                            escape_time_r2:
+                                escape_time_r2.guess_biased(bias_escape_time_r2)
+
                             , escape_z: (
-                                guess_value(escape_z.0, bias_escape_z.0)
-                                , guess_value(escape_z.1, bias_escape_z.1)
+                                escape_z.0.guess_biased(bias_escape_z.0)
+                                , escape_z.1.guess_biased(bias_escape_z.1)
                             )
                         }
                     }
@@ -107,7 +98,7 @@ impl CalibratedAnswer {
                 match bias.result {
                     MandelbrotResult::Inside{period: bias_period} => {
                         MandelbrotResult::Inside{
-                            period: guess_integer_value(period, bias_period)
+                            period: period.guess_biased(bias_period)
                         }
                     }
                     , MandelbrotResult::Outside{
@@ -132,13 +123,12 @@ impl CalibratedAnswer {
                     }
                     , MandelbrotResult::Outside { escape_time_r2: bias_escape_time_r2, escape_z: bias_escape_z} => {
                         MandelbrotResult::Outside {
-                            escape_time_r2: guess_integer_value(
-                                escape_time_r2, bias_escape_time_r2
-                            )
+                            escape_time_r2:
+                                escape_time_r2.guess_biased(bias_escape_time_r2)
                             ,
                             escape_z: (
-                                guess_value(escape_z.0, bias_escape_z.0)
-                                , guess_value(escape_z.1, bias_escape_z.1)
+                                escape_z.0.guess_biased(bias_escape_z.0)
+                                , escape_z.1.guess_biased(bias_escape_z.1)
                             )
                         }
                     }
@@ -147,53 +137,17 @@ impl CalibratedAnswer {
         };
         Answer{
             result
-            , min_magnitude_time: guess_integer_value(
-                self.min_magnitude_time, bias.min_magnitude_time
-            )
-            , min_magnitude: guess_value(
-                self.min_magnitude, bias.min_magnitude
-            )
+            , min_magnitude_time:
+                self.min_magnitude_time.guess_biased(bias.min_magnitude_time)
+            , min_magnitude:
+                self.min_magnitude.guess_biased(bias.min_magnitude)
+            , highlights:
+            Highlights{
+                in_filament: self.highlights.in_filament.guess_biased(bias.highlights.in_filament)
+                , out_filament: self.highlights.out_filament.guess_biased(bias.highlights.out_filament)
+                , small_time_edge: self.highlights.small_time_edge.guess_biased(bias.highlights.small_time_edge)
+                , node: self.highlights.node.guess_biased(bias.highlights.node)
+            }
         }
     }
-}
-
-fn guess_integer_value(input: Range<f64, true>, bias: u64) -> u64 {
-    let bias_range = Range{
-        lower_bound: bias as f64
-        , upper_bound: bias as f64
-    };
-    if input.is_agnostic() {
-        return bias
-    }
-    if input.can_eq(bias_range) {
-        return bias
-    }
-    if input.must_gt(bias_range) {
-        return input.guess_left() as u64
-    }
-    if input.must_lt(bias_range) {
-        return input.guess_right() as u64
-    }
-    panic!("this should be impossible...")
-}
-
-fn guess_value<T: Value>(input: Range<T, false>, bias: T) -> T {
-    let bias_range = Range {
-        lower_bound: bias
-        ,
-        upper_bound: bias
-    };
-    if input.is_agnostic() {
-        return bias
-    }
-    if input.can_eq(bias_range) {
-        return bias
-    }
-    if input.must_gt(bias_range) {
-        return input.guess_left()
-    }
-    if input.must_lt(bias_range) {
-        return input.guess_right()
-    }
-    panic!("this should be impossible...")
 }

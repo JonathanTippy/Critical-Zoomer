@@ -122,7 +122,7 @@ impl<T: Copy + Clone> View<T> {
             ,
             data: vec!(fill_value; stencil.resolution.0 * stencil.resolution.1)
             ,
-            bitmap: vec!(0u8; stencil.resolution.0 * stencil.resolution.1)
+            alignment: vec!(0u8; stencil.resolution.0 * stencil.resolution.1)
 
         };
         returned.assert_validity();
@@ -135,7 +135,7 @@ impl<T: Copy + Clone> View<T> {
             ,
             data: vec!(fill_value; stencil.resolution.0 * stencil.resolution.1)
             ,
-            bitmap: vec!(EXACT+PROX; stencil.resolution.0 * stencil.resolution.1)
+            alignment: vec!(EXACT+PROX; stencil.resolution.0 * stencil.resolution.1)
         };
         returned.assert_validity();
         returned
@@ -156,19 +156,19 @@ impl<T: Copy + Clone> View<T> {
                 if (seat, row) != top_left_seat || !top_left_is_exact {
                     let source_real_alignment = { if est { PROX } else { 0 }};
 
-                    let self_alignment = self.bitmap[self.stencil.index((seat, row))];
+                    let self_alignment = self.alignment[self.stencil.index((seat, row))];
 
                     if source_real_alignment >= self_alignment
                         || source_is_preferred && source_real_alignment >= self_alignment
                         || self_alignment == 0
                     {
                         self.data[self_index] = fill_value;
-                        self.bitmap[self_index] = source_real_alignment;
+                        self.alignment[self_index] = source_real_alignment;
                     }
 
                 } else {
                     self.data[self_index] = fill_value;
-                    self.bitmap[self_index] = EXACT + PROX;
+                    self.alignment[self_index] = EXACT + PROX;
                 }
             }
         }
@@ -184,7 +184,7 @@ impl<T: Copy> View<T> {
             , "Invalid View: Data length must equal seats times rows."
         );
         assert_eq!(
-            self.data.len(),  self.bitmap.len()
+            self.data.len(),  self.alignment.len()
             , "Invalid View: Data length must equal bitmap length."
         )
     }
@@ -245,19 +245,19 @@ impl<T: Copy> View<T> {
 
                         let represented = preferred_source_seat_row == clamped_source_seat_row;
                         let value = source.data[source_index];
-                        let source_alignment = source.bitmap[source_index];
+                        let source_alignment = source.alignment[source_index];
                         let est = represented && source_alignment & PROX == PROX;
                         let exact = represented && source_alignment & EXACT == EXACT;
 
                         let source_real_alignment = { if exact { EXACT } else { 0 } } + { if est { PROX } else { 0 } };
-                        let self_alignment = self.bitmap[self_index];
+                        let self_alignment = self.alignment[self_index];
 
                         if source_real_alignment >= self_alignment
                             || source_is_preferred && source_real_alignment >= self_alignment
                             || self_alignment == 0
                         {
                             self.data[self_index] = value;
-                            self.bitmap[self_index] = source_real_alignment;
+                            self.alignment[self_index] = source_real_alignment;
                         }
                     }
                 }
@@ -308,19 +308,19 @@ impl<T: Copy> View<T> {
 
                             let represented = preferred_source_seat_row == clamped_source_seat_row;
                             let value = source.data[source.stencil.index(clamped_source_seat_row)];
-                            let source_old_alignment = source.bitmap[source.stencil.index(clamped_source_seat_row)];
+                            let source_old_alignment = source.alignment[source.stencil.index(clamped_source_seat_row)];
                             let est = source_old_alignment & PROX == PROX && represented && aligned;
                             let exact = aligned && represented && source_old_alignment & EXACT == EXACT;
 
                             let source_alignment = { if exact { EXACT } else { 0 } } + { if est { PROX } else { 0 } };
-                            let self_alignment = self.bitmap[self.stencil.index((seat as isize, row as isize))];
+                            let self_alignment = self.alignment[self.stencil.index((seat as isize, row as isize))];
 
                             if source_alignment > self_alignment
                                 || source_is_preferred && source_alignment >= self_alignment
                                 || self_alignment == 0
                             {
                                 self.data[self.stencil.index((seat as isize, row as isize))] = value;
-                                self.bitmap[self.stencil.index((seat as isize, row as isize))] = source_alignment;
+                                self.alignment[self.stencil.index((seat as isize, row as isize))] = source_alignment;
                             }
                         }
                     }
@@ -368,7 +368,7 @@ impl<T: Copy> View<T> {
                                 , (self.stencil.resolution.0 as isize, self.stencil.resolution.1 as isize)
                                 , false
                                 , source.data[source_index]
-                                , source.bitmap[source_index] & PROX == PROX
+                                , source.alignment[source_index] & PROX == PROX
                                     && clamped_source_seat==preferred_source_seat
                                 , source.stencil.serial_number > self.stencil.serial_number
                             );
@@ -393,7 +393,7 @@ impl<T: Copy> View<T> {
                                 , (self.stencil.resolution.0 as isize, vertical_edge)
                                 , false
                                 , source.data[source_index_top]
-                                , source.bitmap[source_index_top] & PROX == PROX
+                                , source.alignment[source_index_top] & PROX == PROX
                                     && clamped_source_seat_top == preferred_source_seat_top
                                 , source.stencil.serial_number > self.stencil.serial_number
                             );
@@ -402,7 +402,7 @@ impl<T: Copy> View<T> {
                                 , (self.stencil.resolution.0 as isize, self.stencil.resolution.1 as isize)
                                 , false
                                 , source.data[source_index_bottom]
-                                , source.bitmap[source_index_bottom] & PROX == PROX
+                                , source.alignment[source_index_bottom] & PROX == PROX
                                     && clamped_source_seat_bottom == preferred_source_seat_bottom
                                 , source.stencil.serial_number > self.stencil.serial_number
                             );
@@ -426,7 +426,7 @@ impl<T: Copy> View<T> {
                                 , (horizontal_edge, self.stencil.resolution.1 as isize)
                                 , false
                                 , source.data[source_index_right]
-                                , source.bitmap[source_index_right] & PROX == PROX
+                                , source.alignment[source_index_right] & PROX == PROX
                                     && clamped_source_seat_right == preferred_source_seat_right
                                 , source.stencil.serial_number > self.stencil.serial_number
                             );
@@ -435,7 +435,7 @@ impl<T: Copy> View<T> {
                                 , (self.stencil.resolution.0 as isize, self.stencil.resolution.1 as isize)
                                 , false
                                 , source.data[source_index_left]
-                                , source.bitmap[source_index_left] & PROX == PROX
+                                , source.alignment[source_index_left] & PROX == PROX
                                     && clamped_source_seat_left == preferred_source_seat_left
                                 , source.stencil.serial_number > self.stencil.serial_number
                             );
@@ -474,7 +474,7 @@ impl<T: Copy> View<T> {
                                 , (horizontal_edge, vertical_edge)
                                 , false
                                 , source.data[source_index_top_right]
-                                , source.bitmap[source_index_top_right] & PROX == PROX
+                                , source.alignment[source_index_top_right] & PROX == PROX
                                     && clamped_source_seat_top_right == preferred_source_seat_top_right
                                 , source.stencil.serial_number > self.stencil.serial_number
                             );
@@ -483,7 +483,7 @@ impl<T: Copy> View<T> {
                                 , (self.stencil.resolution.0 as isize, vertical_edge)
                                 , false
                                 , source.data[source_index_top_left]
-                                , source.bitmap[source_index_top_left] & PROX == PROX
+                                , source.alignment[source_index_top_left] & PROX == PROX
                                     && clamped_source_seat_top_left == preferred_source_seat_top_left
                                 , source.stencil.serial_number > self.stencil.serial_number
                             );
@@ -492,7 +492,7 @@ impl<T: Copy> View<T> {
                                 , (horizontal_edge, self.stencil.resolution.1 as isize)
                                 , true
                                 , source.data[source_index_bottom_right]
-                                , source.bitmap[source_index_bottom_right] & PROX == PROX
+                                , source.alignment[source_index_bottom_right] & PROX == PROX
                                     && clamped_source_seat_bottom_right == preferred_source_seat_bottom_right
                                 , source.stencil.serial_number > self.stencil.serial_number
                             );
@@ -501,7 +501,7 @@ impl<T: Copy> View<T> {
                                 , (self.stencil.resolution.0 as isize, self.stencil.resolution.1 as isize)
                                 , false
                                 , source.data[source_index_bottom_left]
-                                , source.bitmap[source_index_bottom_left] & PROX == PROX
+                                , source.alignment[source_index_bottom_left] & PROX == PROX
                                     && clamped_source_seat_bottom_left == preferred_source_seat_bottom_left
                                 , source.stencil.serial_number > self.stencil.serial_number
                             );
@@ -544,19 +544,19 @@ impl<T: Copy> View<T> {
                                 && (clamped_source_seat_row.0 >> -screenspace_delta.2).saturating_sub(pan_self_pixel_delta.0) == seat as isize
                                 && (clamped_source_seat_row.1 >> -screenspace_delta.2).saturating_sub(pan_self_pixel_delta.1) == row as isize;
                             let value = source.data[source.stencil.index(clamped_source_seat_row)];
-                            let source_alignment = source.bitmap[source.stencil.index(clamped_source_seat_row)];
+                            let source_alignment = source.alignment[source.stencil.index(clamped_source_seat_row)];
                             let exact = represented && source_alignment & EXACT == EXACT;
                             let est = represented && source_alignment & PROX == PROX;
 
                             let source_real_alignment = { if exact { EXACT } else { 0 } } + { if est { PROX } else { 0 } };
-                            let self_alignment = self.bitmap[self.stencil.index((seat as isize, row as isize))];
+                            let self_alignment = self.alignment[self.stencil.index((seat as isize, row as isize))];
 
                             if source_real_alignment > self_alignment
                                 || source_is_preferred && source_real_alignment >= self_alignment
                                 || self_alignment == 0
                             {
                                 self.data[self.stencil.index((seat as isize, row as isize))] = value;
-                                self.bitmap[self.stencil.index((seat as isize, row as isize))] = source_real_alignment;
+                                self.alignment[self.stencil.index((seat as isize, row as isize))] = source_real_alignment;
                             }
                         }
                     }
@@ -590,7 +590,7 @@ fn invalid_test_bad_data() {
         ,
         data: vec!()
         ,
-        bitmap: vec!()
+        alignment: vec!()
         ,
     };
     let b: View<i32> = View {
@@ -608,7 +608,7 @@ fn invalid_test_bad_data() {
         ,
         data: vec!()
         ,
-        bitmap: vec!()
+        alignment: vec!()
 
         ,
     };
@@ -633,7 +633,7 @@ fn invalid_test_misaligned() {
         ,
         data: vec!()
         ,
-        bitmap: vec!()
+        alignment: vec!()
 
         ,
         
@@ -653,7 +653,7 @@ fn invalid_test_misaligned() {
         ,
         data: vec!()
         ,
-        bitmap: vec!()
+        alignment: vec!()
         ,
         
     };
@@ -677,7 +677,7 @@ fn identity_test() {
         ,
         data: vec!(1, 2, 3, 4)
         ,
-        bitmap: vec!(EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX)
+        alignment: vec!(EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX)
 
         ,
         
@@ -696,7 +696,7 @@ fn identity_test() {
         }
         ,
         data: vec!(1, 2, 3, 4),
-        bitmap: vec!(EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX),
+        alignment: vec!(EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX),
 
     };
     a.fill_from(&b);
@@ -724,7 +724,7 @@ fn improve_test() {
         ,
         data: vec!(0, 0, 0, 0)
         ,
-        bitmap: vec!(PROX, PROX, PROX, PROX),
+        alignment: vec!(PROX, PROX, PROX, PROX),
         
     };
     let b: View<i32> = View {
@@ -741,7 +741,7 @@ fn improve_test() {
         }
         ,
         data: vec!(1, 2, 3, 4),
-        bitmap: vec!(EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX),
+        alignment: vec!(EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX),
         
     };
     a.fill_from(&b);
@@ -769,7 +769,7 @@ fn zoom_in_test() {
         ,
         data: vec!(0, 0, 0, 0)
         ,
-        bitmap: vec!(0, 0, 0, 0),
+        alignment: vec!(0, 0, 0, 0),
         
     };
     let b: View<i32> = View {
@@ -786,7 +786,7 @@ fn zoom_in_test() {
         }
         ,
         data: vec!(1, 2, 3, 4),
-        bitmap: vec!(EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX),
+        alignment: vec!(EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX),
         
     };
 
@@ -804,7 +804,7 @@ fn zoom_in_test() {
         }
         ,
         data: vec!(1, 1, 1, 1),
-        bitmap: vec!(EXACT + PROX, PROX, PROX, PROX),
+        alignment: vec!(EXACT + PROX, PROX, PROX, PROX),
         
     };
     a.fill_from(&b);
@@ -835,7 +835,7 @@ fn zoom_in_test_3() {
         ,
         data: vec!(0, 0, 0, 0, 0, 0, 0, 0, 0)
         ,
-        bitmap: vec!(0, 0, 0, 0, 0, 0, 0, 0, 0),
+        alignment: vec!(0, 0, 0, 0, 0, 0, 0, 0, 0),
 
     };
     let b: View<i32> = View {
@@ -854,7 +854,7 @@ fn zoom_in_test_3() {
         }
         ,
         data: vec!(1, 2, 3, 4, 5, 6, 7, 8, 9),
-        bitmap: vec!(EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX,),
+        alignment: vec!(EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX,),
 
     };
 
@@ -875,7 +875,7 @@ fn zoom_in_test_3() {
         }
         ,
         data: vec!(1, 1, 2, 1, 1, 2, 4, 4, 5),
-        bitmap: vec!(EXACT + PROX, PROX, EXACT + PROX, PROX, PROX, PROX, PROX, EXACT + PROX, PROX, EXACT + PROX),
+        alignment: vec!(EXACT + PROX, PROX, EXACT + PROX, PROX, PROX, PROX, PROX, EXACT + PROX, PROX, EXACT + PROX),
 
     };
     a.fill_from(&b);
@@ -904,7 +904,7 @@ fn zoom_out_test() {
         ,
         data: vec!(0, 0, 0, 0)
         ,
-        bitmap: vec!(0, 0, 0, 0),
+        alignment: vec!(0, 0, 0, 0),
         
     };
     let b: View<i32> = View {
@@ -921,7 +921,7 @@ fn zoom_out_test() {
         }
         ,
         data: vec!(1, 2, 3, 4),
-        bitmap: vec!(EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX),
+        alignment: vec!(EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX),
         
     };
 
@@ -939,7 +939,7 @@ fn zoom_out_test() {
         }
         ,
         data: vec!(1, 2, 3, 4),
-        bitmap: vec!(EXACT + PROX, 0, 0, 0),
+        alignment: vec!(EXACT + PROX, 0, 0, 0),
         
     };
     a.fill_from(&b);
@@ -967,7 +967,7 @@ fn pan_one_test() {
         ,
         data: vec!(0, 0, 0, 0)
         ,
-        bitmap: vec!(0, 0, 0, 0),
+        alignment: vec!(0, 0, 0, 0),
         
     };
     let b: View<i32> = View {
@@ -984,7 +984,7 @@ fn pan_one_test() {
         }
         ,
         data: vec!(1, 2, 3, 4),
-        bitmap: vec!(EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX),
+        alignment: vec!(EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX),
         
     };
 
@@ -1003,7 +1003,7 @@ fn pan_one_test() {
         ,
         data: vec!(2, 2, 2, 2)
         ,
-        bitmap: vec!(0, 0, EXACT + PROX, 0),
+        alignment: vec!(0, 0, EXACT + PROX, 0),
         
     };
     a.fill_from(&b);
@@ -1031,7 +1031,7 @@ fn nonzero_phase_test() {
         ,
         data: vec!(0, 0, 0, 0)
         ,
-        bitmap: vec!(0, 0, 0, 0),
+        alignment: vec!(0, 0, 0, 0),
         
     };
     let b: View<i32> = View {
@@ -1048,7 +1048,7 @@ fn nonzero_phase_test() {
         }
         ,
         data: vec!(1, 2, 3, 4),
-        bitmap: vec!(EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX),
+        alignment: vec!(EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX),
         
     };
 
@@ -1066,7 +1066,7 @@ fn nonzero_phase_test() {
         }
         ,
         data: vec!(1, 2, 3, 4),
-        bitmap: vec!(PROX, PROX, PROX, EXACT + PROX),
+        alignment: vec!(PROX, PROX, PROX, EXACT + PROX),
         
     };
     a.fill_from(&b);
