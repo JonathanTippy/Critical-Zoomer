@@ -5,9 +5,6 @@ Artwork by Deborah Tippy
 # Critical Zoomer
 a mandelbrot set zoomer written in rust
 
-# Come back later, currently not working due to some updates.
-
-
 ## How to use (linux)
 - download & run the latest binary
 
