@@ -129,13 +129,11 @@ impl<T: Copy + Clone> View<T> {
         returned
     }
 
-    pub fn new_known(stencil: PointStencil, fill_value: T) -> View<T> {
+    pub fn new_custom(stencil: PointStencil, fill_value: T, fill_alignment: u8) -> View<T> {
         let returned = View {
             stencil: stencil.clone().correct_precision()
-            ,
-            data: vec!(fill_value; stencil.resolution.0 * stencil.resolution.1)
-            ,
-            alignment: vec!(EXACT+PROX; stencil.resolution.0 * stencil.resolution.1)
+            , data: vec!(fill_value; stencil.resolution.0 * stencil.resolution.1)
+            , alignment: vec!(fill_alignment; stencil.resolution.0 * stencil.resolution.1)
         };
         returned.assert_validity();
         returned
@@ -154,9 +152,12 @@ impl<T: Copy + Clone> View<T> {
             for seat in top_left_seat.0..bottom_right_seat.0 {
                 let self_index = self.stencil.index((seat, row));
                 if (seat, row) != top_left_seat || !top_left_is_exact {
-                    let source_real_alignment = { if est { PROX } else { 0 }};
+                    let undone_mask = u8::MAX - NATIVE;
+
+                    let source_real_alignment = { if est { PROX } else { 0 }} & undone_mask;
 
                     let self_alignment = self.alignment[self.stencil.index((seat, row))];
+
 
                     if source_real_alignment >= self_alignment
                         || source_is_preferred && source_real_alignment >= self_alignment
@@ -248,8 +249,9 @@ impl<T: Copy> View<T> {
                         let source_alignment = source.alignment[source_index];
                         let est = represented && source_alignment & PROX == PROX;
                         let exact = represented && source_alignment & EXACT == EXACT;
+                        let done:u8 = if source_alignment & NATIVE == NATIVE { NATIVE } else {0u8};
 
-                        let source_real_alignment = { if exact { EXACT } else { 0 } } + { if est { PROX } else { 0 } };
+                        let source_real_alignment = done + { if exact { EXACT } else { 0 } } + { if est { PROX } else { 0u8 } };
                         let self_alignment = self.alignment[self_index];
 
                         if source_real_alignment >= self_alignment
@@ -308,19 +310,20 @@ impl<T: Copy> View<T> {
 
                             let represented = preferred_source_seat_row == clamped_source_seat_row;
                             let value = source.data[source.stencil.index(clamped_source_seat_row)];
-                            let source_old_alignment = source.alignment[source.stencil.index(clamped_source_seat_row)];
-                            let est = source_old_alignment & PROX == PROX && represented && aligned;
-                            let exact = aligned && represented && source_old_alignment & EXACT == EXACT;
+                            let source_alignment = source.alignment[source.stencil.index(clamped_source_seat_row)];
+                            let est = source_alignment & PROX == PROX && represented && aligned;
+                            let exact = aligned && represented && source_alignment & EXACT == EXACT;
+                            let undone_mask = u8::MAX - NATIVE;
 
-                            let source_alignment = { if exact { EXACT } else { 0 } } + { if est { PROX } else { 0 } };
+                            let source_real_alignment = ({ if exact { EXACT } else { 0 } } + { if est { PROX } else { 0 } }) & undone_mask;
                             let self_alignment = self.alignment[self.stencil.index((seat as isize, row as isize))];
 
-                            if source_alignment > self_alignment
-                                || source_is_preferred && source_alignment >= self_alignment
+                            if source_real_alignment > self_alignment
+                                || source_is_preferred && source_real_alignment >= self_alignment
                                 || self_alignment == 0
                             {
                                 self.data[self.stencil.index((seat as isize, row as isize))] = value;
-                                self.alignment[self.stencil.index((seat as isize, row as isize))] = source_alignment;
+                                self.alignment[self.stencil.index((seat as isize, row as isize))] = source_real_alignment;
                             }
                         }
                     }
@@ -547,8 +550,10 @@ impl<T: Copy> View<T> {
                             let source_alignment = source.alignment[source.stencil.index(clamped_source_seat_row)];
                             let exact = represented && source_alignment & EXACT == EXACT;
                             let est = represented && source_alignment & PROX == PROX;
+                            let undone_mask = u8::MAX - NATIVE;
 
-                            let source_real_alignment = { if exact { EXACT } else { 0 } } + { if est { PROX } else { 0 } };
+
+                            let source_real_alignment = ({ if exact { EXACT } else { 0 } } + { if est { PROX } else { 0 } }) & undone_mask;
                             let self_alignment = self.alignment[self.stencil.index((seat as isize, row as isize))];
 
                             if source_real_alignment > self_alignment

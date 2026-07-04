@@ -1,18 +1,18 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use crate::assemblies::structs::{PointStencil, View, EXACT, PROX};
+use crate::assemblies::structs::{PointStencil, View, NATIVE, EXACT, PROX};
 use crate::assemblies::workgroup_new::structs::SparseView;
 use crate::constants::PIXELS_PER_UNIT_POT;
 use crate::intexp::*;
 
 impl<T: Copy + Clone> SparseView<T> {
+
+
     pub fn new(stencil: PointStencil) -> SparseView<T> {
         SparseView {
             stencil
-            ,
-            points: vec!()
-            ,
-            map: HashMap::new()
+            , points: vec!()
+            , map: HashMap::new()
         }
     }
 
@@ -50,6 +50,14 @@ impl<T: Copy + Clone> SparseView<T> {
         }
         returned
     }
+/*
+    pub fn from_view(source: View<T>) -> SparseView<T> {
+        let mut returned = SparseView::new(source.stencil);
+        for (i, d) in source.data {
+            returned.insert(i, d);
+        }
+        returned
+    }*/
 
 
     pub fn update_from(&mut self, source: &SparseView<T>) {
@@ -82,8 +90,11 @@ impl<T: Copy + Clone> SparseView<T> {
 
                     let seat_and_row = (seat as usize, row as usize);
                     let exact = source_alignment & EXACT == EXACT;
+                    let done: u8 = if source_alignment & NATIVE == NATIVE { NATIVE } else { 0u8 };
+
                     let source_real_alignment =
-                        (if exact { EXACT } else { 0 }) + PROX;
+                        (if exact { EXACT } else { 0 }) + PROX + done;
+
 
                     let self_alignment = self.map.get(&seat_and_row)
                         .map(|&index| self.points[index].1)
@@ -157,8 +168,10 @@ impl<T: Copy + Clone> SparseView<T> {
                                 let seat_and_row = (seat as usize, row as usize);
                                 let exact = source_alignment & EXACT == EXACT;
                                 let est = source_alignment & PROX == PROX;
+                                let undone_mask = u8::MAX - NATIVE;
+
                                 let source_real_alignment =
-                                    { if exact { EXACT } else { 0 } } + { if est { PROX } else { 0 } };
+                                    ({ if exact { EXACT } else { 0 } } + { if est { PROX } else { 0 } }) & undone_mask;
 
                                 if source_real_alignment == 0 { continue; }
 
@@ -187,7 +200,7 @@ impl<T: Copy + Clone> SparseView<T> {
                 } else {
                     // zooming in such that one pixel necessarily fills the entire screen.
                     // There are four cases, identified by whether the screen is split
-                    // horizontally or vertically or both along pixel boundaries.
+                    // horizontally or vertically or both along point boundaries.
 
                     let sink_bottom_right_corner = self.stencil.bottom_right_point();
 
@@ -601,8 +614,10 @@ impl<T: Copy + Clone> SparseView<T> {
                         let seat_and_row = (sink_seat as usize, sink_row as usize);
                         let exact = source_alignment & EXACT == EXACT;
                         let est = source_alignment & PROX == PROX;
+                        let undone_mask = u8::MAX - NATIVE;
+
                         let source_real_alignment =
-                            { if exact { EXACT } else { 0 } } + { if est { PROX } else { 0 } };
+                            ({ if exact { EXACT } else { 0 } } + { if est { PROX } else { 0 } }) & undone_mask;
 
                         if source_real_alignment == 0 { continue; }
 
@@ -678,6 +693,7 @@ proptest! {
             1 => Just(8i32),
             1 => -1000000i32..1000000i32
         ]
+        , source_bitmap_value in 0u8..255u8
     ) {
 
         let location_delta = (
@@ -714,8 +730,9 @@ proptest! {
 
 
 
-        let mut source_view = View::new_known(stencil_A.clone(), 0);
+        let mut source_view = View::new_custom(stencil_A.clone(), 0, source_bitmap_value);
         let mut sparse_source_view = SparseView::new(stencil_A.clone());
+
 
         for seat in 0..resolution.0*resolution.1 {
             source_view.data[seat]=seat as i32;

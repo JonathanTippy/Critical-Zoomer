@@ -15,12 +15,12 @@ pub trait Scheduler<T: Mandelbrotable, P: PeriodicityDetector<T>, W: Worker<T, P
 
     fn get_next_n_seats<const N:usize>(
         scheduler_state: &Self::State
-        , active_view: &mut View<()> // must respect WIP and then update WIP
+        , active_view: &mut View<()>
     ) -> [Option<((usize, usize), Option<CalibratedAnswer>)>; N];
 
     fn update<const N: usize>(
         scheduler_state: &mut Self::State
-        , active_view: &mut View<()> // must update bitmap
+        , active_view: &mut View<()>
         , updates: &[Option<((usize, usize), CalibratedAnswer)>; N]
     );
 }
