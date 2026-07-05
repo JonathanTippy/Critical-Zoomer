@@ -3,6 +3,8 @@ use rug::Integer;
 use crate::constants::*;
 use std::cmp::*;
 pub mod views;
+pub mod stencil;
+
 use crate::range::*;
 
 #[derive(PartialEq, Clone, Debug)]

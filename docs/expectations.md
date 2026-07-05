@@ -46,7 +46,7 @@ The user must be allowed to go as deep as he would care to go. At comfortable zo
 ### Tenacious
 
 The app must discard the concept of a "max iteration count" and instead always 
-attempt to finish its work, as long as its still visible.
+attempt to eventually finish its work, as long as its still visible.
 
 ### Hoarding
 
@@ -66,5 +66,5 @@ there must be no computational settings.
 ### Calibrated
 
 The outputs must be reasonably believed to be correct and known.
-The app must not present work not finished yet as inside the set, 
-unless it has a reasonable belief that it probably is in the set.
+The app must not present work not finished yet as if it is known, 
+unless it has a reasonable belief based on an algorithm.

@@ -9,18 +9,15 @@ Copy
 + Add<Output=Self>
 + Sub<Output=Self>
 + Mul<Output=Self>
-+ TryFrom<IntExp>
++ From<IntExp>
 {
     const ZERO: Self;
     const TWO: Self;
 
     fn to_f32(self) -> f32;
     fn to_f64(self) -> f64;
-
-    fn is_finite(self) -> bool {
-        true
-    }
 }
+
 
 impl Mandelbrotable for f32 {
     const ZERO: Self = 0.0;
@@ -32,10 +29,6 @@ impl Mandelbrotable for f32 {
 
     fn to_f64(self) -> f64 {
         self as f64
-    }
-
-    fn is_finite(self) -> bool {
-        f32::is_finite(self)
     }
 }
 
@@ -52,7 +45,4 @@ impl Mandelbrotable for f64 {
         self
     }
 
-    fn is_finite(self) -> bool {
-        f64::is_finite(self)
-    }
 }

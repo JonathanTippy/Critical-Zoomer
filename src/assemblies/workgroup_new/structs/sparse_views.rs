@@ -168,10 +168,10 @@ impl<T: Copy + Clone> SparseView<T> {
                                 let seat_and_row = (seat as usize, row as usize);
                                 let exact = source_alignment & EXACT == EXACT;
                                 let est = source_alignment & PROX == PROX;
-                                let undone_mask = u8::MAX - NATIVE;
+                                let unnative_mask = u8::MAX - NATIVE;
 
                                 let source_real_alignment =
-                                    ({ if exact { EXACT } else { 0 } } + { if est { PROX } else { 0 } }) & undone_mask;
+                                    ({ if exact { EXACT } else { 0 } } + { if est { PROX } else { 0 } }) & unnative_mask;
 
                                 if source_real_alignment == 0 { continue; }
 
@@ -614,10 +614,10 @@ impl<T: Copy + Clone> SparseView<T> {
                         let seat_and_row = (sink_seat as usize, sink_row as usize);
                         let exact = source_alignment & EXACT == EXACT;
                         let est = source_alignment & PROX == PROX;
-                        let undone_mask = u8::MAX - NATIVE;
+                        let unnative_mask = u8::MAX - NATIVE;
 
                         let source_real_alignment =
-                            ({ if exact { EXACT } else { 0 } } + { if est { PROX } else { 0 } }) & undone_mask;
+                            ({ if exact { EXACT } else { 0 } } + { if est { PROX } else { 0 } }) & unnative_mask;
 
                         if source_real_alignment == 0 { continue; }
 
@@ -712,8 +712,7 @@ proptest! {
             resolution
             , location: location.clone()
             , serial_number: 0
-, focus: None
-, hover: None
+            , focus: None, hover: None
         };
 
         let stencil_B = PointStencil{

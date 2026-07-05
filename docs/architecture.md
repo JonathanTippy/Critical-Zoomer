@@ -22,7 +22,7 @@ Views must be used in all actors to store the actor's input buffer, and as the a
 The Headgroup must use a View to sample RGB frames under user movement.
 The workgroup must use views to manage completed work and work in progress, and to resample on movement. The workgroup must also make use of the bitmap to prioritize misses (0) over representative values for new work.
 
-The view contains a stencil, a vec of data which is the same length as the number of pixels defined by the stencil, and a vec of bytes defining whether each pixel was mapped exactly, or at all.
+The view contains a stencil, and a vec of data which is the same length as the number of pixels defined by the stencil, and a vec of bytes defining whether each pixel was mapped exactly, or at all.
 
 The workgroup sends a view of answers to the shadergroup, which sends a view of Color32s to the headgroup.
 ## Assemblies
@@ -76,19 +76,17 @@ I. When moving.
      but instead they have them at the edge.
      As soon as the movement has ceased and the worker is allowed to catch up, it should re-do the smeared areas,
      but not waste time redoing the rest of the frame which was merely translated.
-  3. failing that (initial startup), it must produce an "incomplete" signal. This is done by rapidly varying all attributes randomly.
-     There must not be a "dummy" or "idk" or "incomplete" struct / enum.
 II. When zooming in
   from previous work / lookahed, best res available. Zooming in is manifestly a subset; no further fallbacks necessary.
 
 III. When zooming out
   1. from previous work / lookahed, best res available
-  2. failing that, it must produce an "incomplete" signal.
+  2. failing that, by smearing / extruding the pixels at the edge of the screen.
 
 
 When doing best-res output:
 
- Pixels must be properly aligned so structures don't appear to shift when greater detail is available.
+Pixels must be properly aligned so structures don't appear to shift when greater detail is available.
 
 
 When transforming older work:
@@ -96,8 +94,8 @@ When transforming older work:
   The code used for transforming old work must be the same code used in the Headgroup to sample rgb values and provided the same transform as input and ensured to be the same frame position, zoom, and resolution as the RGB buffer in the Headgroup so the results are guaranteed to match.
 
 
-The Workgroup must send hoarded work for the current frame to the Shadergroup anytime it is remapped due to a transform or 50ms has passed and the screen is not yet complete.
-When the screen is not yet complete, the Workgroup must always have some new work at this interval; it must be able to pause a particularly difficult point and continue it in the next workshift.
+The Workgroup must send hoarded work for the current frame to the Shadergroup anytime it is remapped due to a transform or 33ms has passed and the screen is not yet complete.
+When the screen is not yet complete, the Workgroup must always publish some new work at the minimum interval; it must be able to pause work and continue it in the next workshift.
 
 
 ### Shadergroup
@@ -131,7 +129,7 @@ Steady state is the cornerstone of this project;
 Previous free implementations either use one core, and start to chug when there's too much work to do, or they use a secondary "come back when you're done" core, which can't display its partially completed work. 
 Steady state allows the developer to build a machine: a system where data does what it ought to do, not what threading limitations forced.
 This app is built on the steady state philosophy: there is no light load or heavy load, only load.
-Channel overflows are a sign of *incorrect code*, not transient stress.
+Channel backpressures are a sign of *incorrect code*, not transient stress.
 
 ### Egui
 
@@ -144,7 +142,7 @@ Rug is the current standard for large numbers.
 ## Requirements Allocation
 
 Form Factor: Headgroup
-System Policy: Workgroup, Shadergroup
+System Policy: Workgroup
 Control Scheme: Headgroup
 Display Scheme: Headgroup
 Cosmetic Options: Headgroup & Shadergroup

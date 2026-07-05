@@ -3,6 +3,9 @@ THE ASSISTANT MAY NEVER USE THE ACRONYMS INDICES OR MARKERS IN THIS FILE AND MUS
 
 # actor modules
 
+- Escaper
+- Colorer
+
 ### I/O
 
 # actor threads
