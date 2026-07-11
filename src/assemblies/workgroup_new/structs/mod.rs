@@ -8,6 +8,25 @@ use crate::constants::PIXELS_PER_UNIT_POT;
 use crate::intexp::*;
 use crate::assemblies::workgroup_new::structs::mandelbrotable::*;
 use crate::range::*;
+
+
+pub struct SchedulingAnswer {
+    result: SchedulingMandelbrotResult
+    , min_magnitude_angle: u8
+    , min_magnitude_time_hash: u16
+}
+
+pub enum SchedulingMandelbrotResult {
+    Outside {
+        escape_time_angle: u32
+    }
+    , Inside{
+        period_hash: u32
+    }
+}
+
+
+
 #[derive(PartialEq, Clone, Debug)]
 
 pub struct SparseView<T> {
@@ -141,13 +160,7 @@ impl CalibratedAnswer {
                 self.min_magnitude_time.guess_biased(bias.min_magnitude_time)
             , min_magnitude:
                 self.min_magnitude.guess_biased(bias.min_magnitude)
-            , highlights:
-            Highlights{
-                in_filament: self.highlights.in_filament.guess_biased(bias.highlights.in_filament)
-                , out_filament: self.highlights.out_filament.guess_biased(bias.highlights.out_filament)
-                , small_time_edge: self.highlights.small_time_edge.guess_biased(bias.highlights.small_time_edge)
-                , node: self.highlights.node.guess_biased(bias.highlights.node)
-            }
+            ,
         }
     }
 }

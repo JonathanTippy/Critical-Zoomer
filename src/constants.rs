@@ -1,7 +1,7 @@
 use crate::assemblies::structs::*;
 
 // UNDERIVED CONSTANTS
-pub const DEFAULT_WINDOW_RES:(u32, u32) = (854, 480);
+pub const DEFAULT_WINDOW_RES:(u32, u32) = (1920, 1080);
 pub const HOME_POSITION:(i32, i32, i32) = (-2, -2, -2);
 pub const MOVE_SPEED_PPS: i32 = 200;
 pub const MOVE_SPEED_IN_SCREENS: f32 = 0.42;
@@ -16,10 +16,4 @@ pub const NORES_ANSWER:Answer = Answer{
     }
     , min_magnitude_time: 0
     , min_magnitude: f64::INFINITY
-    , highlights: Highlights{
-        in_filament: true
-        , out_filament: false
-        , small_time_edge: false
-        , node: true
-    }
 };

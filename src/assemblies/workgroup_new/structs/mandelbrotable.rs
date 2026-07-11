@@ -10,6 +10,7 @@ Copy
 + Sub<Output=Self>
 + Mul<Output=Self>
 + From<IntExp>
++ From<u16>
 {
     const ZERO: Self;
     const TWO: Self;
@@ -46,3 +47,4 @@ impl Mandelbrotable for f64 {
     }
 
 }
+

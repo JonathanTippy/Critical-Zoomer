@@ -38,7 +38,7 @@ impl PointStencil {
             , "Invalid Stencil: POT zoom level and precision exponents must match."
         );
         assert!(
-            self.resolution.0 < 2 << 16 && self.resolution.1 < 2 << 16
+            self.resolution.0 < 1 << 16 && self.resolution.1 < 1 << 16
             , "Invalid Stencil: No resolution side length may exceed 2^16 pixels."
         );
         assert!(

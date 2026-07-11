@@ -130,7 +130,6 @@ async fn internal_behavior<A: SteadyActor>(
                                                        }
                                                        , min_magnitude_time: small_time as u64
                                                        , min_magnitude: smallness
-                                                       , highlights: Highlights::new()
                                                    }
                                                }
                                                , CompletedPoint::Repeats{ period, smallness, small_time} => {
@@ -143,7 +142,6 @@ async fn internal_behavior<A: SteadyActor>(
                                                        ,
                                                        min_magnitude: smallness
                                                        ,
-                                                       highlights: Highlights::new()
                                                    }
                                                }
                                                , CompletedPoint::Dummy{} => {
@@ -156,7 +154,6 @@ async fn internal_behavior<A: SteadyActor>(
                                                        ,
                                                        min_magnitude: 0.0
                                                        ,
-                                                       highlights: Highlights::new()
                                                    }
                                                }
                                            }
@@ -202,7 +199,6 @@ async fn internal_behavior<A: SteadyActor>(
                                         min_magnitude_time: small_time as u64
                                         ,
                                         min_magnitude: smallness
-                                        , highlights: Highlights::new()
                                     }
                                 }
                                 ,
@@ -215,7 +211,6 @@ async fn internal_behavior<A: SteadyActor>(
                                         min_magnitude_time: small_time as u64
                                         ,
                                         min_magnitude: smallness
-                                        , highlights: Highlights::new()
                                     }
                                 }
                                 ,
@@ -228,7 +223,6 @@ async fn internal_behavior<A: SteadyActor>(
                                         min_magnitude_time: 0
                                         ,
                                         min_magnitude: 0.0
-                                        , highlights: Highlights::new()
                                     }
                                 }
                             }

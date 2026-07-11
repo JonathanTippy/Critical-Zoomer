@@ -240,42 +240,18 @@ impl std::fmt::Display for IntExp {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct InexactIntExp;
 
-impl TryFrom<IntExp> for f64 {
-    type Error = InexactIntExp;
-
-    fn try_from(e: IntExp) -> Result<f64, Self::Error> {
-        const MAX_EXP: i32 = 1023;
-        const MIN_EXP: i32 = -1074;
-        const SIG_BITS: u32 = 53;
-
-        if !e.val.is_zero() && (e.exp > MAX_EXP || e.exp < MIN_EXP) {
-            return Err(InexactIntExp);
-        }
-        if e.val.significant_bits() > SIG_BITS {
-            return Err(InexactIntExp);
-        }
-        Ok(e.to_f64())
+impl From<IntExp> for f64 {
+    fn from(e: IntExp) -> f64 {
+        e.to_f64()
     }
 }
 
-impl TryFrom<IntExp> for f32 {
-    type Error = InexactIntExp;
+impl From<IntExp> for f32 {
 
-    fn try_from(e: IntExp) -> Result<f32, Self::Error> {
-        const MAX_EXP: i32 = 127;
-        const MIN_EXP: i32 = -149;
-        const SIG_BITS: u32 = 24;
+    fn from(e: IntExp) -> f32 {
 
-        if !e.val.is_zero() && (e.exp > MAX_EXP || e.exp < MIN_EXP) {
-            return Err(InexactIntExp);
-        }
-        if e.val.significant_bits() > SIG_BITS {
-            return Err(InexactIntExp);
-        }
-        Ok(e.to_f32())
+        e.to_f32()
     }
 }
 

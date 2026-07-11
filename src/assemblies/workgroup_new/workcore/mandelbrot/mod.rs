@@ -5,6 +5,8 @@ pub mod scheduler_implementations;
 use crate::assemblies::structs::*;
 use crate::assemblies::workgroup_new::structs::mandelbrotable::*;
 use crate::assemblies::workgroup_new::structs::*;
+use crate::intexp::*;
+
 pub trait Scheduler<T: Mandelbrotable, P: PeriodicityDetector<T>, W: Worker<T, P>>{
 
     type State;
@@ -73,4 +75,49 @@ pub trait PeriodicityDetector<T: Mandelbrotable> {
     fn init(iteration_count: u64, z: (T, T)) -> Self;
     fn update(&mut self, iteration_count: u64, z: (T, T));
     fn is_periodic(&self) -> bool;
+}
+
+// must store each type during computation to avoid later conversion
+// , repeated conversion, and recomputation,
+// because reference orbits are permanent and are reused across stencils and types
+struct ReferenceOrbit {
+    big_c: (IntExp, IntExp)
+    , period: u64
+    , length: usize
+    , f32: PeriodicOrbit<f32>
+    , f64: PeriodicOrbit<f64>
+    // ALL later used mandelbrotable types
+}
+
+impl ReferenceOrbit {
+    fn assert_validity(&self) {
+        assert_eq!(self.period, self.f32.period);
+        assert_eq!(self.period, self.f64.period);
+        assert_eq!(self.length, self.f32.big_z_orbit.len());
+        assert_eq!(self.length, self.f64.big_z_orbit.len());
+        // ALL used mandelbrotable types
+    }
+}
+
+struct PeriodicOrbit<T: Mandelbrotable> {
+    period: u64
+    , big_z_orbit: Vec<(T, T)>
+    , series: Vec<(T, T)>
+}
+
+
+use std::ops::*;
+
+impl<T: Mandelbrotable> Index<u64> for PeriodicOrbit<T> {
+    type Output = (T, T);
+    fn index(&self, index: u64) -> &(T, T) {
+        let loop_start = self.big_z_orbit.len() as u64 - self.period;
+        if index < loop_start {
+            return &self.big_z_orbit[index as usize];
+        } else {
+            return &self.big_z_orbit[
+                (loop_start + (index-loop_start % self.period)) as usize
+            ];
+        }
+    }
 }
