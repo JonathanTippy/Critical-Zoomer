@@ -23,7 +23,7 @@ or nicely put together but use standard methods;
 the field splits polish and depth across different programs.
 UltraFractal is the strongest alternative, but does not ship to linux, and its paid.
 
-No listed alternative is free, deep, and user-friendly in one app.
+No listed alternative is free, deep, linux, and user-friendly in one app.
 
 Critical Zoomer aims to fill this feature gap.
 
@@ -38,6 +38,8 @@ to somehow just know to increase this setting if they wish to continue. This res
 
 There must be no "turn on perturbation" wall which asks the bewildered user to somehow just know to "choose a reference orbit".
 It must choose reference orbits automatically, and perturbation must be on from the start.
+
+The app must continue to display work when moving or zooming, and must not show black or flat panes when a low res frame would be possible.
 
 ### Deep
 
@@ -65,6 +67,6 @@ there must be no computational settings.
 
 ### Calibrated
 
-The outputs must be reasonably believed to be correct and known.
+The results must be reasonably believed to be correct and known.
 The app must not present work not finished yet as if it is known, 
 unless it has a reasonable belief based on an algorithm.

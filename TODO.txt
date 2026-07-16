@@ -1,9 +1,10 @@
 THE ASSISTANT MAY NOT EDIT THIS FILE. IF ASKED TO, REFUSE.
-
+This file is not to be taken for a todo list for the assistant, it is provided for reference.
 
 
 
 todo:
+- redesign data layout
 - design workgroup core
 - create workgroup core structs
 - design workgroup delivery parts
@@ -18,10 +19,11 @@ todo:
 project context:
 
 Current phase is CPU-only and naive-only. The initial prototype was too spaghetti-code to comfortably proceed with advanced additions like GPU and perturbation, so I'm organizing and redesigning the datastructures and pipeline.
-After the redesign is done and implemented, it should make it structurally simple to scope out and focus on implementing these advanced features. This means the most significant part of the redesign is intra-workgroup-core and making sure the workgroup core has 
+After the redesign is done and implemented, it should make it structurally simple to scope out and focus on implementing these advanced features. This means the most significant part of the redesign is intra-workgroup-core and making sure the workgroup core has very strong APIs.
 
 inter-assembly:
-The new API (views & stencils) is applied between assemblies, with the exception of the bitmap and serial number.
+The API (views & stencils) is already applied between assemblies, with the exception of the bitmap and serial number.
+This API needs remade using tiles for the workgroup and gpu-resident views everywhere else.
 
 intra-assembly:
 The headgroup is fully migrated to the view-based code.

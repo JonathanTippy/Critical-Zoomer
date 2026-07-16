@@ -122,7 +122,7 @@ The app must not have a GPU toggle;
 GPU acceleration must always be on.
 
 The app must not have a reference orbit input;
-Reverence orbits must be computed in the background and must not show a progress bar or prevent user activity.
+Reference orbits must be computed in the background and must not show a progress bar or prevent user activity.
 
 ### Deep
 

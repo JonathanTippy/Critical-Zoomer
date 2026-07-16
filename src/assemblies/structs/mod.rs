@@ -41,7 +41,6 @@ pub struct Answer {
     , pub min_magnitude: f64
 }
 
-
 impl Answer {
     pub const TESTVAL: Answer = Answer {
         result: MandelbrotResult::Outside {
@@ -53,9 +52,6 @@ impl Answer {
 
     };
 }
-
-
-
 
 #[derive(Copy, Clone)]
 pub enum MandelbrotResult {
