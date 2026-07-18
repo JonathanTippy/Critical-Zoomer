@@ -324,9 +324,9 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             if state.sampling_context.updated
             {
                 actor.try_send(&mut stencil_out, PointStencil{
-                    location: (state.sampling_context.location.pos.0.clone()
-                    , IntExp::ZERO-state.sampling_context.location.pos.1.clone()
-                    , state.sampling_context.location.zoom_pot.clone()
+                    homothety: (state.sampling_context.location.pos.0.clone()
+                                , IntExp::ZERO-state.sampling_context.location.pos.1.clone()
+                                , state.sampling_context.location.zoom_pot.clone()
                     )
                     , resolution: (state.size.x as usize, state.size.y as usize)
                     , serial_number: state.stencil_serial_number_counter

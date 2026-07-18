@@ -126,8 +126,8 @@ async fn internal_behavior<A: SteadyActor>(
             };
             match actor.try_take(&mut values_in) {
                 Some(v) => {
-                    let location_f64:(f64, f64) = (v.stencil.location.clone().0.to_f64(), v.stencil.location.clone().1.to_f64());
-                    let space_f64:f64 = IntExp::from(1).shift (-v.stencil.location.2 - PIXELS_PER_UNIT_POT).to_f64();
+                    let location_f64:(f64, f64) = (v.stencil.homothety.clone().0.to_f64(), v.stencil.homothety.clone().1.to_f64());
+                    let space_f64:f64 = IntExp::from(1).shift (-v.stencil.homothety.2 - PIXELS_PER_UNIT_POT).to_f64();
 
                     let mut rng = rand::thread_rng();
                     //info!("recieved values");
@@ -158,8 +158,8 @@ async fn internal_behavior<A: SteadyActor>(
                         }).collect()
                         , screen_res: (v.stencil.resolution.0 as u32, v.stencil.resolution.1 as u32)
                         , location: ObjectivePosAndZoom{
-                            pos: (v.stencil.location.0, IntExp::ZERO-v.stencil.location.1)
-                            , zoom_pot: v.stencil.location.2
+                            pos: (v.stencil.homothety.0, IntExp::ZERO-v.stencil.homothety.1)
+                            , zoom_pot: v.stencil.homothety.2
                         }
                     });
                 }

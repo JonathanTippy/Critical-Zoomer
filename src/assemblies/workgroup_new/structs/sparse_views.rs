@@ -62,9 +62,9 @@ impl<T: Copy + Clone> SparseView<T> {
 
     pub fn update_from(&mut self, source: &SparseView<T>) {
         let screenspace_delta = (
-            self.stencil.location.0.clone() - source.stencil.location.0.clone()
-            , IntExp::ZERO - (self.stencil.location.1.clone() - source.stencil.location.1.clone())
-            , self.stencil.location.2 - source.stencil.location.2
+            self.stencil.homothety.0.clone() - source.stencil.homothety.0.clone()
+            , IntExp::ZERO - (self.stencil.homothety.1.clone() - source.stencil.homothety.1.clone())
+            , self.stencil.homothety.2 - source.stencil.homothety.2
         );
 
         let source_is_preferred = source.stencil.serial_number > self.stencil.serial_number;
@@ -72,9 +72,9 @@ impl<T: Copy + Clone> SparseView<T> {
         match screenspace_delta.2.cmp(&0) {
             Ordering::Equal => {
                 let pan_pixel_delta: (isize, isize) = (
-                    screenspace_delta.0.shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                    screenspace_delta.0.shift(self.stencil.homothety.2 + PIXELS_PER_UNIT_POT)
                         .clamp(IntExp::from(isize::MIN), IntExp::from(isize::MAX)).into()
-                    , screenspace_delta.1.shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                    , screenspace_delta.1.shift(self.stencil.homothety.2 + PIXELS_PER_UNIT_POT)
                         .clamp(IntExp::from(isize::MIN), IntExp::from(isize::MAX)).into()
                 );
 
@@ -120,16 +120,16 @@ impl<T: Copy + Clone> SparseView<T> {
             Ordering::Greater => {
                 if screenspace_delta.2 < 16 {
                     let pan_sink_pixel_delta: (isize, isize) = (
-                        screenspace_delta.0.clone().shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                        screenspace_delta.0.clone().shift(self.stencil.homothety.2 + PIXELS_PER_UNIT_POT)
                             .clamp(IntExp::from(isize::MIN), IntExp::from(isize::MAX)).into()
-                        , (screenspace_delta.1.clone()).shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                        , (screenspace_delta.1.clone()).shift(self.stencil.homothety.2 + PIXELS_PER_UNIT_POT)
                             .clamp(IntExp::from(isize::MIN), IntExp::from(isize::MAX)).into()
                     );
 
                     let pan_source_pixel_delta: (isize, isize) = (
-                        screenspace_delta.0.clone().shift(source.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                        screenspace_delta.0.clone().shift(source.stencil.homothety.2 + PIXELS_PER_UNIT_POT)
                             .clamp(IntExp::from(isize::MIN), IntExp::from(isize::MAX)).into()
-                        , (screenspace_delta.1.clone()).shift(source.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                        , (screenspace_delta.1.clone()).shift(source.stencil.homothety.2 + PIXELS_PER_UNIT_POT)
                             .clamp(IntExp::from(isize::MIN), IntExp::from(isize::MAX)).into()
                     );
 
@@ -206,24 +206,24 @@ impl<T: Copy + Clone> SparseView<T> {
 
                     let cut = (
                         sink_bottom_right_corner.0
-                            .set_precision(source.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                            .set_precision(source.stencil.homothety.2 + PIXELS_PER_UNIT_POT)
                         , sink_bottom_right_corner.1
-                            .set_precision(source.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                            .set_precision(source.stencil.homothety.2 + PIXELS_PER_UNIT_POT)
                     );
 
                     let case: (Option<isize>, Option<isize>) = (
-                        if cut.0 <= self.stencil.location.0 {
+                        if cut.0 <= self.stencil.homothety.0 {
                             None
                         } else {
                             Some(
-                                (cut.0.clone() - self.stencil.location.0.clone()).shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT).into()
+                                (cut.0.clone() - self.stencil.homothety.0.clone()).shift(self.stencil.homothety.2 + PIXELS_PER_UNIT_POT).into()
                             )
                         }
-                        , if cut.1 <= self.stencil.location.1 {
+                        , if cut.1 <= self.stencil.homothety.1 {
                             None
                         } else {
                             Some(
-                                (cut.1.clone() - self.stencil.location.1.clone()).shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT).into()
+                                (cut.1.clone() - self.stencil.homothety.1.clone()).shift(self.stencil.homothety.2 + PIXELS_PER_UNIT_POT).into()
                             )
                         }
                     );
@@ -231,8 +231,8 @@ impl<T: Copy + Clone> SparseView<T> {
                     match case {
                         (None, None) => {
                             let preferred_source_seat = (
-                                <IntExp as Into<i32>>::into(cut.0.shift(source.stencil.location.2)).saturating_sub(1) as isize
-                                , <IntExp as Into<i32>>::into(cut.1.shift(source.stencil.location.2)).saturating_sub(1) as isize
+                                <IntExp as Into<i32>>::into(cut.0.shift(source.stencil.homothety.2)).saturating_sub(1) as isize
+                                , <IntExp as Into<i32>>::into(cut.1.shift(source.stencil.homothety.2)).saturating_sub(1) as isize
                             );
                             let sink_top_left_seat = (0, 0);
                             let sink_bottom_right_seat = (
@@ -271,8 +271,8 @@ impl<T: Copy + Clone> SparseView<T> {
                         }
                         (None, Some(vertical_edge)) => {
                             let preferred_source_seat_bottom = (
-                                cut.0.shift(source.stencil.location.2).into()
-                                , cut.1.shift(source.stencil.location.2).into()
+                                cut.0.shift(source.stencil.homothety.2).into()
+                                , cut.1.shift(source.stencil.homothety.2).into()
                             );
                             let preferred_source_seat_top = (
                                 preferred_source_seat_bottom.0
@@ -348,8 +348,8 @@ impl<T: Copy + Clone> SparseView<T> {
                         }
                         (Some(horizontal_edge), None) => {
                             let preferred_source_seat_right = (
-                                cut.0.shift(source.stencil.location.2).into()
-                                , cut.1.shift(source.stencil.location.2).into()
+                                cut.0.shift(source.stencil.homothety.2).into()
+                                , cut.1.shift(source.stencil.homothety.2).into()
                             );
                             let preferred_source_seat_left = (
                                 preferred_source_seat_right.0 - 1
@@ -425,8 +425,8 @@ impl<T: Copy + Clone> SparseView<T> {
                         }
                         (Some(horizontal_edge), Some(vertical_edge)) => {
                             let preferred_source_seat_bottom_right = (
-                                cut.0.shift(source.stencil.location.2).into()
-                                , cut.1.shift(source.stencil.location.2).into()
+                                cut.0.shift(source.stencil.homothety.2).into()
+                                , cut.1.shift(source.stencil.homothety.2).into()
                             );
                             let preferred_source_seat_bottom_left = (
                                 preferred_source_seat_bottom_right.0 - 1
@@ -578,16 +578,16 @@ impl<T: Copy + Clone> SparseView<T> {
             Ordering::Less => {
                 if -screenspace_delta.2 < 16 {
                     let pan_sink_pixel_delta: (isize, isize) = (
-                        screenspace_delta.0.clone().shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                        screenspace_delta.0.clone().shift(self.stencil.homothety.2 + PIXELS_PER_UNIT_POT)
                             .clamp(IntExp::from(isize::MIN), IntExp::from(isize::MAX)).into()
-                        , (screenspace_delta.1.clone()).shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                        , (screenspace_delta.1.clone()).shift(self.stencil.homothety.2 + PIXELS_PER_UNIT_POT)
                             .clamp(IntExp::from(isize::MIN), IntExp::from(isize::MAX)).into()
                     );
 
                     let pan_source_pixel_delta: (isize, isize) = (
-                        screenspace_delta.0.clone().shift(source.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                        screenspace_delta.0.clone().shift(source.stencil.homothety.2 + PIXELS_PER_UNIT_POT)
                             .clamp(IntExp::from(isize::MIN), IntExp::from(isize::MAX)).into()
-                        , (screenspace_delta.1.clone()).shift(source.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                        , (screenspace_delta.1.clone()).shift(source.stencil.homothety.2 + PIXELS_PER_UNIT_POT)
                             .clamp(IntExp::from(isize::MIN), IntExp::from(isize::MAX)).into()
                     );
 
@@ -710,14 +710,14 @@ proptest! {
 
         let stencil_A = PointStencil{
             resolution
-            , location: location.clone()
+            , homothety: location.clone()
             , serial_number: 0
             , focus: None, hover: None
         };
 
         let stencil_B = PointStencil{
             resolution
-            , location: (
+            , homothety: (
                 (location.0.clone() + location_delta.0).set_precision(PIXELS_PER_UNIT_POT+initial_zoom+zoom_delta)
                 , (location.1.clone() + location_delta.1).set_precision(PIXELS_PER_UNIT_POT+initial_zoom+zoom_delta)
                 , initial_zoom + zoom_delta

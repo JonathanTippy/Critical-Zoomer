@@ -96,17 +96,17 @@ async fn internal_behavior<A: SteadyActor>(
                 &mut state
                 ,(
                     ObjectivePosAndZoom {
-                        pos: (stuff.location.0.clone(), IntExp::ZERO-stuff.location.1.clone())
-                        , zoom_pot: stuff.location.2
+                        pos: (stuff.homothety.0.clone(), IntExp::ZERO-stuff.homothety.1.clone())
+                        , zoom_pot: stuff.homothety.2
                     }
                     , (stuff.resolution.0 as u32
                     , stuff.resolution.1 as u32)
                 )
             ) {
                 actor.try_send(&mut to_worker, WorkerCommand::Replace{frame_info: (ObjectivePosAndZoom {
-                    pos: (stuff.location.0, IntExp::ZERO-stuff.location.1)
+                    pos: (stuff.homothety.0, IntExp::ZERO-stuff.homothety.1)
                     ,
-                    zoom_pot: stuff.location.2
+                    zoom_pot: stuff.homothety.2
                 }, (stuff.resolution.0 as u32
                     , stuff.resolution.1 as u32)), context:ctx});
             };

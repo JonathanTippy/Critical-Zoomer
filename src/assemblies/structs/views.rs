@@ -23,8 +23,8 @@ impl PointStencil {
 
     pub fn correct_precision(self) -> Self {
         PointStencil {
-            location:(self.location.0.clone().set_precision(PIXELS_PER_UNIT_POT+self.location.2)
-            , self.location.1.clone().set_precision(PIXELS_PER_UNIT_POT +self.location.2), self.location.2)
+            homothety:(self.homothety.0.clone().set_precision(PIXELS_PER_UNIT_POT+self.homothety.2)
+                       , self.homothety.1.clone().set_precision(PIXELS_PER_UNIT_POT +self.homothety.2), self.homothety.2)
             , resolution: self.resolution
             , serial_number: self.serial_number
             , focus: self.focus
@@ -33,8 +33,8 @@ impl PointStencil {
     }
     pub fn assert_validity(&self) {
         assert!(
-            self.location.0.exp == -(self.location.2 + PIXELS_PER_UNIT_POT)
-            && self.location.0.exp == self.location.1.exp
+            self.homothety.0.exp == -(self.homothety.2 + PIXELS_PER_UNIT_POT)
+            && self.homothety.0.exp == self.homothety.1.exp
             , "Invalid Stencil: POT zoom level and precision exponents must match."
         );
         assert!(
@@ -70,20 +70,20 @@ impl PointStencil {
     }
 
     pub fn bottom_right_point(&self) -> (IntExp, IntExp) {
-        let space = IntExp::from(1).shift(-self.location.2 - PIXELS_PER_UNIT_POT);
+        let space = IntExp::from(1).shift(-self.homothety.2 - PIXELS_PER_UNIT_POT);
         return (
-            self.location.0.clone() + space.clone() * IntExp::from(self.resolution.0-1)
-            , self.location.1.clone() - space * IntExp::from(self.resolution.1-1)
+            self.homothety.0.clone() + space.clone() * IntExp::from(self.resolution.0-1)
+            , self.homothety.1.clone() - space * IntExp::from(self.resolution.1-1)
         )
     }
 
 
     pub fn corners(&self) -> ((IntExp, IntExp), (IntExp, IntExp)) {
-        let top_left: (IntExp, IntExp) = (self.location.0.clone(), self.location.1.clone());
+        let top_left: (IntExp, IntExp) = (self.homothety.0.clone(), self.homothety.1.clone());
 
         let bottom_right: (IntExp, IntExp) = (
-            self.location.0.clone() + self.space() * IntExp::from(self.resolution.0)
-            , self.location.1.clone() - self.space() * IntExp::from(self.resolution.1)
+            self.homothety.0.clone() + self.space() * IntExp::from(self.resolution.0)
+            , self.homothety.1.clone() - self.space() * IntExp::from(self.resolution.1)
         );
         (
             top_left
@@ -192,9 +192,9 @@ impl<T: Copy> View<T> {
         self.assert_validity();
 
         let screenspace_delta = (
-            self.stencil.location.0.clone() - source.stencil.location.0.clone()
-            , IntExp::ZERO - (self.stencil.location.1.clone() - source.stencil.location.1.clone())
-            , self.stencil.location.2 - source.stencil.location.2
+            self.stencil.homothety.0.clone() - source.stencil.homothety.0.clone()
+            , IntExp::ZERO - (self.stencil.homothety.1.clone() - source.stencil.homothety.1.clone())
+            , self.stencil.homothety.2 - source.stencil.homothety.2
         );
 
         let source_is_preferred = source.stencil.serial_number > self.stencil.serial_number;
@@ -202,9 +202,9 @@ impl<T: Copy> View<T> {
         match screenspace_delta.2.cmp(&0) {
             Ordering::Equal => {
                 let pan_pixel_delta: (isize, isize) = (
-                    screenspace_delta.0.shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                    screenspace_delta.0.shift(self.stencil.homothety.2 + PIXELS_PER_UNIT_POT)
                         .clamp(IntExp::from(isize::MIN), IntExp::from(isize::MAX)).into()
-                    , (screenspace_delta.1).shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                    , (screenspace_delta.1).shift(self.stencil.homothety.2 + PIXELS_PER_UNIT_POT)
                         .clamp(IntExp::from(isize::MIN), IntExp::from(isize::MAX)).into()
                 );
 
@@ -265,16 +265,16 @@ impl<T: Copy> View<T> {
             Ordering::Greater => {
                 if screenspace_delta.2 < 16 {
                     let pan_self_pixel_delta: (isize, isize) = (
-                        screenspace_delta.0.clone().shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                        screenspace_delta.0.clone().shift(self.stencil.homothety.2 + PIXELS_PER_UNIT_POT)
                             .clamp(IntExp::from(isize::MIN), IntExp::from(isize::MAX)).into()
-                        , (screenspace_delta.1.clone()).shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                        , (screenspace_delta.1.clone()).shift(self.stencil.homothety.2 + PIXELS_PER_UNIT_POT)
                             .clamp(IntExp::from(isize::MIN), IntExp::from(isize::MAX)).into()
                     );
 
                     let pan_source_pixel_delta: (isize, isize) = (
-                        screenspace_delta.0.clone().shift(source.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                        screenspace_delta.0.clone().shift(source.stencil.homothety.2 + PIXELS_PER_UNIT_POT)
                             .clamp(IntExp::from(isize::MIN), IntExp::from(isize::MAX)).into()
-                        , (screenspace_delta.1.clone()).shift(source.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                        , (screenspace_delta.1.clone()).shift(source.stencil.homothety.2 + PIXELS_PER_UNIT_POT)
                             .clamp(IntExp::from(isize::MIN), IntExp::from(isize::MAX)).into()
                     );
 
@@ -333,24 +333,24 @@ impl<T: Copy> View<T> {
 
                     let cut = (
                         self_bottom_right_corner.0
-                            .set_precision(source.stencil.location.2+PIXELS_PER_UNIT_POT)
+                            .set_precision(source.stencil.homothety.2+PIXELS_PER_UNIT_POT)
                         , self_bottom_right_corner.1
-                            .set_precision(source.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                            .set_precision(source.stencil.homothety.2 + PIXELS_PER_UNIT_POT)
                     );
 
                     let case:(Option<isize>, Option<isize>) = (
-                        if cut.0 <= self.stencil.location.0 {
+                        if cut.0 <= self.stencil.homothety.0 {
                             None
                         } else {
                             Some(
-                                (cut.0.clone()-self.stencil.location.0.clone()).shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT).into()
+                                (cut.0.clone()-self.stencil.homothety.0.clone()).shift(self.stencil.homothety.2 + PIXELS_PER_UNIT_POT).into()
                             )
                         }
-                        , if cut.1 <= self.stencil.location.1 {
+                        , if cut.1 <= self.stencil.homothety.1 {
                             None
                         } else {
                             Some(
-                                (cut.1.clone() - self.stencil.location.1.clone()).shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT).into()
+                                (cut.1.clone() - self.stencil.homothety.1.clone()).shift(self.stencil.homothety.2 + PIXELS_PER_UNIT_POT).into()
                             )
                         }
                     );
@@ -358,8 +358,8 @@ impl<T: Copy> View<T> {
                     match case {
                         (None, None) => {
                             let preferred_source_seat = (
-                                <IntExp as Into<i32>>::into(cut.0.shift(source.stencil.location.2)).saturating_sub(1) as isize
-                                , <IntExp as Into<i32>>::into(cut.1.shift(source.stencil.location.2)).saturating_sub(1) as isize
+                                <IntExp as Into<i32>>::into(cut.0.shift(source.stencil.homothety.2)).saturating_sub(1) as isize
+                                , <IntExp as Into<i32>>::into(cut.1.shift(source.stencil.homothety.2)).saturating_sub(1) as isize
                             );
                             let clamped_source_seat = source.stencil.clamp_seat_and_row(preferred_source_seat);
                             let source_index= source.stencil.index(clamped_source_seat);
@@ -376,8 +376,8 @@ impl<T: Copy> View<T> {
                         , (None, Some(vertical_edge)) => {
 
                             let preferred_source_seat_bottom = (
-                                cut.0.shift(source.stencil.location.2).into()
-                                , cut.1.shift(source.stencil.location.2).into()
+                                cut.0.shift(source.stencil.homothety.2).into()
+                                , cut.1.shift(source.stencil.homothety.2).into()
                             );
                             let preferred_source_seat_top = (
                                 preferred_source_seat_bottom.0
@@ -409,8 +409,8 @@ impl<T: Copy> View<T> {
                         }
                         , (Some(horizontal_edge), None) => {
                             let preferred_source_seat_right = (
-                                cut.0.shift(source.stencil.location.2).into()
-                                , cut.1.shift(source.stencil.location.2).into()
+                                cut.0.shift(source.stencil.homothety.2).into()
+                                , cut.1.shift(source.stencil.homothety.2).into()
                             );
                             let preferred_source_seat_left = (
                                 preferred_source_seat_right.0 - 1
@@ -443,8 +443,8 @@ impl<T: Copy> View<T> {
                         ,
                         (Some(horizontal_edge), Some(vertical_edge)) => {
                             let preferred_source_seat_bottom_right = (
-                                cut.0.shift(source.stencil.location.2).into()
-                                , cut.1.shift(source.stencil.location.2).into()
+                                cut.0.shift(source.stencil.homothety.2).into()
+                                , cut.1.shift(source.stencil.homothety.2).into()
                             );
                             let preferred_source_seat_bottom_left = (
                                 preferred_source_seat_bottom_right.0 - 1
@@ -513,16 +513,16 @@ impl<T: Copy> View<T> {
             Ordering::Less => {
                 if screenspace_delta.2 > -16 {
                     let pan_source_pixel_delta: (isize, isize) = (
-                        screenspace_delta.0.clone().shift(source.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                        screenspace_delta.0.clone().shift(source.stencil.homothety.2 + PIXELS_PER_UNIT_POT)
                             .clamp(IntExp::from(isize::MIN), IntExp::from(isize::MAX)).into()
-                        , (screenspace_delta.1.clone()).shift(source.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                        , (screenspace_delta.1.clone()).shift(source.stencil.homothety.2 + PIXELS_PER_UNIT_POT)
                             .clamp(IntExp::from(isize::MIN), IntExp::from(isize::MAX)).into()
                     );
 
                     let pan_self_pixel_delta: (isize, isize) = (
-                        screenspace_delta.0.clone().shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                        screenspace_delta.0.clone().shift(self.stencil.homothety.2 + PIXELS_PER_UNIT_POT)
                             .clamp(IntExp::from(isize::MIN), IntExp::from(isize::MAX)).into()
-                        , (screenspace_delta.1.clone()).shift(self.stencil.location.2 + PIXELS_PER_UNIT_POT)
+                        , (screenspace_delta.1.clone()).shift(self.stencil.homothety.2 + PIXELS_PER_UNIT_POT)
                             .clamp(IntExp::from(isize::MIN), IntExp::from(isize::MAX)).into()
                     );
 
@@ -576,7 +576,7 @@ impl<T: Copy> View<T> {
 fn invalid_test_bad_data() {
     let mut a: View<i32> = View {
         stencil: PointStencil {
-            location: (
+            homothety: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , 0
@@ -597,7 +597,7 @@ fn invalid_test_bad_data() {
     };
     let b: View<i32> = View {
         stencil: PointStencil {
-            location: (
+            homothety: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , 0
@@ -622,7 +622,7 @@ fn invalid_test_bad_data() {
 fn invalid_test_misaligned() {
     let mut a: View<i32> = View {
         stencil: PointStencil {
-            location: (
+            homothety: (
                 IntExp::ZERO
                 , IntExp::ZERO
                 , 0
@@ -642,7 +642,7 @@ fn invalid_test_misaligned() {
     };
     let b: View<i32> = View {
         stencil: PointStencil {
-            location: (
+            homothety: (
                 IntExp::ZERO
                 , IntExp::ZERO
                 , 0
@@ -666,7 +666,7 @@ fn invalid_test_misaligned() {
 fn identity_test() {
     let mut a: View<i32> = View {
         stencil: PointStencil {
-            location: (
+            homothety: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , 0
@@ -686,7 +686,7 @@ fn identity_test() {
     };
     let b: View<i32> = View {
         stencil: PointStencil {
-            location: (
+            homothety: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , 0
@@ -713,7 +713,7 @@ fn identity_test() {
 fn improve_test() {
     let mut a: View<i32> = View {
         stencil: PointStencil {
-            location: (
+            homothety: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , 0
@@ -731,7 +731,7 @@ fn improve_test() {
     };
     let b: View<i32> = View {
         stencil: PointStencil {
-            location: (
+            homothety: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , 0
@@ -758,7 +758,7 @@ fn improve_test() {
 fn zoom_in_test() {
     let mut a: View<i32> = View {
         stencil: PointStencil {
-            location: (
+            homothety: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT - 1 }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT - 1 }
                 , 1
@@ -776,7 +776,7 @@ fn zoom_in_test() {
     };
     let b: View<i32> = View {
         stencil: PointStencil {
-            location: (
+            homothety: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , 0
@@ -794,7 +794,7 @@ fn zoom_in_test() {
 
     let expect: View<i32> = View {
         stencil: PointStencil {
-            location: (
+            homothety: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT - 1 }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT - 1 }
                 , 1
@@ -821,7 +821,7 @@ fn zoom_in_test() {
 fn zoom_in_test_3() {
     let mut a: View<i32> = View {
         stencil: PointStencil {
-            location: (
+            homothety: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT - 1 }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT - 1 }
                 , 1
@@ -842,7 +842,7 @@ fn zoom_in_test_3() {
     };
     let b: View<i32> = View {
         stencil: PointStencil {
-            location: (
+            homothety: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , 0
@@ -862,7 +862,7 @@ fn zoom_in_test_3() {
 
     let expect: View<i32> = View {
         stencil: PointStencil {
-            location: (
+            homothety: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT - 1 }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT - 1 }
                 , 1
@@ -893,7 +893,7 @@ fn zoom_in_test_3() {
 fn zoom_out_test() {
     let mut a: View<i32> = View {
         stencil: PointStencil {
-            location: (
+            homothety: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT + 1 }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT + 1 }
                 , -1
@@ -911,7 +911,7 @@ fn zoom_out_test() {
     };
     let b: View<i32> = View {
         stencil: PointStencil {
-            location: (
+            homothety: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , 0
@@ -929,7 +929,7 @@ fn zoom_out_test() {
 
     let expect: View<i32> = View {
         stencil: PointStencil {
-            location: (
+            homothety: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT + 1 }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT + 1 }
                 , -1
@@ -956,7 +956,7 @@ fn zoom_out_test() {
 fn pan_one_test() {
     let mut a: View<i32> = View {
         stencil: PointStencil {
-            location: (
+            homothety: (
                 IntExp { val: Integer::ONE.clone(), exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ONE.clone(), exp: -PIXELS_PER_UNIT_POT }
                 , 0
@@ -974,7 +974,7 @@ fn pan_one_test() {
     };
     let b: View<i32> = View {
         stencil: PointStencil {
-            location: (
+            homothety: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , 0
@@ -992,7 +992,7 @@ fn pan_one_test() {
 
     let expect: View<i32> = View {
         stencil: PointStencil {
-            location: (
+            homothety: (
                 IntExp { val: Integer::ONE.clone(), exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ONE.clone(), exp: -PIXELS_PER_UNIT_POT }
                 , 0
@@ -1020,7 +1020,7 @@ fn pan_one_test() {
 fn nonzero_phase_test() {
     let mut a: View<i32> = View {
         stencil: PointStencil {
-            location: (
+            homothety: (
                 IntExp { val: Integer::ONE.clone(), exp: -PIXELS_PER_UNIT_POT - 1 }
                 , IntExp { val: -Integer::ONE.clone(), exp: -PIXELS_PER_UNIT_POT - 1 }
                 , 1
@@ -1038,7 +1038,7 @@ fn nonzero_phase_test() {
     };
     let b: View<i32> = View {
         stencil: PointStencil {
-            location: (
+            homothety: (
                 IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , IntExp { val: Integer::ZERO, exp: -PIXELS_PER_UNIT_POT }
                 , 0
@@ -1056,7 +1056,7 @@ fn nonzero_phase_test() {
 
     let expect: View<i32> = View {
         stencil: PointStencil {
-            location: (
+            homothety: (
                 IntExp { val: Integer::ONE.clone(), exp: -PIXELS_PER_UNIT_POT - 1 }
                 , IntExp { val: -Integer::ONE.clone(), exp: -PIXELS_PER_UNIT_POT - 1 }
                 , 1
@@ -1135,7 +1135,7 @@ proptest!{
 
         let stencil_A = PointStencil{
             resolution
-            , location: location.clone()
+            , homothety: location.clone()
             , serial_number: 0
 , focus: None
 , hover: None
@@ -1143,7 +1143,7 @@ proptest!{
 
         let stencil_B = PointStencil{
             resolution
-            , location: (
+            , homothety: (
                 location.0.clone().set_precision(PIXELS_PER_UNIT_POT+initial_zoom+zoom_delta_A)
                 , location.1.clone().set_precision(PIXELS_PER_UNIT_POT+initial_zoom+zoom_delta_A)
                 , initial_zoom + zoom_delta_A
@@ -1154,7 +1154,7 @@ proptest!{
 
         let stencil_C = PointStencil{
             resolution
-            , location: (
+            , homothety: (
                 location.0.set_precision(PIXELS_PER_UNIT_POT+initial_zoom+zoom_delta_A+zoom_delta_B)
                 , location.1.set_precision(PIXELS_PER_UNIT_POT+initial_zoom+zoom_delta_A+zoom_delta_B)
                 , initial_zoom + zoom_delta_A + zoom_delta_B

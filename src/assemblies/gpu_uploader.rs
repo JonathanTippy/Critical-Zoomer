@@ -2,7 +2,8 @@ use rand::Rng;
 use steady_state::*;
 use crate::assemblies::headgroup::window::sampling::*;
 
-use crate::utils::*; use crate::intexp::*;
+use crate::utils::*;
+use crate::intexp::*;
 
 use crate::assemblies::workgroup::work_collector::*;
 
@@ -11,15 +12,14 @@ use crate::assemblies::shadergroup::escaper::*;
 use crate::settings::*;
 
 use crate::assemblies::shadergroup::colorer::color::*;
-pub mod color;
 
 use crate::assemblies::structs::*;
 use egui::Color32;
 
 pub struct ColorerState {
-    pub values:Option<ZoomerValuesScreen>,
-    pub start:Instant,
-    pub settings:Settings
+    pub values: Option<ZoomerValuesScreen>,
+    pub start: Instant,
+    pub settings: Settings
 }
 
 pub async fn run(
@@ -71,8 +71,6 @@ async fn internal_behavior<A: SteadyActor>(
             actor.wait_avail(&mut values_in, 1),
             actor.wait_avail(&mut settings_in, 1),
         );
-
-
 
 
         let elapsed = state.start.elapsed().as_millis();
@@ -130,29 +128,30 @@ async fn internal_behavior<A: SteadyActor>(
         if let Some(v) = &mut state.values {
             let output = color(v, &mut settings);
 
-            actor.try_send(&mut screens_out, View{
+            actor.try_send(&mut screens_out, View {
                 data: output.clone()
-                , alignment: vec!(0u8; output.len())
-                , stencil: PointStencil{
+                ,
+                alignment: vec!(0u8; output.len())
+                ,
+                stencil: PointStencil {
                     resolution: (v.res.0 as usize, v.res.1 as usize)
-                    , homothety: (
+                    ,
+                    homothety: (
                         v.objective_location.clone().pos.0
-                        , IntExp::ZERO-v.objective_location.clone().pos.1
+                        , IntExp::ZERO - v.objective_location.clone().pos.1
                         , v.objective_location.clone().zoom_pot
                     )
-                    , serial_number: 0
-                    , focus: None
-                    , hover: None
+                    ,
+                    serial_number: 0
+                    ,
+                    focus: None
+                    ,
+                    hover: None
                 }
             });
             //info!("sent colors to window");
         }
         state.settings = settings;
-
-
-
-
-
     }
 
     // Final shutdown log, reporting all statistics.

@@ -21,8 +21,8 @@ impl PointStencil {
         if self.type_contains_all_points::<T>() {
             Some(CGenerator{
                 origin: (
-                    self.location.0.clone().into()
-                    , self.location.1.clone().into()
+                    self.homothety.0.clone().into()
+                    , self.homothety.1.clone().into()
                     )
                 , space: self.space().into()
             })
@@ -32,8 +32,8 @@ impl PointStencil {
         if self.type_contains_all_points_relative::<T>(origin) {
             Some(CGenerator {
                 origin: (
-                    (self.location.0.clone() - origin.0.clone()).into()
-                    , (self.location.1.clone() - origin.1.clone()).into()
+                    (self.homothety.0.clone() - origin.0.clone()).into()
+                    , (self.homothety.1.clone() - origin.1.clone()).into()
                 )
                 ,
                 space: self.space().into()
@@ -41,15 +41,15 @@ impl PointStencil {
         } else { None }
     }
     fn type_contains_all_points<T: Mandelbrotable>(&self) -> bool {
-        T::from(self.location.0.clone() + self.space()) != T::from(self.location.0.clone())
-            && T::from(self.location.1.clone() + self.space()) != T::from(self.location.1.clone())
-            && T::from(self.location.0.clone() + self.space() * (self.resolution.0 - 1).into() - self.location.0.clone())
-            != T::from(self.location.0.clone() + self.space() * (self.resolution.0 - 1).into())
-            && T::from(self.location.1.clone() + self.space() * (self.resolution.1 - 1).into() - self.location.1.clone())
-            != T::from(self.location.1.clone() + self.space() * (self.resolution.1 - 1).into())
+        T::from(self.homothety.0.clone() + self.space()) != T::from(self.homothety.0.clone())
+            && T::from(self.homothety.1.clone() + self.space()) != T::from(self.homothety.1.clone())
+            && T::from(self.homothety.0.clone() + self.space() * (self.resolution.0 - 1).into() - self.homothety.0.clone())
+            != T::from(self.homothety.0.clone() + self.space() * (self.resolution.0 - 1).into())
+            && T::from(self.homothety.1.clone() + self.space() * (self.resolution.1 - 1).into() - self.homothety.1.clone())
+            != T::from(self.homothety.1.clone() + self.space() * (self.resolution.1 - 1).into())
     }
     fn type_contains_all_points_relative<T: Mandelbrotable>(&self, origin: &(IntExp, IntExp)) -> bool {
-        let location = (self.location.0.clone() - origin.0.clone(), self.location.1.clone() - origin.1.clone());
+        let location = (self.homothety.0.clone() - origin.0.clone(), self.homothety.1.clone() - origin.1.clone());
         T::from(location.0.clone() + self.space()) != T::from(location.0.clone())
             && T::from(location.1.clone() + self.space()) != T::from(location.1.clone())
             && T::from(location.0.clone() + self.space() * (self.resolution.0 - 1).into() - location.0.clone())
@@ -59,6 +59,6 @@ impl PointStencil {
     }
     pub fn space(&self) -> IntExp {
         let one = IntExp::from(1);
-        one.shift(-(self.location.2 + PIXELS_PER_UNIT_POT))
+        one.shift(-(self.homothety.2 + PIXELS_PER_UNIT_POT))
     }
 }

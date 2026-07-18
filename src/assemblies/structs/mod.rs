@@ -9,7 +9,7 @@ use crate::range::*;
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct PointStencil {
-    pub location: (IntExp, IntExp, i32) // real, imag, magnification POT
+    pub homothety: (IntExp, IntExp, i32) // real, imag, magnification POT
     , pub resolution: (usize, usize)
     , pub serial_number: u64
     , pub focus: Option<(usize, usize)>

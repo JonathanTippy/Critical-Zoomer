@@ -48,7 +48,7 @@ pub fn resample(
     let context = sampling_context;
 
     let viewport_stencil = PointStencil {
-        location: (
+        homothety: (
             context.location.pos.0.clone()
             , IntExp::ZERO-context.location.pos.1.clone()
             , context.location.zoom_pot
@@ -71,8 +71,8 @@ pub fn resample(
 pub fn update_sampling_context(context: &mut SamplingContext, screen: View<Color32>) {
 
     let l = ObjectivePosAndZoom {
-        pos: (screen.stencil.clone().location.0, IntExp::ZERO-screen.stencil.clone().location.1)
-        , zoom_pot: screen.stencil.clone().location.2
+        pos: (screen.stencil.clone().homothety.0, IntExp::ZERO-screen.stencil.clone().homothety.1)
+        , zoom_pot: screen.stencil.clone().homothety.2
     };
 
     if context.location == l {
@@ -86,7 +86,7 @@ pub fn update_sampling_context(context: &mut SamplingContext, screen: View<Color
         data: screen.data
         , alignment: screen.alignment
 ,         stencil: PointStencil{
-            location:(screen.stencil.location.0, screen.stencil.location.1, screen.stencil.location.2)
+            homothety:(screen.stencil.homothety.0, screen.stencil.homothety.1, screen.stencil.homothety.2)
             , resolution: screen.stencil.resolution
             , serial_number: screen.stencil.serial_number
             , focus: None
