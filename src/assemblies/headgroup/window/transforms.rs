@@ -85,6 +85,19 @@ pub fn transform(
                 }*/
 
 
+                // #region agent log
+                crate::assemblies::headgroup::window::agent_dbg(
+                    "H-ZOOM-Y"
+                    , "transforms.rs:Zoom"
+                    , "zoom_pos"
+                    , &format!(
+                        "{{\"center\":[{},{}],\"zoom\":{}}}"
+                        , center_screenspace_pos.0
+                        , center_screenspace_pos.1
+                        , context.location.zoom_pot
+                    )
+                );
+                // #endregion
                 context.updated = true;
             }
             ZoomerCommand::SetZoom { pot } => {

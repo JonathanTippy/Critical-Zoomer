@@ -102,8 +102,8 @@ pub const DEFAULT_COLORING_SCRIPT:[ColoringInstruction;7] = [
     , ColoringInstruction::HighlightOutFilaments{id: 4, opacity:255, color:(128,128,128)}
     , ColoringInstruction::HighlightNodes{id: 5, inside_opacity:0, outside_opacity:0
         , color:(128,128,128), thickness:10, only_fattest:true}
-    , ColoringInstruction::HighlightSmallTimeEdges{id: 6, inside_opacity:30, outside_opacity:0
-        , color:(128,128,128)}
+    , ColoringInstruction::HighlightSmallTimeEdges{id: 6, inside_opacity:255, outside_opacity:255
+        , color:(255,0,0)}
 ];
 
 

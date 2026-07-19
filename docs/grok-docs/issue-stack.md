@@ -6,6 +6,12 @@ PO quotes: `he-said/`. This file tracks status, loci, and follow-through.
 
 ## True bugs (open)
 
+### B-DISP-1 — Phase 2 cutover display regressions (grey / ~15fps / no GPU escape)
+- **Symptom:** Immediate display grey; ~15fps; no escaper on GPU; settings open greys window; location UI misplaced / no input box.
+- **Mechanism (PO):** Headgroup must own a GPU tile collection and run sampler → escape → edge → shade shaders. Tiles are independent, share a homothety; CPU only computes seat deltas (IntExp O(1)). Live path CPU-shades every frame and cleared the tile hoard on location change.
+- **Status:** in progress — wgpu PaintCallback sampler+neighbor-escape+shade landed; stop clearing tile hoard on pan; coord bar+goto box; settings try_lock no longer greys. Still thin vs full coloring_script / full filament escape on GPU.
+- **Locus:** `headgroup/window/{mod,sampling,shade,gpu_display}.rs`; quotes in `he-said/phase-2-display-regressions.md`.
+
 ### B-TEN-1 — Unknown painted as set-black (tenacity)
 - **Symptom:** Unfinished / unknown seats render as black (looks like Inside). Made the home antenna look gapped / off the real axis when seats were merely unknown.
 - **Mechanism (PO):** Marking unknown as black breaches tenacity. Unknown must use `NORES_ANSWER` (Outside, escape after 1 iteration, `escape_z` at infinity) — not Dummy/black-as-set.

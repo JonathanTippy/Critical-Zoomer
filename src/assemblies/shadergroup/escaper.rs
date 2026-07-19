@@ -176,7 +176,7 @@ async fn internal_behavior<A: SteadyActor>(
             for i in 0..r.len() {
                 let point = &r[i%len];
                 let pos = pos_from_index(i, v.screen_res.0);
-                let value = get_value_from_point(point, radius as f32, pos, &r, v.screen_res, state.settings.clone());
+                let value = escape_finished_answer(point, radius as f32, pos, &r, v.screen_res, state.settings.clone());
                 output.push(value);
             }
 
@@ -197,7 +197,7 @@ async fn internal_behavior<A: SteadyActor>(
     Ok(())
 }
 
-fn get_value_from_point
+pub fn escape_finished_answer
     (p: &CompletedPoint, r: f32, pos:(i32, i32), points: &Vec<CompletedPoint>, res: (u32, u32), settings:Settings) -> FinishedAnswer {
     match p {
         CompletedPoint::Escapes{escape_time: t, escape_location: z, start_location: c , smallness:s, small_time:st} => {

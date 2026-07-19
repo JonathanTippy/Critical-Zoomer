@@ -13,7 +13,6 @@ use std::cmp::*;
 
 use rug::*;
 use transforms::transform;
-use crate::assemblies::shadergroup::colorer::*;
 use crate::assemblies::workgroup::work_controller::*;
 
 use crate::settings::*;
@@ -25,6 +24,8 @@ use crate::assemblies::headgroup::window::widgetize::*;
 use crate::assemblies::structs::*;
 use crate::assemblies::headgroup::window::inputs::*;
 use crate::assemblies::headgroup::window::sampling::*;
+use crate::assemblies::headgroup::window::shade::*;
+use crate::assemblies::headgroup::window::gpu_display::*;
 
 use crate::intexp::*;
 
@@ -32,12 +33,39 @@ pub mod rolling;
 pub mod widgetize;
 pub mod inputs;
 pub mod sampling;
+pub mod shade;
+pub mod gpu_display;
 pub mod transforms;
 pub mod coords;
 pub mod navigate;
 
 use crate::assemblies::headgroup::window::coords::*;
 use crate::assemblies::headgroup::window::navigate::*;
+
+// #region agent log
+pub fn agent_dbg(hypothesis_id: &str, location: &str, message: &str, data_json: &str) {
+    use std::io::Write;
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/home/jonathan/git/Critical-Zoomer/.cursor/debug-51c884.log")
+    {
+        let _ = writeln!(
+            f
+            , "{{\"sessionId\":\"51c884\",\"hypothesisId\":\"{}\",\"location\":\"{}\",\"message\":\"{}\",\"data\":{},\"timestamp\":{}}}"
+            , hypothesis_id
+            , location
+            , message
+            , data_json
+            , ts
+        );
+    }
+}
+// #endregion
 
 const RECOVER_EGUI_CRASHES:bool = false;
 // ^ half implimented; in cases where the window is supposed to
@@ -100,36 +128,41 @@ pub struct WindowState {
     , pub scroll_debt: f32
     , pub startup_goto_applied: bool
     , pub nav_target: Option<(IntExp, IntExp, i32)>
+    , pub pending_gpu_tile_origins: HashSet<(usize, usize)>
+    , pub gpu_atlas_size: (u32, u32)
+    , pub gpu_atlas_clear: bool
+    , pub coord_input: String
+    , pub atlas_location: Option<ObjectivePosAndZoom>
+    , pub shift_was_down: bool
 }
 
 /// Entry point for the window actor.
 pub async fn run(
-    actor: SteadyActorShadow,
-    pixels_in: SteadyRx<View<Color32>>,
-    stencil_out: SteadyTx<(PointStencil)>,
-    settings_out: SteadyTxBundle<Settings,2>,
-    attention_out: SteadyTx<(i32, i32)>,
-    state: SteadyState<WindowState>,
+    actor: SteadyActorShadow
+    , pixels_in: SteadyRx<GPUTile>
+    , stencil_out: SteadyTx<(PointStencil)>
+    , settings_out: SteadyTxBundle<Settings,2>
+    , attention_out: SteadyTx<(i32, i32)>
+    , state: SteadyState<WindowState>
 ) -> Result<(), Box<dyn Error>> {
     internal_behavior(
-        actor.into_spotlight([&pixels_in], [&stencil_out, &settings_out[0], &settings_out[1], &attention_out]),
-        pixels_in,
-        stencil_out,
-        settings_out,
-        attention_out,
-        state,
+        actor.into_spotlight([&pixels_in], [&stencil_out, &settings_out[0], &settings_out[1], &attention_out])
+        , pixels_in
+        , stencil_out
+        , settings_out
+        , attention_out
+        , state
     )
     .await
-    // If it's testing, use test behavior instead
 }
 
 async fn internal_behavior<A: SteadyActor>(
-    actor: A,
-    pixels_in: SteadyRx<View<Color32>>,
-    stencil_out: SteadyTx<(PointStencil)>,
-    settings_out: SteadyTxBundle<Settings, 2>,
-    attention_out: SteadyTx<(i32, i32)>,
-    state: SteadyState<WindowState>,
+    actor: A
+    , pixels_in: SteadyRx<GPUTile>
+    , stencil_out: SteadyTx<(PointStencil)>
+    , settings_out: SteadyTxBundle<Settings, 2>
+    , attention_out: SteadyTx<(i32, i32)>
+    , state: SteadyState<WindowState>
 ) -> Result<(), Box<dyn Error>> {
 
     let portable_actor = Arc::new(Mutex::new(actor));
@@ -141,15 +174,24 @@ async fn internal_behavior<A: SteadyActor>(
         , buffers: vec!(vec!(Color32::BLACK;(DEFAULT_WINDOW_RES.0*DEFAULT_WINDOW_RES.1) as usize))
         , id_counter: 0
         , sampling_context: SamplingContext {
-            screen: None
+            tiles: HashMap::new()
+            , tile_gpu_ids: HashMap::new()
+            , pending_tile_uploads: Vec::new()
+            , next_tile_gpu_id: 1
+            , reset_gpu_tile_slots: false
+            , color_screen: None
+            , proximate_answers: true
+            , unsent_answers: true
             , screen_size: (DEFAULT_WINDOW_RES.0, DEFAULT_WINDOW_RES.1)
             , location: ObjectivePosAndZoom {
                 pos: (IntExp::from(HOME_POSITION.0), IntExp::from(HOME_POSITION.1))
                 , zoom_pot: HOME_POSITION.2
             }
             , updated: true
-            , mouse_drag_start:None
+            , mouse_drag_start: None
         }
+        , atlas_location: None
+        , shift_was_down: false
         , settings_window_context: Arc::new(Mutex::new(DEFAULT_SETTINGS_WINDOW_CONTEXT))
         , settings_window_open: false
         , controls_settings: ControlsSettings::H
@@ -163,6 +205,10 @@ async fn internal_behavior<A: SteadyActor>(
         , scroll_debt: SCROLL_SPEED/2.0
         , startup_goto_applied: false
         , nav_target: None
+        , pending_gpu_tile_origins: HashSet::new()
+        , gpu_atlas_size: (DEFAULT_WINDOW_RES.0, DEFAULT_WINDOW_RES.1)
+        , gpu_atlas_clear: true
+        , coord_input: String::new()
     }).await;
 
     {
@@ -194,16 +240,14 @@ async fn internal_behavior<A: SteadyActor>(
 
     let options = eframe::NativeOptions {
         event_loop_builder: Some(Box::new(|builder| {
-            // Enable any_thread for X11 or Wayland
             #[cfg(target_os = "linux")]
             { builder.with_any_thread(true); }
 
         })),
         viewport: viewport_options,
         vsync: VSYNC,
+        renderer: eframe::Renderer::Wgpu,
         ..NativeOptions::default()
-
-
     };
 
     let portable_state = Arc::new(Mutex::new(state));
@@ -220,7 +264,12 @@ async fn internal_behavior<A: SteadyActor>(
     eframe::run_native(
         "Critical Zoomer",
         options,
-        Box::new(|_cc| Ok(Box::new(passthrough)))
+        Box::new(|cc| {
+            if let Some(render_state) = &cc.wgpu_render_state {
+                ensure_resources(render_state);
+            }
+            Ok(Box::new(passthrough))
+        })
     ).unwrap();
 
 
@@ -249,12 +298,12 @@ async fn internal_behavior<A: SteadyActor>(
 
 
 struct EguiWindowPassthrough<'a, A> {
-    portable_actor: Arc<Mutex<A>>,
-    pixels_in: SteadyRx<View<Color32>>,
-    stencil_out: SteadyTx<(PointStencil)>,
-    settings_out: SteadyTxBundle<Settings, 2>,
-    attention_out: SteadyTx<(i32, i32)>,
-    portable_state:Arc<Mutex<StateGuard<'a, WindowState>>>
+    portable_actor: Arc<Mutex<A>>
+    , pixels_in: SteadyRx<GPUTile>
+    , stencil_out: SteadyTx<(PointStencil)>
+    , settings_out: SteadyTxBundle<Settings, 2>
+    , attention_out: SteadyTx<(i32, i32)>
+    , portable_state:Arc<Mutex<StateGuard<'a, WindowState>>>
 }
 
 impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
@@ -321,14 +370,14 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             //let mut sampler_buffer = vec!();//Vec::with_capacity(pixels);
 
-            match actor.try_take(&mut pixels_in) {
-                Some(s) => {
-                    update_sampling_context(&mut state.sampling_context, s);
-
+            while actor.avail_units(&mut pixels_in) > 0 {
+                match actor.try_take(&mut pixels_in) {
+                    Some(tile) => {
+                        state.sampling_context.ingest_gpu_tile(tile);
+                    }
+                    None => { break; }
                 }
-                None => {}
             }
-
 
             if state.sampling_context.updated
             {
@@ -376,6 +425,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 let _ = std::fs::remove_file("/tmp/cz_ctl.goto");
                 if let Some(cmds) = commands_from_goto_line(&line) {
                     command_package.extend(cmds);
+                    state.sampling_context.clear_tiles();
                     state.nav_target = None;
                 }
             }
@@ -401,28 +451,42 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             state.sampling_context.screen_size = (size.0 as u32, size.1 as u32);
 
-            let sampler_buffer: Vec<Color32> = if state.sampling_context.screen.is_some() {
-                transform(command_package, &mut state.sampling_context);
-                resample(&mut state.sampling_context)
-            } else {
-                transform(command_package, &mut state.sampling_context);
-                (0..pixels).map(|x| -> Color32 { Color32::PURPLE}).collect()
-            };
+            transform(command_package, &mut state.sampling_context);
 
-            let start = Instant::now();
+            let dragging = state.sampling_context.mouse_drag_start.is_some();
+            let upload_n = state.sampling_context.pending_tile_uploads.len();
+            // #region agent log
+            if upload_n > 0 || state.sampling_context.updated {
+                agent_dbg(
+                    "H-PAN-A"
+                    , "mod.rs:upload_gate"
+                    , "upload_gate"
+                    , &format!(
+                        "{{\"uploads\":{},\"dragging\":{},\"tiles\":{},\"zoom\":{}}}"
+                        , upload_n
+                        , dragging
+                        , state.sampling_context.tile_count()
+                        , state.sampling_context.location.zoom_pot
+                    )
+                );
+            }
+            // #endregion
 
-            let image = ColorImage {
-                size: [size.0, size.1],
-                pixels: sampler_buffer,
-                source_size: egui::vec2(size.0 as f32, size.1 as f32)
-            };
-
-            let handle = ctx.load_texture(
-                "pixel_texture",
-                image,
-                egui::TextureOptions::NEAREST,
+            state.atlas_location = Some(state.sampling_context.location.clone());
+            let mut settings_for_shade = state.settings_window_context.try_lock()
+                .ok()
+                .map(|guard| guard.settings.clone())
+                .unwrap_or_else(|| Settings::DEFAULT);
+            let blit_frame = build_shade_frame(
+                &mut state.sampling_context
+                , &mut settings_for_shade
             );
-
+            if let Ok(mut guard) = state.settings_window_context.try_lock() {
+                guard.settings = settings_for_shade;
+            }
+            state.sampling_context.unsent_answers = false;
+            state.sampling_context.proximate_answers = false;
+            state.gpu_atlas_size = state.sampling_context.screen_size;
 
             egui::CentralPanel::default()
             .frame(egui::Frame {
@@ -436,10 +500,8 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 ui.visuals_mut().override_text_color = Some(Color32::WHITE);
 
                 let available_size = ui.available_size();
-
-                //let start = Instant::now();
-
-                ui.image((handle.id(), available_size));
+                let paint_rect = ui.available_rect_before_wrap();
+                paint_central_panel(ui, paint_rect, blit_frame);
 
                 state.size = available_size;
 
@@ -499,7 +561,41 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     }
                 );
 
-                // Add a gear icon button in the top-right corner
+                egui::Area::new(egui::Id::new("coord_bar"))
+                    .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(12.0, -12.0))
+                    .order(egui::Order::Foreground)
+                    .show(ctx, |ui| {
+                        egui::Frame::popup(ui.style())
+                            .inner_margin(egui::Margin::symmetric(8, 6))
+                            .show(ui, |ui| {
+                                ui.set_min_width(420.0);
+                                let loc = &state.sampling_context.location;
+                                ui.label(format!(
+                                    "re {}   im {}   zoom {}"
+                                    , loc.pos.0
+                                    , loc.pos.1
+                                    , loc.zoom_pot
+                                ));
+                                ui.horizontal(|ui| {
+                                    ui.label("goto");
+                                    let response = ui.add(
+                                        egui::TextEdit::singleline(&mut state.coord_input)
+                                            .desired_width(280.0)
+                                            .hint_text("re, im, zoom")
+                                    );
+                                    let go = ui.button("Go").clicked()
+                                        || (response.lost_focus()
+                                            && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+                                    if go {
+                                        if let Some(cmds) = commands_from_goto_line(&state.coord_input) {
+                                            transform(cmds, &mut state.sampling_context);
+                                            state.sampling_context.updated = true;
+                                        }
+                                    }
+                                });
+                            });
+                    });
+
                 ui.put(
                     egui::Rect::from_min_size(
                         egui::pos2(ui.available_width() - 40.0, 0.0),
@@ -529,8 +625,25 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                 pos: (IntExp::from(HOME_POSITION.0), IntExp::from(HOME_POSITION.1))
                                 , zoom_pot: HOME_POSITION.2
                             };
-                            state.sampling_context.screen = None;
+                            state.sampling_context.clear_tiles();
+                            state.sampling_context.mouse_drag_start = None;
+                            state.atlas_location = None;
+                            state.pending_gpu_tile_origins.clear();
+                            state.gpu_atlas_clear = true;
+                            state.nav_target = None;
                             state.sampling_context.updated = true;
+                            // #region agent log
+                            agent_dbg(
+                                "H-GREY"
+                                , "mod.rs:home"
+                                , "home_clicked"
+                                , &format!(
+                                    "{{\"zoom\":{},\"reset\":{}}}"
+                                    , state.sampling_context.location.zoom_pot
+                                    , state.sampling_context.reset_gpu_tile_slots
+                                )
+                            );
+                            // #endregion
                         }
                         return button_state;
                     }
@@ -539,14 +652,35 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
 
                 if state.settings_window_open {
+                    let before_script = state.settings_window_context.try_lock()
+                        .ok()
+                        .map(|g| format!("{:?}", g.settings.coloring_script));
+                    let before_bailout = state.settings_window_context.try_lock()
+                        .ok()
+                        .map(|g| (
+                            g.settings.bailout_radius.value
+                            , g.settings.bailout_max_additional_iterations
+                            , g.settings.estimate_extra_iterations
+                        ));
                     let result = settings(&ctx, state.settings_window_context.clone());
                     state.settings_window_open = !result.will_close;
+                    let after_script = format!("{:?}", result.settings.coloring_script);
+                    let after_bailout = (
+                        result.settings.bailout_radius.value
+                        , result.settings.bailout_max_additional_iterations
+                        , result.settings.estimate_extra_iterations
+                    );
+                    if before_script.as_deref() != Some(after_script.as_str())
+                        || before_bailout != Some(after_bailout)
+                    {
+                        state.sampling_context.proximate_answers = true;
+                    }
                     for mut channel in settings_out {
                         actor.try_send(&mut channel, result.settings.clone());
                     }
-                } else {
+                } else if let Ok(guard) = state.settings_window_context.try_lock() {
                     for mut channel in settings_out {
-                        actor.try_send(&mut channel, state.settings_window_context.try_lock().unwrap().settings.clone());
+                        actor.try_send(&mut channel, guard.settings.clone());
                     }
                 }
             });

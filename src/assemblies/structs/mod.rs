@@ -5,8 +5,10 @@ use std::cmp::*;
 pub mod views;
 pub mod stencil;
 pub mod tile;
+pub mod gpu_tile;
 
 pub use tile::*;
+pub use gpu_tile::*;
 
 use crate::range::*;
 
@@ -56,7 +58,7 @@ impl Answer {
     };
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum MandelbrotResult {
     Outside {
         escape_time_r2: u64

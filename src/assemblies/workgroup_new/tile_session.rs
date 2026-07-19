@@ -1,8 +1,7 @@
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 use crate::assemblies::structs::*;
-use crate::assemblies::workgroup::screen_worker::workshift::CompletedPoint;
-use crate::assemblies::workgroup_new::temporary_color32_bridge::*;
 use crate::assemblies::workgroup_new::structs::*;
 use crate::assemblies::workgroup_new::structs::mandelbrotable::*;
 use crate::assemblies::workgroup_new::workcore::mandelbrot::*;
@@ -50,6 +49,8 @@ pub struct TileSession {
     , scredge_work: Option<ScredgeWork>
     , worker_state: NaiveCpuWorkerState
     , workshifts: u32
+    , answer_tiles: HashMap<(usize, usize), Tile<Answer>>
+    , unsent_origins: HashSet<(usize, usize)>
 }
 
 impl TileSession {
@@ -83,6 +84,8 @@ impl TileSession {
             , scredge_work: None
             , worker_state
             , workshifts: 0
+            , answer_tiles: HashMap::new()
+            , unsent_origins: HashSet::new()
         }
     }
 
@@ -97,24 +100,32 @@ impl TileSession {
         (self.seats_done as f64) * 100.0 / (self.seats_total as f64)
     }
 
-    pub fn workshift(&mut self) -> Vec<(CompletedPoint, usize)> {
-        let mut out = Vec::new();
+    pub fn workshift(&mut self) {
         let started = Instant::now();
         while started.elapsed().as_millis() < 10 {
             if self.seats_done >= self.seats_total {
                 break;
             }
-            let progressed = self.work_once(&mut out);
+            let progressed = self.work_once();
             if !progressed {
                 break;
             }
         }
         self.workshifts = self.workshifts.wrapping_add(1);
+    }
+
+    pub fn drain_publish_tiles(&mut self) -> Vec<Tile<Answer>> {
+        let mut out = Vec::new();
+        for origin in self.unsent_origins.drain() {
+            if let Some(tile) = self.answer_tiles.get(&origin) {
+                out.push(*tile);
+            }
+        }
         out
     }
 
-    fn work_once(&mut self, out: &mut Vec<(CompletedPoint, usize)>) -> bool {
-        if self.advance_open_batch(out) {
+    fn work_once(&mut self) -> bool {
+        if self.advance_open_batch() {
             return true;
         }
         if self.active_tile.is_some() {
@@ -139,9 +150,7 @@ impl TileSession {
                 if let Some(hint_answer) = hint {
                     let screen = self.active_tile.as_ref().unwrap().tile.screen_seat(local);
                     let tile_index = self.active_tile.as_ref().unwrap().tile_index;
-                    if let Some(completed) = self.finish_screen_seat(screen, hint_answer) {
-                        out.push(completed);
-                    }
+                    self.finish_screen_seat(screen, hint_answer);
                     let updates: [Option<((usize, usize), CalibratedAnswer)>; BATCH_N] = {
                         let mut u = [const { None }; BATCH_N];
                         u[0] = Some((local, hint_answer));
@@ -211,7 +220,7 @@ impl TileSession {
         }
     }
 
-    fn advance_open_batch(&mut self, out: &mut Vec<(CompletedPoint, usize)>) -> bool {
+    fn advance_open_batch(&mut self) -> bool {
         if let Some(work) = self.scredge_work.as_mut() {
             let Some(batch) = work.batch.as_mut() else {
                 self.scredge_work = None;
@@ -242,9 +251,7 @@ impl TileSession {
                 , SeatKind::Inside { .. } => TileSeatKind::Inside
             };
             TileScheduler::note_finished(&mut self.tile_scheduler, seat, tile_kind);
-            if let Some(completed) = self.finish_screen_seat(seat, answer) {
-                out.push(completed);
-            }
+            self.finish_screen_seat(seat, answer);
             return true;
         }
         let Some(work) = self.active_tile.as_mut() else {
@@ -279,9 +286,7 @@ impl TileSession {
         if matches!(seat_kind_from_calibrated(&answer), SeatKind::Outside) {
             TileScheduler::note_tile_has_outside(&mut self.tile_scheduler, work.tile_index);
         }
-        if let Some(completed) = self.finish_screen_seat(screen, answer) {
-            out.push(completed);
-        }
+        self.finish_screen_seat(screen, answer);
         true
     }
 
@@ -316,9 +321,9 @@ impl TileSession {
         &mut self
         , seat: (usize, usize)
         , answer: CalibratedAnswer
-    ) -> Option<(CompletedPoint, usize)> {
+    ) {
         if seat.0 >= self.screen_res.0 || seat.1 >= self.screen_res.1 {
-            return None;
+            return;
         }
         let index = linear_index(seat, self.screen_res.0);
         let kind = seat_kind_from_calibrated(&answer);
@@ -330,19 +335,21 @@ impl TileSession {
             self.seats_done += 1;
         }
         let plain = calibrated_to_answer(answer);
-        let start = self.seat_start(seat);
-        Some((answer_to_completed_point(plain, start), index))
+        let origin = (
+            (seat.0 / TILE_EDGE_LENGTH) * TILE_EDGE_LENGTH
+            , (seat.1 / TILE_EDGE_LENGTH) * TILE_EDGE_LENGTH
+        );
+        let tile = self.answer_tiles.entry(origin).or_insert_with(|| {
+            Tile::new(origin, self.location.zoom_pot)
+        });
+        let local = (seat.0 - origin.0, seat.1 - origin.1);
+        tile.set(local, plain);
+        self.unsent_origins.insert(origin);
     }
+}
 
-    fn seat_start(&self, seat: (usize, usize)) -> (f64, f64) {
-        let Some(generator) = self.stencil.get_c_generator::<f64>() else {
-            return (0.0, 0.0);
-        };
-        generator.get_c((
-            seat.0.min(u16::MAX as usize) as u16
-            , seat.1.min(u16::MAX as usize) as u16
-        ))
-    }
+fn linear_index(seat: (usize, usize), screen_width: usize) -> usize {
+    seat.1 * screen_width + seat.0
 }
 
 fn seat_kind_from_calibrated(answer: &CalibratedAnswer) -> SeatKind {

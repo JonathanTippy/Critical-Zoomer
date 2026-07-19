@@ -99,6 +99,9 @@ cz_ctl_wait_settled() {
 
 cz_ctl_send_home() {
   cz_ctl_focus_window
+  # Prefer goto; icon click coords are resolution-fragile.
+  cz_ctl_send_goto -2 -2 -2
+  sleep 0.2
   xdotool mousemove --window "$WIN" 840 20
   xdotool click --window "$WIN" 1
   sleep 0.2

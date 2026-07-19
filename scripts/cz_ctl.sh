@@ -15,18 +15,29 @@ usage() {
 
 cz_ctl_daemon() {
   local out_dir="$1"
+  local daemon_pidfile="${CZ_DAEMON_PIDFILE:-/tmp/cz_ctl.daemon.pid}"
   export CZ_OUT="$out_dir"
   cz_ctl_init
   rm -f "$FIFO"
   mkfifo "$FIFO"
   exec 3<>"$FIFO"
   export CZ_GOTO="${CZ_GOTO:-}"
+  echo $$ >"$daemon_pidfile"
   taskset -c "${CZ_CPUSET:-4-11}" "$BIN" --beats 300000 -r 2 >/tmp/cz_xvfb.log 2>&1 &
   echo $! >"$PIDFILE"
   cleanup() {
-    kill "$(cat "$PIDFILE")" 2>/dev/null || true
-    wait "$(cat "$PIDFILE")" 2>/dev/null || true
-    rm -f "$FIFO" "$PIDFILE"
+    local app
+    app="$(cat "$PIDFILE" 2>/dev/null || true)"
+    if [ -n "$app" ]; then
+      kill -TERM "$app" 2>/dev/null || true
+      for _ in $(seq 1 50); do
+        kill -0 "$app" 2>/dev/null || break
+        sleep 0.1
+      done
+      kill -KILL "$app" 2>/dev/null || true
+      wait "$app" 2>/dev/null || true
+    fi
+    rm -f "$FIFO" "$PIDFILE" "$daemon_pidfile" "${CZ_ENVFILE:-/tmp/cz_ctl.env}"
   }
   trap cleanup EXIT
   printf 'DISPLAY=%s\nXAUTHORITY=%s\nOUT=%s\n' "${DISPLAY:-}" "${XAUTHORITY:-}" "$OUT" >"${CZ_ENVFILE:-/tmp/cz_ctl.env}"
@@ -81,11 +92,49 @@ cmd_send() {
 
 cmd_stop() {
   cz_ctl_init
+  local daemon_pidfile="${CZ_DAEMON_PIDFILE:-/tmp/cz_ctl.daemon.pid}"
+  local app_pid="" daemon_pid=""
   if [ -f "$PIDFILE" ]; then
-    kill "$(cat "$PIDFILE")" 2>/dev/null || true
+    app_pid="$(cat "$PIDFILE")"
   fi
-  pkill -f "$BIN" 2>/dev/null || true
-  rm -f "${CZ_ENVFILE:-/tmp/cz_ctl.env}" "$PIDFILE" "$FIFO"
+  if [ -f "$daemon_pidfile" ]; then
+    daemon_pid="$(cat "$daemon_pidfile")"
+  fi
+  if [ -p "$FIFO" ]; then
+    printf 'stop\n' >>"$FIFO" || true
+    for _ in $(seq 1 50); do
+      daemon_alive=0
+      app_alive=0
+      if [ -n "$daemon_pid" ] && kill -0 "$daemon_pid" 2>/dev/null; then
+        daemon_alive=1
+      fi
+      if [ -n "$app_pid" ] && kill -0 "$app_pid" 2>/dev/null; then
+        app_alive=1
+      fi
+      if [ "$daemon_alive" -eq 0 ] && [ "$app_alive" -eq 0 ]; then
+        break
+      fi
+      sleep 0.1
+    done
+  fi
+  if [ -n "$app_pid" ]; then
+    kill -TERM "$app_pid" 2>/dev/null || true
+    sleep 0.2
+    kill -KILL "$app_pid" 2>/dev/null || true
+  fi
+  if [ -n "$daemon_pid" ]; then
+    kill -TERM "$daemon_pid" 2>/dev/null || true
+    sleep 0.2
+    kill -KILL "$daemon_pid" 2>/dev/null || true
+  fi
+  while read -r orphan; do
+    kill -TERM "$orphan" 2>/dev/null || true
+  done < <(pgrep -f "^${BIN}( |$)" || true)
+  sleep 0.2
+  while read -r orphan; do
+    kill -KILL "$orphan" 2>/dev/null || true
+  done < <(pgrep -f "^${BIN}( |$)" || true)
+  rm -f "${CZ_ENVFILE:-/tmp/cz_ctl.env}" "$PIDFILE" "$FIFO" "$daemon_pidfile"
 }
 
 cmd_status() {

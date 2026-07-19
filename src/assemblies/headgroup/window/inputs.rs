@@ -48,6 +48,7 @@ pub fn parse_inputs(
                 // end the current drag if appropriate
                 if (!input_state.pointer.button_down(egui::PointerButton::Primary)) && (!input_state.pointer.button_down(egui::PointerButton::Middle)) {
                     state.sampling_context.mouse_drag_start = None;
+                    state.sampling_context.proximate_answers = true;
                 } else {
                     // execute the drag
 
@@ -91,7 +92,7 @@ pub fn parse_inputs(
                         ZoomerCommand::MoveTo {
                             x: drag_start_pos.0 - objective_drag.0 - objective_offset.0
                             ,
-                            y: drag_start_pos.1 - objective_drag.1 - objective_offset.1
+                            y: drag_start_pos.1 + objective_drag.1 - objective_offset.1
                         }
                     );
                 }
@@ -155,10 +156,9 @@ pub fn parse_inputs(
             //info!("scrolling");
 
             let c = input_state.pointer.latest_pos().unwrap();
-
-            let c = (
-                c.x // * (1<<16) as f32 / min_size
-                , c.y // * (1<<16) as f32 / min_size
+            let center_screenspace_pos = (
+                c.x as i32
+                , (sampling_size.1 as i32 - 1) - (c.y as i32)
             );
 
             returned.0.push(
@@ -167,20 +167,89 @@ pub fn parse_inputs(
                     ZoomerCommand::Zoom {
                         pot: 1
                         ,
-                        center_screenspace_pos: (c.0 as i32, c.1 as i32)
+                        center_screenspace_pos
                     }
                 } else {
                     //info!("zooming out");
                     ZoomerCommand::Zoom {
                         pot: -1
                         ,
-                        center_screenspace_pos: (c.0 as i32, c.1 as i32)
+                        center_screenspace_pos
                     }
                 }
             );
             state.scroll_debt -= step * threshold;
             //state.scroll_debt = delta.signum() * SCROLL_SPEED / 2.0;
         }
+
+        let pointer = input_state.pointer.latest_pos()
+            .map(|p| (p.x as i32, p.y as i32))
+            .unwrap_or((
+                sampling_size.0 as i32 / 2
+                , sampling_size.1 as i32 / 2
+            ));
+        let center_screenspace_pos = (
+            pointer.0
+            , (sampling_size.1 as i32 - 1) - pointer.1
+        );
+        if input_state.modifiers.shift && !state.shift_was_down {
+            eprintln!("cz_key: Shift (zoomin)");
+            // #region agent log
+            crate::assemblies::headgroup::window::agent_dbg(
+                "H-KEY"
+                , "inputs.rs:shift"
+                , "key_shift_zoomin"
+                , "{\"key\":\"Shift\"}"
+            );
+            // #endregion
+            // #region agent log
+            crate::assemblies::headgroup::window::agent_dbg(
+                "H-ZOOM-Y"
+                , "inputs.rs:shift"
+                , "zoom_center"
+                , &format!(
+                    "{{\"dir\":\"in\",\"pointer\":[{},{}],\"center\":[{},{}],\"screen\":[{},{}]}}"
+                    , pointer.0
+                    , pointer.1
+                    , center_screenspace_pos.0
+                    , center_screenspace_pos.1
+                    , sampling_size.0
+                    , sampling_size.1
+                )
+            );
+            // #endregion
+            returned.0.push(ZoomerCommand::Zoom {
+                pot: 1
+                , center_screenspace_pos
+            });
+        }
+        if input_state.key_pressed(egui::Key::Space) {
+            eprintln!("cz_key: Space (zoomout)");
+            // #region agent log
+            crate::assemblies::headgroup::window::agent_dbg(
+                "H-KEY"
+                , "inputs.rs:space"
+                , "key_space_zoomout"
+                , "{\"key\":\"Space\"}"
+            );
+            // #endregion
+            returned.0.push(ZoomerCommand::Zoom {
+                pot: -1
+                , center_screenspace_pos
+            });
+        }
+        if input_state.key_pressed(egui::Key::K) {
+            eprintln!("cz_key: K probe");
+            // #region agent log
+            crate::assemblies::headgroup::window::agent_dbg(
+                "H-KEY"
+                , "inputs.rs:k"
+                , "key_k_probe"
+                , "{\"key\":\"K\"}"
+            );
+            // #endregion
+        }
+        state.shift_was_down = input_state.modifiers.shift;
 
         let small_edge = min(sampling_size.0, sampling_size.1);
         let pixels_per_second = small_edge as f32 * MOVE_SPEED_IN_SCREENS;
