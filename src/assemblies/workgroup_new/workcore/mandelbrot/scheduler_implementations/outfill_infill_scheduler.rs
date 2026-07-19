@@ -1,0 +1,671 @@
+use std::collections::{HashSet, VecDeque};
+
+use crate::assemblies::structs::*;
+use crate::assemblies::workgroup_new::structs::*;
+use crate::assemblies::workgroup_new::workcore::mandelbrot::*;
+use crate::assemblies::workgroup_new::workcore::mandelbrot::worker_implementations::naive_cpu_worker::NaiveCpuWorker;
+use crate::assemblies::workgroup_new::workcore::mandelbrot::worker_implementations::periodicity_detector::*;
+use crate::constants::*;
+use crate::range::*;
+
+pub struct OutfillInfillScheduler;
+
+#[derive(Clone, Copy)]
+enum Step {
+    Out
+    , Edge
+    , Scredge
+    , PeriodEdge
+    , FloodIn
+    , In
+}
+
+#[derive(Clone, Copy)]
+enum SeatKind {
+    Outside
+    , Inside { period: u32 }
+}
+
+pub struct OutfillInfillSchedulerState {
+    done: [bool; TILE_SEAT_COUNT]
+    , kind: [Option<SeatKind>; TILE_SEAT_COUNT]
+    , scredge: VecDeque<(i32, i32)>
+    , edge_queue: VecDeque<((i32, i32), u32)>
+    , out_queue: VecDeque<((i32, i32), u32)>
+    , period_edge_queue: VecDeque<((i32, i32), u32)>
+    , flood_in_queue: VecDeque<((i32, i32), u32)>
+    , in_queue: VecDeque<((i32, i32), u32)>
+    , tile_edge_remaining: usize
+    , active: HashSet<(usize, usize)>
+    , extent: (usize, usize)
+    , hint_queue: VecDeque<((usize, usize), CalibratedAnswer)>
+}
+
+fn exact_range<T: crate::range::Value>(value: T) -> crate::range::Range<T> {
+    crate::range::Range { lower_bound: value, upper_bound: value }
+}
+
+fn inside_calibrated(period: u64) -> CalibratedAnswer {
+    CalibratedAnswer {
+        result: CalibratedMandelbrotResult::Inside {
+            period: exact_range(period)
+        }
+        , min_magnitude_time: exact_range(0)
+        , min_magnitude: exact_range(f64::INFINITY)
+        , highlights: CalibratedHighlights {
+            in_filament: exact_range(false)
+            , out_filament: exact_range(false)
+            , small_time_edge: exact_range(false)
+            , node: exact_range(false)
+        }
+    }
+}
+
+fn seat_kind_from_calibrated(answer: &CalibratedAnswer) -> SeatKind {
+    match answer.result {
+        CalibratedMandelbrotResult::Outside { .. } => SeatKind::Outside
+        , CalibratedMandelbrotResult::Inside { period } => SeatKind::Inside {
+            period: period.lower_bound.min(u32::MAX as u64) as u32
+        }
+        , CalibratedMandelbrotResult::Agnostic { period, .. } => SeatKind::Inside {
+            period: period.lower_bound.min(u32::MAX as u64) as u32
+        }
+    }
+}
+
+fn local_index(local: (usize, usize)) -> usize {
+    Tile::<()>::in_tile_index(local)
+}
+
+fn tile_perimeter_local(extent: (usize, usize)) -> Vec<(i32, i32)> {
+    let mut seats = Vec::new();
+    if extent.0 == 0 || extent.1 == 0 {
+        return seats;
+    }
+    for x in 0..extent.0 {
+        seats.push((x as i32, 0));
+        if extent.1 > 1 {
+            seats.push((x as i32, (extent.1 - 1) as i32));
+        }
+    }
+    for y in 1..extent.1.saturating_sub(1) {
+        seats.push((0, y as i32));
+        if extent.0 > 1 {
+            seats.push(((extent.0 - 1) as i32, y as i32));
+        }
+    }
+    seats
+}
+
+impl OutfillInfillSchedulerState {
+    fn in_bounds(&self, pos: (i32, i32)) -> bool {
+        pos.0 >= 0
+            && pos.1 >= 0
+            && (pos.0 as usize) < self.extent.0
+            && (pos.1 as usize) < self.extent.1
+    }
+
+    fn is_tile_edge_seat(&self, pos: (i32, i32)) -> bool {
+        pos.0 == 0
+            || pos.1 == 0
+            || pos.0 as usize + 1 == self.extent.0
+            || pos.1 as usize + 1 == self.extent.1
+    }
+
+    fn seed_scredge(&mut self) {
+        self.scredge.clear();
+        for pos in tile_perimeter_local(self.extent) {
+            let index = local_index((pos.0 as usize, pos.1 as usize));
+            if !self.done[index] {
+                self.scredge.push_back(pos);
+            }
+        }
+        self.tile_edge_remaining = self.scredge.len();
+    }
+
+    fn pick_step(&mut self) -> Option<((i32, i32), Step)> {
+        if self.tile_edge_remaining > 0 && self.scredge.is_empty() {
+            self.seed_scredge();
+        }
+        let try_order: &[Step] = &[
+            Step::Out
+            , Step::Edge
+            , Step::Scredge
+            , Step::PeriodEdge
+            , Step::FloodIn
+            , Step::In
+        ];
+        for step in try_order {
+            match step {
+                Step::Out => {
+                    if let Some((pos, _)) = self.out_queue.front().copied() {
+                        return Some((pos, Step::Out));
+                    }
+                }
+                Step::Edge => {
+                    if let Some((pos, _)) = self.edge_queue.front().copied() {
+                        return Some((pos, Step::Edge));
+                    }
+                }
+                Step::Scredge => {
+                    if let Some(pos) = self.scredge.front().copied() {
+                        return Some((pos, Step::Scredge));
+                    }
+                }
+                Step::PeriodEdge => {
+                    if let Some((pos, _)) = self.period_edge_queue.front().copied() {
+                        return Some((pos, Step::PeriodEdge));
+                    }
+                }
+                Step::FloodIn => {
+                    if self.tile_edge_remaining > 0 {
+                        continue;
+                    }
+                    if let Some((pos, _)) = self.flood_in_queue.front().copied() {
+                        return Some((pos, Step::FloodIn));
+                    }
+                }
+                Step::In => {
+                    if let Some((pos, _)) = self.in_queue.front().copied() {
+                        return Some((pos, Step::In));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn pop_step(&mut self, step: Step) {
+        match step {
+            Step::Scredge => { self.scredge.pop_front(); }
+            Step::Edge => { self.edge_queue.pop_front(); }
+            Step::Out => { self.out_queue.pop_front(); }
+            Step::PeriodEdge => { self.period_edge_queue.pop_front(); }
+            Step::FloodIn => { self.flood_in_queue.pop_front(); }
+            Step::In => { self.in_queue.pop_front(); }
+        }
+    }
+
+    fn rotate_step(&mut self, step: Step) {
+        match step {
+            Step::Out => {
+                if let Some(item) = self.out_queue.pop_front() {
+                    self.out_queue.push_back(item);
+                }
+            }
+            Step::In => {
+                if let Some(item) = self.in_queue.pop_front() {
+                    self.in_queue.push_back(item);
+                }
+            }
+            Step::FloodIn => {
+                if let Some(item) = self.flood_in_queue.pop_front() {
+                    self.flood_in_queue.push_back(item);
+                }
+            }
+            Step::Scredge => {
+                if let Some(item) = self.scredge.pop_front() {
+                    self.scredge.push_back(item);
+                }
+            }
+            Step::Edge | Step::PeriodEdge => {}
+        }
+    }
+
+    fn queue_incomplete_neighbors(&mut self, pos: (i32, i32), outside: bool) {
+        let neighbors = [
+            (pos.0 + 1, pos.1)
+            , (pos.0 - 1, pos.1)
+            , (pos.0, pos.1 + 1)
+            , (pos.0, pos.1 - 1)
+        ];
+        for n in neighbors {
+            if !self.in_bounds(n) {
+                continue;
+            }
+            let index = local_index((n.0 as usize, n.1 as usize));
+            if self.done[index] {
+                continue;
+            }
+            if outside {
+                self.out_queue.push_back((n, 0));
+            } else {
+                self.in_queue.push_back((n, 0));
+            }
+        }
+    }
+
+    fn queue_flood_in_neighbors(&mut self, pos: (i32, i32), period: u32) {
+        if period == 0 {
+            return;
+        }
+        let neighbors = [
+            (pos.0 + 1, pos.1)
+            , (pos.0 - 1, pos.1)
+            , (pos.0, pos.1 + 1)
+            , (pos.0, pos.1 - 1)
+        ];
+        for n in neighbors {
+            if !self.in_bounds(n) {
+                continue;
+            }
+            let index = local_index((n.0 as usize, n.1 as usize));
+            match self.kind[index] {
+                Some(SeatKind::Outside) => { continue; }
+                Some(SeatKind::Inside { period: p }) if self.done[index] && p != 0 => {
+                    continue;
+                }
+                _ => {}
+            }
+            self.flood_in_queue.push_back((n, period));
+        }
+    }
+
+    fn queue_period_edge_neighbors(&mut self, pos: (i32, i32), period: u32) {
+        if period == 0 {
+            return;
+        }
+        let neighbors = [
+            (pos.0 + 1, pos.1)
+            , (pos.0 - 1, pos.1)
+            , (pos.0, pos.1 + 1)
+            , (pos.0, pos.1 - 1)
+        ];
+        for n in neighbors {
+            if !self.in_bounds(n) {
+                continue;
+            }
+            let index = local_index((n.0 as usize, n.1 as usize));
+            if let Some(SeatKind::Inside { period: p }) = self.kind[index] {
+                if self.done[index] && p != 0 && p != period {
+                    self.period_edge_queue.push_back((n, p));
+                }
+            }
+        }
+    }
+
+    fn seat_is_edge(&self, pos: (i32, i32)) -> Option<((i32, i32), (i32, i32))> {
+        let index = local_index((pos.0 as usize, pos.1 as usize));
+        let Some(kind) = self.kind[index] else { return None };
+        let neighbors = [
+            (pos.0 + 1, pos.1)
+            , (pos.0 - 1, pos.1)
+            , (pos.0, pos.1 + 1)
+            , (pos.0, pos.1 - 1)
+        ];
+        for n in neighbors {
+            if !self.in_bounds(n) {
+                continue;
+            }
+            let nindex = local_index((n.0 as usize, n.1 as usize));
+            let Some(nother) = self.kind[nindex] else { continue };
+            let different = match (kind, nother) {
+                (SeatKind::Outside, SeatKind::Inside { .. }) => true
+                , (SeatKind::Inside { .. }, SeatKind::Outside) => true
+                , _ => false
+            };
+            if different {
+                return Some((pos, n));
+            }
+        }
+        None
+    }
+
+    fn seat_is_period_edge(&self, pos: (i32, i32)) -> Option<((i32, i32), (i32, i32))> {
+        let index = local_index((pos.0 as usize, pos.1 as usize));
+        let Some(SeatKind::Inside { period: p }) = self.kind[index] else {
+            return None;
+        };
+        if p == 0 {
+            return None;
+        }
+        let neighbors = [
+            (pos.0 + 1, pos.1)
+            , (pos.0 - 1, pos.1)
+            , (pos.0, pos.1 + 1)
+            , (pos.0, pos.1 - 1)
+        ];
+        for n in neighbors {
+            if !self.in_bounds(n) {
+                continue;
+            }
+            let nindex = local_index((n.0 as usize, n.1 as usize));
+            let Some(SeatKind::Inside { period: q }) = self.kind[nindex] else {
+                continue;
+            };
+            if self.done[nindex] && q != 0 && q != p {
+                return Some((pos, n));
+            }
+        }
+        None
+    }
+
+    fn queue_contour_to(&mut self, pos1: (i32, i32), pos2: (i32, i32), period_edge: bool) {
+        let neighbors: [(i32, i32); 8] = if (pos1.0 - pos2.0).abs() == 1 {
+            if pos1.0 > pos2.0 {
+                [
+                    (pos1.0, pos1.1 + 1)
+                    , (pos2.0, pos2.1 + 1)
+                    , (pos2.0, pos2.1 - 1)
+                    , (pos1.0, pos1.1 - 1)
+                    , (pos1.0 + 1, pos1.1 + 1)
+                    , (pos2.0 - 1, pos2.1 + 1)
+                    , (pos2.0 - 1, pos2.1 - 1)
+                    , (pos1.0 + 1, pos1.1 - 1)
+                ]
+            } else {
+                [
+                    (pos2.0, pos2.1 + 1)
+                    , (pos1.0, pos1.1 + 1)
+                    , (pos1.0, pos1.1 - 1)
+                    , (pos2.0, pos2.1 - 1)
+                    , (pos2.0 + 1, pos2.1 + 1)
+                    , (pos1.0 - 1, pos1.1 + 1)
+                    , (pos1.0 - 1, pos1.1 - 1)
+                    , (pos2.0 + 1, pos2.1 - 1)
+                ]
+            }
+        } else if pos1.1 > pos2.1 {
+            [
+                (pos1.0 + 1, pos1.1)
+                , (pos2.0 + 1, pos2.1)
+                , (pos1.0 - 1, pos1.1)
+                , (pos2.0 - 1, pos2.1)
+                , (pos1.0 + 1, pos1.1 + 1)
+                , (pos2.0 + 1, pos2.1 - 1)
+                , (pos2.0 - 1, pos2.1 - 1)
+                , (pos1.0 - 1, pos1.1 + 1)
+            ]
+        } else {
+            [
+                (pos1.0 + 1, pos1.1)
+                , (pos2.0 + 1, pos2.1)
+                , (pos2.0 - 1, pos2.1)
+                , (pos1.0 - 1, pos1.1)
+                , (pos2.0 + 1, pos2.1 + 1)
+                , (pos1.0 + 1, pos1.1 - 1)
+                , (pos1.0 - 1, pos1.1 - 1)
+                , (pos2.0 - 1, pos2.1 + 1)
+            ]
+        };
+        for n in neighbors {
+            if !self.in_bounds(n) {
+                continue;
+            }
+            let index = local_index((n.0 as usize, n.1 as usize));
+            if !self.done[index] {
+                if period_edge {
+                    self.period_edge_queue.push_front((n, 0));
+                } else {
+                    self.edge_queue.push_front((n, 0));
+                }
+            }
+        }
+    }
+
+    fn flood_in_fill(&mut self, origin: (i32, i32), period: u32) -> Vec<((usize, usize), CalibratedAnswer)> {
+        let mut out = Vec::new();
+        if period == 0 {
+            return out;
+        }
+        let mut stack = vec![origin];
+        while let Some(pos) = stack.pop() {
+            if !self.in_bounds(pos) {
+                continue;
+            }
+            let local = (pos.0 as usize, pos.1 as usize);
+            let index = local_index(local);
+            match self.kind[index] {
+                Some(SeatKind::Outside) => { continue; }
+                Some(SeatKind::Inside { period: p }) if self.done[index] && p != 0 => {
+                    continue;
+                }
+                _ => {}
+            }
+            self.done[index] = true;
+            self.kind[index] = Some(SeatKind::Inside { period });
+            self.active.remove(&local);
+            let answer = inside_calibrated(period as u64);
+            out.push((local, answer));
+            let neighbors = [
+                (pos.0 + 1, pos.1)
+                , (pos.0 - 1, pos.1)
+                , (pos.0, pos.1 + 1)
+                , (pos.0, pos.1 - 1)
+            ];
+            for n in neighbors {
+                stack.push(n);
+            }
+        }
+        out
+    }
+
+    fn apply_finished(&mut self, local: (usize, usize), answer: CalibratedAnswer) {
+        let pos = (local.0 as i32, local.1 as i32);
+        let index = local_index(local);
+        if self.done[index] {
+            return;
+        }
+        let kind = seat_kind_from_calibrated(&answer);
+        self.done[index] = true;
+        self.kind[index] = Some(kind);
+        self.active.remove(&local);
+        if self.is_tile_edge_seat(pos) {
+            self.tile_edge_remaining = self.tile_edge_remaining.saturating_sub(1);
+        }
+        match kind {
+            SeatKind::Outside => {
+                self.queue_incomplete_neighbors(pos, true);
+            }
+            SeatKind::Inside { period } => {
+                if period != 0 {
+                    self.queue_period_edge_neighbors(pos, period);
+                    self.queue_flood_in_neighbors(pos, period);
+                } else {
+                    self.queue_incomplete_neighbors(pos, false);
+                }
+            }
+        }
+        if let Some(edge) = self.seat_is_edge(pos) {
+            self.queue_contour_to(edge.0, edge.1, false);
+        }
+        if let Some(edge) = self.seat_is_period_edge(pos) {
+            self.queue_contour_to(edge.0, edge.1, true);
+        }
+    }
+
+    fn fill_remaining_in(&mut self) {
+        for y in 0..self.extent.1 {
+            for x in 0..self.extent.0 {
+                let index = local_index((x, y));
+                if !self.done[index] && !self.active.contains(&(x, y)) {
+                    self.in_queue.push_back(((x as i32, y as i32), 0));
+                }
+            }
+        }
+    }
+}
+
+impl OutfillInfillScheduler {
+    pub fn init_for_tile_extent(
+        extent: (usize, usize)
+    ) -> OutfillInfillSchedulerState {
+        let extent = (
+            extent.0.min(TILE_EDGE_LENGTH)
+            , extent.1.min(TILE_EDGE_LENGTH)
+        );
+        let mut state = OutfillInfillSchedulerState {
+            done: [false; TILE_SEAT_COUNT]
+            , kind: [None; TILE_SEAT_COUNT]
+            , scredge: VecDeque::new()
+            , edge_queue: VecDeque::new()
+            , out_queue: VecDeque::new()
+            , period_edge_queue: VecDeque::new()
+            , flood_in_queue: VecDeque::new()
+            , in_queue: VecDeque::new()
+            , tile_edge_remaining: 0
+            , active: HashSet::new()
+            , extent
+            , hint_queue: VecDeque::new()
+        };
+        for y in 0..TILE_EDGE_LENGTH {
+            for x in 0..TILE_EDGE_LENGTH {
+                if x >= extent.0 || y >= extent.1 {
+                    let index = local_index((x, y));
+                    state.done[index] = true;
+                }
+            }
+        }
+        state.seed_scredge();
+        state
+    }
+
+    pub fn absorb_known(
+        state: &mut OutfillInfillSchedulerState
+        , local: (usize, usize)
+        , answer: CalibratedAnswer
+    ) {
+        if local.0 >= state.extent.0 || local.1 >= state.extent.1 {
+            return;
+        }
+        let index = local_index(local);
+        if state.done[index] {
+            return;
+        }
+        state.apply_finished(local, answer);
+    }
+
+    pub fn reseed_after_absorb(state: &mut OutfillInfillSchedulerState) {
+        state.seed_scredge();
+    }
+
+    pub fn has_work(state: &OutfillInfillSchedulerState) -> bool {
+        !state.hint_queue.is_empty()
+            || !state.out_queue.is_empty()
+            || !state.edge_queue.is_empty()
+            || !state.scredge.is_empty()
+            || !state.period_edge_queue.is_empty()
+            || !state.flood_in_queue.is_empty()
+            || !state.in_queue.is_empty()
+            || !state.active.is_empty()
+    }
+}
+
+impl Scheduler<f64, CpuPeriodicityDetector, NaiveCpuWorker> for OutfillInfillScheduler {
+    type State = OutfillInfillSchedulerState;
+
+    fn init_for_tile(active_tile: &mut Tile<()>) -> Self::State {
+        let _ = active_tile;
+        Self::init_for_tile_extent((TILE_EDGE_LENGTH, TILE_EDGE_LENGTH))
+    }
+
+    fn get_next_n_seats<const N: usize>(
+        scheduler_state: &mut Self::State
+        , active_tile: &mut Tile<()>
+    ) -> [Option<((usize, usize), Option<CalibratedAnswer>)>; N] {
+        let _ = active_tile;
+        let mut out: [Option<((usize, usize), Option<CalibratedAnswer>)>; N] = [const { None }; N];
+        for i in 0..N {
+            if let Some((local, hint)) = scheduler_state.hint_queue.pop_front() {
+                out[i] = Some((local, Some(hint)));
+                continue;
+            }
+            loop {
+                let Some((pos, step)) = scheduler_state.pick_step() else {
+                    if scheduler_state.out_queue.is_empty()
+                        && scheduler_state.edge_queue.is_empty()
+                        && scheduler_state.scredge.is_empty()
+                        && scheduler_state.period_edge_queue.is_empty()
+                        && scheduler_state.flood_in_queue.is_empty()
+                        && scheduler_state.in_queue.is_empty()
+                    {
+                        scheduler_state.fill_remaining_in();
+                        if scheduler_state.in_queue.is_empty() {
+                            break;
+                        }
+                        continue;
+                    }
+                    break;
+                };
+                if !scheduler_state.in_bounds(pos) {
+                    scheduler_state.pop_step(step);
+                    continue;
+                }
+                let local = (pos.0 as usize, pos.1 as usize);
+                let index = local_index(local);
+                if scheduler_state.done[index] {
+                    scheduler_state.pop_step(step);
+                    continue;
+                }
+                if scheduler_state.active.contains(&local) {
+                    break;
+                }
+                if matches!(step, Step::FloodIn) {
+                    let period = scheduler_state.flood_in_queue.front().map(|(_, p)| *p).unwrap_or(0);
+                    scheduler_state.pop_step(step);
+                    let flooded = scheduler_state.flood_in_fill(pos, period);
+                    if flooded.is_empty() {
+                        scheduler_state.in_queue.push_back((pos, period));
+                        continue;
+                    }
+                    let mut flooded = flooded.into_iter();
+                    let (first_local, first_hint) = flooded.next().unwrap();
+                    out[i] = Some((first_local, Some(first_hint)));
+                    for item in flooded {
+                        scheduler_state.hint_queue.push_back(item);
+                    }
+                    break;
+                }
+                if !matches!(step, Step::Edge | Step::PeriodEdge) {
+                    scheduler_state.rotate_step(step);
+                }
+                scheduler_state.active.insert(local);
+                out[i] = Some((local, None));
+                break;
+            }
+        }
+        out
+    }
+
+    fn update<const N: usize>(
+        scheduler_state: &mut Self::State
+        , active_tile: &mut Tile<()>
+        , updates: &[Option<((usize, usize), CalibratedAnswer)>; N]
+    ) {
+        let _ = active_tile;
+        for item in updates.iter() {
+            let Some((local, answer)) = item else { continue };
+            scheduler_state.pop_matching(*local);
+            scheduler_state.apply_finished(*local, *answer);
+        }
+    }
+}
+
+impl OutfillInfillSchedulerState {
+    fn pop_matching(&mut self, local: (usize, usize)) {
+        let pos = (local.0 as i32, local.1 as i32);
+        if self.scredge.front().copied() == Some(pos) {
+            self.scredge.pop_front();
+            return;
+        }
+        if self.edge_queue.front().map(|(p, _)| *p) == Some(pos) {
+            self.edge_queue.pop_front();
+            return;
+        }
+        if self.out_queue.front().map(|(p, _)| *p) == Some(pos) {
+            self.out_queue.pop_front();
+            return;
+        }
+        if self.period_edge_queue.front().map(|(p, _)| *p) == Some(pos) {
+            self.period_edge_queue.pop_front();
+            return;
+        }
+        if self.flood_in_queue.front().map(|(p, _)| *p) == Some(pos) {
+            self.flood_in_queue.pop_front();
+            return;
+        }
+        if self.in_queue.front().map(|(p, _)| *p) == Some(pos) {
+            self.in_queue.pop_front();
+        }
+    }
+}

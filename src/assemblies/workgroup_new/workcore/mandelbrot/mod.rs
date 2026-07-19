@@ -11,18 +11,18 @@ pub trait Scheduler<T: Mandelbrotable, P: PeriodicityDetector<T>, W: Worker<T, P
 
     type State;
 
-    fn init_for_view(
-        active_view: &mut View<()>
+    fn init_for_tile(
+        active_view: &mut Tile<()>
     ) -> Self::State;
 
     fn get_next_n_seats<const N:usize>(
-        scheduler_state: &Self::State
-        , active_view: &mut View<()>
+        scheduler_state: &mut Self::State
+        , active_tile: &mut Tile<()>
     ) -> [Option<((usize, usize), Option<CalibratedAnswer>)>; N];
 
     fn update<const N: usize>(
         scheduler_state: &mut Self::State
-        , active_view: &mut View<()>
+        , active_tile: &mut Tile<()>
         , updates: &[Option<((usize, usize), CalibratedAnswer)>; N]
     );
 }
@@ -33,7 +33,7 @@ pub trait Worker<T: Mandelbrotable, P: PeriodicityDetector<T>>{
 
     fn initialize_batch<const N:usize>(
         worker_state: &Self::State
-        , active_view: &View<()>
+        , active_tile: &Tile<()>
         , seats: [Option<(usize, usize)>; N]
     ) -> PointBatch<T, P, N>;
 
@@ -44,7 +44,7 @@ pub trait Worker<T: Mandelbrotable, P: PeriodicityDetector<T>>{
 
     fn peek_batch<const N: usize>(
         active_batch: &PointBatch<T, P, N>
-        , active_view: &View<()>
+        , active_tile: &Tile<()>
     ) -> [Option<((usize, usize), CalibratedAnswer)>; N];
 
     fn pack_batches<const N:usize, const B:usize>(

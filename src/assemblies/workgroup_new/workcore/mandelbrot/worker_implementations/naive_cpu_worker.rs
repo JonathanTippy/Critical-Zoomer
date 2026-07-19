@@ -11,6 +11,7 @@ pub struct NaiveCpuWorker;
 pub struct NaiveCpuWorkerState {
     pub bailout_radius_squared: f64
     , pub iterations_per_bout: u32
+    , pub stencil: Option<PointStencil>
 }
 
 impl Default for NaiveCpuWorkerState {
@@ -18,6 +19,7 @@ impl Default for NaiveCpuWorkerState {
         NaiveCpuWorkerState {
             bailout_radius_squared: 4.0
             , iterations_per_bout: 1000
+            , stencil: None
         }
     }
 }
@@ -27,11 +29,13 @@ impl Worker<f64, CpuPeriodicityDetector> for NaiveCpuWorker {
 
     fn initialize_batch<const N: usize>(
         worker_state: &Self::State
-        , active_view: &View<()>
+        , active_tile: &Tile<()>
         , seats: [Option<(usize, usize)>; N]
     ) -> PointBatch<f64, CpuPeriodicityDetector, N> {
-        let _ = worker_state;
-        let generator = match active_view.stencil.get_c_generator::<f64>() {
+        let Some(stencil) = worker_state.stencil.as_ref() else {
+            return PointBatch { points: [const { None }; N] };
+        };
+        let generator = match stencil.get_c_generator::<f64>() {
             Some(g) => g
             , None => {
                 return PointBatch { points: [const { None }; N] };
@@ -40,9 +44,10 @@ impl Worker<f64, CpuPeriodicityDetector> for NaiveCpuWorker {
         let mut points: [Option<((usize, usize), ActivePoint<f64, CpuPeriodicityDetector>)>; N] =
             [const { None }; N];
         for i in 0..N {
-            if let Some(seat) = seats[i] {
-                if seat.0 >= active_view.stencil.resolution.0
-                    || seat.1 >= active_view.stencil.resolution.1
+            if let Some(local) = seats[i] {
+                let seat = active_tile.screen_seat(local);
+                if seat.0 >= stencil.resolution.0
+                    || seat.1 >= stencil.resolution.1
                 {
                     continue;
                 }
@@ -53,7 +58,7 @@ impl Worker<f64, CpuPeriodicityDetector> for NaiveCpuWorker {
                 let z = (f64::ZERO, f64::ZERO);
                 let derivative = (f64::ONE, f64::ZERO);
                 points[i] = Some((
-                    seat
+                    local
                     , ActivePoint {
                         c
                         , z
@@ -97,9 +102,9 @@ impl Worker<f64, CpuPeriodicityDetector> for NaiveCpuWorker {
 
     fn peek_batch<const N: usize>(
         active_batch: &PointBatch<f64, CpuPeriodicityDetector, N>
-        , active_view: &View<()>
+        , active_tile: &Tile<()>
     ) -> [Option<((usize, usize), CalibratedAnswer)>; N] {
-        let _ = active_view;
+        let _ = active_tile;
         let mut out: [Option<((usize, usize), CalibratedAnswer)>; N] = [const { None }; N];
         for i in 0..N {
             if let Some((seat, point)) = &active_batch.points[i] {
