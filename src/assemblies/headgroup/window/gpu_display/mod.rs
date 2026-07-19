@@ -800,8 +800,10 @@ pub fn paint_central_panel(ui: &mut egui::Ui, rect: Rect, frame: ShadeFrame) {
 impl GpuDisplayResources {
     fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("headgroup_shadergroup")
-            , source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into())
+            label: Some("headgroup_sample_shade")
+            , source: wgpu::ShaderSource::Wgsl(
+                concat!(include_str!("sampling.wgsl"), "\n", include_str!("shade.wgsl")).into()
+            )
         });
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("headgroup_shade_bgl")

@@ -57,16 +57,30 @@ impl<T: Copy> Tile<T> {
 
 pub fn tile_origins_covering(resolution: (usize, usize)) -> Vec<(usize, usize)> {
     let mut origins = Vec::new();
-    let mut y = 0usize;
-    while y < resolution.1 {
+    let edge = TILE_EDGE_LENGTH;
+    let mut y_top = resolution.1;
+    while y_top > 0 {
+        let y0 = y_top.saturating_sub(edge);
         let mut x = 0usize;
         while x < resolution.0 {
-            origins.push((x, y));
-            x += TILE_EDGE_LENGTH;
+            origins.push((x, y0));
+            x += edge;
         }
-        y += TILE_EDGE_LENGTH;
+        y_top = y0;
     }
     origins
+}
+
+pub fn tile_origin_for_seat(seat: (usize, usize), screen_res: (usize, usize)) -> (usize, usize) {
+    let edge = TILE_EDGE_LENGTH;
+    let ox = (seat.0 / edge) * edge;
+    let oy = if screen_res.1 == 0 {
+        0
+    } else {
+        let row_from_top = (screen_res.1 - 1 - seat.1) / edge;
+        screen_res.1.saturating_sub((row_from_top + 1) * edge)
+    };
+    (ox, oy)
 }
 
 pub fn tile_perimeter_seats(

@@ -81,7 +81,7 @@ impl TileScheduler {
             });
         }
         let mut scredge: VecDeque<(usize, usize)> = scredge_set.into_iter().collect();
-        scredge.make_contiguous().sort_by_key(|s| (s.1, s.0));
+        scredge.make_contiguous().sort_by_key(|s| (std::cmp::Reverse(s.1), s.0));
         TileSchedulerState {
             screen_res
             , tiles

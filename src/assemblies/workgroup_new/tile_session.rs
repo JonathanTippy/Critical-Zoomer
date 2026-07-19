@@ -189,10 +189,7 @@ impl TileSession {
         }
         match TileScheduler::next(&mut self.tile_scheduler) {
             TileSchedulerNext::Scredge(seat) => {
-                let origin = (
-                    (seat.0 / TILE_EDGE_LENGTH) * TILE_EDGE_LENGTH
-                    , (seat.1 / TILE_EDGE_LENGTH) * TILE_EDGE_LENGTH
-                );
+                let origin = tile_origin_for_seat(seat, self.screen_res);
                 let tile = Tile::new(origin, self.location.zoom_pot);
                 let local = tile.local_seat(seat).unwrap_or((0, 0));
                 let seats: [Option<(usize, usize)>; BATCH_N] = {
@@ -335,10 +332,7 @@ impl TileSession {
             self.seats_done += 1;
         }
         let plain = calibrated_to_answer(answer);
-        let origin = (
-            (seat.0 / TILE_EDGE_LENGTH) * TILE_EDGE_LENGTH
-            , (seat.1 / TILE_EDGE_LENGTH) * TILE_EDGE_LENGTH
-        );
+        let origin = tile_origin_for_seat(seat, self.screen_res);
         let tile = self.answer_tiles.entry(origin).or_insert_with(|| {
             Tile::new(origin, self.location.zoom_pot)
         });
