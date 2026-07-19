@@ -8,9 +8,10 @@ pub struct CGenerator<T: Mandelbrotable> {
 
 impl<T:Mandelbrotable> CGenerator<T> {
     pub fn get_c(&self, seat:(u16, u16)) -> (T, T) {
+        let half = T::from(IntExp::from(1).shift(-(PIXELS_PER_UNIT_POT + 1)));
         (
-            self.origin.0 + self.space * seat.0.into()
-            , self.origin.1 - self.space * seat.1.into()
+            self.origin.0 + self.space * T::from_u16(seat.0) + half
+            , self.origin.1 - self.space * T::from_u16(seat.1) - half
         )
     }
 }

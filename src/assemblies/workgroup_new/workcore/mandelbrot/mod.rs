@@ -37,7 +37,6 @@ pub trait Worker<T: Mandelbrotable, P: PeriodicityDetector<T>>{
         , seats: [Option<(usize, usize)>; N]
     ) -> PointBatch<T, P, N>;
 
-    // \/ Should take about 33ms worst case, ending if the batch is done and returning false \/
     fn workshift_on_batch<const N:usize>(
         worker_state: &mut Self::State
         , active_batch: &mut PointBatch<T, P, N>
@@ -53,17 +52,24 @@ pub trait Worker<T: Mandelbrotable, P: PeriodicityDetector<T>>{
     ) -> [Option<PointBatch<T, P, N>>;B];
 }
 
-struct ActivePoint<T: Mandelbrotable, P: PeriodicityDetector<T>> {
-    c: (T, T)
-    , z: (T, T)
-    , iteration_count: u64
-    , min_magnitude: f64
-    , min_magnitude_time: u64
-    , periodicity_detector: P
+#[derive(Clone)]
+pub struct ActivePoint<T: Mandelbrotable, P: PeriodicityDetector<T>> {
+    pub c: (T, T)
+    , pub z: (T, T)
+    , pub derivative: (T, T)
+    , pub real_squared: T
+    , pub imag_squared: T
+    , pub real_imag: T
+    , pub iteration_count: u64
+    , pub min_magnitude: T
+    , pub min_magnitude_time: u64
+    , pub periodicity_detector: P
+    , pub escaped: bool
+    , pub finished: bool
 }
 
-struct PointBatch<T: Mandelbrotable, P: PeriodicityDetector<T>, const N: usize> {
-    points: [
+pub struct PointBatch<T: Mandelbrotable, P: PeriodicityDetector<T>, const N: usize> {
+    pub points: [
         Option<(
             (usize, usize)
             , ActivePoint<T, P>
@@ -72,21 +78,25 @@ struct PointBatch<T: Mandelbrotable, P: PeriodicityDetector<T>, const N: usize> 
 }
 
 pub trait PeriodicityDetector<T: Mandelbrotable> {
-    fn init(iteration_count: u64, z: (T, T)) -> Self;
-    fn update(&mut self, iteration_count: u64, z: (T, T));
+    fn init(iteration_count: u64, z: (T, T), derivative: (T, T)) -> Self;
+    fn check_periodicity(
+        &mut self
+        , c: (T, T)
+        , z: (T, T)
+        , derivative: (T, T)
+        , iteration_count: u64
+        , epsilon: T
+    ) -> Option<u64>;
     fn is_periodic(&self) -> bool;
+    fn detected_period(&self) -> Option<u64>;
 }
 
-// must store each type during computation to avoid later conversion
-// , repeated conversion, and recomputation,
-// because reference orbits are permanent and are reused across stencils and types
 struct ReferenceOrbit {
     big_c: (IntExp, IntExp)
     , period: u64
     , length: usize
     , f32: PeriodicOrbit<f32>
     , f64: PeriodicOrbit<f64>
-    // ALL later used mandelbrotable types
 }
 
 impl ReferenceOrbit {
@@ -95,7 +105,6 @@ impl ReferenceOrbit {
         assert_eq!(self.period, self.f64.period);
         assert_eq!(self.length, self.f32.big_z_orbit.len());
         assert_eq!(self.length, self.f64.big_z_orbit.len());
-        // ALL used mandelbrotable types
     }
 }
 

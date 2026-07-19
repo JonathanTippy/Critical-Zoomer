@@ -17,6 +17,8 @@ pub enum ZoomerCommand {
     ,
     SetPos { real: IntExp, imag: IntExp }
     ,
+    NavigateTo { real: IntExp, imag: IntExp, pot: i32 }
+    ,
     TrackPoint { point_id: u64, point_real: IntExp, point_imag: IntExp }
     ,
     UntrackPoint { point_id: u64 }

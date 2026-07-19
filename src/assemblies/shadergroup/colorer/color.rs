@@ -396,16 +396,23 @@ pub fn is_node_tree(values: &ZoomerValuesScreen, pos: (i32, i32)) -> bool {
     ];
 
     let values = [
-        get_small_time(safe_sample(&values.values, points[0], values.res))
-        ,get_small_time(safe_sample(&values.values, points[1], values.res))
-        ,get_small_time(safe_sample(&values.values, points[2], values.res))
-        ,get_small_time(safe_sample(&values.values, points[3], values.res))
-        ,get_small_time(safe_sample(&values.values, points[4], values.res))
+        edge_relevant_small_time(safe_sample(&values.values, points[0], values.res))
+        ,edge_relevant_small_time(safe_sample(&values.values, points[1], values.res))
+        ,edge_relevant_small_time(safe_sample(&values.values, points[2], values.res))
+        ,edge_relevant_small_time(safe_sample(&values.values, points[3], values.res))
+        ,edge_relevant_small_time(safe_sample(&values.values, points[4], values.res))
     ];
 
     is_increased(
         values[0], values[1], values[2], values[3], values[4]
     )
+}
+
+fn edge_relevant_small_time(value: Option<&FinishedAnswer>) -> Option<u32> {
+    match get_small_time(value) {
+        Some(0) => None
+        , other => other
+    }
 }
 
 pub fn is_node(values: &ZoomerValuesScreen, pos: (i32, i32), thickness: u8) -> bool {
@@ -539,6 +546,9 @@ pub fn get_loop_period(value: Option<&FinishedAnswer>) -> Option<u32> {
         match v {
             FinishedAnswer::Outside{..} => {return None}
             FinishedAnswer::Inside{loop_period, ..} => {
+                if *loop_period == 0 {
+                    return None;
+                }
                 return Some(*loop_period)
             }
         }
@@ -584,4 +594,99 @@ pub fn get_smallness(value: Option<&FinishedAnswer>) -> Option<f64> {
 use std::ops::*;
 pub fn safe_sample<T: Index<usize, Output=J>, J>(stuff:&T, pos:(i32, i32), res:(u32, u32)) -> Option<&J> {
     if let Some(i) = index_from_pos_safe(&pos, res) {Some(&stuff[i])} else {None}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::intexp::IntExp;
+    use crate::utils::ObjectivePosAndZoom;
+
+    fn screen(values: Vec<FinishedAnswer>, res: (u32, u32)) -> ZoomerValuesScreen {
+        ZoomerValuesScreen {
+            values
+            , res
+            , objective_location: ObjectivePosAndZoom {
+                pos: (IntExp::from(0), IntExp::from(0))
+                , zoom_pot: 0
+            }
+        }
+    }
+
+    fn inside(st: u32, period: u32) -> FinishedAnswer {
+        FinishedAnswer::Inside {
+            small_time: st
+            , loop_period: period
+            , smallness: 0.1
+        }
+    }
+
+    #[test]
+    fn b_ste1_dummy_zero_neighbor_must_not_create_small_time_edge() {
+        let mut values = Vec::new();
+        for i in 0..9 {
+            if i == 3 {
+                values.push(inside(0, 0));
+            } else {
+                values.push(inside(5, 1));
+            }
+        }
+        let values_screen = screen(values, (3, 3));
+        assert!(
+            !is_node_tree(&values_screen, (1, 1))
+            , "B-STE-1: unfinished Dummy small_time=0 neighbor must not create a small-time edge at a finished Inside seat"
+        );
+    }
+
+    #[test]
+    fn b_ste1_exterior_zero_neighbor_must_not_spur_inside_edge() {
+        let mut values = Vec::new();
+        for i in 0..9 {
+            if i == 5 {
+                values.push(FinishedAnswer::Outside {
+                    big_time: 1
+                    , small_time: 0
+                    , smallness: 4.0
+                });
+            } else {
+                values.push(inside(5, 1));
+            }
+        }
+        let values_screen = screen(values, (3, 3));
+        assert!(
+            !is_node_tree(&values_screen, (1, 1))
+            , "B-STE-1: exterior small_time=0 (valid paint datum) must not spur a small-time edge on Inside; zero is not an edge ridge neighbor"
+        );
+    }
+
+    #[test]
+    fn b_ste1_exterior_small_time_zero_still_readable_for_paint() {
+        let exterior_zero = FinishedAnswer::Outside {
+            big_time: 1
+            , small_time: 0
+            , smallness: 4.0
+        };
+        assert_eq!(
+            get_small_time(Some(&exterior_zero))
+            , Some(0)
+            , "exterior small_time=0 must remain readable for PaintSmallTime"
+        );
+    }
+
+    #[test]
+    fn b_ste1_real_nonzero_small_time_step_still_edges() {
+        let mut values = Vec::new();
+        for i in 0..9 {
+            if i == 3 {
+                values.push(inside(2, 1));
+            } else {
+                values.push(inside(8, 1));
+            }
+        }
+        let values_screen = screen(values, (3, 3));
+        assert!(
+            is_node_tree(&values_screen, (1, 1))
+            , "nonzero small_time step must still produce a small-time edge"
+        );
+    }
 }

@@ -6,6 +6,7 @@ use crate::utils::{signed_shift, ObjectivePosAndZoom};
 //use crate::actor::work_collector::*;
 use crate::assemblies::workgroup::work_controller::*;
 use crate::assemblies::workgroup::screen_worker::workshift::*;
+use crate::assemblies::workgroup_new::tile_session::TileSession;
 
 pub mod workshift;
 
@@ -14,15 +15,16 @@ pub struct WorkUpdate {
     pub completed_points: (Vec<(CompletedPoint, usize)>)
 }
 
-#[derive(Clone)]
 pub struct WorkerState {
     work_context: Option<(WorkContext, (ObjectivePosAndZoom, (u32, u32)))>
+    , tile_session: Option<TileSession>
     , workshift_token_budget: u32
     , iteration_token_cost: u32
     , point_token_cost: u32
     , bout_token_cost: u32
     , workshift_token_cost: u32
     , total_workshifts: u32
+    , unsent_completed_points: Vec<(CompletedPoint, usize)>
 }
 
 pub async fn run(
@@ -59,12 +61,14 @@ async fn internal_behavior<A: SteadyActor>(
 
     let mut state = state.lock(|| WorkerState {
         work_context: None
+        , tile_session: None
         , workshift_token_budget: 16000000
         , iteration_token_cost: 2
         , bout_token_cost: 4
         , workshift_token_cost: 0
         , point_token_cost: 150
         , total_workshifts: 0
+        , unsent_completed_points: Vec::new()
     }).await;
 
     let max_sleep = Duration::from_millis(50);
@@ -73,8 +77,8 @@ async fn internal_behavior<A: SteadyActor>(
         || i!(updates_out.mark_closed())
     ) {
 
-        let working = match &state.work_context {
-            Some(ctx) => {ctx.0.percent_completed < 100.0}
+        let working = match &state.tile_session {
+            Some(session) => {session.percent_completed() < 100.0}
             , None => {false}
         };
 
@@ -90,9 +94,10 @@ async fn internal_behavior<A: SteadyActor>(
                 let stuff = actor.try_take(&mut attention_in).expect("internal error");
                 drop(stuff);
             };
-            let attention = actor.try_take(&mut attention_in).expect("internal error");
-            if let Some((ctx, _)) = &mut state.work_context {
-                ctx.attention = attention;
+            if let Some(attention) = actor.try_take(&mut attention_in) {
+                if let Some(session) = &mut state.tile_session {
+                    session.set_attention(attention);
+                }
             }
         }
 
@@ -106,58 +111,64 @@ async fn internal_behavior<A: SteadyActor>(
             match actor.try_take(&mut commands_in).unwrap() {
 
                 WorkerCommand::Replace{frame_info: frame_info, context:ctx} => {
-                    if let Some((old_ctx, old_frame_info)) = &mut state.work_context {
-                        let U = work_update(old_ctx);
-
-                        if U.len() > 0 {
-                            actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:U});
+                    let _ = ctx;
+                    if let Some(session) = &mut state.tile_session {
+                        let U = session.workshift();
+                        if !U.is_empty() {
+                            state.unsent_completed_points.extend(U);
                         }
-
-                        state.work_context = Some((ctx, frame_info.clone()));
-                        actor.try_send(&mut updates_out, WorkUpdate{frame_info:Some(frame_info), completed_points:vec!()});
-
-                    } else {
-                        state.work_context = Some((ctx, frame_info.clone()));
-                        actor.try_send(&mut updates_out, WorkUpdate{frame_info:Some(frame_info), completed_points:vec!()});
-                        //debug!("screen worker got new context: \n{:?}", state.work_context);
+                    }
+                    flush_unsent_completed(&mut actor, &mut updates_out, &mut state);
+                    state.tile_session = Some(TileSession::new(frame_info.0.clone(), frame_info.1));
+                    state.work_context = None;
+                    state.unsent_completed_points.clear();
+                    match actor.try_send(&mut updates_out, WorkUpdate{frame_info:Some(frame_info), completed_points:vec!()}) {
+                        SendOutcome::Success => {}
+                        SendOutcome::Blocked(_)
+                        | SendOutcome::Timeout(_)
+                        | SendOutcome::Closed(_) => {}
                     }
                 }
             }
         }
 
-        let token_budget = state.workshift_token_budget.clone();
-        let iteration_token_cost = state.iteration_token_cost.clone();
-        let bout_token_cost = state.bout_token_cost.clone();
-        let point_token_cost = state.point_token_cost.clone();
-        
-
-        if let Some(ctx) = &mut state.work_context {
-            //let start = Instant::now();
-            workshift (
-                token_budget
-                , iteration_token_cost
-                , bout_token_cost
-                , point_token_cost
-                , &mut ctx.0
-            );
-            state.total_workshifts+=1;
-            //info!("workday completed. took {}ms.", start.elapsed().as_millis());
-            //info!("workshift {}", state.total_workshifts);
-        }
-
-
-        if state.total_workshifts % 1 == 0 {
-            if let Some(ctx) = &mut state.work_context {
-                let c = work_update(&mut ctx.0);
-                if c.len() > 0 {
-                    actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:c});
-                }
+        if let Some(session) = &mut state.tile_session {
+            let c = session.workshift();
+            state.total_workshifts += 1;
+            if !c.is_empty() {
+                state.unsent_completed_points.extend(c);
             }
+            flush_unsent_completed(&mut actor, &mut updates_out, &mut state);
         }
     }
     // Final shutdown log, reporting all statistics.
     info!("Computer shutting down.");
     Ok(())
+}
+
+fn flush_unsent_completed<A: SteadyActor>(
+    actor: &mut A
+    , updates_out: &mut Tx<WorkUpdate>
+    , state: &mut WorkerState
+) {
+    if state.unsent_completed_points.is_empty() {
+        return;
+    }
+    let batch = std::mem::take(&mut state.unsent_completed_points);
+    match actor.try_send(
+        updates_out
+        , WorkUpdate {
+            frame_info: None
+            , completed_points: batch
+        }
+    ) {
+        SendOutcome::Success => {}
+        SendOutcome::Blocked(msg)
+        | SendOutcome::Timeout(msg)
+        | SendOutcome::Closed(msg) => {
+            state.unsent_completed_points = msg.completed_points;
+        }
+    }
 }
 
 fn work_update(ctx: &mut WorkContext) -> Vec<(CompletedPoint, usize)> {

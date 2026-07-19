@@ -8,6 +8,12 @@ pub const MOVE_SPEED_PPS: i32 = 200;
 pub const MOVE_SPEED_IN_SCREENS: f32 = 0.42;
 pub const PIXELS_PER_UNIT_POT:i32 = 9;
 
+pub const TILE_EDGE_LENGTH_POT: i32 = 6;
+pub const TILE_EDGE_LENGTH: usize = 1 << TILE_EDGE_LENGTH_POT;
+pub const TILE_SEAT_COUNT: usize = TILE_EDGE_LENGTH * TILE_EDGE_LENGTH;
+
+pub const PERIOD_CONFIRMATION_ITERATIONS: u32 = 20;
+
 pub const SCROLL_SPEED:f32 = 40.0;
 
 pub const NORES_ANSWER:Answer = Answer{

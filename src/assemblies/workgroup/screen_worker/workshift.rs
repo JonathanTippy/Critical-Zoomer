@@ -299,9 +299,6 @@ pub fn workshift(
 
 
             let completed_point = if point.repeats {
-                //let raw_period = point.iterations-point.loop_detection_point.1;
-                //point.period = raw_period;
-                determine_period(point, episilon);
                 let returned = CompletedPoint::Repeats{period: point.period, smallness: point.smallness_squared, small_time:point.small_time};
                 queue_incomplete_neighbors_in(&pos, context.res, &context.points, &mut context.in_queue);
                 returned

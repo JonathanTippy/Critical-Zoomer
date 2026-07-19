@@ -33,6 +33,11 @@ pub mod widgetize;
 pub mod inputs;
 pub mod sampling;
 pub mod transforms;
+pub mod coords;
+pub mod navigate;
+
+use crate::assemblies::headgroup::window::coords::*;
+use crate::assemblies::headgroup::window::navigate::*;
 
 const RECOVER_EGUI_CRASHES:bool = false;
 // ^ half implimented; in cases where the window is supposed to
@@ -93,6 +98,8 @@ pub struct WindowState {
     , pub controls_timer: Instant
     , pub stencil_serial_number_counter: u64
     , pub scroll_debt: f32
+    , pub startup_goto_applied: bool
+    , pub nav_target: Option<(IntExp, IntExp, i32)>
 }
 
 /// Entry point for the window actor.
@@ -154,6 +161,8 @@ async fn internal_behavior<A: SteadyActor>(
         , controls_timer: Instant::now()
         , stencil_serial_number_counter: 0
         , scroll_debt: SCROLL_SPEED/2.0
+        , startup_goto_applied: false
+        , nav_target: None
     }).await;
 
     {
@@ -339,8 +348,56 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             // sample
 
-            let (command_package, attention) = parse_inputs(&ctx, &mut state, size);
+            let (mut command_package, attention) = parse_inputs(&ctx, &mut state, size);
             actor.try_send(&mut attention_out, attention);
+
+            if !state.startup_goto_applied {
+                if let Ok(line) = std::env::var("CZ_GOTO") {
+                    if !line.trim().is_empty() {
+                        let cmds = if std::env::var("CZ_NAV").is_ok() {
+                            commands_from_navigate_line(&line)
+                        } else {
+                            commands_from_goto_line(&line)
+                        };
+                        if let Some(cmds) = cmds {
+                            if std::env::var("CZ_NAV").is_ok() {
+                                if let ZoomerCommand::NavigateTo { real, imag, pot } = &cmds[0] {
+                                    state.nav_target = Some((real.clone(), imag.clone(), *pot));
+                                }
+                            } else {
+                                command_package.extend(cmds);
+                            }
+                        }
+                    }
+                }
+                state.startup_goto_applied = true;
+            }
+            if let Ok(line) = std::fs::read_to_string("/tmp/cz_ctl.goto") {
+                let _ = std::fs::remove_file("/tmp/cz_ctl.goto");
+                if let Some(cmds) = commands_from_goto_line(&line) {
+                    command_package.extend(cmds);
+                    state.nav_target = None;
+                }
+            }
+            if let Ok(line) = std::fs::read_to_string("/tmp/cz_ctl.navigate") {
+                let _ = std::fs::remove_file("/tmp/cz_ctl.navigate");
+                if let Some(cmds) = commands_from_navigate_line(&line) {
+                    if let ZoomerCommand::NavigateTo { real, imag, pot } = &cmds[0] {
+                        state.nav_target = Some((real.clone(), imag.clone(), *pot));
+                    }
+                }
+            }
+            if let Some(target) = state.nav_target.clone() {
+                if let Some(nav_cmds) = advance_navigation(
+                    &target
+                    , &state.sampling_context.location
+                    , size
+                ) {
+                    command_package.extend(nav_cmds);
+                } else {
+                    state.nav_target = None;
+                }
+            }
 
             state.sampling_context.screen_size = (size.0 as u32, size.1 as u32);
 
@@ -348,6 +405,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 transform(command_package, &mut state.sampling_context);
                 resample(&mut state.sampling_context)
             } else {
+                transform(command_package, &mut state.sampling_context);
                 (0..pixels).map(|x| -> Color32 { Color32::PURPLE}).collect()
             };
 

@@ -4,6 +4,9 @@ use crate::constants::*;
 use std::cmp::*;
 pub mod views;
 pub mod stencil;
+pub mod tile;
+
+pub use tile::*;
 
 use crate::range::*;
 

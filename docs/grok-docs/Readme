@@ -1,1 +1,14 @@
-This directory is for grok-generated docs. They should be strictly separate from human docs, and remember that the designs here are not authoriatative.
+This directory is for grok-generated docs. Separate from human docs; not authoritative vs root docs or `he-said/` quotes.
+
+## Layout
+
+- `he-said/` — **PO quotes** only (plus minimal lock bullets from those quotes).
+- Everything else in this folder — assistant status, RCA, bug/todo stack, align logs, implementation notes.
+
+## Index (non-quote)
+
+- `bug-stack.md` — live open/done bug and todo stack
+- `answer-vs-defaults.md` — PO answers vs assistant defaults tally
+- `phase-0-1-status.md` — Phase 0–1 landed + Batch B questions
+- `phase-1.5-notes.md` — period detector implementation / tests
+- `tile-status.md` — tile scheduling / quality follow-through

@@ -104,7 +104,12 @@ pub fn transform(
                 context.updated = true;
             }
 
-            ZoomerCommand::SetPos { real, imag } => {}
+            ZoomerCommand::SetPos { real, imag } => {
+                context.location.pos = (real.clone(), IntExp::ZERO - imag.clone());
+                context.mouse_drag_start = None;
+                context.updated = true;
+            }
+            ZoomerCommand::NavigateTo { .. } => {}
             ZoomerCommand::TrackPoint { point_id, point_real, point_imag } => {}
             ZoomerCommand::UntrackPoint { point_id } => {}
             ZoomerCommand::UntrackAllPoints {} => {}

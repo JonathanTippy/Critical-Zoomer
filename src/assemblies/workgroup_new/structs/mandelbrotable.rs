@@ -10,19 +10,24 @@ Copy
 + Sub<Output=Self>
 + Mul<Output=Self>
 + From<IntExp>
-+ From<u16>
 {
     const ZERO: Self;
+    const ONE: Self;
     const TWO: Self;
 
+    fn from_u16(value: u16) -> Self;
     fn to_f32(self) -> f32;
     fn to_f64(self) -> f64;
 }
 
-
 impl Mandelbrotable for f32 {
     const ZERO: Self = 0.0;
+    const ONE: Self = 1.0;
     const TWO: Self = 2.0;
+
+    fn from_u16(value: u16) -> Self {
+        value as f32
+    }
 
     fn to_f32(self) -> f32 {
         self
@@ -36,7 +41,12 @@ impl Mandelbrotable for f32 {
 
 impl Mandelbrotable for f64 {
     const ZERO: Self = 0.0;
+    const ONE: Self = 1.0;
     const TWO: Self = 2.0;
+
+    fn from_u16(value: u16) -> Self {
+        value as f64
+    }
 
     fn to_f32(self) -> f32 {
         self as f32
