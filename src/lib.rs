@@ -28,3 +28,5 @@ pub mod range;
 pub mod constants;
 pub mod assemblies;
 pub mod intexp;
+pub mod stacked_intexp;
+pub mod floatexp;

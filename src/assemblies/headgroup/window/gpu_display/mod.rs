@@ -320,9 +320,6 @@ pub fn pack_tile_upload(tile: &GPUTile, id: u64) -> PendingTileUpload {
         for lx in 0..edge {
             let Some(a) = tile.get((lx, ly)) else { continue; };
             let answer = Answer::from(a);
-            if answer.min_magnitude.is_infinite() {
-                continue;
-            }
             let (m, zpix) = pack_answer(answer);
             let i = ly * edge + lx;
             meta[i] = m;
@@ -1319,5 +1316,27 @@ impl egui_wgpu::CallbackTrait for GpuDisplayCallback {
             return;
         };
         resources.paint(render_pass);
+    }
+}
+
+#[cfg(test)]
+mod b_ten_1_tests {
+    use super::*;
+    use crate::constants::NORES_ANSWER;
+    use crate::utils::ObjectivePosAndZoom;
+
+    #[test]
+    fn nores_answer_packs_as_outside_not_missing() {
+        let mut tile = Tile::new((0, 0), -2);
+        tile.set((0, 0), NORES_ANSWER);
+        let gpu = GPUTile::from_answer_tile(
+            &tile
+            , (64, 64)
+            , ObjectivePosAndZoom::from((-2, -2, -2))
+        );
+        let upload = pack_tile_upload(&gpu, 1);
+        let meta = upload.meta[0];
+        assert_eq!(meta[3], 1.0, "NORES must pack KIND_OUTSIDE, got kind={}", meta[3]);
+        assert_eq!(meta[0], 1.0, "NORES escape time must be 1");
     }
 }

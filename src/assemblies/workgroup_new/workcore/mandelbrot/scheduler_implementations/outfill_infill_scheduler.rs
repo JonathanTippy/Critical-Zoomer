@@ -3,7 +3,7 @@ use std::collections::{HashSet, VecDeque};
 use crate::assemblies::structs::*;
 use crate::assemblies::workgroup_new::structs::*;
 use crate::assemblies::workgroup_new::workcore::mandelbrot::*;
-use crate::assemblies::workgroup_new::workcore::mandelbrot::worker_implementations::naive_cpu_worker::NaiveCpuWorker;
+use crate::assemblies::workgroup_new::workcore::mandelbrot::worker_implementations::naive_gpu_worker::NaiveGpuWorker;
 use crate::assemblies::workgroup_new::workcore::mandelbrot::worker_implementations::periodicity_detector::*;
 use crate::constants::*;
 use crate::range::*;
@@ -39,6 +39,7 @@ pub struct OutfillInfillSchedulerState {
     , active: HashSet<(usize, usize)>
     , extent: (usize, usize)
     , hint_queue: VecDeque<((usize, usize), CalibratedAnswer)>
+    , period_resolve_done: bool
 }
 
 fn exact_range<T: crate::range::Value>(value: T) -> crate::range::Range<T> {
@@ -115,12 +116,27 @@ impl OutfillInfillSchedulerState {
     fn seed_scredge(&mut self) {
         self.scredge.clear();
         for pos in tile_perimeter_local(self.extent) {
-            let index = local_index((pos.0 as usize, pos.1 as usize));
-            if !self.done[index] {
+            let local = (pos.0 as usize, pos.1 as usize);
+            let index = local_index(local);
+            if !self.done[index] && !self.active.contains(&local) {
                 self.scredge.push_back(pos);
             }
         }
-        self.tile_edge_remaining = self.scredge.len();
+    }
+
+    fn recount_tile_edge_remaining(&mut self) {
+        let mut remaining = 0usize;
+        for pos in tile_perimeter_local(self.extent) {
+            let index = local_index((pos.0 as usize, pos.1 as usize));
+            if !self.done[index] {
+                remaining += 1;
+            }
+        }
+        self.tile_edge_remaining = remaining;
+    }
+
+    fn screen_edge_complete(&self) -> bool {
+        self.tile_edge_remaining == 0
     }
 
     fn pick_step(&mut self) -> Option<((i32, i32), Step)> {
@@ -153,12 +169,15 @@ impl OutfillInfillSchedulerState {
                     }
                 }
                 Step::PeriodEdge => {
+                    if !self.screen_edge_complete() {
+                        continue;
+                    }
                     if let Some((pos, _)) = self.period_edge_queue.front().copied() {
                         return Some((pos, Step::PeriodEdge));
                     }
                 }
                 Step::FloodIn => {
-                    if self.tile_edge_remaining > 0 {
+                    if !self.screen_edge_complete() {
                         continue;
                     }
                     if let Some((pos, _)) = self.flood_in_queue.front().copied() {
@@ -166,6 +185,9 @@ impl OutfillInfillSchedulerState {
                     }
                 }
                 Step::In => {
+                    if !self.screen_edge_complete() {
+                        continue;
+                    }
                     if let Some((pos, _)) = self.in_queue.front().copied() {
                         return Some((pos, Step::In));
                     }
@@ -507,6 +529,7 @@ impl OutfillInfillScheduler {
             , active: HashSet::new()
             , extent
             , hint_queue: VecDeque::new()
+            , period_resolve_done: false
         };
         for y in 0..TILE_EDGE_LENGTH {
             for x in 0..TILE_EDGE_LENGTH {
@@ -517,6 +540,7 @@ impl OutfillInfillScheduler {
             }
         }
         state.seed_scredge();
+        state.recount_tile_edge_remaining();
         state
     }
 
@@ -537,6 +561,7 @@ impl OutfillInfillScheduler {
 
     pub fn reseed_after_absorb(state: &mut OutfillInfillSchedulerState) {
         state.seed_scredge();
+        state.recount_tile_edge_remaining();
     }
 
     pub fn has_work(state: &OutfillInfillSchedulerState) -> bool {
@@ -548,10 +573,67 @@ impl OutfillInfillScheduler {
             || !state.flood_in_queue.is_empty()
             || !state.in_queue.is_empty()
             || !state.active.is_empty()
+            || Self::needs_period_resolve(state)
+    }
+
+    pub fn needs_period_resolve(state: &OutfillInfillSchedulerState) -> bool {
+        !state.period_resolve_done && state.screen_edge_complete()
+    }
+
+    pub fn screen_edge_complete(state: &OutfillInfillSchedulerState) -> bool {
+        state.screen_edge_complete()
+    }
+
+    pub fn take_period_resolve_locals(
+        state: &OutfillInfillSchedulerState
+    ) -> Vec<(usize, usize)> {
+        let mut out = Vec::new();
+        for y in 0..state.extent.1 {
+            for x in 0..state.extent.0 {
+                let local = (x, y);
+                let index = local_index(local);
+                if !state.done[index] {
+                    continue;
+                }
+                let Some(SeatKind::Inside { period: 0 }) = state.kind[index] else {
+                    continue;
+                };
+                let pos = (x as i32, y as i32);
+                if state.seat_is_edge(pos).is_some() {
+                    out.push(local);
+                }
+            }
+        }
+        out
+    }
+
+    pub fn apply_period_resolved(
+        state: &mut OutfillInfillSchedulerState
+        , local: (usize, usize)
+        , period: u32
+    ) {
+        if period == 0 {
+            return;
+        }
+        let index = local_index(local);
+        if !state.done[index] {
+            return;
+        }
+        let Some(SeatKind::Inside { period: 0 }) = state.kind[index] else {
+            return;
+        };
+        state.kind[index] = Some(SeatKind::Inside { period });
+        let pos = (local.0 as i32, local.1 as i32);
+        state.queue_period_edge_neighbors(pos, period);
+        state.queue_flood_in_neighbors(pos, period);
+    }
+
+    pub fn mark_period_resolve_done(state: &mut OutfillInfillSchedulerState) {
+        state.period_resolve_done = true;
     }
 }
 
-impl Scheduler<f64, CpuPeriodicityDetector, NaiveCpuWorker> for OutfillInfillScheduler {
+impl Scheduler<f32, GpuPeriodicityDetector, NaiveGpuWorker> for OutfillInfillScheduler {
     type State = OutfillInfillSchedulerState;
 
     fn init_for_tile(active_tile: &mut Tile<()>) -> Self::State {
@@ -572,6 +654,9 @@ impl Scheduler<f64, CpuPeriodicityDetector, NaiveCpuWorker> for OutfillInfillSch
             }
             loop {
                 let Some((pos, step)) = scheduler_state.pick_step() else {
+                    if !scheduler_state.screen_edge_complete() {
+                        break;
+                    }
                     if scheduler_state.out_queue.is_empty()
                         && scheduler_state.edge_queue.is_empty()
                         && scheduler_state.scredge.is_empty()
@@ -598,7 +683,8 @@ impl Scheduler<f64, CpuPeriodicityDetector, NaiveCpuWorker> for OutfillInfillSch
                     continue;
                 }
                 if scheduler_state.active.contains(&local) {
-                    break;
+                    scheduler_state.pop_step(step);
+                    continue;
                 }
                 if matches!(step, Step::FloodIn) {
                     let period = scheduler_state.flood_in_queue.front().map(|(_, p)| *p).unwrap_or(0);
@@ -616,9 +702,7 @@ impl Scheduler<f64, CpuPeriodicityDetector, NaiveCpuWorker> for OutfillInfillSch
                     }
                     break;
                 }
-                if !matches!(step, Step::Edge | Step::PeriodEdge) {
-                    scheduler_state.rotate_step(step);
-                }
+                scheduler_state.pop_step(step);
                 scheduler_state.active.insert(local);
                 out[i] = Some((local, None));
                 break;
@@ -644,28 +728,60 @@ impl Scheduler<f64, CpuPeriodicityDetector, NaiveCpuWorker> for OutfillInfillSch
 impl OutfillInfillSchedulerState {
     fn pop_matching(&mut self, local: (usize, usize)) {
         let pos = (local.0 as i32, local.1 as i32);
-        if self.scredge.front().copied() == Some(pos) {
-            self.scredge.pop_front();
-            return;
+        self.scredge.retain(|p| *p != pos);
+        self.edge_queue.retain(|(p, _)| *p != pos);
+        self.out_queue.retain(|(p, _)| *p != pos);
+        self.period_edge_queue.retain(|(p, _)| *p != pos);
+        self.flood_in_queue.retain(|(p, _)| *p != pos);
+        self.in_queue.retain(|(p, _)| *p != pos);
+    }
+}
+
+#[cfg(test)]
+mod d_sch1_tests {
+    use super::*;
+
+    #[test]
+    fn flood_in_period_edge_in_gated_until_screen_edge_complete() {
+        let mut state = OutfillInfillScheduler::init_for_tile_extent((4, 4));
+        assert!(!state.screen_edge_complete());
+        state.scredge.clear();
+        state.out_queue.clear();
+        state.edge_queue.clear();
+        for pos in tile_perimeter_local(state.extent) {
+            state.done[local_index((pos.0 as usize, pos.1 as usize))] = true;
         }
-        if self.edge_queue.front().map(|(p, _)| *p) == Some(pos) {
-            self.edge_queue.pop_front();
-            return;
-        }
-        if self.out_queue.front().map(|(p, _)| *p) == Some(pos) {
-            self.out_queue.pop_front();
-            return;
-        }
-        if self.period_edge_queue.front().map(|(p, _)| *p) == Some(pos) {
-            self.period_edge_queue.pop_front();
-            return;
-        }
-        if self.flood_in_queue.front().map(|(p, _)| *p) == Some(pos) {
-            self.flood_in_queue.pop_front();
-            return;
-        }
-        if self.in_queue.front().map(|(p, _)| *p) == Some(pos) {
-            self.in_queue.pop_front();
-        }
+        state.tile_edge_remaining = 1;
+        state.flood_in_queue.push_back(((1, 1), 2));
+        state.period_edge_queue.push_back(((2, 1), 3));
+        state.in_queue.push_back(((1, 2), 0));
+        assert!(
+            state.pick_step().is_none()
+            , "D-SCH-1: FloodIn/PeriodEdge/In must wait until screen_edge_complete"
+        );
+        state.tile_edge_remaining = 0;
+        assert!(state.screen_edge_complete());
+        let step = state.pick_step();
+        assert!(matches!(
+            step
+            , Some((_, Step::PeriodEdge | Step::FloodIn | Step::In))
+        ));
+    }
+
+    #[test]
+    fn period_resolve_queues_flood_in_with_propagated_period() {
+        let mut state = OutfillInfillScheduler::init_for_tile_extent((4, 4));
+        let a = local_index((1, 1));
+        let b = local_index((2, 1));
+        state.done[a] = true;
+        state.kind[a] = Some(SeatKind::Inside { period: 0 });
+        state.done[b] = true;
+        state.kind[b] = Some(SeatKind::Inside { period: 0 });
+        state.tile_edge_remaining = 0;
+        OutfillInfillScheduler::apply_period_resolved(&mut state, (1, 1), 5);
+        assert!(
+            state.flood_in_queue.iter().any(|(pos, period)| *pos == (2, 1) && *period == 5)
+            , "D-SCH-2: period resolve must queue flood-in neighbors with the resolved period"
+        );
     }
 }

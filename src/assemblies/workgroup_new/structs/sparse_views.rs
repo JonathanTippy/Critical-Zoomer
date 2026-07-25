@@ -90,11 +90,13 @@ impl<T: Copy + Clone> SparseView<T> {
 
                     let seat_and_row = (seat as usize, row as usize);
                     let exact = source_alignment & EXACT == EXACT;
+                    let est = source_alignment & PROX == PROX;
                     let done: u8 = if source_alignment & NATIVE == NATIVE { NATIVE } else { 0u8 };
 
                     let source_real_alignment =
-                        (if exact { EXACT } else { 0 }) + PROX + done;
+                        done + { if exact { EXACT } else { 0 } } + { if est { PROX } else { 0u8 } };
 
+                    if source_real_alignment == 0 { continue; }
 
                     let self_alignment = self.map.get(&seat_and_row)
                         .map(|&index| self.points[index].1)
@@ -735,7 +737,7 @@ proptest! {
 
         for seat in 0..resolution.0*resolution.1 {
             source_view.data[seat]=seat as i32;
-            sparse_source_view.insert((seat as i32, stencil_A.seat_and_row(seat)));
+            sparse_source_view.insert_with_align((seat as i32, source_bitmap_value, stencil_A.seat_and_row(seat)));
         }
 
         let mut control_view = View::new(stencil_B.clone(), 0);

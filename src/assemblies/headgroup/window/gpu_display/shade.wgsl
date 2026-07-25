@@ -81,7 +81,7 @@ fn layer_colors(bottom: vec3<f32>, top: vec3<f32>, opacity: f32) -> vec3<f32> {
 
 fn bailout_escape(raw: RawAnswer, seat: vec2<i32>) -> Finished {
     if (raw.kind < 0.5) {
-        return Finished(KIND_MISSING, 0.0, 0.0, 0.0, 0.0);
+        return Finished(KIND_OUTSIDE, 1.0, 0.0, 1.0e30, 0.0);
     }
     if (raw.kind > 1.5) {
         return Finished(KIND_INSIDE, 0.0, raw.small_time, raw.smallness, raw.escape_or_period);
@@ -115,7 +115,7 @@ fn opt_escape_time(f: Finished) -> f32 {
 }
 
 fn opt_period(f: Finished) -> f32 {
-    if (f.kind > 1.5) { return f.loop_period; }
+    if (f.kind > 1.5 && f.loop_period > 0.5) { return f.loop_period; }
     return -1.0;
 }
 
@@ -218,9 +218,6 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     }
     let screen_seat = vec2<i32>(floor(in.uv * uniforms.viewport_size));
     let finished = finished_at(screen_seat);
-    if (finished.kind < 0.5) {
-        return vec4<f32>(0.0, 0.0, 0.0, 1.0);
-    }
 
     var rgb = vec3<f32>(0.0, 0.0, 0.0);
     let count = uniforms.instruction_count;

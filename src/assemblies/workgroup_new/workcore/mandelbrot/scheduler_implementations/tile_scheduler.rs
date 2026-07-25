@@ -96,15 +96,7 @@ impl TileScheduler {
             state.tiles[tile].begun = true;
             return TileSchedulerNext::BeginTile(tile);
         }
-        while let Some(seat) = state.scredge.front().copied() {
-            if state.seat_kind.contains_key(&seat) {
-                state.scredge.pop_front();
-                continue;
-            }
-            if state.scredge_active.contains(&seat) {
-                return TileSchedulerNext::Idle;
-            }
-            state.scredge_active.insert(seat);
+        if let Some(seat) = Self::take_scredge(state) {
             return TileSchedulerNext::Scredge(seat);
         }
         if let Some(tile) = Self::take_unbegun_other_tile(state) {
@@ -112,6 +104,60 @@ impl TileScheduler {
             return TileSchedulerNext::BeginTile(tile);
         }
         TileSchedulerNext::Idle
+    }
+
+    pub fn take_scredge(state: &mut TileSchedulerState) -> Option<(usize, usize)> {
+        let mut rotated = 0usize;
+        while let Some(seat) = state.scredge.front().copied() {
+            if state.seat_kind.contains_key(&seat) {
+                state.scredge.pop_front();
+                rotated = 0;
+                continue;
+            }
+            if state.scredge_active.contains(&seat) {
+                state.scredge.pop_front();
+                state.scredge.push_back(seat);
+                rotated += 1;
+                if rotated >= state.scredge.len().max(1) {
+                    break;
+                }
+                continue;
+            }
+            state.scredge.pop_front();
+            state.scredge_active.insert(seat);
+            return Some(seat);
+        }
+        None
+    }
+
+    pub fn take_scredge_for_origin(
+        state: &mut TileSchedulerState
+        , origin: (usize, usize)
+        , screen_res: (usize, usize)
+    ) -> Option<(usize, usize)> {
+        let mut rotated = 0usize;
+        while let Some(seat) = state.scredge.front().copied() {
+            if state.seat_kind.contains_key(&seat) {
+                state.scredge.pop_front();
+                rotated = 0;
+                continue;
+            }
+            if state.scredge_active.contains(&seat)
+                || tile_origin_for_seat(seat, screen_res) != origin
+            {
+                state.scredge.pop_front();
+                state.scredge.push_back(seat);
+                rotated += 1;
+                if rotated >= state.scredge.len().max(1) {
+                    break;
+                }
+                continue;
+            }
+            state.scredge.pop_front();
+            state.scredge_active.insert(seat);
+            return Some(seat);
+        }
+        None
     }
 
     fn take_unbegun_out_tile(state: &TileSchedulerState) -> Option<usize> {
@@ -135,9 +181,7 @@ impl TileScheduler {
         if state.seat_kind.insert(seat, kind).is_some() {
             return;
         }
-        if state.scredge.front().copied() == Some(seat) {
-            state.scredge.pop_front();
-        }
+        state.scredge.retain(|s| *s != seat);
         for tile_index in 0..state.tiles.len() {
             let origin = state.tiles[tile_index].origin;
             let extent = state.tiles[tile_index].extent;

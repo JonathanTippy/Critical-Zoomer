@@ -56,11 +56,11 @@ flow per second (still): 0
 
 Output: Tile<Answer>
 
-flow per second (incomplete): [30, 60]
+flow per second (incomplete): [30, 1000]
 flow per second (complete): 0
 
 
-The workgroup must be responsible for completing work. It must store its own collection of already completed work for continuity of outputs and scheduling.
+The workgroup must be responsible for completing work. It must store its own collection of already completed work for continuity of outputs and scheduling. This will probably be the same point collection as in the headgroup.
 It must immediately pause or discard work which is no longer present in the viewport.
 It must recieve the current viewport location, level of magnification, and screen size from the Headgroup, 
 and based on those, decides what work to do.
@@ -70,9 +70,9 @@ When the screen is not yet complete, the Workgroup must always publish some new 
 ### GPU Uploader
 
 Input: Tile<Answer>
-flow per second: [0, 60]
+flow per second: [0, 1000]
 Output: GPUTile<GPUAnswer>
-flow per second: [0, 60]
+flow per second: [0, 1000]
 
 uploads tiles to the GPU
 

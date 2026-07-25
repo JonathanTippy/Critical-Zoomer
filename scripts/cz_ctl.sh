@@ -37,7 +37,7 @@ cz_ctl_daemon() {
       kill -KILL "$app" 2>/dev/null || true
       wait "$app" 2>/dev/null || true
     fi
-    rm -f "$FIFO" "$PIDFILE" "$daemon_pidfile" "${CZ_ENVFILE:-/tmp/cz_ctl.env}"
+    rm -f "$FIFO" "$PIDFILE" "${daemon_pidfile:-/tmp/cz_ctl.daemon.pid}" "${CZ_ENVFILE:-/tmp/cz_ctl.env}"
   }
   trap cleanup EXIT
   printf 'DISPLAY=%s\nXAUTHORITY=%s\nOUT=%s\n' "${DISPLAY:-}" "${XAUTHORITY:-}" "$OUT" >"${CZ_ENVFILE:-/tmp/cz_ctl.env}"

@@ -72,6 +72,8 @@ impl Worker<f64, CpuPeriodicityDetector> for NaiveCpuWorker {
                         , periodicity_detector: CpuPeriodicityDetector::init(0, z, derivative)
                         , escaped: false
                         , finished: false
+                        , orbit_id: ZERO_ORBIT_ID
+                        , seat_linear: 0
                     }
                 ));
             }
@@ -197,7 +199,7 @@ pub fn point_to_answer(point: &ActivePoint<f64, CpuPeriodicityDetector>) -> Answ
     } else {
         Answer {
             result: MandelbrotResult::Inside {
-                period: point.periodicity_detector.detected_period().unwrap_or(0)
+                period: 0
             }
             , min_magnitude_time: point.min_magnitude_time
             , min_magnitude: point.min_magnitude
@@ -242,6 +244,39 @@ fn point_to_calibrated_answer(point: &ActivePoint<f64, CpuPeriodicityDetector>) 
                     , node: exact_range(false)
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod b_per_2_tests {
+    use super::*;
+
+    #[test]
+    fn regular_inside_answer_emits_unknown_period_zero() {
+        let z = (0.0, 0.0);
+        let point = ActivePoint {
+            c: (-0.5, 0.0)
+            , z
+            , derivative: (1.0, 0.0)
+            , real_squared: 0.0
+            , imag_squared: 0.0
+            , real_imag: 0.0
+            , iteration_count: 100
+            , min_magnitude: 0.0
+            , min_magnitude_time: 1
+            , periodicity_detector: CpuPeriodicityDetector::init(0, z, (1.0, 0.0))
+            , escaped: false
+            , finished: true
+            , orbit_id: ZERO_ORBIT_ID
+            , seat_linear: 0
+        };
+        let answer = point_to_answer(&point);
+        match answer.result {
+            MandelbrotResult::Inside { period } => {
+                assert_eq!(period, 0, "regular iterate must not emit a period number");
+            }
+            other => panic!("expected Inside, got {other:?}"),
         }
     }
 }

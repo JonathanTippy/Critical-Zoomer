@@ -17,6 +17,8 @@ pub mod range;
 pub mod constants;
 pub mod assemblies;
 pub mod intexp;
+pub mod stacked_intexp;
+pub mod floatexp;
 
 const STACK_SIZE:usize = 100 * 1024 * 1024;
 fn main() {

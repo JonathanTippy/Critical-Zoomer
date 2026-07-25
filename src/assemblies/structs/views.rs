@@ -246,7 +246,7 @@ impl<T: Copy> View<T> {
                         let source_alignment = source.alignment[source_index];
                         let est = represented && source_alignment & PROX == PROX;
                         let exact = represented && source_alignment & EXACT == EXACT;
-                        let done:u8 = if source_alignment & NATIVE == NATIVE { NATIVE } else {0u8};
+                        let done:u8 = if represented && source_alignment & NATIVE == NATIVE { NATIVE } else {0u8};
 
                         let source_real_alignment = done + { if exact { EXACT } else { 0 } } + { if est { PROX } else { 0u8 } };
                         let self_alignment = self.alignment[self_index];

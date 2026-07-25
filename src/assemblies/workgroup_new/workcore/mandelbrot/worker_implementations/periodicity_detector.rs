@@ -3,10 +3,10 @@ use crate::assemblies::workgroup_new::workcore::mandelbrot::*;
 use crate::constants::PERIOD_CONFIRMATION_ITERATIONS;
 
 pub struct StandardPeriodicityDetector<T: Mandelbrotable> {
-    checkpoint_z: (T, T)
-    , steps_since_checkpoint: u64
-    , next_checkpoint_iteration: u64
-    , detected_period: Option<u64>
+    pub(crate) checkpoint_z: (T, T)
+    , pub(crate) steps_since_checkpoint: u64
+    , pub(crate) next_checkpoint_iteration: u64
+    , pub(crate) detected_period: Option<u64>
 }
 
 impl<T: Mandelbrotable> PeriodicityDetector<T> for StandardPeriodicityDetector<T> {
@@ -152,6 +152,7 @@ fn advance_orbit_step<T: Mandelbrotable>(
 }
 
 pub type CpuPeriodicityDetector = StandardPeriodicityDetector<f64>;
+pub type GpuPeriodicityDetector = StandardPeriodicityDetector<f32>;
 
 pub fn detect_period_for_c(c: (f64, f64), max_iters: u64) -> Option<u64> {
     let mut z = (0.0, 0.0);

@@ -7,13 +7,13 @@ use crate::assemblies::workgroup_new::structs::mandelbrotable::*;
 use crate::assemblies::workgroup_new::workcore::mandelbrot::*;
 use crate::assemblies::workgroup_new::workcore::mandelbrot::scheduler_implementations::outfill_infill_scheduler::*;
 use crate::assemblies::workgroup_new::workcore::mandelbrot::scheduler_implementations::tile_scheduler::*;
-use crate::assemblies::workgroup_new::workcore::mandelbrot::worker_implementations::naive_cpu_worker::*;
+use crate::assemblies::workgroup_new::workcore::mandelbrot::worker_implementations::naive_gpu_worker::*;
 use crate::assemblies::workgroup_new::workcore::mandelbrot::worker_implementations::periodicity_detector::*;
 use crate::constants::*;
 use crate::intexp::*;
 use crate::utils::ObjectivePosAndZoom;
 
-const BATCH_N: usize = 1;
+const BATCH_N: usize = GPU_WORKER_BATCH_N;
 
 #[derive(Clone, Copy)]
 enum SeatKind {
@@ -25,13 +25,13 @@ struct ActiveTileWork {
     tile_index: usize
     , tile: Tile<()>
     , scheduler: OutfillInfillSchedulerState
-    , batch: Option<PointBatch<f64, CpuPeriodicityDetector, BATCH_N>>
+    , batch: Option<PointBatch<f32, GpuPeriodicityDetector, BATCH_N>>
 }
 
 struct ScredgeWork {
-    seat: (usize, usize)
+    seats: [Option<(usize, usize)>; BATCH_N]
     , tile: Tile<()>
-    , batch: Option<PointBatch<f64, CpuPeriodicityDetector, BATCH_N>>
+    , batch: Option<PointBatch<f32, GpuPeriodicityDetector, BATCH_N>>
 }
 
 pub struct TileSession {
@@ -47,10 +47,12 @@ pub struct TileSession {
     , tile_scheduler: TileSchedulerState
     , active_tile: Option<ActiveTileWork>
     , scredge_work: Option<ScredgeWork>
-    , worker_state: NaiveCpuWorkerState
+    , worker_state: NaiveGpuWorkerState
     , workshifts: u32
     , answer_tiles: HashMap<(usize, usize), Tile<Answer>>
     , unsent_origins: HashSet<(usize, usize)>
+    , references: ReferenceCollection
+    , seat_orbit_ids: Vec<OrbitId>
 }
 
 impl TileSession {
@@ -67,7 +69,7 @@ impl TileSession {
             , focus: None
             , hover: None
         }.correct_precision();
-        let mut worker_state = NaiveCpuWorkerState::default();
+        let mut worker_state = NaiveGpuWorkerState::default();
         worker_state.stencil = Some(stencil.clone());
         TileSession {
             stencil
@@ -86,6 +88,8 @@ impl TileSession {
             , workshifts: 0
             , answer_tiles: HashMap::new()
             , unsent_origins: HashSet::new()
+            , references: ReferenceCollection::new()
+            , seat_orbit_ids: vec![ZERO_ORBIT_ID; res.0 * res.1]
         }
     }
 
@@ -126,6 +130,9 @@ impl TileSession {
 
     fn work_once(&mut self) -> bool {
         if self.advance_open_batch() {
+            return true;
+        }
+        if self.try_resolve_periods() {
             return true;
         }
         if self.active_tile.is_some() {
@@ -177,7 +184,7 @@ impl TileSession {
             }
             if need_work.iter().any(|s| s.is_some()) {
                 let work = self.active_tile.as_mut().unwrap();
-                let batch = NaiveCpuWorker::initialize_batch(
+                let batch = NaiveGpuWorker::initialize_batch(
                     &self.worker_state
                     , &work.tile
                     , need_work
@@ -191,19 +198,28 @@ impl TileSession {
             TileSchedulerNext::Scredge(seat) => {
                 let origin = tile_origin_for_seat(seat, self.screen_res);
                 let tile = Tile::new(origin, self.location.zoom_pot);
-                let local = tile.local_seat(seat).unwrap_or((0, 0));
-                let seats: [Option<(usize, usize)>; BATCH_N] = {
-                    let mut s = [const { None }; BATCH_N];
-                    s[0] = Some(local);
-                    s
-                };
-                let batch = NaiveCpuWorker::initialize_batch(
+                let mut screen_seats: [Option<(usize, usize)>; BATCH_N] = [const { None }; BATCH_N];
+                let mut locals: [Option<(usize, usize)>; BATCH_N] = [const { None }; BATCH_N];
+                screen_seats[0] = Some(seat);
+                locals[0] = Some(tile.local_seat(seat).unwrap_or((0, 0)));
+                for i in 1..BATCH_N {
+                    let Some(next_seat) = TileScheduler::take_scredge_for_origin(
+                        &mut self.tile_scheduler
+                        , origin
+                        , self.screen_res
+                    ) else {
+                        break;
+                    };
+                    screen_seats[i] = Some(next_seat);
+                    locals[i] = Some(tile.local_seat(next_seat).unwrap_or((0, 0)));
+                }
+                let batch = NaiveGpuWorker::initialize_batch(
                     &self.worker_state
                     , &tile
-                    , seats
+                    , locals
                 );
                 self.scredge_work = Some(ScredgeWork {
-                    seat
+                    seats: screen_seats
                     , tile
                     , batch: Some(batch)
                 });
@@ -218,72 +234,170 @@ impl TileSession {
     }
 
     fn advance_open_batch(&mut self) -> bool {
-        if let Some(work) = self.scredge_work.as_mut() {
-            let Some(batch) = work.batch.as_mut() else {
-                self.scredge_work = None;
-                return true;
+        if self.scredge_work.is_some() {
+            let (
+                finishes
+                , clear_work
+            ) = {
+                let work = self.scredge_work.as_mut().unwrap();
+                if work.batch.is_none() {
+                    (Vec::new(), true)
+                } else {
+                    let batch = work.batch.as_mut().unwrap();
+                    let still_working = NaiveGpuWorker::workshift_on_batch(
+                        &mut self.worker_state
+                        , batch
+                    );
+                    let peeked = NaiveGpuWorker::peek_batch(batch, &work.tile);
+                    let mut finishes = Vec::new();
+                    let mut any_finished = false;
+                    for i in 0..BATCH_N {
+                        let Some((_local, answer)) = peeked[i] else { continue };
+                        let Some(seat) = work.seats[i] else { continue };
+                        any_finished = true;
+                        finishes.push((seat, answer));
+                        work.seats[i] = None;
+                        batch.points[i] = None;
+                    }
+                    if !any_finished && still_working {
+                        (Vec::new(), false)
+                    } else if !still_working {
+                        work.batch = None;
+                        (finishes, true)
+                    } else {
+                        (finishes, false)
+                    }
+                }
             };
-            let still_working = NaiveCpuWorker::workshift_on_batch(
+            if clear_work {
+                self.scredge_work = None;
+            }
+            for (seat, answer) in finishes {
+                let tile_kind = match seat_kind_from_calibrated(&answer) {
+                    SeatKind::Outside => TileSeatKind::Outside
+                    , SeatKind::Inside { .. } => TileSeatKind::Inside
+                };
+                TileScheduler::note_finished(&mut self.tile_scheduler, seat, tile_kind);
+                self.finish_screen_seat(seat, answer);
+            }
+            return true;
+        }
+        let (
+            finishes
+            , any_outside
+            , tile_index
+            , progressed
+        ) = {
+            let Some(work) = self.active_tile.as_mut() else {
+                return false;
+            };
+            let Some(batch) = work.batch.as_mut() else {
+                return false;
+            };
+            let still_working = NaiveGpuWorker::workshift_on_batch(
                 &mut self.worker_state
                 , batch
             );
-            let peeked = NaiveCpuWorker::peek_batch(batch, &work.tile);
-            let Some((local, answer)) = peeked[0] else {
+            let peeked = NaiveGpuWorker::peek_batch(batch, &work.tile);
+            let mut updates: [Option<((usize, usize), CalibratedAnswer)>; BATCH_N] =
+                [const { None }; BATCH_N];
+            let mut finishes = Vec::new();
+            let mut any_outside = false;
+            let mut any_finished = false;
+            for i in 0..BATCH_N {
+                let Some((local, answer)) = peeked[i] else { continue };
+                any_finished = true;
+                updates[i] = Some((local, answer));
+                let screen = work.tile.screen_seat(local);
+                if matches!(seat_kind_from_calibrated(&answer), SeatKind::Outside) {
+                    any_outside = true;
+                }
+                finishes.push((screen, answer));
+                batch.points[i] = None;
+            }
+            if !any_finished {
                 if !still_working {
-                    let seat = work.seat;
-                    self.scredge_work = None;
-                    TileScheduler::note_finished(
-                        &mut self.tile_scheduler
-                        , seat
-                        , TileSeatKind::Inside
-                    );
+                    work.batch = None;
                 }
                 return true;
-            };
-            let seat = work.seat;
-            let _ = local;
-            self.scredge_work = None;
-            let tile_kind = match seat_kind_from_calibrated(&answer) {
-                SeatKind::Outside => TileSeatKind::Outside
-                , SeatKind::Inside { .. } => TileSeatKind::Inside
-            };
-            TileScheduler::note_finished(&mut self.tile_scheduler, seat, tile_kind);
-            self.finish_screen_seat(seat, answer);
-            return true;
-        }
-        let Some(work) = self.active_tile.as_mut() else {
-            return false;
-        };
-        let Some(batch) = work.batch.as_mut() else {
-            return false;
-        };
-        let still_working = NaiveCpuWorker::workshift_on_batch(
-            &mut self.worker_state
-            , batch
-        );
-        let peeked = NaiveCpuWorker::peek_batch(batch, &work.tile);
-        let Some((local, answer)) = peeked[0] else {
+            }
+            OutfillInfillScheduler::update(
+                &mut work.scheduler
+                , &mut work.tile
+                , &updates
+            );
             if !still_working {
                 work.batch = None;
             }
+            (finishes, any_outside, work.tile_index, true)
+        };
+        if any_outside {
+            TileScheduler::note_tile_has_outside(&mut self.tile_scheduler, tile_index);
+        }
+        for (screen, answer) in finishes {
+            self.finish_screen_seat(screen, answer);
+        }
+        progressed
+    }
+
+    fn try_resolve_periods(&mut self) -> bool {
+        let Some(work) = self.active_tile.as_mut() else {
+            return false;
+        };
+        if work.batch.is_some() {
+            return false;
+        }
+        if !OutfillInfillScheduler::needs_period_resolve(&work.scheduler) {
+            return false;
+        }
+        let locals = OutfillInfillScheduler::take_period_resolve_locals(&work.scheduler);
+        if locals.is_empty() {
+            OutfillInfillScheduler::mark_period_resolve_done(&mut work.scheduler);
+            return true;
+        }
+        let Some(generator) = self.worker_state.stencil.as_ref().and_then(|s| {
+            s.get_c_generator::<f64>()
+        }) else {
+            OutfillInfillScheduler::mark_period_resolve_done(&mut work.scheduler);
             return true;
         };
-        work.batch = None;
-        let screen = work.tile.screen_seat(local);
-        let updates: [Option<((usize, usize), CalibratedAnswer)>; BATCH_N] = {
-            let mut u = [const { None }; BATCH_N];
-            u[0] = Some((local, answer));
-            u
-        };
-        OutfillInfillScheduler::update(
-            &mut work.scheduler
-            , &mut work.tile
-            , &updates
-        );
-        if matches!(seat_kind_from_calibrated(&answer), SeatKind::Outside) {
-            TileScheduler::note_tile_has_outside(&mut self.tile_scheduler, work.tile_index);
+        let started = Instant::now();
+        let mut updates = Vec::new();
+        let mut attempted = 0usize;
+        for local in &locals {
+            if attempted >= 8 || started.elapsed().as_millis() >= 5 {
+                break;
+            }
+            attempted += 1;
+            let screen = work.tile.screen_seat(*local);
+            if screen.0 >= self.screen_res.0 || screen.1 >= self.screen_res.1 {
+                continue;
+            }
+            let c = generator.get_c((
+                screen.0.min(u16::MAX as usize) as u16
+                , screen.1.min(u16::MAX as usize) as u16
+            ));
+            let Some(period) = detect_period_for_c(c, 20_000) else {
+                continue;
+            };
+            let period_u = period.min(u32::MAX as u64) as u32;
+            OutfillInfillScheduler::apply_period_resolved(
+                &mut work.scheduler
+                , *local
+                , period_u
+            );
+            if let Some(answer) = self.screen_answer[linear_index(screen, self.screen_res.0)].as_mut() {
+                if let CalibratedMandelbrotResult::Inside { period: ref mut p } = answer.result {
+                    p.lower_bound = period;
+                    p.upper_bound = period;
+                }
+                updates.push((screen, *answer));
+            }
         }
-        self.finish_screen_seat(screen, answer);
+        OutfillInfillScheduler::mark_period_resolve_done(&mut work.scheduler);
+        for (screen, answer) in updates {
+            self.finish_screen_seat(screen, answer);
+        }
         true
     }
 
