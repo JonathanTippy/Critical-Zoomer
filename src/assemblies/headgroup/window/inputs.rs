@@ -161,23 +161,11 @@ pub fn parse_inputs(
                 , (sampling_size.1 as i32 - 1) - (c.y as i32)
             );
 
-            returned.0.push(
-                if step > 0.0 {
-                    //info!("zooming in");
-                    ZoomerCommand::Zoom {
-                        pot: 1
-                        ,
-                        center_screenspace_pos
-                    }
-                } else {
-                    //info!("zooming out");
-                    ZoomerCommand::Zoom {
-                        pot: -1
-                        ,
-                        center_screenspace_pos
-                    }
-                }
-            );
+            let pot = scroll_step_to_zoom_pot(step);
+            returned.0.push(ZoomerCommand::Zoom {
+                pot,
+                center_screenspace_pos,
+            });
             state.scroll_debt -= step * threshold;
             //state.scroll_debt = delta.signum() * SCROLL_SPEED / 2.0;
         }
@@ -280,5 +268,41 @@ pub fn parse_inputs(
     });
 
     returned
+}
+
+/// Map accumulated scroll step sign to zoom POT.
+/// Empirically (egui raw_scroll_delta on this app): positive debt step was zooming
+/// the wrong way relative to user expectation, so the sign is inverted vs naive
+/// "positive y → zoom in". Shift/Space keys still use pot ±1 directly.
+// r[impl cz.fast.natural-zoom-2x+1]
+pub fn scroll_step_to_zoom_pot(step_sign: f32) -> i32 {
+    if step_sign > 0.0 {
+        -1
+    } else {
+        1
+    }
+}
+
+#[cfg(test)]
+mod scroll_zoom_tests {
+    use super::*;
+
+    // r[verify cz.fast.natural-zoom-2x+1]
+    #[test]
+    fn positive_scroll_step_zooms_out_on_this_stack() {
+        assert_eq!(scroll_step_to_zoom_pot(1.0), -1);
+    }
+
+    // r[verify cz.fast.natural-zoom-2x+1]
+    #[test]
+    fn negative_scroll_step_zooms_in_on_this_stack() {
+        assert_eq!(scroll_step_to_zoom_pot(-1.0), 1);
+    }
+
+    // r[verify cz.fast.natural-zoom-2x+1]
+    #[test]
+    fn scroll_bump_is_one_pot() {
+        assert_eq!(scroll_step_to_zoom_pot(40.0).abs(), 1);
+    }
 }
 

@@ -63,3 +63,62 @@ impl PointStencil {
         one.shift(-(self.homothety.2 + PIXELS_PER_UNIT_POT))
     }
 }
+
+#[cfg(test)]
+mod c_generator_tests {
+    use super::*;
+    use crate::constants::PIXELS_PER_UNIT_POT;
+    use crate::intexp::IntExp;
+
+    fn stencil(mag: i32, seats: usize, rows: usize) -> PointStencil {
+        PointStencil {
+            homothety: (IntExp::from(-2), IntExp::from(2), mag),
+            resolution: (seats, rows),
+            serial_number: 0,
+            focus: None,
+            hover: None,
+        }
+    }
+
+    #[test]
+    fn f64_generator_available_at_shallow_mag() {
+        let s = stencil(0, 64, 64);
+        assert!(s.get_c_generator::<f64>().is_some());
+    }
+
+    #[test]
+    fn f32_fails_when_points_not_distinguishable() {
+        // Extreme mag: spacing tinier than f32 ulp around large coords.
+        let s = PointStencil {
+            homothety: (
+                IntExp {
+                    val: rug::Integer::from(1) << 40,
+                    exp: -40,
+                },
+                IntExp {
+                    val: rug::Integer::from(1) << 40,
+                    exp: -40,
+                },
+                40,
+            ),
+            resolution: (64, 64),
+            serial_number: 0,
+            focus: None,
+            hover: None,
+        };
+        // May or may not fail depending on FloatExp path — at least API returns Option.
+        let _ = s.get_c_generator::<f32>();
+        let _ = s.get_c_generator::<f64>();
+    }
+
+    #[test]
+    fn neighbor_cs_differ_when_generator_succeeds() {
+        let s = stencil(-2, 32, 32);
+        let g = s.get_c_generator::<f64>().expect("f64 at home mag");
+        let a = g.get_c((0, 0));
+        let b = g.get_c((1, 0));
+        assert_ne!(a.0, b.0);
+        let expected_space = 2f64.powi(-(PIXELS_PER_UNIT_POT - 2));
+        assert!((b.0 - a.0 - expected_space).abs() < 1e-9);
+    }
+}

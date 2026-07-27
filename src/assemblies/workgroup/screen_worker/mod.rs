@@ -119,9 +119,30 @@ async fn internal_behavior<A: SteadyActor>(
                         state.unsent_tiles.extend(tiles);
                     }
                     flush_unsent_tiles(&mut actor, &mut tiles_out, &mut state);
-                    state.tile_session = Some(TileSession::new(frame_info.0.clone(), frame_info.1));
+                    let prev_zoom = state
+                        .tile_session
+                        .as_ref()
+                        .map(|s| s.location.zoom_pot);
+                    let new_zoom = frame_info.0.zoom_pot;
+                    match &mut state.tile_session {
+                        Some(session) => {
+                            session.retarget(frame_info.0.clone(), frame_info.1);
+                        }
+                        None => {
+                            state.tile_session = Some(TileSession::new(
+                                frame_info.0.clone()
+                                , frame_info.1
+                            ));
+                        }
+                    }
+                    if let (Some(session), Some(prev)) = (&mut state.tile_session, prev_zoom) {
+                        // retarget already sets mag velocity on zoom change; keep pan at 0
+                        if new_zoom == prev {
+                            session.set_mag_velocity(0);
+                        }
+                    }
                     state.work_context = None;
-                    state.unsent_tiles.clear();
+                    // Keep in-flight publishes; absolute hoard keys retain continuity.
                 }
             }
         }
@@ -145,13 +166,21 @@ async fn internal_behavior<A: SteadyActor>(
 fn drain_publish(session: &mut TileSession) -> Vec<AnswerTilePublish> {
     let screen_res = session.screen_res;
     let location = session.location.clone();
-    session.drain_publish_tiles().into_iter().map(|tile| {
+    let mut out: Vec<AnswerTilePublish> = session.drain_publish_tiles().into_iter().map(|tile| {
         AnswerTilePublish {
             tile
             , screen_res
             , location: location.clone()
         }
-    }).collect()
+    }).collect();
+    for (loc, tile) in session.drain_lookahead_publishes() {
+        out.push(AnswerTilePublish {
+            tile: *tile
+            , screen_res
+            , location: loc
+        });
+    }
+    out
 }
 
 fn flush_unsent_tiles<A: SteadyActor>(

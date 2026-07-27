@@ -17,3 +17,5 @@ Apply the phase order and each phase follows the tenacity principle and complete
 > in: complete in points, fed by all edges
 
 tracing algorithm: apply basic boundary tracing, depth first so paths are explored more quickly rather than slowly growing like a mold.
+
+in-fill under unknown period: spread whatever period will be sent. doesnt matter as long as its the same so it won't cause a false in filament.

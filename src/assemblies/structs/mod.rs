@@ -38,7 +38,7 @@ pub const NATIVE: u8 = 0b0010_0000;
 pub const DONE: u8 = 0b0001_0000;
 
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 
 pub struct Answer {
     pub result: MandelbrotResult

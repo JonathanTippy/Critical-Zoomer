@@ -9,9 +9,7 @@ For example, in WIP points,
 - The escape location is known to be somewhere in the ring between circle r=2 and circle r=6 (2^2=4+2=6)
 - Some min magnitude upper bound is known
 
-
-
-
+more details on this in the tile worker.
 
 Sub-actors:
 
@@ -30,8 +28,8 @@ Sub-actors:
 
 layout:
 
-headgroup -------------------------> reference owkrer
-\/                                       |
+                            reference owkrer
+                                      |
 tile scheduler                           |
 \/          /----------------------------/
 tile worker > intratile scheduler

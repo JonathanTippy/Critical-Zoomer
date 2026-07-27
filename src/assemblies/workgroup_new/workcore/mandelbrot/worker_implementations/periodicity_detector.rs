@@ -528,3 +528,42 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod twin_tests {
+    use super::*;
+
+    #[test]
+    fn twin_confirm_accepts_matching_period_one_orbit() {
+        // At c=0, z stays 0; checkpoint and live twin stay equal through N steps.
+        let c = (0.0, 0.0);
+        let z = (0.0, 0.0);
+        let d = (1.0, 0.0);
+        assert!(confirm_twins_off_to_side(c, z, d, z, 1e-12));
+    }
+
+    #[test]
+    fn twin_confirm_rejects_divergent_checkpoints() {
+        let c = (-0.5, 0.0);
+        let z = (0.1, 0.0);
+        let checkpoint = (0.9, 0.0);
+        let d = (1.0, 0.0);
+        assert!(!confirm_twins_off_to_side(c, z, d, checkpoint, 1e-12));
+    }
+
+    #[test]
+    fn twin_confirm_rejects_nearby_but_diverging_orbit() {
+        // Spatially close checkpoint that will diverge under iteration.
+        let c = (-0.75, 0.1);
+        let z = (0.2, 0.1);
+        let d = (1.0, 0.0);
+        let checkpoint = (0.21, 0.11);
+        assert!(!confirm_twins_off_to_side(c, z, d, checkpoint, 1e-14));
+    }
+
+    #[test]
+    fn detect_period_respects_twin_for_cardioid_nucleus() {
+        let c = cardioid_c_from_mu((0.0, 0.0));
+        assert_eq!(detect_period_for_c(c, 100_000), Some(1));
+    }
+}

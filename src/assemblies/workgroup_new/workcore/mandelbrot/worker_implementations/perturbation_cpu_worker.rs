@@ -530,6 +530,135 @@ mod phase4_tests {
         assert_eq!(point.orbit_id, ZERO_ORBIT_ID);
     }
 
+    // r[verify cz.seamless.perturbation-always-on+1]
+    #[test]
+    fn glitch_fires_just_under_threshold_ratio() {
+        // z_full_mag2 < GLITCH_THRESHOLD * z_ref_mag2 with nonzero reference.
+        let mut state = PerturbationCpuWorkerState::default();
+        let id = state.references.try_add_nucleus_at_f64((-1.0, 0.0));
+        assert_ne!(id, ZERO_ORBIT_ID);
+        state.seat_orbit_ids = vec![id];
+        state.screen_width = 1;
+        state.iterations_per_bout = 1;
+        let orbit = state.references.get(id).expect("orbit");
+        let z_ref = orbit.f64[1.min(orbit.length as u64 - 1)];
+        let z_ref_mag2 = z_ref.0 * z_ref.0 + z_ref.1 * z_ref.1;
+        assert!(z_ref_mag2 > 1e-30);
+        // Choose dz so z_full = z_ref + dz has mag2 just under the threshold.
+        let target_full_mag2 = GLITCH_THRESHOLD * z_ref_mag2 * 0.5;
+        let scale = (target_full_mag2 / z_ref_mag2).sqrt();
+        let z_full = (z_ref.0 * scale, z_ref.1 * scale);
+        let dz = (z_full.0 - z_ref.0, z_full.1 - z_ref.1);
+        let mut point = ActivePoint {
+            c: (3.0, 0.0)
+            , z: dz
+            , derivative: (1.0, 0.0)
+            , real_squared: 0.0
+            , imag_squared: 0.0
+            , real_imag: 0.0
+            , iteration_count: 1
+            , min_magnitude: f64::MAX
+            , min_magnitude_time: 0
+            , periodicity_detector: CpuPeriodicityDetector::init(1, (0.0, 0.0), (1.0, 0.0))
+            , escaped: false
+            , finished: false
+            , orbit_id: id
+            , seat_linear: 0
+        };
+        iterate_perturbation_bout(&mut state, &mut point, 1e-12);
+        assert_eq!(point.orbit_id, ZERO_ORBIT_ID, "just-under threshold must glitch");
+    }
+
+    // r[verify cz.seamless.perturbation-always-on+1]
+    #[test]
+    fn glitch_does_not_fire_just_over_threshold_ratio() {
+        let mut state = PerturbationCpuWorkerState::default();
+        let id = state.references.try_add_nucleus_at_f64((-1.0, 0.0));
+        assert_ne!(id, ZERO_ORBIT_ID);
+        state.seat_orbit_ids = vec![id];
+        state.screen_width = 1;
+        state.iterations_per_bout = 1;
+        let orbit = state.references.get(id).expect("orbit");
+        let z_ref = orbit.f64[1.min(orbit.length as u64 - 1)];
+        let z_ref_mag2 = z_ref.0 * z_ref.0 + z_ref.1 * z_ref.1;
+        assert!(z_ref_mag2 > 1e-30);
+        // z_full ≈ z_ref (ratio ~1 >> GLITCH_THRESHOLD) — healthy perturbation step.
+        let dz = (0.0, 0.0);
+        let mut point = ActivePoint {
+            c: (-1.0, 0.0)
+            , z: dz
+            , derivative: (1.0, 0.0)
+            , real_squared: 0.0
+            , imag_squared: 0.0
+            , real_imag: 0.0
+            , iteration_count: 1
+            , min_magnitude: f64::MAX
+            , min_magnitude_time: 0
+            , periodicity_detector: CpuPeriodicityDetector::init(1, (0.0, 0.0), (1.0, 0.0))
+            , escaped: false
+            , finished: false
+            , orbit_id: id
+            , seat_linear: 0
+        };
+        iterate_perturbation_bout(&mut state, &mut point, 1e-12);
+        assert_eq!(
+            point.orbit_id
+            , id
+            , "healthy ratio must keep the nonzero reference orbit"
+        );
+    }
+
+    // r[verify cz.seamless.perturbation-always-on+1]
+    #[test]
+    fn after_glitch_rebind_membership_matches_zero_orbit() {
+        // Point.c is delta from the reference nucleus until rebind converts it
+        // to absolute pixel c (see rebind_to_zero_orbit).
+        let abs_c = (0.5, 0.5);
+        let ref_c = (-1.0, 0.0);
+        let delta_c = (abs_c.0 - ref_c.0, abs_c.1 - ref_c.1);
+        let naive = naive_finish(abs_c, 50_000);
+        let mut state = PerturbationCpuWorkerState::default();
+        let id = state.references.try_add_nucleus_at_f64(ref_c);
+        assert_ne!(id, ZERO_ORBIT_ID);
+        state.seat_orbit_ids = vec![id];
+        state.screen_width = 1;
+        state.iterations_per_bout = 64;
+        let orbit = state.references.get(id).expect("orbit");
+        let z_ref = orbit.f64[1.min(orbit.length as u64 - 1)];
+        let mut point = ActivePoint {
+            c: delta_c
+            , z: (-z_ref.0, -z_ref.1)
+            , derivative: (1.0, 0.0)
+            , real_squared: 0.0
+            , imag_squared: 0.0
+            , real_imag: 0.0
+            , iteration_count: 1
+            , min_magnitude: f64::MAX
+            , min_magnitude_time: 0
+            , periodicity_detector: CpuPeriodicityDetector::init(1, (0.0, 0.0), (1.0, 0.0))
+            , escaped: false
+            , finished: false
+            , orbit_id: id
+            , seat_linear: 0
+        };
+        let mut left = 50_000u32;
+        while !point.finished && left > 0 {
+            state.iterations_per_bout = left.min(1000);
+            iterate_perturbation_bout(&mut state, &mut point, 1e-12);
+            left = left.saturating_sub(state.iterations_per_bout);
+        }
+        assert_eq!(point.orbit_id, ZERO_ORBIT_ID);
+        assert!(
+            (point.c.0 - abs_c.0).abs() < 1e-9 && (point.c.1 - abs_c.1).abs() < 1e-9
+            , "rebind must promote delta-c to absolute pixel c"
+        );
+        let answer = point_to_answer(&point);
+        assert!(
+            same_membership(&answer, &naive)
+            , "post-glitch answer must match naive at c={abs_c:?}"
+        );
+    }
+
     #[test]
     fn inside_answer_period_unknown_zero_allowed() {
         let z = (0.0, 0.0);
@@ -580,11 +709,6 @@ mod phase4_tests {
         let orbit = collection.get(id).expect("orbit");
         assert!(orbit.f64.series.len() >= 2);
         assert_eq!(orbit.f64.series[1], (1.0, 0.0));
-    }
-
-    #[test]
-    fn use_perturbation_cpu_defaults_false() {
-        assert!(!USE_PERTURBATION_CPU);
     }
 
     #[test]

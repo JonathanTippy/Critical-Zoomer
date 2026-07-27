@@ -121,6 +121,7 @@ impl<T: Value> Range<T> {
 
 
     pub fn guess_biased(self, bias: T) -> T {
+        // r[impl cz.range.guess-biased-nearest+1]
         if self.lower_bound <= bias && self.upper_bound >= bias {
             return bias
         }
@@ -139,8 +140,7 @@ fn get_uuid() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // r[verify cz.range.guess-biased-nearest+1]
+    use proptest::prelude::*;
 
     #[test]
     fn test_must_gt_logic() {
@@ -164,22 +164,40 @@ mod tests {
         assert!(a.must_ne(b));
     }
 
+    // r[verify cz.range.guess-biased-nearest+1]
     #[test]
     fn guess_biased_keeps_bias_inside() {
         let r = Range { lower_bound: 1.0, upper_bound: 5.0 };
         assert_eq!(r.guess_biased(3.0), 3.0);
     }
 
+    // r[verify cz.range.guess-biased-nearest+1]
     #[test]
     fn guess_biased_clamps_below_to_lower() {
         let r = Range { lower_bound: 1.0, upper_bound: 5.0 };
         assert_eq!(r.guess_biased(0.0), 1.0);
     }
 
+    // r[verify cz.range.guess-biased-nearest+1]
     #[test]
     fn guess_biased_clamps_above_to_upper() {
         let r = Range { lower_bound: 1.0, upper_bound: 5.0 };
         assert_eq!(r.guess_biased(9.0), 5.0);
+    }
+
+    // r[verify cz.range.guess-biased-nearest+1]
+    proptest! {
+        #[test]
+        fn guess_biased_stays_inside_ordered_bounds(
+            lower in -1000.0f64..1000.0,
+            width in 0.0f64..1000.0,
+            bias in -2000.0f64..2000.0,
+        ) {
+            let upper = lower + width;
+            let r = Range { lower_bound: lower, upper_bound: upper };
+            let g = r.guess_biased(bias);
+            prop_assert!(g >= lower && g <= upper);
+        }
     }
 
     #[test]

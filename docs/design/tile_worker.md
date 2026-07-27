@@ -17,6 +17,7 @@ contains the relevant statistics for rendering as they are progressing in the fo
 - small time (time to min magnitude)
 - smallness (min magnitude)
 - escape time slope angle (used for in filament detection)
+- smallness slope angle (used in node / mini detection)
 
 Incidentally, Answer contains the same values, but they arent ranges.
 
@@ -26,6 +27,8 @@ C generator:
 The c generator attempts to initialize for a given type and stencil and fails if the type can't distinguish all the stencil's points.
 If it succeeds, generating c values takes a fast path of adding the screen loacation times the point space to the screen's base locatiton, avoiding all intexp operations.
 It does so by working relative to a given reference point, so only the delta's precision is required.
+
+The C generator also must handle provding an accurate enough view while avoiding exact axises as much as possible, as the real axis is in the set but made of unfathomably small minibrots and can slow down a tenacious app very easily.
 
 Gears:
 
@@ -52,3 +55,6 @@ always use standard perturbation math. include derivative (for angle determinati
 
 Detect glitches using the standard test, that is, when |Z + z| << |Z|:
 fall back to a const 'big z = 0' orbit (correct 0 case). This should naturally result in the c generator yielding more precision requirements on little z, changing the gear to result in more precision being used for little z. glitch handling is done exclusively by the tile worker and it does not notify the reference worker.
+
+
+If the current tile has completely left the screen, it can be cancelled.

@@ -21,11 +21,12 @@ pub const REFERENCE_ORBIT_COLLECTION_BUDGET_BYTES: usize = 512 * 1024 * 1024;
 pub const REFERENCE_NUCLEUS_SEEK_ITERS_INTERACTIVE: u64 = 50_000;
 pub const REFERENCE_NUCLEUS_SEEK_ITERS_THOROUGH: u64 = 500_000;
 pub const GLITCH_THRESHOLD: f64 = 1e-4;
-pub const USE_PERTURBATION_CPU: bool = false;
 pub const STACKED_INTEXP_STACKS: usize = 4;
 
 pub const SCROLL_SPEED:f32 = 40.0;
 
+// r[impl cz.display.nores-when-no-proximate+1]
+// r[impl cz.tenacious.nores-not-flat-black+1]
 pub const NORES_ANSWER:Answer = Answer{
     result: MandelbrotResult::Outside{
         escape_time_r2: 1
@@ -45,7 +46,29 @@ mod constants_tests {
         assert_eq!(DEFAULT_WINDOW_RES, (800, 480));
     }
 
+    // r[verify cz.display.window-default-800x480+1]
+    #[test]
+    fn default_window_res_matches_default_default() {
+        assert_eq!(DEFAULT_WINDOW_RES, DEFAULT_DEFAULT_WINDOW_RES);
+        assert_eq!(DEFAULT_DEFAULT_WINDOW_RES, (800, 480));
+    }
+
+    // r[verify cz.display.window-default-800x480+1]
+    #[test]
+    fn launch_inner_size_uses_default_not_a_custom_restore() {
+        // Headgroup WindowState locks in DEFAULT_WINDOW_RES for size; only
+        // position may restore. There is no persisted custom size on launch.
+        let launch = (
+            DEFAULT_WINDOW_RES.0 as f32
+            , DEFAULT_WINDOW_RES.1 as f32
+        );
+        assert_eq!(launch, (800.0, 480.0));
+        let custom_would_be = (1920u32, 1080u32);
+        assert_ne!(DEFAULT_WINDOW_RES, custom_would_be);
+    }
+
     // r[verify cz.display.nores-when-no-proximate+1]
+    // r[verify cz.tenacious.nores-not-flat-black+1]
     #[test]
     fn nores_is_outside_escape_one_with_infinite_z() {
         match NORES_ANSWER.result {

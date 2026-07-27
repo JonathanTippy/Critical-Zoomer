@@ -36,7 +36,7 @@ pub fn transform(
                         - (pixel_width.clone() >> 1)
                 );
 
-                context.location.zoom_pot += *pot;
+                context.location.zoom_pot += *pot; // r[impl cz.fast.natural-zoom-2x+1]
 
                 let pixel_width = IntExp { val: Integer::from(1), exp: -context.location.zoom_pot }.shift(-PIXELS_PER_UNIT_POT);
 
@@ -127,5 +127,79 @@ pub fn transform(
             ZoomerCommand::UntrackPoint { point_id } => {}
             ZoomerCommand::UntrackAllPoints {} => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod zoom_tests {
+    use super::*;
+    use crate::assemblies::headgroup::window::sampling::SamplingContext;
+    use crate::utils::ObjectivePosAndZoom;
+    use std::collections::HashMap;
+
+    fn ctx_at(zoom: i32) -> SamplingContext {
+        SamplingContext {
+            tiles: HashMap::new(),
+            tile_gpu_ids: HashMap::new(),
+            pending_tile_uploads: Vec::new(),
+            next_tile_gpu_id: 0,
+            reset_gpu_tile_slots: false,
+            color_screen: None,
+            proximate_answers: true,
+            unsent_answers: true,
+            screen_size: (800, 480),
+            location: ObjectivePosAndZoom {
+                pos: (IntExp::ZERO, IntExp::ZERO),
+                zoom_pot: zoom,
+            },
+            updated: false,
+            mouse_drag_start: None,
+        }
+    }
+
+    // r[verify cz.fast.natural-zoom-2x+1]
+    #[test]
+    fn one_bump_changes_zoom_pot_by_one() {
+        let mut ctx = ctx_at(0);
+        transform(
+            vec![ZoomerCommand::Zoom {
+                pot: 1,
+                center_screenspace_pos: (400, 240),
+            }],
+            &mut ctx,
+        );
+        assert_eq!(ctx.location.zoom_pot, 1);
+    }
+
+    #[test]
+    fn zoom_out_bump_decrements_pot() {
+        let mut ctx = ctx_at(3);
+        transform(
+            vec![ZoomerCommand::Zoom {
+                pot: -1,
+                center_screenspace_pos: (400, 240),
+            }],
+            &mut ctx,
+        );
+        assert_eq!(ctx.location.zoom_pot, 2);
+    }
+
+    #[test]
+    fn two_in_bumps_are_four_x() {
+        let mut ctx = ctx_at(0);
+        transform(
+            vec![
+                ZoomerCommand::Zoom {
+                    pot: 1,
+                    center_screenspace_pos: (400, 240),
+                },
+                ZoomerCommand::Zoom {
+                    pot: 1,
+                    center_screenspace_pos: (400, 240),
+                },
+            ],
+            &mut ctx,
+        );
+        assert_eq!(ctx.location.zoom_pot, 2);
     }
 }

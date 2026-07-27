@@ -42,6 +42,9 @@ pub mod offscreen;
 
 use crate::assemblies::headgroup::window::coords::*;
 use crate::assemblies::headgroup::window::navigate::*;
+use crate::assemblies::headgroup::window::offscreen::{
+    R2ScreenRelation, ViewportComplexRect,
+};
 
 // #region agent log
 pub fn agent_dbg(hypothesis_id: &str, location: &str, message: &str, data_json: &str) {
@@ -262,16 +265,24 @@ async fn internal_behavior<A: SteadyActor>(
         , portable_state: portable_state.clone()
     };
 
-    eframe::run_native(
-        "Critical Zoomer",
-        options,
-        Box::new(|cc| {
+    match eframe::run_native(
+        "Critical Zoomer"
+        , options
+        , Box::new(|cc| {
             if let Some(render_state) = &cc.wgpu_render_state {
                 ensure_resources(render_state);
             }
             Ok(Box::new(passthrough))
         })
-    ).unwrap();
+    ) {
+        Ok(()) => {}
+        Err(err) => {
+            // Under xvfb / after a prior event-loop attempt, winit can return
+            // RecreationAttempt. Panicking here restarts the actor into a loop;
+            // shut down cleanly instead so e2e harnesses can exit.
+            error!("eframe event loop ended: {err}");
+        }
+    }
 
 
     let mut actor = portable_actor.lock().unwrap();
@@ -546,6 +557,37 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                         response += format!(" / 10s low: {:.1}", 1.0 / r.1.0.as_secs_f64()).as_str();
                                     }
                                     None => {}
+                                }
+
+                                // r[impl cz.display.offscreen-r2-circle+1]
+                                let screen_stencil = PointStencil {
+                                    homothety: (
+                                        state.sampling_context.location.pos.0.clone(),
+                                        IntExp::ZERO
+                                            - state.sampling_context.location.pos.1.clone(),
+                                        state.sampling_context.location.zoom_pot,
+                                    ),
+                                    resolution: (
+                                        state.size.x.max(1.0) as usize,
+                                        state.size.y.max(1.0) as usize,
+                                    ),
+                                    serial_number: 0,
+                                    focus: None,
+                                    hover: None,
+                                };
+                                let view = ViewportComplexRect::from_stencil(&screen_stencil);
+                                if view.needs_red_arrows() {
+                                    response += match view.classify_r2() {
+                                        R2ScreenRelation::OffScreen => "\n← set off-screen →",
+                                        R2ScreenRelation::MostlyOffScreen => {
+                                            "\n← set mostly off-screen →"
+                                        }
+                                        R2ScreenRelation::TooSmall => "\n↑ set too small ↓",
+                                        R2ScreenRelation::MostlyTooSmall => {
+                                            "\n↑ set mostly too small ↓"
+                                        }
+                                        R2ScreenRelation::OnScreen => "",
+                                    };
                                 }
 
                                 response

@@ -5,6 +5,6 @@ It does so by checking the proximate data, and editing it only if it has now bee
 I could say "if no proximate data, emit nores" and that is likely how it will end up working, though conceptually, nores is just the natural continuation of proper dynamic res proximate data handling.
 Regardless of how its conceptualized, the tile publisher must always publish nores when no proximated date is at hand.
 
-memory policy: evict hoarded work to stay within memory limit. If the screen itself and its lookaheds take up more than the limit, bump the limit. communicate with headgroup to achieve this. The code which does this must be part of the tile collection manager, shared code between the headgroup and workgoup which ensures the collection of tiles considered in play is the same between the groups. There is no size difference as both groups store answers.
+Definition of nores: nores is not a special case. it is literally just what result you get when you put infinity throug hthe system. the shaders in the headgroup will not be able to distinguish it from other answers.
 
 The publisher publishes at max 1000/s but at least 30 per second, depending on ease of current work.

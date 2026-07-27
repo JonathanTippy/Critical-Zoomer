@@ -187,6 +187,7 @@ impl<T: Copy> View<T> {
         )
     }
 
+    // r[impl cz.math.homothety-zoom-fill-associative+1]
     pub fn fill_from(&mut self, source: &Self) {
 
         self.assert_validity();
@@ -1086,6 +1087,7 @@ fn nonzero_phase_test() {
 use proptest::prelude::*;
 proptest!{
 //    #![proptest_config(ProptestConfig::with_cases(2048))]
+    // r[verify cz.math.homothety-zoom-fill-associative+1]
     #[test]
     fn zoom_in_associativity_test(
         location in prop_oneof![
@@ -1179,6 +1181,105 @@ proptest!{
         two_step_two.fill_from(&two_step_one);
 
         prop_assert_eq!(one_step, two_step_two);
+    }
+}
+
+#[cfg(test)]
+mod fill_associativity_fixed_tests {
+    use super::*;
+    use crate::assemblies::structs::*;
+    use crate::constants::PIXELS_PER_UNIT_POT;
+    use crate::intexp::IntExp;
+    use rug::Integer;
+
+    fn blank_view(res: (usize, usize), mag: i32, fill: u8) -> View<u8> {
+        let stencil = PointStencil {
+            resolution: res
+            , homothety: (
+                IntExp { val: Integer::from(0), exp: -PIXELS_PER_UNIT_POT - mag }
+                , IntExp { val: Integer::from(0), exp: -PIXELS_PER_UNIT_POT - mag }
+                , mag
+            )
+            , serial_number: 0
+            , focus: None
+            , hover: None
+        };
+        let mut view = View::new(stencil, fill);
+        if fill != 0 {
+            view.data.fill(fill);
+        }
+        view
+    }
+
+    // r[verify cz.math.homothety-zoom-fill-associative+1]
+    #[test]
+    fn two_zoom_ins_match_one_double_zoom_fill() {
+        let source = blank_view((8, 8), 0, 7);
+        let mut one_step = blank_view((8, 8), 2, 0);
+        one_step.fill_from(&source);
+
+        let mut mid = blank_view((8, 8), 1, 0);
+        mid.fill_from(&source);
+        let mut two_step = blank_view((8, 8), 2, 0);
+        two_step.fill_from(&mid);
+
+        assert_eq!(one_step.data, two_step.data);
+    }
+
+    // r[verify cz.math.homothety-zoom-fill-associative+1]
+    #[test]
+    fn fill_associativity_holds_for_unit_offset_homothety() {
+        let source_stencil = PointStencil {
+            resolution: (4, 4)
+            , homothety: (
+                IntExp { val: Integer::from(1), exp: -PIXELS_PER_UNIT_POT }
+                , IntExp { val: Integer::from(-1), exp: -PIXELS_PER_UNIT_POT }
+                , 0
+            )
+            , serial_number: 0
+            , focus: None
+            , hover: None
+        };
+        let mut source = View::new(source_stencil, 0u8);
+        source.data = (0..16u8).collect();
+        let mut via_4 = View::new(PointStencil {
+            resolution: (4, 4)
+            , homothety: (
+                source.stencil.homothety.0.clone().set_precision(PIXELS_PER_UNIT_POT + 2)
+                , source.stencil.homothety.1.clone().set_precision(PIXELS_PER_UNIT_POT + 2)
+                , 2
+            )
+            , serial_number: 1
+            , focus: None
+            , hover: None
+        }, 0u8);
+        via_4.fill_from(&source);
+
+        let mut via_2a = View::new(PointStencil {
+            resolution: (4, 4)
+            , homothety: (
+                source.stencil.homothety.0.clone().set_precision(PIXELS_PER_UNIT_POT + 1)
+                , source.stencil.homothety.1.clone().set_precision(PIXELS_PER_UNIT_POT + 1)
+                , 1
+            )
+            , serial_number: 2
+            , focus: None
+            , hover: None
+        }, 0u8);
+        via_2a.fill_from(&source);
+        let mut via_2b = View::new(PointStencil {
+            resolution: (4, 4)
+            , homothety: (
+                source.stencil.homothety.0.clone().set_precision(PIXELS_PER_UNIT_POT + 2)
+                , source.stencil.homothety.1.clone().set_precision(PIXELS_PER_UNIT_POT + 2)
+                , 2
+            )
+            , serial_number: 3
+            , focus: None
+            , hover: None
+        }, 0u8);
+        via_2b.fill_from(&via_2a);
+        assert_eq!(via_4.data, via_2b.data);
     }
 }
 

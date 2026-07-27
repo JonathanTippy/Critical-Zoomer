@@ -104,6 +104,8 @@ the spot under the mouse cursor stays fixed.
 The viewport must not disallow zooming too far out / moving so the set is off-screen.
 It must add red arrows when it determines that the set is mostly or fully off-screen or is almost or fully too small to be seen.
 
+Scroll up must be zoom in.
+
 ## Central Differentiators
 
 ### Seamless

@@ -61,7 +61,14 @@ cz_ctl_focus_window() {
 cz_ctl_capture_to() {
   local name="$1"
   cz_ctl_require_window
-  import -silent -window "$WIN" "$OUT/$name"
+  if ! import -silent -window "$WIN" "$OUT/$name"; then
+    echo "capture failed for $OUT/$name" >&2
+    return 1
+  fi
+  if [ ! -s "$OUT/$name" ]; then
+    echo "capture produced empty $OUT/$name" >&2
+    return 1
+  fi
   echo "wrote $OUT/$name"
 }
 

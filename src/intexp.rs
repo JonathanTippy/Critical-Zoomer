@@ -9,6 +9,8 @@ use std::cmp::{min, Ordering};
 use std::cmp::Ordering::{Equal, Greater, Less};
 use std::ops::{Add, Mul, Shl, Shr, Sub};
 
+// r[impl cz.math.intexp-add-commutative+1]
+// r[impl cz.math.intexp-mul-associative+1]
 #[derive(Clone, Debug, Ord, Eq)]
 pub struct IntExp {
     pub val: Integer
@@ -261,38 +263,72 @@ mod property_tests {
     use super::*;
     use proptest::prelude::*;
 
-    fn small_intexp() -> impl Strategy<Value = IntExp> {
-        (-64i32..=64, -8i32..=8).prop_map(|(v, e)| IntExp {
-            val: Integer::from(v),
-            exp: e,
-        })
-    }
-
     // r[verify cz.math.intexp-add-commutative+1]
-    proptest! {
-        fn intexp_add_commutative(a in small_intexp(), b in small_intexp()) {
-            prop_assert_eq!(a.clone() + b.clone(), b + a);
-        }
-    }
-
     // r[verify cz.math.intexp-mul-associative+1]
     proptest! {
-        fn intexp_mul_associative(
-            a in small_intexp(),
-            b in small_intexp(),
-            c in small_intexp()
+        // r[verify cz.math.intexp-add-commutative+1]
+        #[test]
+        fn intexp_add_commutative(
+            v1 in -64i32..=64,
+            e1 in -8i32..=8,
+            v2 in -64i32..=64,
+            e2 in -8i32..=8,
         ) {
+            let a = IntExp { val: Integer::from(v1), exp: e1 };
+            let b = IntExp { val: Integer::from(v2), exp: e2 };
+            prop_assert_eq!(a.clone() + b.clone(), b + a);
+        }
+
+        // r[verify cz.math.intexp-mul-associative+1]
+        #[test]
+        fn intexp_mul_associative(
+            v1 in -16i32..=16,
+            e1 in -4i32..=4,
+            v2 in -16i32..=16,
+            e2 in -4i32..=4,
+            v3 in -16i32..=16,
+            e3 in -4i32..=4,
+        ) {
+            let a = IntExp { val: Integer::from(v1), exp: e1 };
+            let b = IntExp { val: Integer::from(v2), exp: e2 };
+            let c = IntExp { val: Integer::from(v3), exp: e3 };
             let left = (a.clone() * b.clone()) * c.clone();
             let right = a * (b * c);
             prop_assert_eq!(left, right);
         }
     }
 
+    // r[verify cz.math.intexp-add-commutative+1]
     #[test]
     fn intexp_add_zero_identity() {
         let a = IntExp { val: Integer::from(7), exp: -3 };
         assert_eq!(a.clone() + IntExp::ZERO, a.clone());
         assert_eq!(IntExp::ZERO + a.clone(), a);
+    }
+
+    // r[verify cz.math.intexp-add-commutative+1]
+    #[test]
+    fn intexp_add_commutative_shifted_exponents() {
+        let a = IntExp { val: Integer::from(3), exp: -5 };
+        let b = IntExp { val: Integer::from(5), exp: -2 };
+        assert_eq!(a.clone() + b.clone(), b + a);
+    }
+
+    // r[verify cz.math.intexp-mul-associative+1]
+    #[test]
+    fn intexp_mul_one_identity() {
+        let a = IntExp { val: Integer::from(11), exp: -4 };
+        assert_eq!(a.clone() * IntExp::from(1), a.clone());
+        assert_eq!(IntExp::from(1) * a.clone(), a);
+    }
+
+    // r[verify cz.math.intexp-mul-associative+1]
+    #[test]
+    fn intexp_mul_associative_fixed_powers_of_two() {
+        let a = IntExp::from(2);
+        let b = IntExp { val: Integer::from(3), exp: -1 };
+        let c = IntExp { val: Integer::from(5), exp: -2 };
+        assert_eq!((a.clone() * b.clone()) * c.clone(), a * (b * c));
     }
 }
 

@@ -1,5 +1,6 @@
 //! Off-screen / too-small classification for the r=2 circle proxy.
 //! Design: docs/design/headgroup.md — red arrow guidance.
+// r[impl cz.display.offscreen-r2-circle+1]
 
 use crate::assemblies::structs::PointStencil;
 use crate::constants::PIXELS_PER_UNIT_POT;
@@ -128,7 +129,6 @@ mod tests {
     use super::*;
 
     // r[verify cz.display.offscreen-r2-circle+1]
-
     #[test]
     fn homeish_viewport_sees_r2_disk() {
         // Rough home: UL near (-2,-2) style region covering the set.
@@ -138,6 +138,7 @@ mod tests {
         assert!(!v.needs_red_arrows());
     }
 
+    // r[verify cz.display.offscreen-r2-circle+1]
     #[test]
     fn far_pan_marks_off_screen() {
         let s = test_stencil(100, 100, 0, 200, 200);
@@ -146,6 +147,7 @@ mod tests {
         assert!(v.needs_red_arrows());
     }
 
+    // r[verify cz.display.offscreen-r2-circle+1]
     #[test]
     fn deep_zoom_out_marks_too_small() {
         // Very negative mag → huge spacing → tiny pixel diameter for r=2.
@@ -167,5 +169,41 @@ mod tests {
         let a = ViewportComplexRect::from_stencil(&test_stencil(-2, 2, 0, 100, 100));
         let b = ViewportComplexRect::from_stencil(&test_stencil(-2, 2, 1, 100, 100));
         assert!((b.r2_diameter_px() / a.r2_diameter_px() - 2.0).abs() < 1e-9);
+    }
+
+    // r[verify cz.display.offscreen-r2-circle+1]
+    #[test]
+    fn mostly_off_when_disk_only_in_outer_margin() {
+        // Tangent-ish viewport: r=2 disk clips the outer AABB at x=2 but misses
+        // the inner 90% margin → MostlyOffScreen.
+        let s = test_stencil(2, 0, 5, 100, 100);
+        let v = ViewportComplexRect::from_stencil(&s);
+        assert_eq!(
+            v.classify_r2(),
+            R2ScreenRelation::MostlyOffScreen,
+            "got {:?} diam={}",
+            v.classify_r2(),
+            v.r2_diameter_px()
+        );
+        assert!(v.needs_red_arrows());
+    }
+
+    // r[verify cz.display.offscreen-r2-circle+1]
+    #[test]
+    fn mostly_too_small_when_diameter_under_ten_percent_of_min_side() {
+        // Diameter in (1, 0.1*min_side): TooSmall is ≤1px; MostlyTooSmall is next.
+        // mag -12 → spacing 2^(-(9-12))=2^3=8 → diam=4/8=0.5px → TooSmall (≤1).
+        // Need diam > 1 and < 0.1*min_side. mag -10 → spacing=2^1=2 → diam=2px.
+        // min_side=480, 0.1*480=48 → 2 < 48 → MostlyTooSmall.
+        let s = test_stencil(-2, 2, -10, 800, 480);
+        let v = ViewportComplexRect::from_stencil(&s);
+        assert_eq!(
+            v.classify_r2(),
+            R2ScreenRelation::MostlyTooSmall,
+            "diam={} got {:?}",
+            v.r2_diameter_px(),
+            v.classify_r2()
+        );
+        assert!(v.needs_red_arrows());
     }
 }

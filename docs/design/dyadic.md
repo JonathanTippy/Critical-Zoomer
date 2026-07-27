@@ -1,5 +1,6 @@
-Note: uses old "view" term, new design is tiles. dyadic principles remain the same, and must guide the implementation of the sampling shader.
-
+Note: uses old "view" term, new design is tiles. 
+dyadic principles remain the same, and must guide the implementation of the sampling shader and other tile and stencil handling.
+This was a comment block but I wrote it and I like it so im putting it here to make it authoriatative.
 
 // Conventions:
 // location.2 is magnification which is not the precision exponent.
@@ -21,10 +22,12 @@ Note: uses old "view" term, new design is tiles. dyadic principles remain the sa
 // The zoom level (location.2) is added to the constant to get the current PPU POT.
 // The actual spacing distance between points is given by 1/(2^(PPU POT)).
 
+
+Theory (may not apply as stated to current design but same principles can easily extend to tile sampling.):
 // When filling one View from another, pixels are considered to represent:
 // the area from their top left corner (inclusive) to their bottom right corner (limit).
 // inexact mappings of larger to smaller are thusly fully defined.
-// Optionally, the inexact (less important) values can be determined with a half-offset to
+// The inexact (less important) values can be determined with a half-offset to
 // closer approximate the nearest value and mitigate visual layout shift.
 
 // Importantly, exact values are maintained and checked so that there are always some exact plotted pixels.
@@ -34,8 +37,9 @@ Note: uses old "view" term, new design is tiles. dyadic principles remain the sa
 // The best known algorithm for this is nearest with top left bias.
 // A .5px bias will be present for the whole frame, which is easily accounted for and not visually noticeable.
 // EDIT: unproven; likely to introduce a small error.
-// Shelfed this concept because fill_from must yield the same result for a 4x zoom and two 2x zooms for example;
-// functions which combine views must be associative.
+// ideally, fill_from must yield the same result for a 4x zoom and two 2x zooms for example;
+// functions which combine views must be associative. May not be possible while applying the half-offset.
+// But, its the only way to propoerly avoid layout shift. expect to dedicate a lot of time to testing & debugging layout shift.
 
 // The complex plane is effectively divided into squares
 // , where every smaller & larger pair where larger contains smaller can map small (choose top left) -> large or large (top left) -> many small
@@ -49,4 +53,15 @@ Note: uses old "view" term, new design is tiles. dyadic principles remain the sa
 
 // mapping is exact when one mapped exact pixel is identified,
 // and the larger pixel step off of that pixel yields pixels still represented in the smaller pixel view.
+Theory end
+
+The half-offset problem seems important until you realize that almost all tiles will contain regular exact values which are trivial, and only the proximate ones are not trivial to propagate.
+
+The associativity problem is moot because no part of the program performs repeated data remapping. static tiles are sampled, and thats all.
+each required pixel must take  the nearest available datapoint, using a decrease of precision and integer techniques to define its neighborhood and avoid searching, and taking the further up-left value when there is a tie.
+
+The sampling shader must include all of the tiles in the possible samplable space, which is only max 8 layers. It must sample from smaller to larger magnification level.
+
+
+
 

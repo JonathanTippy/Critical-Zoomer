@@ -221,6 +221,7 @@ impl ReferenceCollection {
     }
 
     pub fn try_add_nucleus_at_f64(&mut self, c: (f64, f64)) -> OrbitId {
+        // r[impl cz.seamless.reference-background+1]
         let big_c = (f64_to_intexp(c.0), f64_to_intexp(c.1));
         self.try_add_nucleus_at_f64_with_big_c(c, big_c)
     }
@@ -317,6 +318,7 @@ fn build_reference_orbit_f64(
 mod reference_collection_tests {
     use super::*;
 
+    // r[verify cz.seamless.reference-background+1]
     #[test]
     fn zero_orbit_id_is_immortal_slot_zero() {
         let collection = ReferenceCollection::new();

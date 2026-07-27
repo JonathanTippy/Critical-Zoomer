@@ -126,6 +126,7 @@ impl Worker<f64, CpuPeriodicityDetector> for NaiveCpuWorker {
 }
 
 #[inline(always)]
+// r[impl cz.math.mandelbrot-real-axis-symmetry+1]
 pub fn iterate_point_bout(
     point: &mut ActivePoint<f64, CpuPeriodicityDetector>
     , bailout_radius_squared: f64
@@ -336,6 +337,7 @@ mod symmetry_tests {
     // r[verify cz.math.mandelbrot-real-axis-symmetry+1]
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(64))]
+        #[test]
         fn mandelbrot_conjugate_symmetry(
             re in prop_oneof![
                 3 => -2.0f64..0.5,
@@ -355,6 +357,7 @@ mod symmetry_tests {
         }
     }
 
+    // r[verify cz.math.mandelbrot-real-axis-symmetry+1]
     #[test]
     fn seahorse_valley_conjugates_match() {
         let a = finish((-0.75, 0.1));
@@ -362,6 +365,7 @@ mod symmetry_tests {
         assert!(same_class(&a, &b), "{a:?} vs {b:?}");
     }
 
+    // r[verify cz.math.mandelbrot-real-axis-symmetry+1]
     #[test]
     fn cardioid_sample_conjugates_match() {
         let a = finish((-0.5, 0.25));

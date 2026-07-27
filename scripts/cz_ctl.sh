@@ -23,6 +23,11 @@ cz_ctl_daemon() {
   exec 3<>"$FIFO"
   export CZ_GOTO="${CZ_GOTO:-}"
   echo $$ >"$daemon_pidfile"
+  # Give xvfb a beat before the window actor opens the display.
+  sleep 0.5
+  # Prefer Vulkan (incl. lavapipe). Forcing GL breaks headgroup shade: fragment
+  # storage buffers are unsupported (max_storage_buffers_per_shader_stage=0).
+  export WGPU_BACKEND="${WGPU_BACKEND:-vulkan}"
   taskset -c "${CZ_CPUSET:-4-11}" "$BIN" --beats 300000 -r 2 >/tmp/cz_xvfb.log 2>&1 &
   echo $! >"$PIDFILE"
   cleanup() {
@@ -100,8 +105,16 @@ cmd_stop() {
   if [ -f "$daemon_pidfile" ]; then
     daemon_pid="$(cat "$daemon_pidfile")"
   fi
-  if [ -p "$FIFO" ]; then
-    printf 'stop\n' >>"$FIFO" || true
+  # Writing to a FIFO blocks forever with no reader. Only nudge a live daemon,
+  # and never block the stop path on a stale pipe from a crashed prior run.
+  if [ -p "$FIFO" ] && [ -n "$daemon_pid" ] && kill -0 "$daemon_pid" 2>/dev/null; then
+    if command -v timeout >/dev/null 2>&1; then
+      timeout 1 bash -c "printf 'stop\n' >>\"$FIFO\"" 2>/dev/null || true
+    else
+      printf 'stop\n' >>"$FIFO" &
+      sleep 0.2
+      kill $! 2>/dev/null || true
+    fi
     for _ in $(seq 1 50); do
       daemon_alive=0
       app_alive=0

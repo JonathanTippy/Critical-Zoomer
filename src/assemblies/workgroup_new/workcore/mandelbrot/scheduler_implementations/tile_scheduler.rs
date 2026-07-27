@@ -19,9 +19,11 @@ pub enum TileSeatKind {
 
 #[derive(Clone, Copy, Debug)]
 pub enum TileSchedulerNext {
-    Scredge((usize, usize))
-    , BeginTile(usize)
-    , Idle
+    Scredge((usize, usize)),
+    BeginTile(usize),
+    /// Deeper-mag tile under attention (DFS column). Session resolves absolute origin.
+    BeginLookahead { zoom_pot: i32 },
+    Idle,
 }
 
 #[derive(Clone, Copy)]
@@ -44,6 +46,14 @@ struct TileRecord {
 
 pub struct TileSchedulerState {
     pub screen_res: (usize, usize)
+    , pub attention: (i32, i32)
+    // Magnification velocity: >0 zooming in, 0 still, <0 zooming out (design).
+    , pub mag_velocity: i32
+    // Current stencil mag; lookahead column is base_mag+1 .. base_mag+8.
+    , pub base_mag: i32
+    // Next bump to emit (1..=8); 0 means column not started. After 8, column done.
+    , pub lookahead_bump: u32
+    , pub lookahead_column_done: bool
     , tiles: Vec<TileRecord>
     , scredge: VecDeque<(usize, usize)>
     , scredge_active: HashSet<(usize, usize)>
@@ -81,9 +91,15 @@ impl TileScheduler {
             });
         }
         let mut scredge: VecDeque<(usize, usize)> = scredge_set.into_iter().collect();
-        scredge.make_contiguous().sort_by_key(|s| (std::cmp::Reverse(s.1), s.0));
+        let attention = ((screen_res.0 / 2) as i32, (screen_res.1 / 2) as i32);
+        sort_seats_foveated(&mut scredge, attention);
         TileSchedulerState {
             screen_res
+            , attention
+            , mag_velocity: 0
+            , base_mag: 0
+            , lookahead_bump: 0
+            , lookahead_column_done: false
             , tiles
             , scredge
             , scredge_active: HashSet::new()
@@ -91,19 +107,81 @@ impl TileScheduler {
         }
     }
 
+    pub fn set_attention(state: &mut TileSchedulerState, attention: (i32, i32)) {
+        if state.attention != attention {
+            // New fovea → new DFS column.
+            Self::reset_lookahead_column(state);
+        }
+        state.attention = attention;
+        sort_seats_foveated(&mut state.scredge, attention);
+    }
+
+    pub fn set_mag_velocity(state: &mut TileSchedulerState, mag_velocity: i32) {
+        if state.mag_velocity < 0 && mag_velocity >= 0 {
+            Self::reset_lookahead_column(state);
+        }
+        state.mag_velocity = mag_velocity;
+    }
+
+    pub fn set_base_mag(state: &mut TileSchedulerState, base_mag: i32) {
+        if state.base_mag != base_mag {
+            Self::reset_lookahead_column(state);
+        }
+        state.base_mag = base_mag;
+    }
+
+    pub fn reset_lookahead_column(state: &mut TileSchedulerState) {
+        state.lookahead_bump = 0;
+        state.lookahead_column_done = false;
+    }
+
     pub fn next(state: &mut TileSchedulerState) -> TileSchedulerNext {
-        if let Some(tile) = Self::take_unbegun_out_tile(state) {
+        // r[impl cz.seamless.foveated-mag-velocity+1]
+        // Design (docs/design/tile_scheduler.md):
+        // - mag_velocity > 0: focus on foveated lookahead (DFS column under attention)
+        // - mag_velocity == 0: foveated screen fill; also lookahead (column first, then spiral)
+        // - mag_velocity < 0: prefer low-res / scredge fill (backtracking)
+        //
+        // Safe default for the column: attention-containing absolute tile at each
+        // deeper mag (base+1..base+8), finish depth-first, then same-mag spiral.
+        if state.mag_velocity < 0 {
+            if let Some(seat) = Self::take_scredge(state) {
+                return TileSchedulerNext::Scredge(seat);
+            }
+            if let Some(tile) = Self::take_unbegun_nearest(state, false) {
+                state.tiles[tile].begun = true;
+                return TileSchedulerNext::BeginTile(tile);
+            }
+            return TileSchedulerNext::Idle;
+        }
+        if !state.lookahead_column_done {
+            if state.lookahead_bump < 8 {
+                state.lookahead_bump += 1;
+                let zoom_pot = state.base_mag.saturating_add(state.lookahead_bump as i32);
+                return TileSchedulerNext::BeginLookahead { zoom_pot };
+            }
+            state.lookahead_column_done = true;
+        }
+        // After the attention column: known-outside tiles, then any unbegun near
+        // attention, then scredge.
+        if let Some(tile) = Self::take_unbegun_nearest(state, true) {
+            state.tiles[tile].begun = true;
+            return TileSchedulerNext::BeginTile(tile);
+        }
+        if let Some(tile) = Self::take_unbegun_nearest(state, false) {
             state.tiles[tile].begun = true;
             return TileSchedulerNext::BeginTile(tile);
         }
         if let Some(seat) = Self::take_scredge(state) {
             return TileSchedulerNext::Scredge(seat);
         }
-        if let Some(tile) = Self::take_unbegun_other_tile(state) {
-            state.tiles[tile].begun = true;
-            return TileSchedulerNext::BeginTile(tile);
-        }
         TileSchedulerNext::Idle
+    }
+
+    /// Designed multi-mag lookahead column: depth-first bumps below `base_mag`.
+    pub fn lookahead_column_mags(base_mag: i32, bumps: u32) -> Vec<i32> {
+        let bumps = bumps.min(8);
+        (1..=bumps).map(|d| base_mag.saturating_add(d as i32)).collect()
     }
 
     pub fn take_scredge(state: &mut TileSchedulerState) -> Option<(usize, usize)> {
@@ -161,15 +239,30 @@ impl TileScheduler {
     }
 
     fn take_unbegun_out_tile(state: &TileSchedulerState) -> Option<usize> {
-        state.tiles.iter().position(|tile| {
-            !tile.finished
-                && !tile.begun
-                && (tile.has_outside || tile_edges_suggest_outside(tile))
-        })
+        Self::take_unbegun_nearest(state, true)
     }
 
     fn take_unbegun_other_tile(state: &TileSchedulerState) -> Option<usize> {
-        state.tiles.iter().position(|tile| !tile.finished && !tile.begun)
+        Self::take_unbegun_nearest(state, false)
+    }
+
+    /// Next unbegun tile by Chebyshev distance of tile center to attention (spiral-out).
+    fn take_unbegun_nearest(state: &TileSchedulerState, outside_only: bool) -> Option<usize> {
+        let mut best: Option<(i32, usize)> = None;
+        for (idx, tile) in state.tiles.iter().enumerate() {
+            if tile.finished || tile.begun {
+                continue;
+            }
+            if outside_only && !(tile.has_outside || tile_edges_suggest_outside(tile)) {
+                continue;
+            }
+            let dist = tile_attention_distance(tile, state.attention);
+            match best {
+                Some((best_dist, _)) if best_dist <= dist => {}
+                _ => best = Some((dist, idx)),
+            }
+        }
+        best.map(|(_, idx)| idx)
     }
 
     pub fn note_finished(
@@ -315,6 +408,26 @@ fn edge_seats(
     seats
 }
 
+fn tile_attention_distance(tile: &TileRecord, attention: (i32, i32)) -> i32 {
+    let cx = (tile.origin.0 + tile.extent.0 / 2) as i32;
+    let cy = (tile.origin.1 + tile.extent.1 / 2) as i32;
+    let dx = (cx - attention.0).abs();
+    let dy = (cy - attention.1).abs();
+    dx.max(dy)
+}
+
+fn seat_attention_distance(seat: (usize, usize), attention: (i32, i32)) -> i32 {
+    let dx = (seat.0 as i32 - attention.0).abs();
+    let dy = (seat.1 as i32 - attention.1).abs();
+    dx.max(dy)
+}
+
+fn sort_seats_foveated(seats: &mut VecDeque<(usize, usize)>, attention: (i32, i32)) {
+    seats
+        .make_contiguous()
+        .sort_by_key(|s| seat_attention_distance(*s, attention));
+}
+
 fn categorize_edge(
     origin: (usize, usize)
     , extent: (usize, usize)
@@ -335,5 +448,194 @@ fn categorize_edge(
         , (false, true) => TileEdgeCategory::Out
         , (true, false) => TileEdgeCategory::In
         , (false, false) => TileEdgeCategory::Unknown
+    }
+}
+
+#[cfg(test)]
+mod tile_scheduler_tests {
+    use super::*;
+
+    #[test]
+    fn init_covers_screen_with_tiles() {
+        let state = TileScheduler::init((130, 70));
+        assert!(!state.tiles.is_empty());
+        // Every screen seat belongs to at least one tile AABB.
+        for y in 0..70 {
+            for x in 0..130 {
+                assert!(
+                    state.tiles.iter().any(|t| {
+                        x >= t.origin.0
+                            && y >= t.origin.1
+                            && x < t.origin.0 + t.extent.0
+                            && y < t.origin.1 + t.extent.1
+                    }),
+                    "uncovered seat ({x},{y})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn next_prefers_tile_near_attention() {
+        let mut state = TileScheduler::init((256, 256));
+        TileScheduler::set_base_mag(&mut state, 0);
+        // Skip the DFS lookahead column so same-mag spiral is exercised.
+        state.lookahead_column_done = true;
+        state.lookahead_bump = 8;
+        // Attention in the bottom-right quadrant.
+        TileScheduler::set_attention(&mut state, (200, 200));
+        // set_attention resets column — force done again.
+        state.lookahead_column_done = true;
+        state.lookahead_bump = 8;
+        let mut saw_near = false;
+        for _ in 0..20 {
+            match TileScheduler::next(&mut state) {
+                TileSchedulerNext::BeginTile(i) => {
+                    let origin = TileScheduler::tile_origin(&state, i);
+                    let extent = TileScheduler::tile_extent(&state, i);
+                    let cx = (origin.0 + extent.0 / 2) as i32;
+                    let cy = (origin.1 + extent.1 / 2) as i32;
+                    let dist = (cx - 200).abs().max((cy - 200).abs());
+                    if dist <= 96 {
+                        saw_near = true;
+                        break;
+                    }
+                    TileScheduler::note_tile_finished(&mut state, i);
+                }
+                TileSchedulerNext::BeginLookahead { .. } => {}
+                TileSchedulerNext::Scredge(seat) => {
+                    TileScheduler::note_finished(&mut state, seat, TileSeatKind::Outside);
+                }
+                TileSchedulerNext::Idle => break,
+            }
+        }
+        assert!(saw_near, "expected a near-attention tile among early BeginTile picks");
+    }
+
+    #[test]
+    fn scredge_orders_by_attention_distance() {
+        let mut state = TileScheduler::init((128, 128));
+        TileScheduler::set_attention(&mut state, (10, 10));
+        let first = TileScheduler::take_scredge(&mut state).expect("scredge");
+        let dist_first = (first.0 as i32 - 10).abs().max((first.1 as i32 - 10).abs());
+        assert!(
+            dist_first <= 64,
+            "first scredge {first:?} should be near attention, dist={dist_first}"
+        );
+    }
+
+    #[test]
+    fn eventually_idles_after_draining() {
+        let mut state = TileScheduler::init((64, 64));
+        state.lookahead_column_done = true;
+        state.lookahead_bump = 8;
+        let mut guard = 0;
+        loop {
+            match TileScheduler::next(&mut state) {
+                TileSchedulerNext::Idle => break,
+                TileSchedulerNext::BeginTile(i) => {
+                    TileScheduler::note_tile_finished(&mut state, i);
+                }
+                TileSchedulerNext::BeginLookahead { .. } => {}
+                TileSchedulerNext::Scredge(seat) => {
+                    TileScheduler::note_finished(
+                        &mut state,
+                        seat,
+                        TileSeatKind::Outside,
+                    );
+                }
+            }
+            guard += 1;
+            assert!(guard < 20_000, "scheduler did not idle");
+        }
+    }
+
+    // r[verify cz.seamless.foveated-mag-velocity+1]
+    #[test]
+    fn zoom_in_emits_lookahead_column_before_scredge() {
+        let mut state = TileScheduler::init((128, 128));
+        TileScheduler::set_base_mag(&mut state, 3);
+        TileScheduler::set_attention(&mut state, (64, 64));
+        TileScheduler::set_mag_velocity(&mut state, 1);
+        match TileScheduler::next(&mut state) {
+            TileSchedulerNext::BeginLookahead { zoom_pot } => {
+                assert_eq!(zoom_pot, 4);
+            }
+            other => panic!("zoom-in should BeginLookahead first, got {other:?}"),
+        }
+    }
+
+    // r[verify cz.seamless.foveated-mag-velocity+1]
+    #[test]
+    fn stationary_also_emits_lookahead_before_screen_fill() {
+        let mut state = TileScheduler::init((128, 128));
+        TileScheduler::set_base_mag(&mut state, 0);
+        TileScheduler::set_attention(&mut state, (20, 20));
+        TileScheduler::set_mag_velocity(&mut state, 0);
+        match TileScheduler::next(&mut state) {
+            TileSchedulerNext::BeginLookahead { zoom_pot } => {
+                assert_eq!(zoom_pot, 1);
+            }
+            other => panic!("stationary should BeginLookahead first, got {other:?}"),
+        }
+    }
+
+    // r[verify cz.seamless.foveated-mag-velocity+1]
+    #[test]
+    fn zoom_out_prefers_scredge_before_unbegun() {
+        let mut state = TileScheduler::init((128, 128));
+        TileScheduler::set_attention(&mut state, (64, 64));
+        TileScheduler::set_mag_velocity(&mut state, -1);
+        match TileScheduler::next(&mut state) {
+            TileSchedulerNext::Scredge(_) => {}
+            other => panic!("zoom-out should Scredge first, got {other:?}"),
+        }
+    }
+
+    // r[verify cz.seamless.foveated-mag-velocity+1]
+    #[test]
+    fn lookahead_column_is_depth_first_eight_bumps() {
+        let mags = TileScheduler::lookahead_column_mags(3, 8);
+        assert_eq!(mags, vec![4, 5, 6, 7, 8, 9, 10, 11]);
+        let capped = TileScheduler::lookahead_column_mags(0, 100);
+        assert_eq!(capped.len(), 8, "design caps lookahead at 8 bumps");
+        assert!(capped.windows(2).all(|w| w[1] == w[0] + 1));
+    }
+
+    // r[verify cz.seamless.foveated-mag-velocity+1]
+    #[test]
+    fn lookahead_column_emits_eight_increasing_mags_then_begin_tile() {
+        let mut state = TileScheduler::init((128, 128));
+        TileScheduler::set_base_mag(&mut state, 2);
+        TileScheduler::set_mag_velocity(&mut state, 1);
+        let mut mags = Vec::new();
+        for _ in 0..8 {
+            match TileScheduler::next(&mut state) {
+                TileSchedulerNext::BeginLookahead { zoom_pot } => mags.push(zoom_pot),
+                other => panic!("expected BeginLookahead, got {other:?}"),
+            }
+        }
+        assert_eq!(mags, TileScheduler::lookahead_column_mags(2, 8));
+        match TileScheduler::next(&mut state) {
+            TileSchedulerNext::BeginTile(_) | TileSchedulerNext::Scredge(_) => {}
+            other => panic!("after column expected same-mag work, got {other:?}"),
+        }
+    }
+
+    // r[verify cz.seamless.foveated-mag-velocity+1]
+    #[test]
+    fn attention_change_resets_lookahead_column() {
+        let mut state = TileScheduler::init((128, 128));
+        TileScheduler::set_base_mag(&mut state, 0);
+        TileScheduler::set_mag_velocity(&mut state, 1);
+        let _ = TileScheduler::next(&mut state);
+        assert_eq!(state.lookahead_bump, 1);
+        TileScheduler::set_attention(&mut state, (10, 10));
+        assert_eq!(state.lookahead_bump, 0);
+        assert!(!state.lookahead_column_done);
+        match TileScheduler::next(&mut state) {
+            TileSchedulerNext::BeginLookahead { zoom_pot } => assert_eq!(zoom_pot, 1),
+            other => panic!("reset column should restart at +1, got {other:?}"),
+        }
     }
 }

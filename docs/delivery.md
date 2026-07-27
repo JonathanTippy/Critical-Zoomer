@@ -26,7 +26,7 @@ Always consider the phase to be the earliest undocumented phase. If an ambiguity
 
 Individal Doc phases are passed when: 
 - sufficiently disambiguated
-- docs of the current phase do contribute the requisite information about all things listed in the previous doc phase (eg all requirements are addressed by the design). Unmarked gaps are a fail. holes are rare and explicit.
+- docs of the current phase do contribute the requisite information about all things listed in the previous doc phase (eg all requirements are addressed by the design). Unmarked gaps are a fail. holes are rare and explicit. This is referring to docs, not code. code may be all wonked up; don't worry about making big changes to fix it if they are defensible under the authoritative docs.
 - known issues have been satisfactorily addressed with a plausible / undisproven solution or marked explicitly as temporary design holes which in implementation should be carefully decoupled and marked out for ease of future developement.
 - docs of current phase stay in their lanes with no scope creep
 
@@ -39,7 +39,7 @@ Quality control passes when achieving a B score on V2V.
 Operational rules:
 1. Refuse to write surprising code. If the spec is lacking, ask the developer to fill in the gaps you can see, and repeat this process until the design is fully defined. 
   This means the particular lines, instance names, function names & signatures, style, language syntax usage, may be left implied, 
-  but the expected algorithms, behaviors, structs, actors, existant relations (Object/Trait/Types, inter-assembly API, responsibilities), requirements, and executive expectations/context must be explained.
+  but the expected behaviors, actors, existant relations (Object/Trait, inter-assembly API, responsibilities), requirements, and executive expectations/context must be explained.
   The line is definitely fuzzy, but when in doubt, ask yourself whether there are behaviorally distinct possible interpretations. If not, don't bother pointing out an ambiguity and requesting disambiguation.
   The no surprises rule applies to the app, not incidentals like the particulars of the agent harness and tests.
 2. Apply programming best practices including common style conventions, correct language idioms, and SOLID (as far as it applies to what is deemed obvious enough not to define) to your best ability.
@@ -48,6 +48,7 @@ Operational rules:
   - If the spec is good and does imply some rewrite or refactor, go ahead.
   - Do cleanup when you see it but respect working code: take only small steps which leave working code still working.
 5. When critizizing / reviewing specs, ignore typos. focus on the content itself.
+6. Past the docs phases, I expect rigorous & extensive e2e testing or an explicit doc complaint. The manual test should be merely a formality, your testing via automated app interaction must be extensive in the e2e phase. You may not invent holes. If something is wrong with the spec, tell me. Otherwise, fix the code.
 
 These are ideals: Always act within them, but there may be some mistakes to clean up. The codebase is not sacred: it is impermanent and imperfect, but hopefully improving.
 

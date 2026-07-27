@@ -30,7 +30,10 @@ Also, the workgroup may sometimes do work on the GPU instead and must prefer to 
 
 The tile manager is the code which determinses the set of tiles which are kept and which are pruned. It must consider the maximum allowable number of homotheties (~8) and the amount of data taken up by the tiles themselves, along with the memory limits, and most desired data.
 The on-screen hoard must never be pruned for memory, and neither the lookahead tiles.
-The tile manager is a function, not an actor.
+The tile manager is a function, not an actor. Equality is maintained by simple equality of code, no communication to sync up. There will need to be associated communication to propagate memory setting bumps.
+The workgroup and headgroup have their own hoards.
+The tile manager must enforce the memory limit from the headgroup, and bump it whenever it must.
+Each tile manager acts locally with regard to its own collection of tiles.
 
 ## Assemblies
 
@@ -39,8 +42,10 @@ The tile manager is a function, not an actor.
 #### IO
 
 Input: GPUTile<GPUAnswer>
-flow per second (incomplete): [30, 60]
+flow per second (incomplete): [30, 1000]
 flow per second (complete): 0 
+Input: memory bump
+flow per second: N/A
 
 Output: Stencil
 flow per second (moving): 60
@@ -73,6 +78,8 @@ Output: GPUTile<GPUAnswer>
 flow per second (incomplete): [30, 1000]
 flow per second (complete): 0
 
+Output: memory bump
+flow per second: N/A
 
 The workgroup must be responsible for completing work. It must store its own collection of already completed work for continuity of outputs and scheduling and duplicate work prevention. This will probably be the same group of points as in the headgroup. I say group because it won't be the same variables, just the same spacial set of points. The workgroup and headgroup should share a tile hoard manager which works across cpu and GPU resident tiles so the hoards can be expected to be the same.
 It must immediately pause and cease progress on active / WIP work which is no longer present in the viewport.
@@ -92,6 +99,8 @@ All new determinations must apply, eg in-fill in boundary tracing, while using p
 When the workgroup needs to output work for a point not even proximately computed, it must output the nores value.
 
 The Workgroup may complete tiles resident to the GPU, bypassing upload, except where complexities don't necessitate doing the work on the CPU, where it may send the work through a gpu uploader actor. Either way, the workgroup is responsible for providign he heagroup with gpu-native answers.
+
+Reference orbits are produced constantly when needed by a reference orbit actor, so they don't block other work.
 
 ## Technologies
 
