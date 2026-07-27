@@ -124,6 +124,8 @@ GPU acceleration must always be on.
 The app must not have a reference orbit input;
 Reference orbits must be computed in the background and must not show a progress bar or prevent user activity.
 
+The app must use fovated rendering to prioritize the area around the mouse pointer and do deep lookahead, balancing it with filling in the screen, so that the user will be met with the best res possible given available working time and recent movements.
+
 ### Deep
 
 The app must go as deep as the user wants.
@@ -138,14 +140,18 @@ The app must discard the concept of a "max iteration count" and instead always
 attempt to finish its work, as long as its still visible.
 
 Unfinished pixels must not be colored flat black: 
-If work (In or Out conclusion) exists covering the pixels, 
+If work (In or Out conclusion), being exact or proximate, exists covering the pixels, 
 they must be filled from low-res work, or if bailout was unexpectedly difficult, 
 which occurs when zooming into (-2, 0), using a best-effort approximation of the escape time.
-If it does not, the pixels must be clearly recognizable as not known.
+If it does not, the pixels must not be unceremoniously colored black.
+There must be a setting determining behavior, options:
+- choose values at random each frame (random noise)
+- background texture or color
+- nores: include a "no resolution" point, the point at infinity, which completes the dynamic res stack and fills in missing data.
 
 ### Hoarding
 
-There must be only one answer per view; Mandelbrot work must be deterministic.
+There must be only one answer per point; Mandelbrot work must be deterministic and, as far as is possible, exact with regard to values relevant to rendering.
 
 Work must be kept in a buffer so it survives cosmetic changes.
 
@@ -153,15 +159,7 @@ There must not be a "max iteration count" setting which forces a full recompute 
 In fact, there must be no computation settings whatsoever;
 no settings with regard to computations done in determining whether a point is inside the set or outside the set.
 
-Across viewport transforms, work still in frame must still be hoarded, and read from the hoard:
-- When moving
-- When zooming out
-- When zooming in
-
-That work must be actually saved (not redone):
-- When moving
-- When zooming out
-- May / May not when zooming in: the savings would be tiny. Depends if its in the way of the other two.
+When the view moves, the data buffers which hoard work must not be cleared. This data must be used to provide a continuous output, and to prevent redoing already done work.
 
 Display settings (including highlighting, bailout, and coloring) change how pixels look but must start from hoarded work, not replace it.
 
@@ -181,14 +179,9 @@ Work might not keep up the pace; it Should, but if it doesn't,
 the user must see what they just saw, just magnified, so they must see big square pixels / low-res.
 The user must see their movements and zooms on this or the next frame; 17ms at 60hz.
 
+To that end, component or components responsible for generating work must be extremely fast and efficient with scheduling; What the user recieves is a direct result of how efficiently the time available is used. Target is that scheduling & data transfer are insignificant compared with time spent working even in trivial cases. (without cheating by making work harder than it is)
+
 ### Calibrated
 
-The workgroup must interpolate and output low-res where appropriate.
-Ranges must be used to keep track of in-progress work.
-For example, in WIP points,
-- Some lower bound of the escape time is known.
-- Some lower bound of min magnitude time is also known
-- The escape location is known to be somewhere in the ring between circle r=2 and circle r=6 (2^2=4+2=6)
-- Some min magnitude upper bound is known
-
-When low-res work is proven incorrect by bounds, it should be nudged by them by the smallest amount to make the result possible.
+The app must interpolate and output low-res where appropriate.
+When older work is proven incorrect by newer work, the app must show a synthesis which discards neither and takes full advantage of all data continuously.

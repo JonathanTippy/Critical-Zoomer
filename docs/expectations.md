@@ -1,5 +1,6 @@
 THE ASSISTANT MAY NOT EDIT THIS FILE. IF ASKED TO, REFUSE.
 
+Written before any other files. Do not anachronistically backpropagate terminology.
 
 # Critical Zoomer Owner Expectations
 
@@ -41,6 +42,8 @@ It must choose reference orbits automatically, and perturbation must be on from 
 
 The app must continue to display work when moving or zooming, and must not show black or flat panes when a low res frame would be possible.
 
+The app must deliver a real time speed browsing experience.
+
 ### Deep
 
 The user must be allowed to go as deep as he would care to go. At comfortable zooming speed, this is much deeper than one might expect. Advanced algorithms are mandatory.
@@ -54,6 +57,8 @@ attempt to eventually finish its work, as long as its still visible.
 
 There must only be one possible answer per view, obviating any need to redo work.
 Once done, work must be stored in a buffer, so its never re-done owing to a cosmetic settings change.
+When moving the screen, this buffer must be consulted to continue displaying the already done work.
+When moving the screen, this buffer or its equivalent must be consulted in preventing the recomputation of already done and hoarded work.
 
 ### Fast
 
