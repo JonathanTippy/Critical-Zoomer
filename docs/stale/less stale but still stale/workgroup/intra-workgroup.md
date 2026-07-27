@@ -4,8 +4,6 @@
 
 The workcore is the part which completes actual iterations on tiles.
 
-
-
 Input: Tile<Answer> (from work tile master)
 rate (incomplete): 60
 rate (complete): 0

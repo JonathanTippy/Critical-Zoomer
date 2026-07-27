@@ -38,6 +38,7 @@ pub mod gpu_display;
 pub mod transforms;
 pub mod coords;
 pub mod navigate;
+pub mod offscreen;
 
 use crate::assemblies::headgroup::window::coords::*;
 use crate::assemblies::headgroup::window::navigate::*;

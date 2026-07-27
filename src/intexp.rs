@@ -256,6 +256,46 @@ impl From<IntExp> for f32 {
 }
 
 
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    fn small_intexp() -> impl Strategy<Value = IntExp> {
+        (-64i32..=64, -8i32..=8).prop_map(|(v, e)| IntExp {
+            val: Integer::from(v),
+            exp: e,
+        })
+    }
+
+    // r[verify cz.math.intexp-add-commutative+1]
+    proptest! {
+        fn intexp_add_commutative(a in small_intexp(), b in small_intexp()) {
+            prop_assert_eq!(a.clone() + b.clone(), b + a);
+        }
+    }
+
+    // r[verify cz.math.intexp-mul-associative+1]
+    proptest! {
+        fn intexp_mul_associative(
+            a in small_intexp(),
+            b in small_intexp(),
+            c in small_intexp()
+        ) {
+            let left = (a.clone() * b.clone()) * c.clone();
+            let right = a * (b * c);
+            prop_assert_eq!(left, right);
+        }
+    }
+
+    #[test]
+    fn intexp_add_zero_identity() {
+        let a = IntExp { val: Integer::from(7), exp: -3 };
+        assert_eq!(a.clone() + IntExp::ZERO, a.clone());
+        assert_eq!(IntExp::ZERO + a.clone(), a);
+    }
+}
+
 #[test]
 fn test_intexp_speed() {
     let mut rand = rand::RandState::new();

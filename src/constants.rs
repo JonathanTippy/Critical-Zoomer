@@ -1,7 +1,8 @@
 use crate::assemblies::structs::*;
 
 // UNDERIVED CONSTANTS
-pub const DEFAULT_DEFAULT_WINDOW_RES:(u32, u32) = (854,480);
+// r[impl cz.display.window-default-800x480+1]
+pub const DEFAULT_DEFAULT_WINDOW_RES:(u32, u32) = (800, 480);
 pub const DEFAULT_WINDOW_RES:(u32, u32) = DEFAULT_DEFAULT_WINDOW_RES;//(1920, 1080);
 pub const HOME_POSITION:(i32, i32, i32) = (-2, -2, -2);
 pub const MOVE_SPEED_PPS: i32 = 200;
@@ -33,3 +34,31 @@ pub const NORES_ANSWER:Answer = Answer{
     , min_magnitude_time: 0
     , min_magnitude: f64::INFINITY
 };
+
+#[cfg(test)]
+mod constants_tests {
+    use super::*;
+
+    // r[verify cz.display.window-default-800x480+1]
+    #[test]
+    fn default_window_is_800x480() {
+        assert_eq!(DEFAULT_WINDOW_RES, (800, 480));
+    }
+
+    // r[verify cz.display.nores-when-no-proximate+1]
+    #[test]
+    fn nores_is_outside_escape_one_with_infinite_z() {
+        match NORES_ANSWER.result {
+            MandelbrotResult::Outside {
+                escape_time_r2,
+                escape_z,
+            } => {
+                assert_eq!(escape_time_r2, 1);
+                assert!(escape_z.0.is_infinite());
+                assert!(escape_z.1.is_infinite());
+            }
+            MandelbrotResult::Inside { .. } => panic!("NORES must not be Inside"),
+        }
+        assert!(NORES_ANSWER.min_magnitude.is_infinite());
+    }
+}

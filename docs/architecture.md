@@ -22,14 +22,15 @@ Tiles of the same magnification must share a homothety as their location definit
 The tile is the unit with regard to work, chosen becuase single points would involve too many serial items per second and too much per-point overhead, and entire screens involve too much inefficiencies from being forced to consider and manipulate all the points.
 Tiles solve these issues and make transferring, managing, and persisting work possible. That said, transforms with tiles do not involve rewriting all of their data. tiles are never transformed; the sampling step handles mapping the static work tiles to the dynamic viewport position.
 
-Tiles must have a CPU variant and a GPU variant. The workgroup deals with tiles chiefly in the cpu while the headgroup deals with tiles chiefly in the GPU. Of course, actual intexp transform calculations must be done on the cpu, yielding screenspace offsets for the GPU to use for sampling. This must be an exactly correct process via a few branches based on scale where even very large numbers are handled correctly and extremely quickly, as is obviously possible.
-Also, the workgroup may sometimes do work on the GPU and must prefer to when possible, but it depends what types are available what is doable and not, and for optimal system leverage, the workgroup must leverage both multiple cores of the CPU and GPU simultaniously in such cases.
+Tiles must have a CPU variant and a GPU variant. The workgroup deals with tiles for continuity and scheduling with data either on CPU or GPU, while the headgroup deals with tiles for visual persistence, with data exclusively in the GPU. Of course, actual intexp transform calculations must be done on the cpu, yielding screenspace offsets for the GPU to use for sampling. This must be an exactly correct process via a few branches based on scale where even very large numbers are handled correctly and extremely quickly, as is obviously possible.
+Also, the workgroup may sometimes do work on the GPU instead and must prefer to when possible, but it depends what types are available what is doable and not.
 
 
 #### Tile Manager
 
 The tile manager is the code which determinses the set of tiles which are kept and which are pruned. It must consider the maximum allowable number of homotheties (~8) and the amount of data taken up by the tiles themselves, along with the memory limits, and most desired data.
 The on-screen hoard must never be pruned for memory, and neither the lookahead tiles.
+The tile manager is a function, not an actor.
 
 ## Assemblies
 
@@ -57,7 +58,7 @@ There must be no Color32 hoard. Both hoards are answer, its just the headgroup h
 Stencils are expressions of headgroup's orders and thus are mainly a homothety and resolution. They also may contain additional values which indicate required behaviors, such as the current location of the mouse.
 Tiles are a fixed resolution, so they are simply blocks of data which are grouped with their respective homotheties. Tiles are sampled onto the space defined by the stencil in the sampling step.
 
-Agnostic answers: respect user setting; random, nores, color, or provided texture.
+Agnostic answers: impossible.
 
 ### Workgroup
 
@@ -67,7 +68,6 @@ Input: Stencil
 flow per second (moving): 60
 flow per second (still): 0
 
-Output: Tile<Answer>
 Output: GPUTile<GPUAnswer> 
 
 flow per second (incomplete): [30, 1000]
@@ -89,19 +89,9 @@ The workgroup must manage perturbation & references independently.
 
 All new determinations must apply, eg in-fill in boundary tracing, while using proximate values for still unknown vlaues, eg smallness.
 
-When the workgroup needs to output work for a point not even proximately computed, it must output an agnostic value. The headgroup decides how to render this.
+When the workgroup needs to output work for a point not even proximately computed, it must output the nores value.
 
-The Workgroup may complete tiles resident to the GPU and send them directly to the headgroup via a separate channel, where complexities don't necessitate doing the work on the CPU.
-
-### GPU Uploader
-
-Input: Tile<Answer>
-flow per second: [0, 1000]
-Output: GPUTile<GPUAnswer>
-flow per second: [0, 1000]
-
-uploads tiles to the GPU.
-May be bypassed if the worker did the tile natively on GPU.
+The Workgroup may complete tiles resident to the GPU, bypassing upload, except where complexities don't necessitate doing the work on the CPU, where it may send the work through a gpu uploader actor. Either way, the workgroup is responsible for providign he heagroup with gpu-native answers.
 
 ## Technologies
 

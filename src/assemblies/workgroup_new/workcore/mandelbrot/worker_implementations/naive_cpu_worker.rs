@@ -280,3 +280,92 @@ mod b_per_2_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod symmetry_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    fn fresh_point(c: (f64, f64)) -> ActivePoint<f64, CpuPeriodicityDetector> {
+        let z = (0.0, 0.0);
+        ActivePoint {
+            c,
+            z,
+            derivative: (1.0, 0.0),
+            real_squared: 0.0,
+            imag_squared: 0.0,
+            real_imag: 0.0,
+            iteration_count: 0,
+            min_magnitude: f64::MAX,
+            min_magnitude_time: 0,
+            periodicity_detector: CpuPeriodicityDetector::init(0, z, (1.0, 0.0)),
+            escaped: false,
+            finished: false,
+            orbit_id: ZERO_ORBIT_ID,
+            seat_linear: 0,
+        }
+    }
+
+    fn finish(c: (f64, f64)) -> Answer {
+        let mut p = fresh_point(c);
+        // Enough bouts for shallow samples used in the property.
+        for _ in 0..50 {
+            if p.finished {
+                break;
+            }
+            iterate_point_bout(&mut p, 4.0, 1e-14, 200);
+        }
+        point_to_answer(&p)
+    }
+
+    fn same_class(a: &Answer, b: &Answer) -> bool {
+        match (&a.result, &b.result) {
+            (
+                MandelbrotResult::Outside {
+                    escape_time_r2: ea, ..
+                },
+                MandelbrotResult::Outside {
+                    escape_time_r2: eb, ..
+                },
+            ) => ea == eb,
+            (MandelbrotResult::Inside { .. }, MandelbrotResult::Inside { .. }) => true,
+            _ => false,
+        }
+    }
+
+    // r[verify cz.math.mandelbrot-real-axis-symmetry+1]
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+        fn mandelbrot_conjugate_symmetry(
+            re in prop_oneof![
+                3 => -2.0f64..0.5,
+                1 => -0.75f64..-0.7,
+            ],
+            im in prop_oneof![
+                3 => -1.2f64..1.2,
+                1 => -0.1f64..0.1,
+            ],
+        ) {
+            let a = finish((re, im));
+            let b = finish((re, -im));
+            prop_assert!(
+                same_class(&a, &b),
+                "asymmetry at c=({re},{im}): {a:?} vs {b:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn seahorse_valley_conjugates_match() {
+        let a = finish((-0.75, 0.1));
+        let b = finish((-0.75, -0.1));
+        assert!(same_class(&a, &b), "{a:?} vs {b:?}");
+    }
+
+    #[test]
+    fn cardioid_sample_conjugates_match() {
+        let a = finish((-0.5, 0.25));
+        let b = finish((-0.5, -0.25));
+        assert!(same_class(&a, &b), "{a:?} vs {b:?}");
+    }
+}

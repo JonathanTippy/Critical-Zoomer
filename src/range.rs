@@ -136,24 +136,58 @@ fn get_uuid() -> u64 {
     random_number
 }
 
-#[test]
-fn test_must_gt_logic() {
-    let a = Range::<f64> { lower_bound: 10.0, upper_bound: 11.0 };
-    let b = Range::<f64> { lower_bound: 5.0, upper_bound: 6.0 };
-    assert!(a.must_gt(b));
-    assert!(!b.must_gt(a));
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-#[test]
-fn test_can_eq_overlap() {
-    let a = Range::<f64> { lower_bound: 1.0, upper_bound: 10.0 };
-    let b = Range::<f64> { lower_bound: 5.0, upper_bound: 15.0 };
-    assert!(a.can_eq(b));
-}
+    // r[verify cz.range.guess-biased-nearest+1]
 
-#[test]
-fn test_must_ne_separation() {
-    let a = Range::<f64> { lower_bound: 1.0, upper_bound: 2.0 };
-    let b = Range::<f64> { lower_bound: 3.0, upper_bound: 4.0 };
-    assert!(a.must_ne(b));
+    #[test]
+    fn test_must_gt_logic() {
+        let a = Range::<f64> { lower_bound: 10.0, upper_bound: 11.0 };
+        let b = Range::<f64> { lower_bound: 5.0, upper_bound: 6.0 };
+        assert!(a.must_gt(b));
+        assert!(!b.must_gt(a));
+    }
+
+    #[test]
+    fn test_can_eq_overlap() {
+        let a = Range::<f64> { lower_bound: 1.0, upper_bound: 10.0 };
+        let b = Range::<f64> { lower_bound: 5.0, upper_bound: 15.0 };
+        assert!(a.can_eq(b));
+    }
+
+    #[test]
+    fn test_must_ne_separation() {
+        let a = Range::<f64> { lower_bound: 1.0, upper_bound: 2.0 };
+        let b = Range::<f64> { lower_bound: 3.0, upper_bound: 4.0 };
+        assert!(a.must_ne(b));
+    }
+
+    #[test]
+    fn guess_biased_keeps_bias_inside() {
+        let r = Range { lower_bound: 1.0, upper_bound: 5.0 };
+        assert_eq!(r.guess_biased(3.0), 3.0);
+    }
+
+    #[test]
+    fn guess_biased_clamps_below_to_lower() {
+        let r = Range { lower_bound: 1.0, upper_bound: 5.0 };
+        assert_eq!(r.guess_biased(0.0), 1.0);
+    }
+
+    #[test]
+    fn guess_biased_clamps_above_to_upper() {
+        let r = Range { lower_bound: 1.0, upper_bound: 5.0 };
+        assert_eq!(r.guess_biased(9.0), 5.0);
+    }
+
+    #[test]
+    fn nan_bounds_are_agnostic() {
+        let r = Range {
+            lower_bound: f64::NAN,
+            upper_bound: 1.0,
+        };
+        assert!(r.is_agnostic());
+    }
 }

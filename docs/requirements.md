@@ -15,12 +15,9 @@ The app must be distributed on Flatpak and in debian linux.
 
 ### System Policy
 
-The app must have a memory limit slider which lives in settings and which allows the user to cap memory use to prevent big surprises.
-The maximum limit must be 1gb and the minimum limit must be calculated on-demand.
-The default limit must be 512MB.
+The app must have a memory limit box in settings defaulting to 1gb meaning 1GB cpu memory + 1GB vram.
+The maximum limit must be unlimited and the minimum limit must be calculated on-demand.
 The minimum limit must be able to bump the slider if it rises.
-If the minimum limit collides with the maximum limit, 
-it must bump window resizing and prevent increasing the window size, but not prevent decreasing it.
 The on-screen hoard must never be evicted for memory reasons.
 
 ### Control Scheme
@@ -144,10 +141,7 @@ If work (In or Out conclusion), being exact or proximate, exists covering the pi
 they must be filled from low-res work, or if bailout was unexpectedly difficult, 
 which occurs when zooming into (-2, 0), using a best-effort approximation of the escape time.
 If it does not, the pixels must not be unceremoniously colored black.
-There must be a setting determining behavior, options:
-- choose values at random each frame (random noise)
-- background texture or color
-- nores: include a "no resolution" point, the point at infinity, which completes the dynamic res stack and fills in missing data.
+The app must include a "no resolution" point, the point at infinity, which completes the dynamic res stack and fills in missing data.
 
 ### Hoarding
 

@@ -90,7 +90,8 @@ pub enum CalibratedMandelbrotResult {
 }
 
 impl CalibratedAnswer {
-    fn guess_biased(&self, bias: Answer) -> Answer {
+    // r[impl cz.range.guess-biased-nearest+1]
+    pub fn guess_biased(&self, bias: Answer) -> Answer {
         let result = match self.result {
             CalibratedMandelbrotResult::Agnostic{period, escape_time_r2, escape_z} => {
                 match bias.result {
@@ -161,6 +162,111 @@ impl CalibratedAnswer {
             , min_magnitude:
                 self.min_magnitude.guess_biased(bias.min_magnitude)
             ,
+        }
+    }
+}
+
+#[cfg(test)]
+mod calibrated_bias_tests {
+    use super::*;
+    use crate::assemblies::structs::*;
+    use crate::constants::NORES_ANSWER;
+
+    fn exact_u64(v: u64) -> Range<u64> {
+        Range {
+            lower_bound: v,
+            upper_bound: v,
+        }
+    }
+    fn exact_f64(v: f64) -> Range<f64> {
+        Range {
+            lower_bound: v,
+            upper_bound: v,
+        }
+    }
+    fn exact_f32(v: f32) -> Range<f32> {
+        Range {
+            lower_bound: v,
+            upper_bound: v,
+        }
+    }
+    fn wide_escape(lo: u64, hi: u64) -> CalibratedAnswer {
+        CalibratedAnswer {
+            result: CalibratedMandelbrotResult::Outside {
+                escape_time_r2: Range {
+                    lower_bound: lo,
+                    upper_bound: hi,
+                },
+                escape_z: (exact_f32(0.0), exact_f32(0.0)),
+            },
+            min_magnitude_time: exact_u64(0),
+            min_magnitude: exact_f64(1.0),
+            highlights: CalibratedHighlights {
+                in_filament: Range {
+                    lower_bound: false,
+                    upper_bound: false,
+                },
+                out_filament: Range {
+                    lower_bound: false,
+                    upper_bound: false,
+                },
+                small_time_edge: Range {
+                    lower_bound: false,
+                    upper_bound: false,
+                },
+                node: Range {
+                    lower_bound: false,
+                    upper_bound: false,
+                },
+            },
+        }
+    }
+
+    // r[verify cz.range.guess-biased-nearest+1]
+    #[test]
+    fn biased_escape_keeps_proximate_when_in_bounds() {
+        let cal = wide_escape(10, 50);
+        let bias = Answer {
+            result: MandelbrotResult::Outside {
+                escape_time_r2: 20,
+                escape_z: (0.0, 0.0),
+            },
+            min_magnitude_time: 0,
+            min_magnitude: 1.0,
+        };
+        let out = cal.guess_biased(bias);
+        match out.result {
+            MandelbrotResult::Outside { escape_time_r2, .. } => assert_eq!(escape_time_r2, 20),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn biased_escape_clamps_high_proximate() {
+        let cal = wide_escape(10, 50);
+        let bias = Answer {
+            result: MandelbrotResult::Outside {
+                escape_time_r2: 99,
+                escape_z: (0.0, 0.0),
+            },
+            min_magnitude_time: 0,
+            min_magnitude: 1.0,
+        };
+        let out = cal.guess_biased(bias);
+        match out.result {
+            MandelbrotResult::Outside { escape_time_r2, .. } => assert_eq!(escape_time_r2, 50),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    // r[verify cz.display.nores-when-no-proximate+1]
+    #[test]
+    fn nores_bias_survives_as_outside() {
+        let cal = wide_escape(1, 1);
+        let out = cal.guess_biased(NORES_ANSWER);
+        match out.result {
+            MandelbrotResult::Outside { escape_time_r2, .. } => assert_eq!(escape_time_r2, 1),
+            MandelbrotResult::Inside { .. } => panic!("must not invent Inside from NORES bias"),
         }
     }
 }
