@@ -57,10 +57,13 @@ struct VsOut {
 
 @vertex
 fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VsOut {
+    // Top-left is UV (0,0) / seat (0,0). WGPU NDC has +Y up, so the first
+    // vertex sits at y=+1; a bottom-left origin would flip the painted frame
+    // relative to the oracle and the tile seat grid.
     var positions = array<vec2<f32>, 3>(
-        vec2<f32>(-1.0, -1.0),
-        vec2<f32>(3.0, -1.0),
-        vec2<f32>(-1.0, 3.0),
+        vec2<f32>(-1.0, 1.0),
+        vec2<f32>(3.0, 1.0),
+        vec2<f32>(-1.0, -3.0),
     );
     var uvs = array<vec2<f32>, 3>(
         vec2<f32>(0.0, 0.0),

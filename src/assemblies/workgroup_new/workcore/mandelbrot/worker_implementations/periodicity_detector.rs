@@ -566,4 +566,10 @@ mod twin_tests {
         let c = cardioid_c_from_mu((0.0, 0.0));
         assert_eq!(detect_period_for_c(c, 100_000), Some(1));
     }
+
+    // D-PER-1: twin-test N is the named constant.
+    #[test]
+    fn twin_confirmation_uses_named_iteration_count() {
+        assert_eq!(PERIOD_CONFIRMATION_ITERATIONS, 20);
+    }
 }

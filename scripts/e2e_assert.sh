@@ -71,13 +71,16 @@ e2e_assert_rmse_lt() {
 
 # Count near-uniform NORES-gray blocks in a 6x4 center crop (stdout: integer).
 # Flat NORES mid-gray (RGB~100 → ImageMagick mean ~25700).
+# Only the left 4 of 6 columns are counted: under the default sinus escape wash,
+# far-right exterior that escapes in one iteration paints the same mid-grey, and
+# must not be treated as an unfinished NORES hole.
 e2e_count_gray_holes() {
   local path="$1"
   local out
   # One convert: center crop then 120x85 tiles (6×4 on 720×340).
   out=$(convert "$path" -gravity Center -crop 720x340+0+0 +repage \
     -crop 120x85 -format '%[fx:int(mean*65535)] %[fx:int(standard_deviation*65535)]\n' info: 2>/dev/null \
-    | awk '$2 < 400 && $1 > 25000 && $1 < 26500 { c++ } END { print c+0 }')
+    | awk 'NR<=24 { col=(NR-1)%6; if (col<4 && $2 < 400 && $1 > 25000 && $1 < 26500) c++ } END { print c+0 }')
   echo "${out:-99}"
 }
 
@@ -95,8 +98,9 @@ e2e_assert_few_gray_holes() {
   fi
 }
 
-# Left mid-viewport must show structure (set/boundary). Right may be smoother
-# exterior when filled — reject only flat NORES-gray (mean≈25700, stdev≈0).
+# Left mid-viewport must show structure (set/boundary). Right crop sits on the
+# exterior banding (not the far-right escape-1 plateau, which under the default
+# sinus wash is the same mid-grey as NORES and is not a fill failure).
 e2e_assert_side_structure() {
   local path="$1"
   local min_left="${2:-1200}"
@@ -107,7 +111,7 @@ e2e_assert_side_structure() {
     rm -rf "$tmp"
     return
   }
-  convert "$path" -crop 160x200+560+140 +repage "$tmp/right.png" 2>/dev/null || {
+  convert "$path" -crop 160x200+420+140 +repage "$tmp/right.png" 2>/dev/null || {
     e2e_fail_msg "right crop failed $path"
     rm -rf "$tmp"
     return
@@ -122,7 +126,7 @@ e2e_assert_side_structure() {
   if [ -n "$left" ] && [ "$left" -ge "$min_left" ]; then
     left_ok=1
   fi
-  # Filled exterior: any structure, or mean away from NORES mid-gray plateau.
+  # Exterior banding: prefer structure; allow non-NORES means as a fallback.
   if [ -n "$right" ] && [ "$right" -ge 300 ]; then
     right_ok=1
   elif [ -n "$rmean" ] && { [ "$rmean" -lt 24500 ] || [ "$rmean" -gt 26000 ]; }; then

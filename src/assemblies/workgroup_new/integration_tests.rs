@@ -69,6 +69,7 @@ mod assembly_tests {
             mouse_drag_start: None,
             memory_limit_bytes: 8_000,
             last_memory_bump: None,
+            handle_filled: HashMap::new(),
         }
     }
 

@@ -19,7 +19,31 @@ pub struct PointStencil {
     , pub serial_number: u64
     , pub focus: Option<(usize, usize)>
     , pub hover: Option<(usize, usize)>
+    , pub mag_velocity: f64 // D-STEN-1: EWMA magnification velocity (bumps/s).
 }
+
+impl PointStencil {
+    pub fn retarget_with_seq(
+        &mut self,
+        homothety: (crate::intexp::IntExp, crate::intexp::IntExp, i32),
+        resolution: (usize, usize),
+        hover: Option<(usize, usize)>,
+        mag_velocity: f64,
+    ) {
+        let changed = self.homothety != homothety
+            || self.resolution != resolution
+            || self.hover != hover
+            || self.mag_velocity != mag_velocity;
+        self.homothety = homothety;
+        self.resolution = resolution;
+        self.hover = hover;
+        self.mag_velocity = mag_velocity;
+        if changed {
+            self.serial_number = self.serial_number.saturating_add(1);
+        }
+    }
+}
+
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct View<T> {

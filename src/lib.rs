@@ -17,7 +17,7 @@ use rug::*;
 
 
 use std::thread;
-use assemblies::{headgroup, shadergroup, workgroup};
+use assemblies::{headgroup, workgroup};
 
 
 pub mod actor {}
@@ -26,9 +26,13 @@ pub mod settings;
 pub mod utils;
 pub mod range;
 pub mod constants;
+pub mod gpu_context;
+pub mod gpu_budget;
+pub mod gear;
 pub mod assemblies;
 pub mod intexp;
 pub mod stacked_intexp;
 pub mod floatexp;
 pub mod e2e_oracle;
 pub mod e2e_harness;
+pub mod gpu_nativity_properties;

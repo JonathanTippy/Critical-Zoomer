@@ -42,7 +42,7 @@ Each tile manager acts locally with regard to its own collection of tiles.
 #### IO
 
 Input: GPUTile<GPUAnswer>
-flow per second (incomplete): [30, 1000]
+flow per second (incomplete): 1000
 flow per second (complete): 0 
 Input: memory bump
 flow per second: N/A
@@ -75,7 +75,7 @@ flow per second (still): 0
 
 Output: GPUTile<GPUAnswer> 
 
-flow per second (incomplete): [30, 1000]
+flow per second (incomplete): 1000
 flow per second (complete): 0
 
 Output: memory bump

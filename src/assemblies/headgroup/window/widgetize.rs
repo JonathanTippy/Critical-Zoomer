@@ -157,7 +157,7 @@ impl ColoringInstruction {
                 ui.add(egui::Slider::new(opacity, 0..=255));
             }
             , ColoringInstruction::HighlightNodes{
-                inside_opacity, outside_opacity, color, thickness, only_fattest, ..
+                inside_opacity, outside_opacity, color, thickness, ..
             } => {
                 ui.label("Node Highlighting Settings");
                 ui.label("Node Highlighting color of shading:");
@@ -170,8 +170,6 @@ impl ColoringInstruction {
                 ui.add(egui::Slider::new(outside_opacity, 0..=255));
                 ui.label("Node Highlighting thickness:");
                 ui.add(egui::Slider::new(thickness, 0..=10));
-                ui.label("Node Highlighting only show fattest?:");
-                ui.checkbox(only_fattest, "fat");
             }
             , ColoringInstruction::HighlightSmallTimeEdges{
                 inside_opacity, outside_opacity, color, ..

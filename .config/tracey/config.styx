@@ -8,7 +8,7 @@ specs (
     impls (
       {
         name rust
-        include (src/**/*.rs scripts/**/*.sh)
+        include (src/**/*.rs src/**/*.wgsl scripts/**/*.sh)
         exclude (target/**)
         test_include (src/**/*.rs scripts/**/*.sh)
       }

@@ -18,10 +18,12 @@ By similar applications of big number + integer coordinates, the operations on t
 Perturbation has been accepted for a few years now. It is not magic, but the creator of superfractalthing said that it makes the time to render have more to do with the complexity of the image than the depth. Superfractathing is a living example that this is true, though it takes the less pleasant "drag a rectangle" UX pattern.
 
 # work prioritization
-Another shining example is "BROT", a perturbation based foveated renderer. It demonstrates that foveated rendering can enable an actually snappy and in fact almost perfect feeling mandelbrot browsing experience, in easier areas.
+Another shining example is "BROT", a perturbation based foveated renderer. It demonstrates that foveated rendering can enable an actually snappy and in fact almost perfect feeling mandelbrot browsing experience, in easier areas. It uses a fixed maximum iteration count, as all mandelbrot viewers I know of do.
 
 # work storage
 Work must be stored not only acquisitively, but also recontinuably. That is to say, it must be possible to put down a piece of work and recontine it at a better time.
+
+Recontinuable storage is what makes dropping the iteration limit plausible: a point which has not escaped yet is not a stall, it is stored work waiting for a better time. Others need a limit because their work must finish inside one render pass.
 
 # what is out / in
 
@@ -36,3 +38,4 @@ in:
 Conclusion:
 
 perfect is not aimed for (yet) and may or may not be possible, but existing solutions all have gaps.
+I don't like how they set an i teration count limit. It stops you from exploring the actual mandelbrot set, and makes the mandelbrot set act like other fractals, where it has a finite repeating shape, whereas the entire draw of the mandelbrot set, which makes it interesting instead of boring, is that unlike other fractals, the shape which is repeating is infinitely complex.

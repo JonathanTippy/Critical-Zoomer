@@ -9,6 +9,55 @@ use crate::assemblies::workgroup_new::structs::*;
 use crate::assemblies::workgroup_new::workcore::mandelbrot::worker_implementations::periodicity_detector::*;
 use crate::constants::*;
 use crate::intexp::*;
+use crate::stacked_intexp::StackedIntExp;
+
+fn pack_f64_as_stacked(out: &mut Vec<i32>, value: f64, limbs: usize) {
+    // Convert via IntExp → StackedIntExp for the requested limb count.
+    let ie = f64_to_intexp(value);
+    match limbs {
+        1 => {
+            let s = StackedIntExp::<1>::from(ie);
+            out.extend_from_slice(&s.limbs);
+            out.push(s.exp);
+        }
+        2 => {
+            let s = StackedIntExp::<2>::from(ie);
+            out.extend_from_slice(&s.limbs);
+            out.push(s.exp);
+        }
+        3 => {
+            let s = StackedIntExp::<3>::from(ie);
+            out.extend_from_slice(&s.limbs);
+            out.push(s.exp);
+        }
+        4 => {
+            let s = StackedIntExp::<4>::from(ie);
+            out.extend_from_slice(&s.limbs);
+            out.push(s.exp);
+        }
+        5 => {
+            let s = StackedIntExp::<5>::from(ie);
+            out.extend_from_slice(&s.limbs);
+            out.push(s.exp);
+        }
+        6 => {
+            let s = StackedIntExp::<6>::from(ie);
+            out.extend_from_slice(&s.limbs);
+            out.push(s.exp);
+        }
+        7 => {
+            let s = StackedIntExp::<7>::from(ie);
+            out.extend_from_slice(&s.limbs);
+            out.push(s.exp);
+        }
+        8 => {
+            let s = StackedIntExp::<8>::from(ie);
+            out.extend_from_slice(&s.limbs);
+            out.push(s.exp);
+        }
+        _ => panic!("limbs must be 1..=8"),
+    }
+}
 
 pub trait Scheduler<T: Mandelbrotable, P: PeriodicityDetector<T>, W: Worker<T, P>>{
 
@@ -110,6 +159,19 @@ impl ReferenceOrbit {
         assert_eq!(self.period, self.f64.period);
         assert_eq!(self.length, self.f32.big_z_orbit.len());
         assert_eq!(self.length, self.f64.big_z_orbit.len());
+    }
+
+    /// Pack the f64 orbit into stacked-i32 limbs for a GPU gear (1..=8).
+    /// Each sample is `limbs` re limbs, then `limbs` im limbs, then re_exp, im_exp.
+    pub fn stacked_orbit_mirror(&self, limbs: u8) -> Vec<i32> {
+        assert!((1..=8).contains(&limbs));
+        let n = limbs as usize;
+        let mut out = Vec::with_capacity(self.f64.big_z_orbit.len() * (2 * n + 2));
+        for &(re, im) in &self.f64.big_z_orbit {
+            pack_f64_as_stacked(&mut out, re, n);
+            pack_f64_as_stacked(&mut out, im, n);
+        }
+        out
     }
 
     pub fn zero() -> Self {
@@ -331,6 +393,16 @@ mod reference_collection_tests {
         assert_eq!(zero.big_c.1, IntExp::ZERO);
         assert_eq!(zero.f64.big_z_orbit[0], (0.0, 0.0));
         assert_eq!(zero.f32.big_z_orbit[0], (0.0, 0.0));
+    }
+
+    #[test]
+    fn stacked_orbit_mirror_packs_one_through_eight() {
+        let zero = ReferenceOrbit::zero();
+        for limbs in 1u8..=8 {
+            let packed = zero.stacked_orbit_mirror(limbs);
+            // one sample: re limbs+exp + im limbs+exp
+            assert_eq!(packed.len(), 2 * (limbs as usize + 1));
+        }
     }
 
     #[test]

@@ -24,7 +24,8 @@ const VSYNC:bool = true;
 
 pub const DEFAULT_SETTINGS_WINDOW_RES:(u32, u32) = (500, 800);
 
-pub const DEFAULT_COLORING_SCRIPT:[ColoringInstruction;7] = [
+// D-COLOR-1: escape time; in-filaments black; out-filaments as outside ∞-escape; nothing else.
+pub const DEFAULT_COLORING_SCRIPT:[ColoringInstruction;3] = [
     ColoringInstruction::PaintEscapeTime{id: 0, opacity:255
         , color:(128,128,128), range:64
         , shading_method: ShadingInstruction{
@@ -49,63 +50,9 @@ pub const DEFAULT_COLORING_SCRIPT:[ColoringInstruction;7] = [
             }
         }
         , normalizing_method: Normalizing::None{}}
-    , ColoringInstruction::PaintSmallTime{id: 1, inside_opacity:0, outside_opacity:30
-        , color:(128,128,128), range:64
-        , shading_method: ShadingInstruction{
-            shading: Shading::Sinus{}
-            , period: Animable{
-                start:None
-                , period:Duration::from_secs(10)
-                , value:3.0
-                , animated:false
-                , range:(1.0, 10.0)
-                , limits:(1.0, 10.0)
-                , normalizing:Normalizing::None{}
-            }
-            , phase: Animable{
-                start:None
-                , period:Duration::from_secs(10)
-                , value:0.0
-                , animated:false
-                , range:(0.0, 10.0)
-                , limits:(0.0, 10.0)
-                , normalizing:Normalizing::None{}
-            }
-        }
-        , normalizing_method: Normalizing::None{}}
-    , ColoringInstruction::PaintSmallness{
-        id: 2, inside_opacity:0, outside_opacity:0
-        , color:(128,128,128), range:64
-        , shading_method: ShadingInstruction{
-            shading: Shading::Sinus{}
-            , period: Animable{
-                start:None
-                , period:Duration::from_secs(10)
-                , value:10.0
-                , animated:false
-                , range:(1.0, 10.0)
-                , limits:(1.0, 10.0)
-                , normalizing:Normalizing::None{}
-            }
-            , phase: Animable{
-                start:None
-                , period:Duration::from_secs(10)
-                , value:0.0
-                , animated:false
-                , range:(0.0, 10.0)
-                , limits:(0.0, 10.0)
-                , normalizing:Normalizing::None{}
-            }
-        }
-        , normalizing_method: Normalizing::None{}}
-    , ColoringInstruction::HighlightInFilaments{id: 3, opacity:255, color:(0,0,0)}
+    , ColoringInstruction::HighlightInFilaments{id: 1, opacity:255, color:(0,0,0)}
     // Out filaments: paint like ∞ escape (shade path); color unused when ∞-escape path is used.
-    , ColoringInstruction::HighlightOutFilaments{id: 4, opacity:255, color:(128,128,128)}
-    , ColoringInstruction::HighlightNodes{id: 5, inside_opacity:0, outside_opacity:0
-        , color:(128,128,128), thickness:10, only_fattest:true}
-    // Subtle by default (requirements: other features subtle).
-    , ColoringInstruction::HighlightSmallTimeEdges{id: 6, inside_opacity:40, outside_opacity:40
-        , color:(255,0,0)}
+    , ColoringInstruction::HighlightOutFilaments{id: 2, opacity:255, color:(128,128,128)}
 ];
 
 
@@ -119,8 +66,7 @@ impl Settings {
             , limits:(2.0, u32::MAX as f64)
             , normalizing:Normalizing::LnLn{}}
         , bailout_max_additional_iterations: 10
-        , estimate_extra_iterations: false
-        , id_counter: 7
+        , id_counter: 3
         , currently_selected_coloring_instruction: 0
         // L = L CPU + L VRAM; default 1GB each side of the ledger.
         , memory_limit_bytes: 1_000_000_000
@@ -133,7 +79,7 @@ pub const DEFAULT_SETTINGS_WINDOW_CONTEXT:SettingsWindowContext = SettingsWindow
     , location: None
     , will_close: false
     , checked: false
-    , id_counter: 7
+    , id_counter: 3
 };
 
 #[derive(Clone, Debug)]
@@ -141,7 +87,6 @@ pub struct Settings {
     pub coloring_script:Option<Vec<ColoringInstruction>>
     , pub bailout_radius:Animable
     , pub bailout_max_additional_iterations:u32
-    , pub estimate_extra_iterations:bool
     , pub currently_selected_coloring_instruction: u64
     , pub id_counter: u64
     // Soft per-side budget (bytes). Slider L means L CPU + L VRAM.
@@ -214,8 +159,9 @@ impl Normalizing {
             Normalizing::Ln{..} => {
                 input.ln()
             }
+            // The reciprocal of the log, matching the shading shader.
             Normalizing::RecipLn{..} => {
-                (1.0/input).ln()
+                1.0/input.ln()
             }
             Normalizing::Reciprocal{..} => {1.0/input}
         }
@@ -231,7 +177,7 @@ impl Normalizing {
                 input.exp()
             }
             Normalizing::RecipLn{..} => {
-                1.0/(input.exp())
+                (1.0/input).exp()
             }
             Normalizing::Reciprocal{..} => {1.0/input}
         }
@@ -247,59 +193,6 @@ impl Normalizing {
         self.denormalize(&(normalized_min + (normalized_range*scalar_input)))
     }
 
-    pub fn get_normalizer(&self) -> Normalizer {
-        match self {
-            Normalizing::None{..} => {
-                Normalizer{
-                    normalize64: |n| {*n}
-                    , denormalize64: |n| {*n}
-                    , normalize32: |n| {*n}
-                    , denormalize32: |n| {*n}
-                }
-            }
-            Normalizing::LnLn{..} => {
-                Normalizer{
-                    normalize64: |n| {n.ln().ln()}
-                    , denormalize64: |n| {n.exp().exp()}
-                    , normalize32: |n| {n.ln().ln()}
-                    , denormalize32: |n| {n.exp().exp()}
-                }
-            }
-            Normalizing::Ln{..} => {
-                Normalizer{
-                    normalize64: |n| {n.ln()}
-                    , denormalize64: |n| {n.exp()}
-                    , normalize32: |n| {n.ln()}
-                    , denormalize32: |n| {n.exp()}
-                }
-            }
-            Normalizing::RecipLn{..} => {
-                Normalizer{
-                    normalize64: |n| {1.0/n.ln()}
-                    , denormalize64: |n| {(1.0/n).exp()}
-                    , normalize32: |n| {1.0/n.ln()}
-                    , denormalize32: |n| {(1.0/n).exp()}
-                }
-            }
-            Normalizing::Reciprocal{..} => {
-                Normalizer{
-                    normalize64: |n| {1.0/n}
-                    , denormalize64: |n| {1.0/n}
-                    , normalize32: |n| {1.0/n}
-                    , denormalize32: |n| {1.0/n}
-                }
-            }
-        }
-    }
-}
-
-#[derive(Clone, Debug, Copy, PartialEq)]
-
-pub struct Normalizer {
-    pub normalize64: fn(&f64)->f64
-    , pub denormalize64: fn(&f64)->f64
-    , pub normalize32: fn(&f32)->f32
-    , pub denormalize32: fn(&f32)->f32
 }
 
 #[derive(Clone, Debug, Copy)]
@@ -355,7 +248,6 @@ pub enum ColoringInstruction {
         , color:(u8,u8,u8)
         , id:u64
         , thickness:u8
-        , only_fattest: bool
     }
     , HighlightSmallTimeEdges{
         inside_opacity:u8, outside_opacity:u8
@@ -509,7 +401,9 @@ pub fn settings (
                 });
 
 
-                ctx.request_repaint();
+                // Do not request an immediate repaint — that overrides the main
+                // viewport's 60fps `request_repaint_after` (smallest delay wins).
+                ctx.request_repaint_after(std::time::Duration::from_nanos(16_666_667));
 
             });
 
@@ -657,5 +551,63 @@ mod animable_tests {
         // Guards const MAX_FRAME_TIME = 1.0 / MIN_FRAME_RATE mutants (% or *).
         assert!((super::MAX_FRAME_TIME - (1.0 / super::MIN_FRAME_RATE)).abs() < 1e-12);
         assert!((super::MAX_FRAME_TIME - 0.05).abs() < 1e-12);
+    }
+
+    // D-COLOR-1 / REQ-COSMETIC-DEFAULT
+    #[test]
+    fn default_script_has_exactly_three_layers() {
+        assert_eq!(DEFAULT_COLORING_SCRIPT.len(), 3);
+    }
+
+    #[test]
+    fn default_script_is_escape_infil_outfil_only() {
+        assert!(matches!(
+            DEFAULT_COLORING_SCRIPT[0],
+            ColoringInstruction::PaintEscapeTime { .. }
+        ));
+        assert!(matches!(
+            DEFAULT_COLORING_SCRIPT[1],
+            ColoringInstruction::HighlightInFilaments { color: (0, 0, 0), .. }
+        ));
+        assert!(matches!(
+            DEFAULT_COLORING_SCRIPT[2],
+            ColoringInstruction::HighlightOutFilaments { .. }
+        ));
+    }
+
+    #[test]
+    fn default_script_excludes_subtle_extra_layers() {
+        for inst in DEFAULT_COLORING_SCRIPT.iter() {
+            assert!(!matches!(
+                inst,
+                ColoringInstruction::PaintSmallTime { .. }
+                    | ColoringInstruction::PaintSmallness { .. }
+                    | ColoringInstruction::HighlightNodes { .. }
+                    | ColoringInstruction::HighlightSmallTimeEdges { .. }
+            ));
+        }
+    }
+
+    // D-COLOR-4 / REQ-COSMETIC-LAYER: highlights are ColoringInstruction variants in the list.
+    #[test]
+    fn highlights_are_script_layer_variants() {
+        assert!(matches!(
+            ColoringInstruction::HighlightInFilaments { id: 0, opacity: 255, color: (0, 0, 0) },
+            ColoringInstruction::HighlightInFilaments { .. }
+        ));
+        assert!(matches!(
+            ColoringInstruction::HighlightOutFilaments { id: 0, opacity: 255, color: (1, 1, 1) },
+            ColoringInstruction::HighlightOutFilaments { .. }
+        ));
+        assert!(matches!(
+            ColoringInstruction::HighlightNodes {
+                id: 0,
+                inside_opacity: 0,
+                outside_opacity: 0,
+                color: (0, 0, 0),
+                thickness: 1
+            },
+            ColoringInstruction::HighlightNodes { .. }
+        ));
     }
 }

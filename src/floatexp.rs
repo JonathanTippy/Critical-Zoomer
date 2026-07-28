@@ -195,6 +195,7 @@ impl Mandelbrotable for FloatExp {
 #[cfg(test)]
 mod floatexp_tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn floatexp_add_mul_basic() {
@@ -209,5 +210,31 @@ mod floatexp_tests {
         assert_eq!(<FloatExp as Mandelbrotable>::ZERO.to_f64(), 0.0);
         assert!((<FloatExp as Mandelbrotable>::ONE.to_f64() - 1.0).abs() < 1e-12);
         assert!((<FloatExp as Mandelbrotable>::TWO.to_f64() - 2.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn floatexp_mul_one_is_identity() {
+        let a = FloatExp::from_f64(12.5);
+        let one = FloatExp::ONE;
+        assert!(((a * one).to_f64() - a.to_f64()).abs() < 1e-12);
+    }
+
+    // Property: Finite round-trip preserves value within relative tolerance.
+    proptest! {
+        #[test]
+        fn floatexp_from_f64_roundtrip(
+            v in prop_oneof![
+                Just(0.0f64),
+                -1e6f64..1e6f64,
+            ]
+        ) {
+            let back = FloatExp::from_f64(v).to_f64();
+            if v == 0.0 {
+                prop_assert_eq!(back, 0.0);
+            } else {
+                let scale = v.abs().max(1.0);
+                prop_assert!((back - v).abs() / scale < 1e-12);
+            }
+        }
     }
 }

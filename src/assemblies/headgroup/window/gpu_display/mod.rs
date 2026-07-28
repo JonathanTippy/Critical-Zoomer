@@ -11,10 +11,26 @@ use crate::intexp::*;
 use crate::settings::*;
 use crate::utils::*;
 
+#[cfg(test)]
+mod shade_harness;
+#[cfg(test)]
+mod shade_oracle;
+#[cfg(test)]
+mod shade_tests;
+
+/// Slots the atlas starts with. Not a ceiling: the headgroup hoard grows with
+/// the user's memory limit, which requirements put at "unlimited" maximum, so
+/// running out of slots grows the atlas rather than dropping a tile.
 pub const GPU_TILE_SLOT_COUNT: u32 = 2048;
-pub const GPU_TILE_SHEET_COLS: u32 = 32;
 pub const GPU_TILE_CELL_SLOTS: u32 = 8;
 pub const GPU_TILE_GRID_EMPTY: u32 = u32::MAX;
+
+// Sheet geometry is shared with the workgroup's production atlas so a handoff
+// between the two hoards is a plain slot-to-slot copy. See tile_sheet.
+pub use crate::assemblies::tile_sheet::{
+    SHEET_COLS as GPU_TILE_SHEET_COLS, SLOT_BYTES as GPU_TILE_SLOT_BYTES,
+};
+use crate::assemblies::tile_sheet;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -68,8 +84,12 @@ pub struct GpuTileEntry {
 #[derive(Clone, Debug)]
 pub struct PendingTileUpload {
     pub id: u64
+    // CPU-packed texels. Empty when `production_slot` is set: the headgroup
+    // then copies from the workgroup atlas instead of uploading bytes.
     , pub meta: Vec<[f32; 4]>
     , pub z: Vec<[f32; 4]>
+    // Workgroup production-atlas slot to copy from. Released after the copy.
+    , pub production_slot: Option<u32>
 }
 
 pub struct ShadeFrame {
@@ -101,6 +121,13 @@ pub struct GpuDisplayResources {
     , id_to_slot: HashMap<u64, u32>
     , free_slots: Vec<u32>
     , next_slot: u32
+    // Slots the sheets currently hold. Grows on demand; never a fixed cap.
+    , slot_capacity: u32
+    // Slots the device can never exceed, from its max texture dimension.
+    , slot_ceiling: u32
+    // Slots the last prepare could not place. Non-zero means the hoard wants
+    // more VRAM than the atlas can currently give, which is a memory bump.
+    , slots_denied: u32
 }
 
 pub struct GpuDisplayCallback {
@@ -326,7 +353,17 @@ pub fn pack_tile_upload(tile: &GPUTile, id: u64) -> PendingTileUpload {
             zbuf[i] = zpix;
         }
     }
-    PendingTileUpload { id, meta, z: zbuf }
+    PendingTileUpload { id, meta, z: zbuf, production_slot: None }
+}
+
+/// Queue a handoff of a tile that already lives in the workgroup atlas.
+pub fn pending_handoff(id: u64, production_slot: u32) -> PendingTileUpload {
+    PendingTileUpload {
+        id
+        , meta: Vec::new()
+        , z: Vec::new()
+        , production_slot: Some(production_slot)
+    }
 }
 
 fn floor_div_i32(v: i32, edge: i32) -> i32 {
@@ -435,7 +472,6 @@ pub fn build_shade_frame(
     sampling_context: &mut SamplingContext
     , settings: &mut Settings
 ) -> ShadeFrame {
-    let t0 = std::time::Instant::now();
     sampling_context.prune_distant_tiles();
     let reset_gpu_slots = std::mem::take(&mut sampling_context.reset_gpu_tile_slots);
     let viewport = sampling_context.screen_size;
@@ -628,127 +664,10 @@ pub fn build_shade_frame(
     }
 
     let pending_uploads = std::mem::take(&mut sampling_context.pending_tile_uploads);
-    let upload_n = pending_uploads.len();
     let mut live_ids: Vec<u64> = Vec::new();
     for ids in sampling_context.tile_gpu_ids.values() {
         live_ids.extend(ids.iter().copied());
     }
-    // #region agent log
-    crate::assemblies::headgroup::window::agent_dbg(
-        "H-FPS"
-        , "gpu_display/mod.rs:build_shade_frame"
-        , "tile_frame"
-        , &format!(
-            "{{\"ms\":{},\"entries\":{},\"uploads\":{},\"tiles\":{},\"live_ids\":{},\"reset\":{},\"overflow_skips\":{},\"max_abs_pan\":{},\"same\":{},\"lesser\":{},\"finer\":{},\"zoom\":{},\"grid\":[{},{}]}}"
-            , t0.elapsed().as_secs_f64() * 1000.0
-            , entries.len()
-            , upload_n
-            , sampling_context.tile_count()
-            , live_ids.len()
-            , reset_gpu_slots
-            , overflow_skips
-            , max_abs_pan
-            , same_n
-            , lesser_n
-            , finer_n
-            , zoom
-            , grid_w
-            , grid_h
-        )
-    );
-    {
-        use std::sync::atomic::{AtomicI32, Ordering};
-        static LAST_PROBE_ZOOM: AtomicI32 = AtomicI32::new(i32::MIN);
-        let prev = LAST_PROBE_ZOOM.swap(zoom, Ordering::Relaxed);
-        if prev != zoom {
-            let edge = TILE_EDGE_LENGTH as i32;
-            let try_hit = |entry: &GpuTileEntry, seat: (i32, i32)| -> bool {
-                if entry.zoom_delta == 0 {
-                    let ax = seat.0 + entry.pan_x;
-                    let ay = seat.1 + entry.pan_y;
-                    ax >= entry.origin_x && ay >= entry.origin_y
-                        && ax < entry.origin_x + edge && ay < entry.origin_y + edge
-                } else if entry.zoom_delta > 0 {
-                    let mag = entry.zoom_delta as u32;
-                    let sx = (seat.0 + entry.pan_x) >> mag;
-                    let sy = (seat.1 + entry.pan_y) >> mag;
-                    sx >= entry.origin_x && sy >= entry.origin_y
-                        && sx < entry.origin_x + edge && sy < entry.origin_y + edge
-                } else {
-                    false
-                }
-            };
-            let probe_seat = |seat: (i32, i32)| -> (u32, i32, u32, u32) {
-                let cx = floor_div_i32(seat.0, edge);
-                let cy = floor_div_i32(seat.1, edge);
-                if cx < 0 || cy < 0 || cx >= grid_w as i32 || cy >= grid_h as i32 {
-                    return (0, 0, 0, 0);
-                }
-                let base = ((cy as u32) * grid_w + cx as u32) * GPU_TILE_CELL_SLOTS;
-                let mut filled = 0u32;
-                let mut hits = 0u32;
-                let mut best_rank = 0u32;
-                let mut best_zd = 0i32;
-                for k in 0..GPU_TILE_CELL_SLOTS {
-                    let idx = grid[base as usize + k as usize];
-                    if idx == GPU_TILE_GRID_EMPTY {
-                        continue;
-                    }
-                    filled += 1;
-                    let Some(entry) = entries.get(idx as usize) else { continue; };
-                    if try_hit(entry, seat) {
-                        hits += 1;
-                        if entry.rank >= best_rank {
-                            best_rank = entry.rank;
-                            best_zd = entry.zoom_delta;
-                        }
-                    }
-                }
-                (filled, best_zd, hits, best_rank)
-            };
-            let seats = [
-                (viewport.0 as i32 / 2, viewport.1 as i32 / 2)
-                , (16, viewport.1 as i32 / 2)
-                , (viewport.0 as i32 - 16, viewport.1 as i32 / 2)
-                , (viewport.0 as i32 / 2, 16)
-                , (viewport.0 as i32 / 2, viewport.1 as i32 - 16)
-            ];
-            let mut miss_row = 0u32;
-            let mut hit_row = 0u32;
-            let y = viewport.1 as i32 / 2;
-            let mut x = 0i32;
-            while x < viewport.0 as i32 {
-                let (filled, zd, hits, _) = probe_seat((x, y));
-                if hits == 0 {
-                    miss_row += 1;
-                } else {
-                    hit_row += 1;
-                }
-                let _ = (filled, zd);
-                x += 32;
-            }
-            let c = probe_seat(seats[0]);
-            let l = probe_seat(seats[1]);
-            let r = probe_seat(seats[2]);
-            crate::assemblies::headgroup::window::agent_dbg(
-                "H-ZIB"
-                , "gpu_display/mod.rs:build_shade_frame"
-                , "grid_probe"
-                , &format!(
-                    "{{\"zoom\":{},\"lesser\":{},\"same\":{},\"center\":{{\"filled\":{},\"zd\":{},\"hits\":{}}},\"left\":{{\"filled\":{},\"zd\":{},\"hits\":{}}},\"right\":{{\"filled\":{},\"zd\":{},\"hits\":{}}},\"row_hit\":{},\"row_miss\":{}}}"
-                    , zoom
-                    , lesser_n
-                    , same_n
-                    , c.0, c.1, c.2
-                    , l.0, l.1, l.2
-                    , r.0, r.1, r.2
-                    , hit_row
-                    , miss_row
-                )
-            );
-        }
-    }
-    // #endregion
 
     ShadeFrame {
         uniforms: ShadeUniforms {
@@ -926,12 +845,12 @@ impl GpuDisplayResources {
             , usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::STORAGE
             , mapped_at_creation: false
         });
-        let sheet = (
-            GPU_TILE_SHEET_COLS * TILE_EDGE_LENGTH as u32
-            , (GPU_TILE_SLOT_COUNT / GPU_TILE_SHEET_COLS) * TILE_EDGE_LENGTH as u32
-        );
-        let (meta_texture, meta_view) = create_float_texture(device, sheet, "tile_meta_sheet");
-        let (z_texture, z_view) = create_float_texture(device, sheet, "tile_z_sheet");
+        let slot_ceiling = tile_sheet::max_slots_for(device);
+        let slot_capacity = GPU_TILE_SLOT_COUNT.min(slot_ceiling);
+        let (meta_texture, meta_view) =
+            tile_sheet::create_sheet(device, slot_capacity, "tile_meta_sheet");
+        let (z_texture, z_view) =
+            tile_sheet::create_sheet(device, slot_capacity, "tile_z_sheet");
         let bind_group = create_bind_group(
             device
             , &bind_group_layout
@@ -960,7 +879,78 @@ impl GpuDisplayResources {
             , id_to_slot: HashMap::new()
             , free_slots: Vec::new()
             , next_slot: 0
+            , slot_capacity
+            , slot_ceiling
+            , slots_denied: 0
         }
+    }
+
+    /// Slots the atlas currently holds.
+    pub fn slot_capacity(&self) -> u32 {
+        self.slot_capacity
+    }
+
+    /// VRAM the atlas currently occupies, for the memory budget.
+    pub fn atlas_bytes(&self) -> u64 {
+        u64::from(self.slot_capacity) * GPU_TILE_SLOT_BYTES
+    }
+
+    /// Tiles the last frame could not place for want of atlas room.
+    ///
+    /// The headgroup turns this into a memory bump: on-screen and lookahead work
+    /// is never evicted for memory, so when it does not fit, the limit rises.
+    pub fn slots_denied(&self) -> u32 {
+        self.slots_denied
+    }
+
+    /// Grow the sheets so at least `wanted` slots fit, preserving what is in them.
+    ///
+    /// Copies texture to texture on the same device, so growing the hoard never
+    /// round-trips a tile through CPU memory.
+    fn grow_atlas(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, wanted: u32) -> bool {
+        if wanted <= self.slot_capacity {
+            return true;
+        }
+        if self.slot_capacity >= self.slot_ceiling {
+            return false;
+        }
+        let capacity = wanted
+            .next_power_of_two()
+            .max(GPU_TILE_SHEET_COLS)
+            .min(self.slot_ceiling);
+        let (meta_texture, meta_view) =
+            tile_sheet::create_sheet(device, capacity, "tile_meta_sheet");
+        let (z_texture, z_view) = tile_sheet::create_sheet(device, capacity, "tile_z_sheet");
+
+        // Slot origins depend only on the column count, so the old contents
+        // occupy a prefix of rows and copy across as one block.
+        let old_sheet = tile_sheet::sheet_size_for(self.slot_capacity);
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("headgroup_atlas_grow")
+        });
+        for (src, dst) in [
+            (&self.meta_texture, &meta_texture)
+            , (&self.z_texture, &z_texture)
+        ] {
+            encoder.copy_texture_to_texture(
+                src.as_image_copy()
+                , dst.as_image_copy()
+                , wgpu::Extent3d {
+                    width: old_sheet.0
+                    , height: old_sheet.1
+                    , depth_or_array_layers: 1
+                }
+            );
+        }
+        queue.submit(Some(encoder.finish()));
+
+        self.meta_texture = meta_texture;
+        self.meta_view = meta_view;
+        self.z_texture = z_texture;
+        self.z_view = z_view;
+        self.slot_capacity = capacity;
+        self.rebuild_bind_group(device);
+        true
     }
 
     fn rebuild_bind_group(&mut self, device: &wgpu::Device) {
@@ -1044,11 +1034,17 @@ impl GpuDisplayResources {
         }
     }
 
-    fn alloc_slot(&mut self) -> Option<u32> {
+    /// Take a slot, growing the atlas rather than refusing while growth is possible.
+    fn alloc_slot(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> Option<u32> {
         if let Some(slot) = self.free_slots.pop() {
             return Some(slot);
         }
-        if self.next_slot >= GPU_TILE_SLOT_COUNT {
+        if self.next_slot >= self.slot_capacity
+            && !self.grow_atlas(device, queue, self.next_slot + 1)
+        {
+            return None;
+        }
+        if self.next_slot >= self.slot_capacity {
             return None;
         }
         let slot = self.next_slot;
@@ -1056,11 +1052,11 @@ impl GpuDisplayResources {
         Some(slot)
     }
 
-    fn slot_for_id(&mut self, id: u64) -> Option<u32> {
+    fn slot_for_id(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, id: u64) -> Option<u32> {
         if let Some(&slot) = self.id_to_slot.get(&id) {
             return Some(slot);
         }
-        let slot = self.alloc_slot()?;
+        let slot = self.alloc_slot(device, queue)?;
         self.id_to_slot.insert(id, slot);
         Some(slot)
     }
@@ -1073,51 +1069,78 @@ impl GpuDisplayResources {
     ) {
         if frame.reset_gpu_slots {
             self.reset_slots();
-            // #region agent log
-            crate::assemblies::headgroup::window::agent_dbg(
-                "H-GREY"
-                , "gpu_display/mod.rs:prepare"
-                , "gpu_slots_reset"
-                , "{\"reason\":\"clear_tiles\"}"
-            );
-            // #endregion
         }
         self.reclaim_dead_slots(&frame.live_ids);
 
+        // Size the atlas to the whole live hoard up front, so growth happens in
+        // one reallocation per frame instead of once per tile that overflows.
+        let wanted = (self.id_to_slot.len() + frame.pending_uploads.len()) as u32;
+        if wanted > self.slot_capacity {
+            self.grow_atlas(device, queue, wanted);
+        }
+
         let mut alloc_fail = 0u32;
+        let mut handoff_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("headgroup_tile_handoff")
+        });
+        let mut handoff_copies = 0u32;
+        let mut handoff_cpu_fallback = 0u32;
+        let mut released_slots: Vec<u32> = Vec::new();
+        let production = crate::assemblies::workgroup_new::production_atlas::ProductionAtlas::shared();
         for upload in &frame.pending_uploads {
-            let Some(slot) = self.slot_for_id(upload.id) else {
+            let Some(slot) = self.slot_for_id(device, queue, upload.id) else {
                 alloc_fail += 1;
                 continue;
             };
-            let origin = [
-                (slot % GPU_TILE_SHEET_COLS) * TILE_EDGE_LENGTH as u32
-                , (slot / GPU_TILE_SHEET_COLS) * TILE_EDGE_LENGTH as u32
-            ];
-            write_float_texture_at(
-                queue
-                , &self.meta_texture
-                , &upload.meta
-                , (TILE_EDGE_LENGTH as u32, TILE_EDGE_LENGTH as u32)
-                , origin
-            );
-            write_float_texture_at(
-                queue
-                , &self.z_texture
-                , &upload.z
-                , (TILE_EDGE_LENGTH as u32, TILE_EDGE_LENGTH as u32)
-                , origin
-            );
+            if let Some(src_slot) = upload.production_slot {
+                // GPU-to-GPU handoff: the workgroup finished this tile in its
+                // own atlas; copy it into the headgroup hoard without a readback.
+                if let Some(atlas) = &production {
+                    let atlas = atlas.lock().expect("production atlas poisoned");
+                    atlas.copy_slot_to(
+                        &mut handoff_encoder
+                        , src_slot
+                        , &self.meta_texture
+                        , &self.z_texture
+                        , slot
+                    );
+                    handoff_copies += 1;
+                    released_slots.push(src_slot);
+                } else if !upload.meta.is_empty() {
+                    tile_sheet::write_slot(queue, &self.meta_texture, slot, &upload.meta);
+                    tile_sheet::write_slot(queue, &self.z_texture, slot, &upload.z);
+                    handoff_cpu_fallback += 1;
+                } else {
+                    alloc_fail += 1;
+                }
+            } else if !upload.meta.is_empty() {
+                tile_sheet::write_slot(queue, &self.meta_texture, slot, &upload.meta);
+                tile_sheet::write_slot(queue, &self.z_texture, slot, &upload.z);
+            }
+        }
+        if handoff_copies > 0 {
+            queue.submit(Some(handoff_encoder.finish()));
+            if let Some(atlas) = &production {
+                let mut atlas = atlas.lock().expect("production atlas poisoned");
+                for src_slot in released_slots {
+                    atlas.release(src_slot);
+                }
+            }
         }
 
         let mut entries = frame.tile_entries.clone();
         for (entry, id) in entries.iter_mut().zip(frame.entry_ids.iter()) {
             if let Some(&slot) = self.id_to_slot.get(id) {
                 entry.slot = slot;
-            } else if let Some(slot) = self.slot_for_id(*id) {
+            } else if let Some(slot) = self.slot_for_id(device, queue, *id) {
                 entry.slot = slot;
+            } else {
+                alloc_fail += 1;
             }
         }
+        // Whatever could not be placed is the headgroup's cue to raise the limit:
+        // on-screen and lookahead tiles are never evicted for memory.
+        self.slots_denied = alloc_fail;
 
         self.ensure_instruction_capacity(device, frame.instructions.len() as u64);
         self.ensure_tile_entry_capacity(device, entries.len().max(1) as u64);
@@ -1151,25 +1174,6 @@ impl GpuDisplayResources {
                 , bytemuck::cast_slice(&frame.tile_grid)
             );
         }
-        // #region agent log
-        if alloc_fail > 0 || frame.reset_gpu_slots {
-            crate::assemblies::headgroup::window::agent_dbg(
-                "H-GREY"
-                , "gpu_display/mod.rs:prepare"
-                , "gpu_slot_stats"
-                , &format!(
-                    "{{\"alloc_fail\":{},\"used\":{},\"free\":{},\"next\":{},\"uploads\":{},\"entries\":{},\"live\":{}}}"
-                    , alloc_fail
-                    , self.id_to_slot.len()
-                    , self.free_slots.len()
-                    , self.next_slot
-                    , frame.pending_uploads.len()
-                    , frame.tile_entries.len()
-                    , frame.live_ids.len()
-                )
-            );
-        }
-        // #endregion
     }
 
     fn paint(&self, render_pass: &mut wgpu::RenderPass<'static>) {
@@ -1177,77 +1181,6 @@ impl GpuDisplayResources {
         render_pass.set_bind_group(0, &self.bind_group, &[]);
         render_pass.draw(0..3, 0..1);
     }
-}
-
-fn create_float_texture(
-    device: &wgpu::Device
-    , size: (u32, u32)
-    , label: &str
-) -> (wgpu::Texture, wgpu::TextureView) {
-    let width = size.0.max(1);
-    let height = size.1.max(1);
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some(label)
-        , size: wgpu::Extent3d {
-            width
-            , height
-            , depth_or_array_layers: 1
-        }
-        , mip_level_count: 1
-        , sample_count: 1
-        , dimension: wgpu::TextureDimension::D2
-        , format: wgpu::TextureFormat::Rgba32Float
-        , usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST
-        , view_formats: &[]
-    });
-    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-    (texture, view)
-}
-
-fn write_float_texture_at(
-    queue: &wgpu::Queue
-    , texture: &wgpu::Texture
-    , pixels: &[[f32; 4]]
-    , size: (u32, u32)
-    , origin: [u32; 2]
-) {
-    if pixels.is_empty() || size.0 == 0 || size.1 == 0 {
-        return;
-    }
-    let unpadded = (size.0 * 16) as usize;
-    let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize;
-    let padded = (unpadded + align - 1) / align * align;
-    let mut bytes = vec![0u8; padded * size.1 as usize];
-    let src = bytemuck::cast_slice::<[f32; 4], u8>(pixels);
-    for y in 0..size.1 as usize {
-        let src_off = y * unpadded;
-        let dst_off = y * padded;
-        bytes[dst_off..dst_off + unpadded]
-            .copy_from_slice(&src[src_off..src_off + unpadded]);
-    }
-    queue.write_texture(
-        wgpu::TexelCopyTextureInfo {
-            texture
-            , mip_level: 0
-            , origin: wgpu::Origin3d {
-                x: origin[0]
-                , y: origin[1]
-                , z: 0
-            }
-            , aspect: wgpu::TextureAspect::All
-        }
-        , &bytes
-        , wgpu::TexelCopyBufferLayout {
-            offset: 0
-            , bytes_per_row: Some(padded as u32)
-            , rows_per_image: Some(size.1)
-        }
-        , wgpu::Extent3d {
-            width: size.0
-            , height: size.1
-            , depth_or_array_layers: 1
-        }
-    );
 }
 
 fn create_bind_group(
@@ -1318,6 +1251,168 @@ impl egui_wgpu::CallbackTrait for GpuDisplayCallback {
             return;
         };
         resources.paint(render_pass);
+    }
+}
+
+#[cfg(test)]
+mod atlas_tests {
+    use super::*;
+
+    fn resources() -> Option<(std::sync::Arc<crate::gpu_context::GpuContext>, GpuDisplayResources)> {
+        let shared = crate::gpu_context::GpuContext::shared()?;
+        let resources = GpuDisplayResources::new(
+            &shared.device
+            , wgpu::TextureFormat::Rgba8Unorm
+        );
+        Some((shared, resources))
+    }
+
+    fn upload(id: u64, fill: f32) -> PendingTileUpload {
+        let seats = TILE_EDGE_LENGTH * TILE_EDGE_LENGTH;
+        PendingTileUpload {
+            id
+            , meta: vec![[fill, 0.0, 0.0, 1.0]; seats]
+            , z: vec![[fill, 0.0, 0.0, 0.0]; seats]
+            , production_slot: None
+        }
+    }
+
+    fn frame(uploads: Vec<PendingTileUpload>) -> ShadeFrame {
+        let live_ids: Vec<u64> = uploads.iter().map(|u| u.id).collect();
+        ShadeFrame {
+            uniforms: ShadeUniforms {
+                viewport_size: [8.0, 8.0]
+                , seat_offset: [0, 0]
+                , zoom_match: 1
+                , instruction_count: 0
+                , bailout_radius: 2.0
+                , bailout_max_extra: 0
+                , origin_re: 0.0
+                , origin_im: 0.0
+                , space: 1.0
+                , tile_count: 0
+                , grid_w: 1
+                , grid_h: 1
+                , _pad1: 0
+                , _pad2: 0
+            }
+            , instructions: Vec::new()
+            , tile_entries: Vec::new()
+            , entry_ids: Vec::new()
+            , live_ids
+            , tile_grid: Vec::new()
+            , pending_uploads: uploads
+            , reset_gpu_slots: false
+        }
+    }
+
+    // r[verify cz.int.memory-bump+1]
+    #[test]
+    fn the_atlas_grows_rather_than_refusing_a_tile() {
+        let Some((shared, mut resources)) = resources() else { return };
+        let start = resources.slot_capacity();
+        // Ask for one more tile than the atlas currently holds. Requirements put
+        // the memory maximum at unlimited, so capacity must follow demand.
+        let uploads: Vec<_> = (0..=start as u64).map(|id| upload(id, 1.0)).collect();
+        resources.prepare(&shared.device, &shared.queue, &frame(uploads));
+        assert!(
+            resources.slot_capacity() > start
+            , "atlas stayed at {start} slots instead of growing to fit the hoard"
+        );
+        assert_eq!(
+            resources.slots_denied(), 0
+            , "no tile may be refused while the atlas can still grow"
+        );
+    }
+
+    // r[verify cz.hoarding.one-answer-per-point+1]
+    #[test]
+    fn growing_the_atlas_keeps_the_slot_a_tile_already_holds() {
+        let Some((shared, mut resources)) = resources() else { return };
+        resources.prepare(&shared.device, &shared.queue, &frame(vec![upload(7, 1.0)]));
+        let slot_before = *resources.id_to_slot.get(&7).expect("tile 7 placed");
+
+        let start = resources.slot_capacity();
+        let mut uploads: Vec<_> = (100..100 + start as u64).map(|id| upload(id, 0.5)).collect();
+        // Keep tile 7 live so growth must carry it, not reclaim it.
+        uploads.push(upload(7, 1.0));
+        resources.prepare(&shared.device, &shared.queue, &frame(uploads));
+
+        assert!(resources.slot_capacity() > start, "expected the atlas to grow");
+        assert_eq!(
+            resources.id_to_slot.get(&7).copied()
+            , Some(slot_before)
+            , "a live tile must keep its slot across a growth, or its data moves out from under the shader"
+        );
+    }
+
+    #[test]
+    fn atlas_bytes_track_capacity() {
+        let Some((_shared, resources)) = resources() else { return };
+        assert_eq!(
+            resources.atlas_bytes()
+            , u64::from(resources.slot_capacity()) * GPU_TILE_SLOT_BYTES
+        );
+    }
+    // r[verify cz.seamless.gpu-preferred+1]
+    #[test]
+    fn a_production_slot_handoff_lands_in_the_headgroup_atlas() {
+        let Some((shared, mut resources)) = resources() else { return };
+        let Some(production) = crate::assemblies::workgroup_new::production_atlas::ProductionAtlas::shared() else {
+            return;
+        };
+        let src_slot = {
+            let mut atlas = production.lock().unwrap();
+            let slot = atlas.acquire().expect("production slot");
+            let seats = TILE_EDGE_LENGTH * TILE_EDGE_LENGTH;
+            atlas.write_slot(
+                slot
+                , &vec![[9.0, 0.0, 0.0, 1.0]; seats]
+                , &vec![[1.0, 2.0, 3.0, 4.0]; seats]
+            );
+            slot
+        };
+        let frame = ShadeFrame {
+            uniforms: ShadeUniforms {
+                viewport_size: [8.0, 8.0]
+                , seat_offset: [0, 0]
+                , zoom_match: 1
+                , instruction_count: 0
+                , bailout_radius: 2.0
+                , bailout_max_extra: 0
+                , origin_re: 0.0
+                , origin_im: 0.0
+                , space: 1.0
+                , tile_count: 0
+                , grid_w: 1
+                , grid_h: 1
+                , _pad1: 0
+                , _pad2: 0
+            }
+            , instructions: Vec::new()
+            , tile_entries: Vec::new()
+            , entry_ids: Vec::new()
+            , live_ids: vec![42]
+            , tile_grid: Vec::new()
+            , pending_uploads: vec![PendingTileUpload {
+                id: 42
+                , meta: Vec::new()
+                , z: Vec::new()
+                , production_slot: Some(src_slot)
+            }]
+            , reset_gpu_slots: false
+        };
+        let before = production.lock().unwrap().slots_in_use();
+        resources.prepare(&shared.device, &shared.queue, &frame);
+        assert!(
+            resources.id_to_slot.contains_key(&42)
+            , "handoff must allocate a headgroup slot for the tile"
+        );
+        assert!(
+            production.lock().unwrap().slots_in_use() < before
+            , "production slot must be released after the headgroup copies it"
+        );
+        assert_eq!(resources.slots_denied(), 0);
     }
 }
 

@@ -67,31 +67,17 @@ pub fn transform(
                 // as the mouse's screenspace position is the zoom center.
 
                 // Keep objective drag bookmark; resync screenspace so zoom-back works.
+                // Screen Y matches seat Y (top-left origin); do not imag-flip.
                 if let Some((objective, _)) = context.mouse_drag_start.clone() {
-                    let imag_flip_y = (context.screen_size.1 as i32 - 1).saturating_sub(center_screenspace_pos.1);
                     context.mouse_drag_start = Some((
                         objective
                         , egui::Pos2 {
                             x: center_screenspace_pos.0 as f32
-                            , y: imag_flip_y as f32
+                            , y: center_screenspace_pos.1 as f32
                         }
                     ));
                 }
 
-
-                // #region agent log
-                crate::assemblies::headgroup::window::agent_dbg(
-                    "H-ZOOM-Y"
-                    , "transforms.rs:Zoom"
-                    , "zoom_pos"
-                    , &format!(
-                        "{{\"center\":[{},{}],\"zoom\":{}}}"
-                        , center_screenspace_pos.0
-                        , center_screenspace_pos.1
-                        , context.location.zoom_pot
-                    )
-                );
-                // #endregion
                 context.updated = true;
             }
             ZoomerCommand::SetZoom { pot } => {
@@ -158,6 +144,7 @@ mod zoom_tests {
             mouse_drag_start: None,
             memory_limit_bytes: 1_000_000_000,
             last_memory_bump: None,
+            handle_filled: HashMap::new(),
         }
     }
 

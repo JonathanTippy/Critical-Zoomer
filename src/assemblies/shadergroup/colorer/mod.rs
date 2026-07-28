@@ -142,7 +142,8 @@ async fn internal_behavior<A: SteadyActor>(
                     )
                     , serial_number: 0
                     , focus: None
-                    , hover: None
+                    , hover: None,
+            mag_velocity: 0.0
                 }
             });
             //info!("sent colors to window");

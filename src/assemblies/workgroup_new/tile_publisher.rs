@@ -10,6 +10,7 @@ use crate::assemblies::workgroup_new::structs::*;
 use crate::constants::NORES_ANSWER;
 use crate::constants::TILE_EDGE_LENGTH;
 use crate::range::Range;
+use steady_state::*;
 
 /// Convert one calibrated seat using optional proximate bias.
 /// Finished Outside/Inside collapse honestly (bias when provided for continuity).
@@ -83,8 +84,8 @@ fn collapse_exact(answer: CalibratedAnswer) -> Answer {
     }
 }
 
-/// Design band: at least 30/s, at most 1000/s while incomplete; idle when complete.
-pub const PUBLISH_MIN_HZ: f64 = 30.0;
+/// Publish cadence: flat max 1000/s while incomplete; idle when complete.
+/// D-PUB-1: no minimum floor (auth tile_publisher.md still says ≥30/s — pending human edit).
 pub const PUBLISH_MAX_HZ: f64 = 1000.0;
 
 /// Memory limit bump request from workgroup publisher → headgroup (raises slider floor).
@@ -110,8 +111,7 @@ impl LivePublisher {
         }
     }
 
-    /// Gate for the live drain/flush path: under max Hz, and either work is ready
-    /// or the min-30 floor is overdue.
+    /// Gate for the live drain/flush path: under max Hz and work is ready (D-PUB-1: no min floor).
     pub fn should_publish(&mut self, now: Instant, has_work: bool) -> bool {
         self.cadence.should_publish(now, has_work)
     }
@@ -176,19 +176,6 @@ impl PublishCadence {
         }
     }
 
-    /// True when incomplete and ≥1/30s since last publish (or never published).
-    pub fn min_interval_due(&self, now: Instant) -> bool {
-        if !self.incomplete {
-            return false;
-        }
-        match self.last_publish {
-            None => true,
-            Some(last) => {
-                now.duration_since(last) >= Duration::from_secs_f64(1.0 / PUBLISH_MIN_HZ)
-            }
-        }
-    }
-
     /// Whether a publish is allowed now under the max-1000 Hz cap while incomplete.
     pub fn allow_publish(&mut self, now: Instant) -> bool {
         if !self.incomplete {
@@ -207,22 +194,14 @@ impl PublishCadence {
         true
     }
 
-    /// Live-path gate: respect max Hz; force when min-30 is overdue; else only if work ready.
+    /// Live-path gate: respect max Hz; publish only when work is ready (D-PUB-1: no min floor).
     pub fn should_publish(&mut self, now: Instant, has_work: bool) -> bool {
-        if !self.allow_publish(now) {
-            return false;
-        }
-        has_work || self.min_interval_due(now)
+        has_work && self.allow_publish(now)
     }
 
     pub fn record_publish(&mut self, now: Instant) {
         self.last_publish = Some(now);
         self.publishes_in_window = self.publishes_in_window.saturating_add(1);
-    }
-
-    /// Minimum expected publishes in a full second while incomplete (design floor).
-    pub fn min_publishes_per_second() -> u32 {
-        PUBLISH_MIN_HZ as u32
     }
 
     pub fn max_publishes_per_second() -> u32 {
@@ -445,24 +424,161 @@ mod tests {
     }
 
     // r[verify cz.int.publish-cadence+1]
+    // D-PUB-1: no ≥30/s floor — idle without work must not force publish.
     #[test]
-    fn cadence_min_interval_forces_without_work() {
+    fn cadence_does_not_force_without_work() {
         let t0 = Instant::now();
         let mut c = PublishCadence::new_at(true, t0);
-        assert!(c.should_publish(t0, false), "first publish is due");
+        assert!(
+            !c.should_publish(t0, false),
+            "no work → no publish even when incomplete"
+        );
+        assert!(
+            c.should_publish(t0, true),
+            "work ready under max"
+        );
         c.record_publish(t0);
         assert!(
             !c.should_publish(t0 + Duration::from_millis(1), false),
-            "too soon and no work"
+            "still no work → still no publish"
         );
         assert!(
             c.should_publish(t0 + Duration::from_millis(1), true),
-            "work ready under max"
+            "work ready under max after gap"
         );
-        let overdue = t0 + Duration::from_millis(34); // > 1/30s
+        let long_idle = t0 + Duration::from_secs(2);
         assert!(
-            c.should_publish(overdue, false),
-            "min-30 overdue must force publish"
+            !c.should_publish(long_idle, false),
+            "long idle without work must not force publish (D-PUB-1)"
         );
     }
+}
+
+/// Live publisher actor: sits between the uploader and the headgroup.
+///
+/// Receives gpu-native (or CPU-fallback) tile handles, applies publisher policy
+/// (cadence bookkeeping; collapse stays in place until the compute shader lands),
+/// and owns the memory-bump channel to the window (tile_publisher.md).
+pub struct PublisherActorState {
+    unsent: Option<crate::assemblies::structs::GpuTileHandle>
+    , unsent_bump: Option<MemoryBump>
+    , live: LivePublisher
+}
+
+pub async fn run_actor(
+    actor: steady_state::SteadyActorShadow
+    , tiles_in: steady_state::SteadyRx<crate::assemblies::structs::GpuTileHandle>
+    , tiles_out: steady_state::SteadyTx<crate::assemblies::structs::GpuTileHandle>
+    , bump_in: steady_state::SteadyRx<MemoryBump>
+    , bump_out: steady_state::SteadyTx<MemoryBump>
+    , state: steady_state::SteadyState<PublisherActorState>
+) -> Result<(), Box<dyn std::error::Error>> {
+    use steady_state::*;
+    internal_actor(
+        actor.into_spotlight([&tiles_in, &bump_in], [&tiles_out, &bump_out])
+        , tiles_in
+        , tiles_out
+        , bump_in
+        , bump_out
+        , state
+    ).await
+}
+
+async fn internal_actor<A: steady_state::SteadyActor>(
+    mut actor: A
+    , tiles_in: steady_state::SteadyRx<crate::assemblies::structs::GpuTileHandle>
+    , tiles_out: steady_state::SteadyTx<crate::assemblies::structs::GpuTileHandle>
+    , bump_in: steady_state::SteadyRx<MemoryBump>
+    , bump_out: steady_state::SteadyTx<MemoryBump>
+    , state: steady_state::SteadyState<PublisherActorState>
+) -> Result<(), Box<dyn std::error::Error>> {
+    use steady_state::*;
+    use crate::assemblies::structs::GpuTileHandle;
+    let mut tiles_in = tiles_in.lock().await;
+    let mut tiles_out = tiles_out.lock().await;
+    let mut bump_in = bump_in.lock().await;
+    let mut bump_out = bump_out.lock().await;
+    let mut state = state.lock(|| PublisherActorState {
+        unsent: None
+        , unsent_bump: None
+        , live: LivePublisher::new(true)
+    }).await;
+
+    let max_sleep = Duration::from_millis(2);
+
+    while actor.is_running(|| i!(tiles_out.mark_closed() && bump_out.mark_closed())) {
+        if actor.avail_units(&mut tiles_in) == 0
+            && actor.avail_units(&mut bump_in) == 0
+            && state.unsent.is_none()
+            && state.unsent_bump.is_none()
+        {
+            await_for_any!(
+                actor.wait_periodic(max_sleep)
+                , actor.wait_avail(&mut tiles_in, 1)
+                , actor.wait_avail(&mut bump_in, 1)
+            );
+        }
+
+        if let Some(bump) = state.unsent_bump.take() {
+            match actor.try_send(&mut bump_out, bump) {
+                SendOutcome::Success => {}
+                SendOutcome::Blocked(b)
+                | SendOutcome::Timeout(b)
+                | SendOutcome::Closed(b) => {
+                    state.unsent_bump = Some(b);
+                }
+            }
+        }
+
+        while state.unsent_bump.is_none() && actor.avail_units(&mut bump_in) > 0 {
+            let Some(bump) = actor.try_take(&mut bump_in) else { break };
+            // Publisher owns the bump channel to the headgroup: raise our own
+            // floor too, then forward so the window slider can follow.
+            state.live.memory_limit_bytes = state.live.memory_limit_bytes.max(bump.needed_bytes);
+            match actor.try_send(&mut bump_out, bump) {
+                SendOutcome::Success => {}
+                SendOutcome::Blocked(b)
+                | SendOutcome::Timeout(b)
+                | SendOutcome::Closed(b) => {
+                    state.unsent_bump = Some(b);
+                    break;
+                }
+            }
+        }
+
+        if let Some(tile) = state.unsent.take() {
+            match actor.try_send(&mut tiles_out, tile) {
+                SendOutcome::Success => {
+                    state.live.record_publish(Instant::now());
+                }
+                SendOutcome::Blocked(t)
+                | SendOutcome::Timeout(t)
+                | SendOutcome::Closed(t) => {
+                    state.unsent = Some(t);
+                    continue;
+                }
+            }
+        }
+
+        while state.unsent.is_none() && actor.avail_units(&mut tiles_in) > 0 {
+            let Some(handle) = actor.try_take(&mut tiles_in) else { break };
+            // Handles arriving here are already collapsed to Answer for the
+            // headgroup; the publisher shader will take over this step later.
+            let _: &GpuTileHandle = &handle;
+            match actor.try_send(&mut tiles_out, handle) {
+                SendOutcome::Success => {
+                    state.live.record_publish(Instant::now());
+                }
+                SendOutcome::Blocked(t)
+                | SendOutcome::Timeout(t)
+                | SendOutcome::Closed(t) => {
+                    state.unsent = Some(t);
+                    break;
+                }
+            }
+        }
+    }
+
+    info!("Tile publisher shutting down.");
+    Ok(())
 }

@@ -26,6 +26,9 @@ use critical_zoomer::assemblies::workgroup_new::workcore::mandelbrot::worker_imp
     , PerturbationCpuWorkerState
 };
 use critical_zoomer::assemblies::workgroup_new::workcore::mandelbrot::*;
+use critical_zoomer::gear::Gear;
+use critical_zoomer::gpu_budget::SubmissionBudget;
+use critical_zoomer::stacked_intexp::StackedIntExp;
 
 /// Iterations accumulated per Criterion sample.
 const TARGET_ITERS: u64 = 200_000;
@@ -283,5 +286,52 @@ fn worker_throughput(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, worker_throughput);
+fn gear_select_and_stacked_mul(c: &mut Criterion) {
+    let mut group = c.benchmark_group("gear_ladder");
+    group.bench_function("select_bits_sweep", |b| {
+        b.iter(|| {
+            for bits in [8u32, 20, 40, 64, 128, 256] {
+                black_box(Gear::select(bits, true));
+                black_box(Gear::select(bits, false));
+            }
+        })
+    });
+    group.bench_function("stacked_i32_4_mul", |b| {
+        let a = StackedIntExp::<4>::from(12345);
+        let cval = StackedIntExp::<4>::from(-6789);
+        b.iter(|| black_box(a * cval))
+    });
+    group.finish();
+}
+
+fn frame_budget_observe(c: &mut Criterion) {
+    let mut group = c.benchmark_group("frame_budget");
+    group.bench_function("observe_smoothing", |b| {
+        b.iter(|| {
+            let mut budget = SubmissionBudget::new();
+            for _ in 0..100 {
+                let n = budget.iterations_for(1024);
+                budget.observe(1024, n, Duration::from_micros(200));
+                black_box(n);
+            }
+        })
+    });
+    // Dispatch-size sweep: how iterations_for responds to slow vs fast work.
+    for micros in [50u64, 200, 800, 2000] {
+        group.bench_with_input(
+            BenchmarkId::new("after_observe_us", micros),
+            &micros,
+            |b, &us| {
+                b.iter(|| {
+                    let mut budget = SubmissionBudget::new();
+                    budget.observe(1024, 1000, Duration::from_micros(us));
+                    black_box(budget.iterations_for(1024))
+                })
+            },
+        );
+    }
+    group.finish();
+}
+
+criterion_group!(benches, worker_throughput, gear_select_and_stacked_mul, frame_budget_observe);
 criterion_main!(benches);

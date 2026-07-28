@@ -1,0 +1,11 @@
+This directory is for assistnat-generated docs. Separate from human docs; not authoritative vs root docs.
+
+## Layout
+
+- assistant status, RCA, bug/todo stack, align logs, implementation notes.
+- non-authoritative unit-design supplements (close practical unit-phase gaps).
+
+## Index
+
+- `issue-stack.md` — live open/done bug and todo stack
+- `unit-design/` — non-authoritative unit design pack (decisions, coverage matrix, supplements, new units)

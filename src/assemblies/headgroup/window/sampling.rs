@@ -32,7 +32,7 @@ pub const NUMBER_OF_COMMANDS: u16 = 10;
 
 #[derive(Clone, Debug)]
 pub struct SamplingContext {
-    pub tiles: HashMap<(i32, i32, i32), Vec<GPUTile>>
+    pub tiles: HashMap<(i32, i32, i32), Vec<Box<GPUTile>>>
     , pub tile_gpu_ids: HashMap<(i32, i32, i32), Vec<u64>>
     , pub pending_tile_uploads: Vec<crate::assemblies::headgroup::window::gpu_display::PendingTileUpload>
     , pub next_tile_gpu_id: u64
@@ -48,6 +48,8 @@ pub struct SamplingContext {
     , pub memory_limit_bytes: usize
     // Last limit bump request (protected-byte total), if any, from prune/manager.
     , pub last_memory_bump: Option<usize>
+    // Filled-seat counts for handle-only tiles (no CPU answer payload).
+    , pub handle_filled: HashMap<(i32, i32, i32), u32>
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -55,6 +57,15 @@ pub struct ViewportLocation {
     pub pos: (i32, i32)
     , pub zoom_pot: i32
     , pub counter: u64
+}
+
+fn placeholder_gpu_tile(handle: &GpuTileHandle) -> Box<GPUTile> {
+    Box::new(GPUTile::empty(
+        handle.origin_seat
+        , handle.magnification_pot
+        , handle.screen_res
+        , handle.location.clone()
+    ))
 }
 
 pub fn floor_div_tile(v: i32) -> i32 {
@@ -72,6 +83,7 @@ impl SamplingContext {
     pub fn clear_tiles(&mut self) {
         self.tiles.clear();
         self.tile_gpu_ids.clear();
+        self.handle_filled.clear();
         self.pending_tile_uploads.clear();
         self.reset_gpu_tile_slots = true;
         self.color_screen = None;
@@ -86,19 +98,24 @@ impl SamplingContext {
         };
 
         let z = self.location.zoom_pot;
-        self.tiles.retain(|(tz, _, _), _| {
-            let d = z - *tz;
-            d >= -31 && d <= 31
-        });
+        // Soft prefilter only: the tile manager's 8-homothety cap is authoritative.
+        // Keep a little headroom so prune can choose which mags to drop.
+        let prefilter = crate::assemblies::workgroup_new::tile_manager::MAX_HOMOTHETIES as i32;
+        self.tiles.retain(|(tz, _, _), _| (z - *tz).abs() <= prefilter);
         self.tile_gpu_ids.retain(|k, _| self.tiles.contains_key(k));
+        self.handle_filled.retain(|k, _| self.tiles.contains_key(k));
 
         let mut meta = HashMap::new();
         let mut used_bytes = 0usize;
         for (key, versions) in &self.tiles {
+            // The headgroup hoard lives in the GPU (tile_manager.md), so its
+            // budget is the VRAM its atlas slots occupy, not the size of any
+            // CPU-side struct that happens to describe them.
             let bytes = versions
-                .iter()
-                .map(|t| std::mem::size_of_val(&t.data).max(TILE_SEAT_COUNT))
-                .sum::<usize>()
+                .len()
+                .saturating_mul(
+                    crate::assemblies::headgroup::window::gpu_display::GPU_TILE_SLOT_BYTES as usize
+                )
                 .max(1);
             let mag_delta = (key.0 - z).abs();
             let keep = if key.0 == z {
@@ -122,101 +139,74 @@ impl SamplingContext {
         for key in plan_prunes(&meta, self.memory_limit_bytes, used_bytes) {
             self.tiles.remove(&key);
             self.tile_gpu_ids.remove(&key);
+            self.handle_filled.remove(&key);
         }
+    }
+
+    /// Distinct magnifications currently in the hoard.
+    pub fn homothety_count(&self) -> usize {
+        self.tiles.keys().map(|k| k.0).collect::<std::collections::HashSet<_>>().len()
+    }
+
+    // r[impl cz.int.hoard-ingest-sample+1]
+    // r[impl cz.hoarding.one-answer-per-point+1]
+    /// Live path: ingest a handle whose answers already live in the production atlas.
+    pub fn ingest_gpu_handle(&mut self, mut handle: GpuTileHandle) {
+        let key = handle.absolute_key();
+        let existing_filled = self.handle_filled.get(&key).copied().or_else(|| {
+            self.tiles.get(&key).and_then(|versions| {
+                versions.first().map(|t| t.data.iter().filter(|c| c.is_some()).count() as u32)
+            })
+        });
+        if let Some(existing) = existing_filled {
+            if handle.filled_seats < existing {
+                // Drop the unused production slot so it does not leak.
+                if let Some(prod) = handle.production_slot.take() {
+                    if let Some(atlas) = crate::assemblies::workgroup_new::production_atlas::ProductionAtlas::shared() {
+                        if let Ok(mut atlas) = atlas.lock() {
+                            atlas.release(prod);
+                        }
+                    }
+                }
+                return;
+            }
+        }
+
+        let gpu_id = self.tile_gpu_ids.get(&key).and_then(|ids| ids.first().copied()).unwrap_or_else(|| {
+            let id = self.next_tile_gpu_id;
+            self.next_tile_gpu_id += 1;
+            id
+        });
+
+        let upload = if let Some(prod) = handle.production_slot {
+            Some(crate::assemblies::headgroup::window::gpu_display::pending_handoff(gpu_id, prod))
+        } else if let Some(tile) = handle.cpu_fallback.as_deref() {
+            Some(crate::assemblies::headgroup::window::gpu_display::pack_tile_upload(tile, gpu_id))
+        } else {
+            None
+        };
+
+        let stored = match handle.cpu_fallback.take() {
+            Some(tile) => tile
+            , None => placeholder_gpu_tile(&handle)
+        };
+        let versions = self.tiles.entry(key).or_default();
+        versions.clear();
+        versions.push(stored);
+        let ids = self.tile_gpu_ids.entry(key).or_default();
+        ids.clear();
+        ids.push(gpu_id);
+        self.handle_filled.insert(key, handle.filled_seats);
+        if let Some(upload) = upload {
+            self.pending_tile_uploads.push(upload);
+        }
+        self.unsent_answers = true;
     }
 
     // r[impl cz.int.hoard-ingest-sample+1]
     // r[impl cz.hoarding.one-answer-per-point+1]
     pub fn ingest_gpu_tile(&mut self, tile: GPUTile) {
-        let zoom = tile.location.zoom_pot;
-        let key = (
-            zoom
-            , tile.origin_seat.0 as i32
-            , tile.origin_seat.1 as i32
-        );
-        let slot = self.tiles.entry(key).or_default();
-        let ids = self.tile_gpu_ids.entry(key).or_default();
-        let gpu_id = if slot.is_empty() {
-            let id = self.next_tile_gpu_id;
-            self.next_tile_gpu_id += 1;
-            slot.push(tile.clone());
-            ids.clear();
-            ids.push(id);
-            id
-        } else {
-            let existing_filled = slot[0].data.iter().filter(|c| c.is_some()).count();
-            let incoming_filled = tile.data.iter().filter(|c| c.is_some()).count();
-            // r[impl cz.hoarding.one-answer-per-point+1]
-            if incoming_filled < existing_filled {
-                return;
-            }
-            slot.truncate(1);
-            ids.truncate(1);
-            slot[0] = tile.clone();
-            if ids.is_empty() {
-                let id = self.next_tile_gpu_id;
-                self.next_tile_gpu_id += 1;
-                ids.push(id);
-                id
-            } else {
-                ids[0]
-            }
-        };
-        self.pending_tile_uploads.push(
-            crate::assemblies::headgroup::window::gpu_display::pack_tile_upload(&tile, gpu_id)
-        );
-        self.unsent_answers = true;
-        if std::env::var("CZ_DEBUG_FILL")
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false)
-        {
-            let mut filled = 0u32;
-            let mut nores = 0u32;
-            for ly in 0..crate::constants::TILE_EDGE_LENGTH {
-                for lx in 0..crate::constants::TILE_EDGE_LENGTH {
-                    let Some(a) = tile.get((lx, ly)) else { continue };
-                    filled += 1;
-                    let answer: crate::assemblies::structs::Answer = a.into();
-                    if let crate::assemblies::structs::MandelbrotResult::Outside {
-                        escape_time_r2, ..
-                    } = answer.result
-                    {
-                        if escape_time_r2 == 1 && answer.min_magnitude.is_infinite() {
-                            nores += 1;
-                        }
-                    }
-                }
-            }
-            let _ = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open("/tmp/cz_fill_debug.log")
-                .and_then(|mut file| {
-                    use std::io::Write;
-                    writeln!(
-                        file
-                        , "ingest key=[{},{},{}] gpu_id={} filled={} nores={} hoard={}"
-                        , key.0, key.1, key.2, gpu_id, filled, nores, self.tile_count()
-                    )
-                });
-        }
-        // #region agent log
-        let hoard = self.tile_count();
-        if hoard < 8 || hoard % 16 == 0 {
-            crate::assemblies::headgroup::window::agent_dbg(
-                "H-PAN-D"
-                , "sampling.rs:ingest"
-                , "ingest_tile"
-                , &format!(
-                    "{{\"key\":[{},{},{}],\"view_zoom\":{},\"hoard\":{},\"gpu_id\":{}}}"
-                    , key.0, key.1, key.2
-                    , self.location.zoom_pot
-                    , hoard
-                    , gpu_id
-                )
-            );
-        }
-        // #endregion
+        self.ingest_gpu_handle(GpuTileHandle::from_gpu_tile(tile, None));
     }
 
     pub fn lookup_answer_viewport(&self, seat: (usize, usize)) -> Answer {
@@ -302,33 +292,6 @@ impl SamplingContext {
                     (seat.0.wrapping_add(dx_fine)) >> mag_delta
                     , (seat.1.wrapping_add(dy_fine)) >> mag_delta
                 );
-                // #region agent log
-                if seat == (
-                    self.screen_size.0 as i32 / 2
-                    , self.screen_size.1 as i32 / 2
-                ) {
-                    let shifted = (
-                        dx_coarse.wrapping_shl(mag_delta as u32)
-                        , dy_coarse.wrapping_shl(mag_delta as u32)
-                    );
-                    crate::assemblies::headgroup::window::agent_dbg(
-                        "H-ZOOM-A"
-                        , "sampling.rs:lookup_lesser"
-                        , "lesser_map"
-                        , &format!(
-                            "{{\"seat\":[{},{}],\"source_zoom\":{},\"mag_delta\":{},\"d_coarse\":[{},{}],\"d_fine\":[{},{}],\"d_shifted\":[{},{}],\"source_seat\":[{},{}],\"origin\":[{},{}]}}"
-                            , seat.0, seat.1
-                            , source_zoom
-                            , mag_delta
-                            , dx_coarse, dy_coarse
-                            , dx_fine, dy_fine
-                            , shifted.0, shifted.1
-                            , source_seat.0, source_seat.1
-                            , ox, oy
-                        )
-                    );
-                }
-                // #endregion
                 if source_seat.0 >= *ox && source_seat.1 >= *oy
                     && source_seat.0 < *ox + edge && source_seat.1 < *oy + edge
                 {
@@ -426,6 +389,7 @@ mod hoard_tests {
             mouse_drag_start: None,
             memory_limit_bytes: 1_000_000_000,
             last_memory_bump: None,
+            handle_filled: HashMap::new(),
         }
     }
 
@@ -555,5 +519,36 @@ mod hoard_tests {
             }
             MandelbrotResult::Inside { .. } => panic!("expected Outside from same-mag tile"),
         }
+    }
+
+    // r[verify cz.system.max-homotheties+1]
+    #[test]
+    fn prune_keeps_at_most_eight_homotheties_end_to_end() {
+        let mut ctx = empty_ctx(0);
+        ctx.memory_limit_bytes = usize::MAX;
+        for mag in -5..=5 {
+            let mut tile = Tile::new((0, 0), mag);
+            tile.set((0, 0), outside_answer(1));
+            let loc = ObjectivePosAndZoom {
+                pos: (IntExp::ZERO, IntExp::ZERO),
+                zoom_pot: mag,
+            };
+            ctx.ingest_gpu_tile(GPUTile::from_answer_tile(&tile, (64, 64), loc));
+        }
+        assert!(
+            ctx.homothety_count() > crate::assemblies::workgroup_new::tile_manager::MAX_HOMOTHETIES
+            , "precondition: more than eight mags ingested"
+        );
+        ctx.prune_distant_tiles();
+        assert!(
+            ctx.homothety_count()
+                <= crate::assemblies::workgroup_new::tile_manager::MAX_HOMOTHETIES
+            , "after prune the live hoard must obey the 8-homothety limit, got {}"
+            , ctx.homothety_count()
+        );
+        assert!(
+            ctx.tiles.contains_key(&(0, 0, 0))
+            , "current stencil must survive the prune"
+        );
     }
 }

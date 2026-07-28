@@ -118,7 +118,8 @@ async fn internal_behavior<A: SteadyActor>(
                                            , resolution: (completed_work.screen_res.0 as usize, completed_work.screen_res.1 as usize)
                                            , serial_number: 0
 , focus: None
-, hover: None
+, hover: None,
+            mag_velocity: 0.0
                                        }
                                        , data: completed_work.clone().results.into_iter().map(|x| -> Answer {
                                            match x {
@@ -183,7 +184,8 @@ async fn internal_behavior<A: SteadyActor>(
                             ,
                             resolution: (completed_work.screen_res.0 as usize, completed_work.screen_res.1 as usize)
                             ,
-                            serial_number: 0, focus: None, hover: None
+                            serial_number: 0, focus: None, hover: None,
+            mag_velocity: 0.0
                         }
                         ,
                         data: completed_work.clone().results.into_iter().map(|x| -> Answer {

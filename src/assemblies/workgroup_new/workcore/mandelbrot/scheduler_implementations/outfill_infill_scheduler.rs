@@ -3,7 +3,6 @@ use std::collections::{HashSet, VecDeque};
 use crate::assemblies::structs::*;
 use crate::assemblies::workgroup_new::structs::*;
 use crate::assemblies::workgroup_new::workcore::mandelbrot::*;
-use crate::assemblies::workgroup_new::workcore::mandelbrot::worker_implementations::naive_gpu_worker::NaiveGpuWorker;
 use crate::assemblies::workgroup_new::workcore::mandelbrot::worker_implementations::periodicity_detector::*;
 use crate::constants::*;
 use crate::range::*;
@@ -18,6 +17,74 @@ enum Step {
     , PeriodEdge
     , FloodIn
     , In
+}
+
+impl Step {
+    /// Auth intratile preference: fill out > edge > scredge > period edge > flood in > in.
+    fn preference_rank(self) -> u8 {
+        match self {
+            Step::Out => 0,
+            Step::Edge => 1,
+            Step::Scredge => 2,
+            Step::PeriodEdge => 3,
+            Step::FloodIn => 4,
+            Step::In => 5,
+        }
+    }
+
+    fn prefers_over(self, other: Step) -> bool {
+        self.preference_rank() < other.preference_rank()
+    }
+}
+
+/// D-SCH-3: track the active phase job and suspend immediately when higher preference work appears.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PhaseJobTracker {
+    active: Option<u8>,
+    suspended: Option<u8>,
+}
+
+impl PhaseJobTracker {
+    pub fn idle() -> Self {
+        PhaseJobTracker {
+            active: None,
+            suspended: None,
+        }
+    }
+
+    pub fn start(&mut self, phase_rank: u8) {
+        self.active = Some(phase_rank);
+    }
+
+    /// If `incoming` is higher preference (lower rank) than active, suspend active immediately.
+    pub fn consider_incoming(&mut self, incoming_rank: u8) -> bool {
+        match self.active {
+            Some(active) if incoming_rank < active => {
+                self.suspended = Some(active);
+                self.active = Some(incoming_rank);
+                true
+            }
+            None => {
+                self.active = Some(incoming_rank);
+                false
+            }
+            Some(_) => false,
+        }
+    }
+
+    pub fn active_rank(&self) -> Option<u8> {
+        self.active
+    }
+
+    pub fn suspended_rank(&self) -> Option<u8> {
+        self.suspended
+    }
+
+    pub fn resume_suspended(&mut self) {
+        if let Some(s) = self.suspended.take() {
+            self.active = Some(s);
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -96,6 +163,91 @@ fn tile_perimeter_local(extent: (usize, usize)) -> Vec<(i32, i32)> {
         }
     }
     seats
+}
+
+impl OutfillInfillScheduler {
+    pub fn get_next_n_seats<const N: usize>(
+        scheduler_state: &mut OutfillInfillSchedulerState
+        , active_tile: &mut Tile<()>
+    ) -> [Option<((usize, usize), Option<CalibratedAnswer>)>; N] {
+        let _ = active_tile;
+        let mut out: [Option<((usize, usize), Option<CalibratedAnswer>)>; N] = [const { None }; N];
+        for i in 0..N {
+            if let Some((local, hint)) = scheduler_state.hint_queue.pop_front() {
+                out[i] = Some((local, Some(hint)));
+                continue;
+            }
+            loop {
+                let Some((pos, step)) = scheduler_state.pick_step() else {
+                    if !scheduler_state.screen_edge_complete() {
+                        break;
+                    }
+                    if scheduler_state.out_queue.is_empty()
+                        && scheduler_state.edge_queue.is_empty()
+                        && scheduler_state.scredge.is_empty()
+                        && scheduler_state.period_edge_queue.is_empty()
+                        && scheduler_state.flood_in_queue.is_empty()
+                        && scheduler_state.in_queue.is_empty()
+                    {
+                        scheduler_state.fill_remaining_in();
+                        if scheduler_state.in_queue.is_empty() {
+                            break;
+                        }
+                        continue;
+                    }
+                    break;
+                };
+                if !scheduler_state.in_bounds(pos) {
+                    scheduler_state.pop_step(step);
+                    continue;
+                }
+                let local = (pos.0 as usize, pos.1 as usize);
+                let index = local_index(local);
+                if scheduler_state.done[index] {
+                    scheduler_state.pop_step(step);
+                    continue;
+                }
+                if scheduler_state.active.contains(&local) {
+                    scheduler_state.pop_step(step);
+                    continue;
+                }
+                if matches!(step, Step::FloodIn) {
+                    let period = scheduler_state.flood_in_queue.front().map(|(_, p)| *p).unwrap_or(0);
+                    scheduler_state.pop_step(step);
+                    let flooded = scheduler_state.flood_in_fill(pos, period);
+                    if flooded.is_empty() {
+                        scheduler_state.in_queue.push_back((pos, period));
+                        continue;
+                    }
+                    let mut flooded = flooded.into_iter();
+                    let (first_local, first_hint) = flooded.next().unwrap();
+                    out[i] = Some((first_local, Some(first_hint)));
+                    for item in flooded {
+                        scheduler_state.hint_queue.push_back(item);
+                    }
+                    break;
+                }
+                scheduler_state.pop_step(step);
+                scheduler_state.active.insert(local);
+                out[i] = Some((local, None));
+                break;
+            }
+        }
+        out
+    }
+
+    pub fn update<const N: usize>(
+        scheduler_state: &mut OutfillInfillSchedulerState
+        , active_tile: &mut Tile<()>
+        , updates: &[Option<((usize, usize), CalibratedAnswer)>; N]
+    ) {
+        let _ = active_tile;
+        for item in updates.iter() {
+            let Some((local, answer)) = item else { continue };
+            scheduler_state.pop_matching(*local);
+            scheduler_state.apply_finished(*local, *answer);
+        }
+    }
 }
 
 impl OutfillInfillSchedulerState {
@@ -680,98 +832,6 @@ impl OutfillInfillScheduler {
 
     pub fn mark_period_resolve_done(state: &mut OutfillInfillSchedulerState) {
         state.period_resolve_done = true;
-    }
-}
-
-impl Scheduler<f32, GpuPeriodicityDetector, NaiveGpuWorker> for OutfillInfillScheduler {
-    type State = OutfillInfillSchedulerState;
-
-    fn init_for_tile(active_tile: &mut Tile<()>) -> Self::State {
-        let _ = active_tile;
-        Self::init_for_tile_extent((TILE_EDGE_LENGTH, TILE_EDGE_LENGTH))
-    }
-
-    fn get_next_n_seats<const N: usize>(
-        scheduler_state: &mut Self::State
-        , active_tile: &mut Tile<()>
-    ) -> [Option<((usize, usize), Option<CalibratedAnswer>)>; N] {
-        let _ = active_tile;
-        let mut out: [Option<((usize, usize), Option<CalibratedAnswer>)>; N] = [const { None }; N];
-        for i in 0..N {
-            if let Some((local, hint)) = scheduler_state.hint_queue.pop_front() {
-                out[i] = Some((local, Some(hint)));
-                continue;
-            }
-            loop {
-                let Some((pos, step)) = scheduler_state.pick_step() else {
-                    if !scheduler_state.screen_edge_complete() {
-                        break;
-                    }
-                    if scheduler_state.out_queue.is_empty()
-                        && scheduler_state.edge_queue.is_empty()
-                        && scheduler_state.scredge.is_empty()
-                        && scheduler_state.period_edge_queue.is_empty()
-                        && scheduler_state.flood_in_queue.is_empty()
-                        && scheduler_state.in_queue.is_empty()
-                    {
-                        scheduler_state.fill_remaining_in();
-                        if scheduler_state.in_queue.is_empty() {
-                            break;
-                        }
-                        continue;
-                    }
-                    break;
-                };
-                if !scheduler_state.in_bounds(pos) {
-                    scheduler_state.pop_step(step);
-                    continue;
-                }
-                let local = (pos.0 as usize, pos.1 as usize);
-                let index = local_index(local);
-                if scheduler_state.done[index] {
-                    scheduler_state.pop_step(step);
-                    continue;
-                }
-                if scheduler_state.active.contains(&local) {
-                    scheduler_state.pop_step(step);
-                    continue;
-                }
-                if matches!(step, Step::FloodIn) {
-                    let period = scheduler_state.flood_in_queue.front().map(|(_, p)| *p).unwrap_or(0);
-                    scheduler_state.pop_step(step);
-                    let flooded = scheduler_state.flood_in_fill(pos, period);
-                    if flooded.is_empty() {
-                        scheduler_state.in_queue.push_back((pos, period));
-                        continue;
-                    }
-                    let mut flooded = flooded.into_iter();
-                    let (first_local, first_hint) = flooded.next().unwrap();
-                    out[i] = Some((first_local, Some(first_hint)));
-                    for item in flooded {
-                        scheduler_state.hint_queue.push_back(item);
-                    }
-                    break;
-                }
-                scheduler_state.pop_step(step);
-                scheduler_state.active.insert(local);
-                out[i] = Some((local, None));
-                break;
-            }
-        }
-        out
-    }
-
-    fn update<const N: usize>(
-        scheduler_state: &mut Self::State
-        , active_tile: &mut Tile<()>
-        , updates: &[Option<((usize, usize), CalibratedAnswer)>; N]
-    ) {
-        let _ = active_tile;
-        for item in updates.iter() {
-            let Some((local, answer)) = item else { continue };
-            scheduler_state.pop_matching(*local);
-            scheduler_state.apply_finished(*local, *answer);
-        }
     }
 }
 

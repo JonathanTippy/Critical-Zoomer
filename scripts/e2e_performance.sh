@@ -36,17 +36,16 @@ while true; do
   rm -f "$E2E_OUT/home_fill_final.png"
   e2e_send "capture home_fill_final.png"
   e2e_wait_file "$E2E_OUT/home_fill_final.png" 20 || { e2e_fail_msg "missing home_fill_final.png"; e2e_exit; }
+  # Match e2e_assert_side_structure: right crop on exterior banding, not the
+  # far-right escape-1 plateau (same mid-grey as NORES under default sinus).
   left=$(taskset -c 0-3 convert "$E2E_OUT/home_fill_final.png" -crop 160x200+80+140 +repage -format '%[standard-deviation]' info: 2>/dev/null | awk '{print int($1+0)}' || echo 0)
-  right=$(taskset -c 0-3 convert "$E2E_OUT/home_fill_final.png" -crop 160x200+560+140 +repage -format '%[standard-deviation]' info: 2>/dev/null | awk '{print int($1+0)}' || echo 0)
-  rmean=$(taskset -c 0-3 convert "$E2E_OUT/home_fill_final.png" -crop 160x200+560+140 +repage -format '%[mean]' info: 2>/dev/null | awk '{print int($1+0)}' || echo 0)
+  right=$(taskset -c 0-3 convert "$E2E_OUT/home_fill_final.png" -crop 160x200+420+140 +repage -format '%[standard-deviation]' info: 2>/dev/null | awk '{print int($1+0)}' || echo 0)
+  rmean=$(taskset -c 0-3 convert "$E2E_OUT/home_fill_final.png" -crop 160x200+420+140 +repage -format '%[mean]' info: 2>/dev/null | awk '{print int($1+0)}' || echo 0)
   left=${left:-0}; right=${right:-0}; rmean=${rmean:-0}
   right_ok=0
   if [ "$right" -ge 300 ]; then right_ok=1; fi
   if [ "$rmean" -lt 24500 ] || [ "$rmean" -gt 26000 ]; then right_ok=1; fi
-  holes_n=99
-  if [ "$left" -ge 1200 ] && [ "$right_ok" -eq 1 ]; then
-    holes_n=$(taskset -c 0-3 bash -c "source \"$ROOT/scripts/e2e_assert.sh\"; e2e_count_gray_holes \"$E2E_OUT/home_fill_final.png\"")
-  fi
+  holes_n=$(taskset -c 0-3 bash -c "source \"$ROOT/scripts/e2e_assert.sh\"; e2e_count_gray_holes \"$E2E_OUT/home_fill_final.png\"")
   echo "home_fill_probe holes=$holes_n left=$left right=$right right_mean=$rmean"
   if [ "$holes_n" -le 2 ] && [ "$left" -ge 1200 ] && [ "$right_ok" -eq 1 ]; then
     fill_ok=1

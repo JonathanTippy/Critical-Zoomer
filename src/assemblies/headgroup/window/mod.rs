@@ -46,31 +46,6 @@ use crate::assemblies::headgroup::window::offscreen::{
     R2ScreenRelation, ViewportComplexRect,
 };
 
-// #region agent log
-pub fn agent_dbg(hypothesis_id: &str, location: &str, message: &str, data_json: &str) {
-    use std::io::Write;
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open("/home/jonathan/git/Critical-Zoomer/.cursor/debug-51c884.log")
-    {
-        let _ = writeln!(
-            f
-            , "{{\"sessionId\":\"51c884\",\"hypothesisId\":\"{}\",\"location\":\"{}\",\"message\":\"{}\",\"data\":{},\"timestamp\":{}}}"
-            , hypothesis_id
-            , location
-            , message
-            , data_json
-            , ts
-        );
-    }
-}
-// #endregion
-
 const RECOVER_EGUI_CRASHES:bool = false;
 // ^ half implimented; in cases where the window is supposed to
 // be minimized or not on top, it might bother the user by restarting.
@@ -145,7 +120,7 @@ pub struct WindowState {
 /// Entry point for the window actor.
 pub async fn run(
     actor: SteadyActorShadow
-    , pixels_in: SteadyRx<GPUTile>
+    , pixels_in: SteadyRx<GpuTileHandle>
     , stencil_out: SteadyTx<(PointStencil)>
     , settings_out: SteadyTxBundle<Settings,2>
     , attention_out: SteadyTx<(i32, i32)>
@@ -169,7 +144,7 @@ pub async fn run(
 
 async fn internal_behavior<A: SteadyActor>(
     actor: A
-    , pixels_in: SteadyRx<GPUTile>
+    , pixels_in: SteadyRx<GpuTileHandle>
     , stencil_out: SteadyTx<(PointStencil)>
     , settings_out: SteadyTxBundle<Settings, 2>
     , attention_out: SteadyTx<(i32, i32)>
@@ -188,6 +163,7 @@ async fn internal_behavior<A: SteadyActor>(
         , sampling_context: SamplingContext {
             tiles: HashMap::new()
             , tile_gpu_ids: HashMap::new()
+            , handle_filled: HashMap::new()
             , pending_tile_uploads: Vec::new()
             , next_tile_gpu_id: 1
             , reset_gpu_tile_slots: false
@@ -252,6 +228,25 @@ async fn internal_behavior<A: SteadyActor>(
         None => viewport_options,
     };
 
+    let mut wgpu_options = eframe::egui_wgpu::WgpuConfiguration::default();
+    // NativeOptions.vsync only affects the glow backend. wgpu presents from
+    // wgpu_options.present_mode; AutoVsync can pick Immediate/Mailbox and run
+    // uncapped (~300fps), starving compute. Force FIFO for the 60fps cap.
+    wgpu_options.present_mode = wgpu::PresentMode::Fifo;
+    // One device for compute and display: the production atlas hands tiles to the
+    // headgroup by GPU copy. A second eframe-owned device would make that copy
+    // address the wrong hoard and leave the viewport as flat NORES grey.
+    if let Some(gpu) = crate::gpu_context::GpuContext::shared() {
+        wgpu_options.wgpu_setup = eframe::egui_wgpu::WgpuSetup::Existing(
+            eframe::egui_wgpu::WgpuSetupExisting {
+                instance: gpu.instance.clone()
+                , adapter: gpu.adapter.clone()
+                , device: gpu.device.clone()
+                , queue: gpu.queue.clone()
+            }
+        );
+    }
+
     let options = eframe::NativeOptions {
         event_loop_builder: Some(Box::new(|builder| {
             #[cfg(target_os = "linux")]
@@ -261,6 +256,7 @@ async fn internal_behavior<A: SteadyActor>(
         viewport: viewport_options,
         vsync: VSYNC,
         renderer: eframe::Renderer::Wgpu,
+        wgpu_options,
         ..NativeOptions::default()
     };
 
@@ -322,7 +318,7 @@ async fn internal_behavior<A: SteadyActor>(
 
 struct EguiWindowPassthrough<'a, A> {
     portable_actor: Arc<Mutex<A>>
-    , pixels_in: SteadyRx<GPUTile>
+    , pixels_in: SteadyRx<GpuTileHandle>
     , stencil_out: SteadyTx<(PointStencil)>
     , settings_out: SteadyTxBundle<Settings, 2>
     , attention_out: SteadyTx<(i32, i32)>
@@ -349,7 +345,6 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
         let mut attention_out = self.attention_out.try_lock().unwrap();
         let mut memory_bump_in = self.memory_bump_in.try_lock().unwrap();
         let mut state = self.portable_state.lock().unwrap();
-
 
         if actor.is_running(
             || i!(true)
@@ -395,7 +390,37 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
 
             // Cap headgroup wakeups near 60fps (design/headgroup.md).
+            // Final schedule is applied at end-of-frame from this_frame_start.
             ctx.request_repaint_after(TARGET_FRAME_PERIOD);
+
+            // #region agent log
+            {
+                static FRAME_N: std::sync::atomic::AtomicU64 =
+                    std::sync::atomic::AtomicU64::new(0);
+                let n = FRAME_N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if n < 8 || n % 120 == 0 {
+                    let dt_ms = state
+                        .last_frame_period
+                        .map(|(a, _)| a.elapsed().as_secs_f64() * 1000.0)
+                        .unwrap_or(-1.0);
+                    if let Ok(mut f) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open("/home/jonathan/git/Critical-Zoomer/.cursor/debug-4c6f94.log")
+                    {
+                        use std::io::Write;
+                        let _ = writeln!(
+                            f,
+                            "{{\"sessionId\":\"4c6f94\",\"runId\":\"post-fix\",\"hypothesisId\":\"H2\",\"location\":\"window/mod.rs:update\",\"message\":\"frame_pace\",\"data\":{{\"n\":{n},\"dt_ms\":{dt_ms:.3},\"present\":\"Fifo\"}},\"timestamp\":{}}}",
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_millis())
+                                .unwrap_or(0)
+                        );
+                    }
+                }
+            }
+            // #endregion
 
             let size = (state.size.x as usize, state.size.y as usize);
             let pixels = size.0 * size.1;
@@ -405,7 +430,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             while actor.avail_units(&mut pixels_in) > 0 {
                 match actor.try_take(&mut pixels_in) {
                     Some(tile) => {
-                        state.sampling_context.ingest_gpu_tile(tile);
+                        state.sampling_context.ingest_gpu_handle(tile);
                     }
                     None => { break; }
                 }
@@ -421,7 +446,8 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     , resolution: (state.size.x as usize, state.size.y as usize)
                     , serial_number: state.stencil_serial_number_counter
                     , focus: None
-                    , hover: None
+                    , hover: None,
+            mag_velocity: 0.0
                 });
                 state.stencil_serial_number_counter +=1;
                 state.sampling_context.updated = false;
@@ -485,25 +511,6 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             transform(command_package, &mut state.sampling_context);
 
-            let dragging = state.sampling_context.mouse_drag_start.is_some();
-            let upload_n = state.sampling_context.pending_tile_uploads.len();
-            // #region agent log
-            if upload_n > 0 || state.sampling_context.updated {
-                agent_dbg(
-                    "H-PAN-A"
-                    , "mod.rs:upload_gate"
-                    , "upload_gate"
-                    , &format!(
-                        "{{\"uploads\":{},\"dragging\":{},\"tiles\":{},\"zoom\":{}}}"
-                        , upload_n
-                        , dragging
-                        , state.sampling_context.tile_count()
-                        , state.sampling_context.location.zoom_pot
-                    )
-                );
-            }
-            // #endregion
-
             state.atlas_location = Some(state.sampling_context.location.clone());
             let mut settings_for_shade = state.settings_window_context.try_lock()
                 .ok()
@@ -512,22 +519,25 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             // Keep sampling budget aligned with the settings slider before prune.
             state.sampling_context.memory_limit_bytes =
                 settings_for_shade.memory_limit_bytes;
-            let blit_frame = build_shade_frame(
-                &mut state.sampling_context
-                , &mut settings_for_shade
-            );
-            // Local prune may have bumped; raise the settings slider floor.
-            if let Some(needed) = state.sampling_context.last_memory_bump.take() {
-                apply_ui_memory_bump(&mut state, needed);
-                settings_for_shade.memory_limit_bytes =
-                    state.sampling_context.memory_limit_bytes;
-            }
-            if let Ok(mut guard) = state.settings_window_context.try_lock() {
-                guard.settings = settings_for_shade;
-            }
-            state.sampling_context.unsent_answers = false;
-            state.sampling_context.proximate_answers = false;
-            state.gpu_atlas_size = state.sampling_context.screen_size;
+            let blit_frame = {
+                let frame = build_shade_frame(
+                    &mut state.sampling_context
+                    , &mut settings_for_shade
+                );
+                // Local prune may have bumped; raise the settings slider floor.
+                if let Some(needed) = state.sampling_context.last_memory_bump.take() {
+                    apply_ui_memory_bump(&mut state, needed);
+                    settings_for_shade.memory_limit_bytes =
+                        state.sampling_context.memory_limit_bytes;
+                }
+                if let Ok(mut guard) = state.settings_window_context.try_lock() {
+                    guard.settings = settings_for_shade;
+                }
+                state.sampling_context.unsent_answers = false;
+                state.sampling_context.proximate_answers = false;
+                state.gpu_atlas_size = state.sampling_context.screen_size;
+                frame
+            };
 
             egui::CentralPanel::default()
             .frame(egui::Frame {
@@ -603,6 +613,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                     serial_number: 0,
                                     focus: None,
                                     hover: None,
+            mag_velocity: 0.0
                                 };
                                 let view = ViewportComplexRect::from_stencil(&screen_stencil);
                                 // Red arrows drawn below via painter; keep debug free of unicode HUD.
@@ -638,6 +649,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                         serial_number: 0,
                         focus: None,
                         hover: None,
+            mag_velocity: 0.0
                     };
                     let view = ViewportComplexRect::from_stencil(&screen_stencil);
                     if view.needs_red_arrows() {
@@ -820,7 +832,6 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                         .map(|g| (
                             g.settings.bailout_radius.value
                             , g.settings.bailout_max_additional_iterations
-                            , g.settings.estimate_extra_iterations
                         ));
                     let result = settings(&ctx, state.settings_window_context.clone());
                     state.settings_window_open = !result.will_close;
@@ -828,7 +839,6 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     let after_bailout = (
                         result.settings.bailout_radius.value
                         , result.settings.bailout_max_additional_iterations
-                        , result.settings.estimate_extra_iterations
                     );
                     if before_script.as_deref() != Some(after_script.as_str())
                         || before_bailout != Some(after_bailout)
@@ -854,7 +864,12 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             });
 
 
-            state.last_frame_period = Some(  (this_frame_start, Instant::now())  );
+            state.last_frame_period = Some((this_frame_start, Instant::now()));
+
+            // Schedule next wake from this frame start (Fifo is the primary cap
+            // on a real display; NativeOptions.vsync does not apply to wgpu).
+            let elapsed = this_frame_start.elapsed();
+            ctx.request_repaint_after(TARGET_FRAME_PERIOD.saturating_sub(elapsed));
 
         }
         else {

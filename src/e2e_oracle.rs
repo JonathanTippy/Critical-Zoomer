@@ -82,6 +82,7 @@ pub fn home_stencil(res: (usize, usize)) -> PointStencil {
         serial_number: 0,
         focus: None,
         hover: None,
+            mag_velocity: 0.0
     }
 }
 

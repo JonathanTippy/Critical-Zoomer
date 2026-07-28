@@ -118,6 +118,30 @@ impl ReferenceWorker {
         }
         self.inflight_count(id) == 0
     }
+
+    /// D-REF-2 / A-REF-MAX-N: max live non-zero orbits retained beyond bound+inflight.
+    pub const MAX_LIVE_REFS: usize = 3;
+
+    /// Drop oldest discardable orbits when live count would exceed MAX_LIVE_REFS.
+    /// Returns ids that may be removed from the collection.
+    pub fn orbits_to_evict(
+        &self,
+        live_ids: impl IntoIterator<Item = OrbitId>,
+    ) -> Vec<OrbitId> {
+        let mut discardable: Vec<OrbitId> = live_ids
+            .into_iter()
+            .filter(|id| self.may_discard(*id))
+            .collect();
+        let protected = 1 // bound
+            + self.inflight_users.keys().filter(|id| **id != self.bound_id).count();
+        let live_total = protected + discardable.len();
+        if live_total <= Self::MAX_LIVE_REFS {
+            return Vec::new();
+        }
+        let excess = live_total - Self::MAX_LIVE_REFS;
+        discardable.truncate(excess.min(discardable.len()));
+        discardable
+    }
 }
 
 #[cfg(test)]
@@ -191,5 +215,40 @@ mod tests {
         );
         worker.notify_mag_change((IntExp::from(0), IntExp::ZERO), 3);
         assert!(!worker.has_pending());
+    }
+
+    // D-REF-2
+    #[test]
+    fn max_live_refs_constant_is_three() {
+        assert_eq!(ReferenceWorker::MAX_LIVE_REFS, 3);
+    }
+
+    #[test]
+    fn orbits_to_evict_empty_when_under_cap() {
+        let mut collection = ReferenceCollection::new();
+        let worker = ReferenceWorker::seed_into(
+            &mut collection,
+            (IntExp::from(-1), IntExp::ZERO),
+            2,
+        );
+        let bound = worker.bound_orbit_id();
+        let evict = worker.orbits_to_evict([bound, ZERO_ORBIT_ID]);
+        assert!(evict.is_empty());
+    }
+
+    #[test]
+    fn inflight_orbit_not_listed_for_evict() {
+        let mut collection = ReferenceCollection::new();
+        let mut worker = ReferenceWorker::seed_into(
+            &mut collection,
+            (IntExp::from(-1), IntExp::ZERO),
+            2,
+        );
+        let old = worker.begin_work_with_bound();
+        worker.notify_mag_change((IntExp::from(-1), IntExp::ZERO), 7);
+        worker.poll(&mut collection);
+        assert!(!worker.may_discard(old));
+        let evict = worker.orbits_to_evict([old, worker.bound_orbit_id()]);
+        assert!(!evict.contains(&old));
     }
 }

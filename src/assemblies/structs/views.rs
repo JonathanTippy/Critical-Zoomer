@@ -29,6 +29,7 @@ impl PointStencil {
             , serial_number: self.serial_number
             , focus: self.focus
             , hover: self.hover
+            , mag_velocity: self.mag_velocity
         }
     }
     pub fn assert_validity(&self) {
@@ -588,7 +589,8 @@ fn invalid_test_bad_data() {
             ,
             focus: None
             ,
-            hover: None
+            hover: None,
+            mag_velocity: 0.0
         }
         ,
         data: vec!()
@@ -606,7 +608,8 @@ fn invalid_test_bad_data() {
             ,
             resolution: (2, 2), serial_number: 0
 , focus: None
-, hover: None
+, hover: None,
+            mag_velocity: 0.0
         }
         ,
         data: vec!()
@@ -631,7 +634,8 @@ fn invalid_test_misaligned() {
             ,
             resolution: (2, 2), serial_number: 0
 , focus: None
-, hover: None
+, hover: None,
+            mag_velocity: 0.0
         }
         ,
         data: vec!()
@@ -651,7 +655,8 @@ fn invalid_test_misaligned() {
             ,
             resolution: (2, 2), serial_number: 0
 , focus: None
-, hover: None
+, hover: None,
+            mag_velocity: 0.0
         }
         ,
         data: vec!()
@@ -675,7 +680,8 @@ fn identity_test() {
             ,
             resolution: (2, 2), serial_number: 0
 , focus: None
-, hover: None
+, hover: None,
+            mag_velocity: 0.0
         }
         ,
         data: vec!(1, 2, 3, 4)
@@ -695,7 +701,8 @@ fn identity_test() {
             ,
             resolution: (2, 2), serial_number: 0
 , focus: None
-, hover: None
+, hover: None,
+            mag_velocity: 0.0
         }
         ,
         data: vec!(1, 2, 3, 4),
@@ -722,7 +729,8 @@ fn improve_test() {
             ,
             resolution: (2, 2), serial_number: 0
 , focus: None
-, hover: None
+, hover: None,
+            mag_velocity: 0.0
         }
         ,
         data: vec!(0, 0, 0, 0)
@@ -740,7 +748,8 @@ fn improve_test() {
             ,
             resolution: (2, 2), serial_number: 0
 , focus: None
-, hover: None
+, hover: None,
+            mag_velocity: 0.0
         }
         ,
         data: vec!(1, 2, 3, 4),
@@ -767,7 +776,8 @@ fn zoom_in_test() {
             ,
             resolution: (2, 2), serial_number: 0
 , focus: None
-, hover: None
+, hover: None,
+            mag_velocity: 0.0
         }
         ,
         data: vec!(0, 0, 0, 0)
@@ -785,7 +795,8 @@ fn zoom_in_test() {
             ,
             resolution: (2, 2), serial_number: 0
 , focus: None
-, hover: None
+, hover: None,
+            mag_velocity: 0.0
         }
         ,
         data: vec!(1, 2, 3, 4),
@@ -803,7 +814,8 @@ fn zoom_in_test() {
             ,
             resolution: (2, 2), serial_number: 0
 , focus: None
-, hover: None
+, hover: None,
+            mag_velocity: 0.0
         }
         ,
         data: vec!(1, 1, 1, 1),
@@ -833,7 +845,8 @@ fn zoom_in_test_3() {
             ,
             focus: None
             ,
-            hover: None
+            hover: None,
+            mag_velocity: 0.0
         }
         ,
         data: vec!(0, 0, 0, 0, 0, 0, 0, 0, 0)
@@ -853,7 +866,8 @@ fn zoom_in_test_3() {
             serial_number: 0,
             focus: None
             ,
-            hover: None
+            hover: None,
+            mag_velocity: 0.0
         }
         ,
         data: vec!(1, 2, 3, 4, 5, 6, 7, 8, 9),
@@ -874,7 +888,8 @@ fn zoom_in_test_3() {
             ,
             focus: None
             ,
-            hover: None
+            hover: None,
+            mag_velocity: 0.0
         }
         ,
         data: vec!(1, 1, 2, 1, 1, 2, 4, 4, 5),
@@ -902,7 +917,8 @@ fn zoom_out_test() {
             ,
             resolution: (2, 2), serial_number: 0
 , focus: None
-, hover: None
+, hover: None,
+            mag_velocity: 0.0
         }
         ,
         data: vec!(0, 0, 0, 0)
@@ -920,7 +936,8 @@ fn zoom_out_test() {
             ,
             resolution: (2, 2), serial_number: 0
 , focus: None
-, hover: None
+, hover: None,
+            mag_velocity: 0.0
         }
         ,
         data: vec!(1, 2, 3, 4),
@@ -938,7 +955,8 @@ fn zoom_out_test() {
             ,
             resolution: (2, 2), serial_number: 0
 , focus: None
-, hover: None
+, hover: None,
+            mag_velocity: 0.0
         }
         ,
         data: vec!(1, 2, 3, 4),
@@ -965,7 +983,8 @@ fn pan_one_test() {
             ,
             resolution: (2, 2), serial_number: 0
 , focus: None
-, hover: None
+, hover: None,
+            mag_velocity: 0.0
         }
         ,
         data: vec!(0, 0, 0, 0)
@@ -983,7 +1002,8 @@ fn pan_one_test() {
             ,
             resolution: (2, 2), serial_number: 0
 , focus: None
-, hover: None
+, hover: None,
+            mag_velocity: 0.0
         }
         ,
         data: vec!(1, 2, 3, 4),
@@ -1001,7 +1021,8 @@ fn pan_one_test() {
             ,
             resolution: (2, 2), serial_number: 0
 , focus: None
-, hover: None
+, hover: None,
+            mag_velocity: 0.0
         }
         ,
         data: vec!(2, 2, 2, 2)
@@ -1029,7 +1050,8 @@ fn nonzero_phase_test() {
             ,
             resolution: (2, 2), serial_number: 0
 , focus: None
-, hover: None
+, hover: None,
+            mag_velocity: 0.0
         }
         ,
         data: vec!(0, 0, 0, 0)
@@ -1047,7 +1069,8 @@ fn nonzero_phase_test() {
             ,
             resolution: (2, 2), serial_number: 0
 , focus: None
-, hover: None
+, hover: None,
+            mag_velocity: 0.0
         }
         ,
         data: vec!(1, 2, 3, 4),
@@ -1065,7 +1088,8 @@ fn nonzero_phase_test() {
             ,
             resolution: (2, 2), serial_number: 0
 , focus: None
-, hover: None
+, hover: None,
+            mag_velocity: 0.0
         }
         ,
         data: vec!(1, 2, 3, 4),
@@ -1140,7 +1164,8 @@ proptest!{
             , homothety: location.clone()
             , serial_number: 0
 , focus: None
-, hover: None
+, hover: None,
+            mag_velocity: 0.0
         };
 
         let stencil_B = PointStencil{
@@ -1151,7 +1176,8 @@ proptest!{
                 , initial_zoom + zoom_delta_A
             )
             , serial_number: 1 , focus: None
-, hover: None
+, hover: None,
+            mag_velocity: 0.0
         };
 
         let stencil_C = PointStencil{
@@ -1162,7 +1188,8 @@ proptest!{
                 , initial_zoom + zoom_delta_A + zoom_delta_B
             )
             , serial_number: 2, focus: None
-, hover: None
+, hover: None,
+            mag_velocity: 0.0
         };
 
         let mut source_view = View::new(stencil_A, 0);
@@ -1202,7 +1229,8 @@ mod fill_associativity_fixed_tests {
             )
             , serial_number: 0
             , focus: None
-            , hover: None
+            , hover: None,
+            mag_velocity: 0.0
         };
         let mut view = View::new(stencil, fill);
         if fill != 0 {
@@ -1238,7 +1266,8 @@ mod fill_associativity_fixed_tests {
             )
             , serial_number: 0
             , focus: None
-            , hover: None
+            , hover: None,
+            mag_velocity: 0.0
         };
         let mut source = View::new(source_stencil, 0u8);
         source.data = (0..16u8).collect();
@@ -1251,7 +1280,8 @@ mod fill_associativity_fixed_tests {
             )
             , serial_number: 1
             , focus: None
-            , hover: None
+            , hover: None,
+            mag_velocity: 0.0
         }, 0u8);
         via_4.fill_from(&source);
 
@@ -1264,7 +1294,8 @@ mod fill_associativity_fixed_tests {
             )
             , serial_number: 2
             , focus: None
-            , hover: None
+            , hover: None,
+            mag_velocity: 0.0
         }, 0u8);
         via_2a.fill_from(&source);
         let mut via_2b = View::new(PointStencil {
@@ -1276,7 +1307,8 @@ mod fill_associativity_fixed_tests {
             )
             , serial_number: 3
             , focus: None
-            , hover: None
+            , hover: None,
+            mag_velocity: 0.0
         }, 0u8);
         via_2b.fill_from(&via_2a);
         assert_eq!(via_4.data, via_2b.data);

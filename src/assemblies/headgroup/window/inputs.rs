@@ -16,6 +16,26 @@ pub struct MouseDragStart {
     pub screenspace_drag_start: Pos2
 }
 
+/// Foveation seat: mouse when on the viewport, else screen center.
+pub fn attention_from_pointer(
+    pointer: Option<(i32, i32)>
+    , sampling_size: (usize, usize)
+) -> (i32, i32) {
+    let center = ((sampling_size.0 / 2) as i32, (sampling_size.1 / 2) as i32);
+    let Some((x, y)) = pointer else {
+        return center;
+    };
+    if x >= 0
+        && y >= 0
+        && (x as usize) < sampling_size.0
+        && (y as usize) < sampling_size.1
+    {
+        (x, y)
+    } else {
+        center
+    }
+}
+
 pub fn parse_inputs(
     ctx: &egui::Context
     , state: &mut WindowState
@@ -28,16 +48,19 @@ pub fn parse_inputs(
 
     let settings = &state.controls_settings;
 
-    let mut returned = (vec!(), (0, 0));
+    let mut returned = (vec!(), attention_from_pointer(None, sampling_size));
 
     let ppp = ctx.pixels_per_point();
 
     let min_size = min(state.size.x as u32, state.size.y as u32) as f32;
 
     ctx.input(|input_state| {
-        if let Some(pos) = input_state.pointer.latest_pos() {
-            returned.1 = ((pos.x as i32).clamp(0, sampling_size.0 as i32-1), (pos.y as i32).clamp(0, sampling_size.1 as i32-1));
-        }
+        // Foveation: spiral from mouse when it is on the viewport; otherwise
+        // center screen (pointer gone / off-window must not stick to a corner).
+        returned.1 = attention_from_pointer(
+            input_state.pointer.latest_pos().map(|p| (p.x as i32, p.y as i32))
+            , sampling_size
+        );
 
         // begin a new drag if neither of the buttons are held and one or both has just been pressed
 
@@ -88,11 +111,15 @@ pub fn parse_inputs(
                             .shift(-PIXELS_PER_UNIT_POT)
                     );
 
+                    // Grab-follow: mouse +Y (down) must decrease stored pos.1 so
+                    // math imag rises and the grabbed seat stays under the cursor
+                    // (same sign as X: subtract screen delta). The old `+ drag.y`
+                    // matched the pre-top-left paint flip and felt Y-reversed.
                     returned.0.push(
                         ZoomerCommand::MoveTo {
                             x: drag_start_pos.0 - objective_drag.0 - objective_offset.0
                             ,
-                            y: drag_start_pos.1 + objective_drag.1 - objective_offset.1
+                            y: drag_start_pos.1 - objective_drag.1 - objective_offset.1
                         }
                     );
                 }
@@ -183,22 +210,10 @@ pub fn parse_inputs(
             });
         }
         if input_state.key_pressed(egui::Key::Space) {
-            eprintln!("cz_key: Space (zoomout)");
             returned.0.push(ZoomerCommand::Zoom {
                 pot: -1
                 , center_screenspace_pos: screen_center_screenspace
             });
-        }
-        if input_state.key_pressed(egui::Key::K) {
-            eprintln!("cz_key: K probe");
-            // #region agent log
-            crate::assemblies::headgroup::window::agent_dbg(
-                "H-KEY"
-                , "inputs.rs:k"
-                , "key_k_probe"
-                , "{\"key\":\"K\"}"
-            );
-            // #endregion
         }
         state.shift_was_down = input_state.modifiers.shift;
 
@@ -270,6 +285,24 @@ mod scroll_zoom_tests {
     #[test]
     fn scroll_bump_is_one_pot() {
         assert_eq!(scroll_step_to_zoom_pot(40.0).abs(), 1);
+    }
+
+    #[test]
+    fn attention_defaults_to_center_when_pointer_missing() {
+        assert_eq!(attention_from_pointer(None, (800, 480)), (400, 240));
+    }
+
+    #[test]
+    fn attention_uses_on_screen_pointer() {
+        assert_eq!(attention_from_pointer(Some((10, 20)), (800, 480)), (10, 20));
+    }
+
+    #[test]
+    fn attention_centers_when_pointer_off_screen() {
+        assert_eq!(attention_from_pointer(Some((-1, 100)), (800, 480)), (400, 240));
+        assert_eq!(attention_from_pointer(Some((900, 100)), (800, 480)), (400, 240));
+        assert_eq!(attention_from_pointer(Some((100, -5)), (800, 480)), (400, 240));
+        assert_eq!(attention_from_pointer(Some((100, 500)), (800, 480)), (400, 240));
     }
 }
 

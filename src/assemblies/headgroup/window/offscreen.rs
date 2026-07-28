@@ -121,6 +121,7 @@ pub fn test_stencil(real: i32, imag: i32, mag: i32, seats: usize, rows: usize) -
         serial_number: 0,
         focus: None,
         hover: None,
+            mag_velocity: 0.0
     }
 }
 

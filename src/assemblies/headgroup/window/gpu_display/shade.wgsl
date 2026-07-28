@@ -40,6 +40,8 @@ struct Finished {
     loop_period: f32,
 }
 
+// Guard the domain rather than hand back an infinity: the log floors its input at 1, the
+// log of the log floors at e, and the reciprocals keep their divisor off zero.
 fn normalize_value(n: f32, method: u32) -> f32 {
     if (method == NORM_LN) {
         return log(max(n, 1.0));
@@ -79,6 +81,10 @@ fn layer_colors(bottom: vec3<f32>, top: vec3<f32>, opacity: f32) -> vec3<f32> {
     return floor((bottom * bottom_share + top * top_share) / 256.0);
 }
 
+// r[impl cz.shade.escape-continues-to-bailout+1]
+// An outside answer carries on from where it crossed r=2 up to the settings bailout radius.
+// A seat no tile covers is not black: it reads as a point which escaped immediately, with a
+// smallness too large to ever be mistaken for a node.
 fn bailout_escape(raw: RawAnswer, seat: vec2<i32>) -> Finished {
     if (raw.kind < 0.5) {
         return Finished(KIND_OUTSIDE, 1.0, 0.0, 1.0e30, 0.0);
@@ -119,12 +125,6 @@ fn opt_period(f: Finished) -> f32 {
     return -1.0;
 }
 
-fn opt_small_time(f: Finished) -> f32 {
-    if (f.kind < 0.5) { return -1.0; }
-    if (f.small_time < 0.5) { return -1.0; }
-    return f.small_time;
-}
-
 fn opt_smallness(f: Finished) -> f32 {
     if (f.kind < 0.5) { return -1.0; }
     return f.smallness;
@@ -149,6 +149,7 @@ fn is_local_minimum(v: f32, up: f32, down: f32, left: f32, right: f32) -> bool {
         && down > v && v < up && left > v && v < right;
 }
 
+// r[impl cz.shade.in-filament-slope-inversion+1]
 fn is_in_filament(seat: vec2<i32>) -> bool {
     let c = finished_at(seat);
     let u = finished_at(seat + vec2<i32>(0, -1));
@@ -164,6 +165,7 @@ fn is_in_filament(seat: vec2<i32>) -> bool {
     );
 }
 
+// r[impl cz.shade.out-filament-period-step+1]
 fn is_out_filament(seat: vec2<i32>) -> bool {
     let c = finished_at(seat);
     let u = finished_at(seat + vec2<i32>(0, -1));
@@ -179,6 +181,8 @@ fn is_out_filament(seat: vec2<i32>) -> bool {
     );
 }
 
+// A small time of zero says there is no ridge here, so it never takes part in the edge
+// comparison on either side. It is still an ordinary value to paint with.
 fn raw_small_time(seat: vec2<i32>) -> f32 {
     let raw = load_raw(seat);
     if (raw.kind < 0.5) { return -1.0; }
@@ -186,6 +190,7 @@ fn raw_small_time(seat: vec2<i32>) -> f32 {
     return raw.small_time;
 }
 
+// r[impl cz.shade.small-time-edge-nonzero+1]
 fn is_ste(seat: vec2<i32>) -> bool {
     return is_increased(
         raw_small_time(seat),
@@ -196,6 +201,7 @@ fn is_ste(seat: vec2<i32>) -> bool {
     );
 }
 
+// r[impl cz.shade.node-smallness-minimum+1]
 fn is_node(seat: vec2<i32>, thickness: i32) -> bool {
     let c = finished_at(seat);
     let u = finished_at(seat + vec2<i32>(0, -thickness));
@@ -211,6 +217,16 @@ fn is_node(seat: vec2<i32>, thickness: i32) -> bool {
     );
 }
 
+fn paint(bottom: vec3<f32>, base: vec3<f32>, n: f32, inst: Instruction, opacity: f32) -> vec3<f32> {
+    let brightness = shade_value(n, inst.period, inst.phase, inst.shading);
+    let top = modify_color(base, brightness, inst.range);
+    return layer_colors(bottom, top, opacity);
+}
+
+// r[impl cz.shade.layers-in-script-order+1]
+// Each layer goes over what is under it, in the order the script is written. A layer whose
+// opacity for this seat's side is zero is skipped outright, so a disabled layer costs nothing
+// and cannot nudge the pixel it is sitting on.
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     if (uniforms.zoom_match == 0u) {
@@ -218,86 +234,50 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     }
     let screen_seat = vec2<i32>(floor(in.uv * uniforms.viewport_size));
     let finished = finished_at(screen_seat);
+    let inside = finished.kind > 1.5;
+    let outside = finished.kind > 0.5 && finished.kind < 1.5;
 
     var rgb = vec3<f32>(0.0, 0.0, 0.0);
     let count = uniforms.instruction_count;
     for (var i = 0u; i < count; i = i + 1u) {
         let inst = instructions[i];
-        var opacity = 0.0;
-        var apply = false;
-        var n = 0.0;
-
-        if (inst.opcode == OP_ESCAPE_TIME) {
-            if (finished.kind > 0.5 && finished.kind < 1.5) {
-                n = normalize_value(finished.big_time, inst.normalizing);
-                opacity = inst.opacity_outside;
-                apply = opacity > 0.0;
-            }
-        } else if (inst.opcode == OP_SMALL_TIME) {
-            n = normalize_value(finished.small_time, inst.normalizing);
-            if (finished.kind > 1.5) {
-                opacity = inst.opacity_inside;
-            } else {
-                opacity = inst.opacity_outside;
-            }
-            apply = opacity > 0.0;
-        } else if (inst.opcode == OP_SMALLNESS) {
-            n = normalize_value(finished.smallness, inst.normalizing);
-            if (finished.kind > 1.5) {
-                opacity = inst.opacity_inside;
-            } else {
-                opacity = inst.opacity_outside;
-            }
-            apply = opacity > 0.0;
-        } else if (inst.opcode == OP_IN_FILAMENT) {
-            if (finished.kind > 0.5 && finished.kind < 1.5 && is_in_filament(screen_seat)) {
-                opacity = inst.opacity_outside;
-                apply = true;
-                let top = vec3<f32>(inst.color_r, inst.color_g, inst.color_b);
-                rgb = layer_colors(rgb, top, opacity);
-                continue;
-            }
-        } else if (inst.opcode == OP_OUT_FILAMENT) {
-            if (finished.kind > 1.5 && is_out_filament(screen_seat)) {
-                opacity = inst.opacity_outside;
-                apply = true;
-                let top = vec3<f32>(inst.color_r, inst.color_g, inst.color_b);
-                rgb = layer_colors(rgb, top, opacity);
-                continue;
-            }
-        } else if (inst.opcode == OP_NODES) {
-            if (is_node(screen_seat, i32(inst.thickness))) {
-                if (finished.kind > 1.5) {
-                    opacity = inst.opacity_inside;
-                } else {
-                    opacity = inst.opacity_outside;
-                }
-                if (opacity > 0.0) {
-                    let top = vec3<f32>(inst.color_r, inst.color_g, inst.color_b);
-                    rgb = layer_colors(rgb, top, opacity);
-                }
-            }
-            continue;
-        } else if (inst.opcode == OP_STE) {
-            if (is_ste(screen_seat)) {
-                if (finished.kind > 1.5) {
-                    opacity = inst.opacity_inside;
-                } else {
-                    opacity = inst.opacity_outside;
-                }
-                if (opacity > 0.0) {
-                    let top = vec3<f32>(inst.color_r, inst.color_g, inst.color_b);
-                    rgb = layer_colors(rgb, top, opacity);
-                }
-            }
-            continue;
+        let base = vec3<f32>(inst.color_r, inst.color_g, inst.color_b);
+        var side = inst.opacity_outside;
+        if (inside) {
+            side = inst.opacity_inside;
         }
 
-        if (apply) {
-            let brightness = shade_value(n, inst.period, inst.phase, inst.shading);
-            let base = vec3<f32>(inst.color_r, inst.color_g, inst.color_b);
-            let top = modify_color(base, brightness, inst.range);
-            rgb = layer_colors(rgb, top, opacity);
+        if (inst.opcode == OP_ESCAPE_TIME) {
+            if (outside && inst.opacity_outside > 0.0) {
+                let n = normalize_value(finished.big_time, inst.normalizing);
+                rgb = paint(rgb, base, n, inst, inst.opacity_outside);
+            }
+        } else if (inst.opcode == OP_SMALL_TIME) {
+            if (side > 0.0) {
+                let n = normalize_value(finished.small_time, inst.normalizing);
+                rgb = paint(rgb, base, n, inst, side);
+            }
+        } else if (inst.opcode == OP_SMALLNESS) {
+            if (side > 0.0) {
+                let n = normalize_value(finished.smallness, inst.normalizing);
+                rgb = paint(rgb, base, n, inst, side);
+            }
+        } else if (inst.opcode == OP_IN_FILAMENT) {
+            if (outside && inst.opacity_outside > 0.0 && is_in_filament(screen_seat)) {
+                rgb = layer_colors(rgb, base, inst.opacity_outside);
+            }
+        } else if (inst.opcode == OP_OUT_FILAMENT) {
+            if (inside && inst.opacity_outside > 0.0 && is_out_filament(screen_seat)) {
+                rgb = layer_colors(rgb, base, inst.opacity_outside);
+            }
+        } else if (inst.opcode == OP_NODES) {
+            if (side > 0.0 && is_node(screen_seat, i32(inst.thickness))) {
+                rgb = layer_colors(rgb, base, side);
+            }
+        } else if (inst.opcode == OP_STE) {
+            if (side > 0.0 && is_ste(screen_seat)) {
+                rgb = layer_colors(rgb, base, side);
+            }
         }
     }
 

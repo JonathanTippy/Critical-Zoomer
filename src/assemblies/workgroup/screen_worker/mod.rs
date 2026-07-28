@@ -216,9 +216,7 @@ async fn internal_behavior<A: SteadyActor>(
                         });
                     }
                 }
-                if !tiles.is_empty() || complete_full || pulse_full
-                    || state.live_publisher.cadence.min_interval_due(now)
-                {
+                if !tiles.is_empty() || complete_full || pulse_full {
                     state.live_publisher.record_publish(now);
                 }
             }

@@ -222,6 +222,12 @@ pub fn goto_line_is_valid(line: &str) -> bool {
     commands_from_goto_line(line).is_some()
 }
 
+/// D-UI-1 / REQ-CTRL-APPLY: Apply stays enabled whenever the field is valid,
+/// including when it already equals the current viewport location.
+pub fn apply_button_enabled(line_valid: bool, _already_at_location: bool) -> bool {
+    line_valid
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,6 +255,36 @@ mod tests {
     }
 
     #[test]
+    fn move_up_increases_math_imag() {
+        // Arrow/W up uses negative stored pixels_y; stored pos.1 is negated imag.
+        let mut loc = ul_for_center(IntExp::ZERO, IntExp::ZERO, 0, (800, 480));
+        let (_, im0) = viewport_center(&loc, (800, 480));
+        let im0 = im0.to_f64();
+        let delta = IntExp { val: Integer::from(64), exp: 0 };
+        loc.pos.1 = loc.pos.1.clone() + (IntExp::from(0) - delta)
+            .shift(-loc.zoom_pot)
+            .shift(-PIXELS_PER_UNIT_POT);
+        let (_, im1) = viewport_center(&loc, (800, 480));
+        let im1 = im1.to_f64();
+        assert!(im1 > im0, "Up must look toward +imag; im0={im0} im1={im1}");
+    }
+
+    #[test]
+    fn grab_drag_down_increases_math_imag() {
+        let start = ul_for_center(IntExp::ZERO, IntExp::ZERO, 0, (800, 480));
+        let (_, im0) = viewport_center(&start, (800, 480));
+        let im0 = im0.to_f64();
+        let objective_drag_y = IntExp { val: Integer::from(32), exp: 0 }
+            .shift(-start.zoom_pot)
+            .shift(-PIXELS_PER_UNIT_POT);
+        let mut loc = start;
+        loc.pos.1 = loc.pos.1 - objective_drag_y;
+        let (_, im1) = viewport_center(&loc, (800, 480));
+        let im1 = im1.to_f64();
+        assert!(im1 > im0, "mouse-down grab must raise math imag; im0={im0} im1={im1}");
+    }
+
+    #[test]
     fn ul_for_center_zero_centers_viewport() {
         let loc = ul_for_center(IntExp::ZERO, IntExp::ZERO, 0, (800, 480));
         let (re, im) = viewport_center(&loc, (800, 480));
@@ -263,5 +299,28 @@ mod tests {
         assert!(!goto_line_is_valid(""));
         assert!(!goto_line_is_valid("   "));
         assert!(goto_line_is_valid("0, 0"));
+    }
+
+    // REQ-CTRL-APPLY / D-UI-1
+    #[test]
+    fn apply_enabled_when_valid_even_if_already_there() {
+        assert!(apply_button_enabled(true, true));
+        assert!(apply_button_enabled(true, false));
+        assert!(!apply_button_enabled(false, false));
+        assert!(!apply_button_enabled(false, true));
+    }
+
+    // REQ-CTRL-PARSE
+    #[test]
+    fn parse_braces_and_extra_spaces() {
+        let (re, im) = parse_complex("{ 1 , 2 }").unwrap();
+        assert!((re.to_f64() - 1.0).abs() < 1e-9);
+        assert!((im.to_f64() - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parse_rejects_garbage() {
+        assert!(parse_complex("not a coordinate").is_none());
+        assert!(parse_complex("1").is_none());
     }
 }

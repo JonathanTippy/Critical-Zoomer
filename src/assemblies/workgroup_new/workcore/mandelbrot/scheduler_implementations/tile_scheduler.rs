@@ -88,7 +88,10 @@ impl TileScheduler {
     pub fn init(screen_res: (usize, usize)) -> TileSchedulerState {
         let origins = tile_origins_covering(screen_res);
         let mut tiles = Vec::with_capacity(origins.len());
-        let mut scredge_set: HashSet<(usize, usize)> = HashSet::new();
+        // D-SCH-1: walk the *screen* outer frame first (prototype), not every
+        // tile perimeter. Seeding all tile rims delayed BeginTile until a full
+        // edge-grid was done and made home fill feel frozen.
+        let mut scredge_set: HashSet<(usize, usize)> = screen_border_seats(screen_res);
         for origin in origins {
             let extent = (
                 (screen_res.0 - origin.0).min(TILE_EDGE_LENGTH)
@@ -97,7 +100,6 @@ impl TileScheduler {
             let mut edge_remaining = [0usize; 4];
             for seat in tile_perimeter_seats(origin, screen_res) {
                 let screen = (seat.0 as usize, seat.1 as usize);
-                scredge_set.insert(screen);
                 for edge in edges_for_seat(origin, extent, screen) {
                     edge_remaining[edge as usize] += 1;
                 }
@@ -115,6 +117,27 @@ impl TileScheduler {
         let mut scredge: VecDeque<(usize, usize)> = scredge_set.into_iter().collect();
         let attention = ((screen_res.0 / 2) as i32, (screen_res.1 / 2) as i32);
         sort_seats_foveated(&mut scredge, attention);
+        // #region agent log
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/home/jonathan/git/Critical-Zoomer/.cursor/debug-4c6f94.log")
+        {
+            use std::io::Write;
+            let _ = writeln!(
+                f,
+                "{{\"sessionId\":\"4c6f94\",\"runId\":\"post-fix\",\"hypothesisId\":\"H3\",\"location\":\"tile_scheduler.rs:init\",\"message\":\"scredge_seed\",\"data\":{{\"screen\":[{},{}],\"scredge_len\":{},\"tiles\":{}}},\"timestamp\":{}}}",
+                screen_res.0,
+                screen_res.1,
+                scredge.len(),
+                tiles.len(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis())
+                    .unwrap_or(0)
+            );
+        }
+        // #endregion
         TileSchedulerState {
             screen_res
             , attention
@@ -177,17 +200,9 @@ impl TileScheduler {
             return TileSchedulerNext::Idle;
         }
         if state.mag_velocity == 0 {
-            // Whole-screen scredge first: paints Outside perimeter everywhere so the
-            // viewport fills quickly, then BeginTile outfill/flood for interiors.
-            if let Some(seat) = Self::take_scredge(state) {
-                return TileSchedulerNext::Scredge(seat);
-            }
-            // take_scredge returns None when every remaining seat is in-flight
-            // (scredge_active). Must not BeginTile yet — that orphans the perimeter
-            // and freezes interiors behind an open active tile.
-            if !state.scredge.is_empty() || !state.scredge_active.is_empty() {
-                return TileSchedulerNext::Idle;
-            }
+            // Design: stationary = foveated screen fill (spiral from attention), then
+            // lookahead. Tiles must begin immediately under the pointer/center —
+            // do not wait for the full screen-border scredge to finish first.
             if let Some(tile) = Self::take_unbegun_nearest(state, true) {
                 state.tiles[tile].begun = true;
                 return TileSchedulerNext::BeginTile(tile);
@@ -195,6 +210,9 @@ impl TileScheduler {
             if let Some(tile) = Self::take_unbegun_nearest(state, false) {
                 state.tiles[tile].begun = true;
                 return TileSchedulerNext::BeginTile(tile);
+            }
+            if let Some(seat) = Self::take_scredge(state) {
+                return TileSchedulerNext::Scredge(seat);
             }
             if !state.lookahead_column_done {
                 if state.lookahead_bump < 8 {
@@ -537,6 +555,24 @@ fn tile_attention_distance(tile: &TileRecord, attention: (i32, i32)) -> i32 {
     dx.max(dy)
 }
 
+/// Outer frame of the viewport only (not every tile rim).
+fn screen_border_seats(screen_res: (usize, usize)) -> HashSet<(usize, usize)> {
+    let mut seats = HashSet::new();
+    let (w, h) = screen_res;
+    if w == 0 || h == 0 {
+        return seats;
+    }
+    for x in 0..w {
+        seats.insert((x, 0));
+        seats.insert((x, h - 1));
+    }
+    for y in 0..h {
+        seats.insert((0, y));
+        seats.insert((w - 1, y));
+    }
+    seats
+}
+
 fn seat_attention_distance(seat: (usize, usize), attention: (i32, i32)) -> i32 {
     let dx = (seat.0 as i32 - attention.0).abs();
     let dy = (seat.1 as i32 - attention.1).abs();
@@ -577,6 +613,23 @@ mod tile_scheduler_tests {
     use super::*;
 
     #[test]
+    fn scredge_seeds_screen_border_only() {
+        let state = TileScheduler::init((800, 480));
+        let expected = 2 * (800 + 480) - 4;
+        assert_eq!(
+            state.scredge.len()
+            , expected
+            , "scredge must be the outer frame, not every tile rim"
+        );
+        for &(x, y) in &state.scredge {
+            assert!(
+                x == 0 || y == 0 || x == 799 || y == 479
+                , "interior rim seat in scredge: ({x},{y})"
+            );
+        }
+    }
+
+    #[test]
     fn init_covers_screen_with_tiles() {
         let state = TileScheduler::init((130, 70));
         assert!(!state.tiles.is_empty());
@@ -598,32 +651,12 @@ mod tile_scheduler_tests {
 
     #[test]
     fn next_prefers_tile_near_attention() {
-        // Small screen: at rest next() drains whole-screen scredge before BeginTile;
-        // keep the drain cheap (esp. under llvm-cov instrumentation).
         let mut state = TileScheduler::init((96, 96));
         TileScheduler::set_base_mag(&mut state, 0);
         state.lookahead_column_done = true;
         state.lookahead_bump = 8;
         TileScheduler::set_attention(&mut state, (72, 72));
-        state.lookahead_column_done = true;
-        state.lookahead_bump = 8;
-        let mut guard = 0;
-        while guard < 50_000 {
-            guard += 1;
-            match TileScheduler::next(&mut state) {
-                TileSchedulerNext::Scredge(seat) => {
-                    TileScheduler::note_finished(&mut state, seat, TileSeatKind::Outside);
-                }
-                TileSchedulerNext::Idle => {
-                    if !TileScheduler::reclaim_orphaned_scredge_active(&mut state) {
-                        break;
-                    }
-                }
-                TileSchedulerNext::BeginTile(_) | TileSchedulerNext::BeginLookahead { .. } => {
-                    break;
-                }
-            }
-        }
+        TileScheduler::set_mag_velocity(&mut state, 0);
         let mut saw_near = false;
         for _ in 0..40 {
             match TileScheduler::next(&mut state) {
@@ -662,38 +695,27 @@ mod tile_scheduler_tests {
     }
 
     #[test]
-    fn at_rest_does_not_begin_tile_while_scredge_in_flight() {
+    fn at_rest_begins_foveated_tile_before_draining_scredge() {
         let mut state = TileScheduler::init((128, 96));
         TileScheduler::set_mag_velocity(&mut state, 0);
-        let seat = TileScheduler::take_scredge(&mut state).expect("scredge seat");
-        // Seat is in scredge_active; draining take_scredge should yield Idle, not BeginTile.
+        TileScheduler::set_attention(&mut state, (64, 48));
+        state.lookahead_column_done = true;
+        state.lookahead_bump = 8;
+        // First offer must be a near-attention tile, not a full border walk.
         match TileScheduler::next(&mut state) {
-            TileSchedulerNext::Scredge(_) => {}
-            TileSchedulerNext::Idle => {}
             TileSchedulerNext::BeginTile(i) => {
-                panic!("BeginTile({i}) while scredge seat {seat:?} still in-flight");
+                let o = TileScheduler::tile_origin(&state, i);
+                let e = TileScheduler::tile_extent(&state, i);
+                let cx = (o.0 + e.0 / 2) as i32;
+                let cy = (o.1 + e.1 / 2) as i32;
+                let dist = (cx - 64).abs().max((cy - 48).abs());
+                assert!(
+                    dist <= 64
+                    , "first BeginTile should be near attention, dist={dist} origin={o:?}"
+                );
             }
-            TileSchedulerNext::BeginLookahead { zoom_pot } => {
-                panic!("BeginLookahead({zoom_pot}) while scredge in-flight");
-            }
+            other => panic!("expected immediate BeginTile at rest, got {other:?}"),
         }
-        // Exhaust takeable seats into active without finishing — still must not BeginTile.
-        for _ in 0..10_000 {
-            match TileScheduler::next(&mut state) {
-                TileSchedulerNext::Scredge(_) => {}
-                TileSchedulerNext::Idle => break,
-                other => panic!("expected Scredge/Idle while perimeter in-flight, got {other:?}"),
-            }
-        }
-        assert!(
-            matches!(TileScheduler::next(&mut state), TileSchedulerNext::Idle)
-            , "must Idle until in-flight scredge is finished or released"
-        );
-        TileScheduler::reclaim_orphaned_scredge_active(&mut state);
-        assert!(
-            matches!(TileScheduler::next(&mut state), TileSchedulerNext::Scredge(_))
-            , "after reclaim, scredge must be offered again"
-        );
     }
 
     #[test]
@@ -785,9 +807,9 @@ mod tile_scheduler_tests {
         TileScheduler::set_attention(&mut state, (20, 20));
         TileScheduler::set_mag_velocity(&mut state, 0);
         match TileScheduler::next(&mut state) {
-            TileSchedulerNext::Scredge(_) | TileSchedulerNext::BeginTile(_) => {}
+            TileSchedulerNext::BeginTile(_) => {}
             other => panic!(
-                "stationary should Scredge/BeginTile before lookahead, got {other:?}"
+                "stationary must BeginTile (foveated fill) before lookahead/scredge, got {other:?}"
             ),
         }
     }

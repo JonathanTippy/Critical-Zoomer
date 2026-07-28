@@ -1,9 +1,0 @@
-This directory is for grok-generated docs. Separate from human docs; not authoritative vs root docs.
-
-## Layout
-
-- assistant status, RCA, bug/todo stack, align logs, implementation notes.
-
-## Index
-
-- `issue-stack.md` — live open/done bug and todo stack

@@ -15,6 +15,9 @@ pub mod settings;
 pub mod utils;
 pub mod range;
 pub mod constants;
+pub mod gpu_context;
+pub mod gpu_budget;
+pub mod gear;
 pub mod assemblies;
 pub mod intexp;
 pub mod stacked_intexp;
@@ -42,7 +45,11 @@ fn main() {
             .with_default_actor_stack_size(STACK_SIZE)
             .build(cli_args);
 
-        build_graph(&mut graph);
+        // One device for the whole app, built before the window so eframe adopts
+        // it rather than creating a second one the compute side cannot address.
+        let gpu = gpu_context::GpuContext::shared();
+
+        build_graph(&mut graph, gpu);
 
         graph.start();
 
@@ -55,10 +62,11 @@ fn main() {
 
 const NAME_WINDOW: &str = "window";
 const NAME_GPU_UPLOADER: &str = "gpu uploader";
+const NAME_TILE_PUBLISHER: &str = "tile publisher";
 const NAME_WORK_CONTROLLER: &str = "work controller";
 const NAME_SCREEN_WORKER:&str = "screen worker";
 
-fn build_graph(graph: &mut Graph) {
+fn build_graph(graph: &mut Graph, _gpu: gpu_context::SharedGpu) {
     let channel_builder = graph.channel_builder()
         .with_compute_refresh_window_floor(Duration::from_secs(4),Duration::from_secs(24))
         .with_filled_trigger(Trigger::AvgAbove(Filled::p90()), AlertColor::Red)
@@ -66,9 +74,15 @@ fn build_graph(graph: &mut Graph) {
         .with_avg_rate()
         .with_capacity(10);
 
+    // worker → uploader → publisher → headgroup (architecture / tile_publisher.md)
     let (
-        uploader_tx_to_window
-        , window_rx_from_uploader
+        uploader_tx_to_publisher
+        , publisher_rx_from_uploader
+    ) = channel_builder.with_capacity(512).build();
+
+    let (
+        publisher_tx_to_window
+        , window_rx_from_publisher
     ) = channel_builder.with_capacity(512).build();
 
     let (
@@ -96,9 +110,14 @@ fn build_graph(graph: &mut Graph) {
         , uploader_rx_from_screen_worker
     ) = channel_builder.with_capacity(512).build();
 
-    // Publisher (interim: screen_worker) → headgroup memory bumps.
+    // Workgroup prune → publisher → headgroup memory bumps.
     let (
         screen_worker_tx_memory_bump
+        , publisher_rx_memory_bump
+    ) = channel_builder.with_capacity(8).build();
+
+    let (
+        publisher_tx_memory_bump
         , window_rx_memory_bump
     ) = channel_builder.with_capacity(8).build();
 
@@ -115,11 +134,24 @@ fn build_graph(graph: &mut Graph) {
         .build(move |context|
             headgroup::window::run(
                 context
-                , window_rx_from_uploader.clone()
+                , window_rx_from_publisher.clone()
                 , window_tx_to_work_controller.clone()
                 , window_tx_to_stuff.clone()
                 , window_tx_to_worker.clone()
                 , window_rx_memory_bump.clone()
+                , state.clone()
+            )
+               , SoloAct);
+
+    let state = new_state();
+    actor_builder.with_name(NAME_TILE_PUBLISHER)
+        .build(move |context|
+            assemblies::workgroup_new::tile_publisher::run_actor(
+                context
+                , publisher_rx_from_uploader.clone()
+                , publisher_tx_to_window.clone()
+                , publisher_rx_memory_bump.clone()
+                , publisher_tx_memory_bump.clone()
                 , state.clone()
             )
                , SoloAct);
@@ -130,7 +162,7 @@ fn build_graph(graph: &mut Graph) {
             gpu_uploader::run(
                 context
                 , uploader_rx_from_screen_worker.clone()
-                , uploader_tx_to_window.clone()
+                , uploader_tx_to_publisher.clone()
                 , state.clone()
             )
                , SoloAct);

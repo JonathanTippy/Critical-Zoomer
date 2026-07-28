@@ -15,6 +15,7 @@ pub struct PerturbationCpuWorkerState {
     , pub references: ReferenceCollection
     , pub seat_orbit_ids: Vec<OrbitId>
     , pub screen_width: usize
+    , pub gear: crate::gear::Gear
 }
 
 impl Default for PerturbationCpuWorkerState {
@@ -26,7 +27,26 @@ impl Default for PerturbationCpuWorkerState {
             , references: ReferenceCollection::new()
             , seat_orbit_ids: Vec::new()
             , screen_width: 0
+            , gear: crate::gear::Gear::F64
         }
+    }
+}
+
+impl PerturbationCpuWorkerState {
+    /// Recompute the gear from the current stencil / reference (D-GEAR-1).
+    pub fn refresh_gear(&mut self, gpu_available: bool) {
+        let Some(stencil) = self.stencil.as_ref() else {
+            self.gear = crate::gear::Gear::F64;
+            return;
+        };
+        let relative = self
+            .seat_orbit_ids
+            .iter()
+            .copied()
+            .find(|&id| id != ZERO_ORBIT_ID)
+            .and_then(|id| self.references.get(id))
+            .map(|orbit| &orbit.big_c);
+        self.gear = stencil.select_gear(relative, gpu_available);
     }
 }
 
@@ -730,7 +750,8 @@ mod phase4_tests {
             , resolution: res
             , serial_number: 0
             , focus: None
-            , hover: None
+            , hover: None,
+            mag_velocity: 0.0
         }.correct_precision();
         let mut state = PerturbationCpuWorkerState {
             bailout_radius_squared: 4.0
@@ -739,6 +760,7 @@ mod phase4_tests {
             , references: ReferenceCollection::new()
             , seat_orbit_ids: vec![ZERO_ORBIT_ID; res.0 * res.1]
             , screen_width: res.0
+            , gear: crate::gear::Gear::F64
         };
         let tile = Tile::new((0, 0), 0);
         let seats: [Option<(usize, usize)>; 4] = [

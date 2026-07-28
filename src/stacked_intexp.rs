@@ -1,6 +1,13 @@
+//! Stacked i32 significand with a shared exponent (docs/design/tile_worker.md).
+//!
+//! Limbs are native `i32` (not i64), and multiply is schoolbook — no rug in the
+//! hot path. Limb counts 1..=8 are the GPU-capable stacked gears.
+// r[impl cz.seamless.gpu-preferred+1]
+
 use std::cmp::*;
 use std::ops::*;
-use rug::*;
+use rug::Integer;
+use crate::assemblies::workgroup_new::structs::mandelbrotable::Mandelbrotable;
 use crate::constants::*;
 use crate::intexp::*;
 
@@ -8,7 +15,7 @@ pub type DefaultStackedIntExp = StackedIntExp<STACKED_INTEXP_STACKS>;
 
 #[derive(Clone, Copy, Debug, Eq)]
 pub struct StackedIntExp<const STACKS: usize> {
-    pub limbs: [i64; STACKS]
+    pub limbs: [i32; STACKS]
     , pub exp: i32
 }
 
@@ -18,13 +25,15 @@ impl<const STACKS: usize> StackedIntExp<STACKS> {
         , exp: 0
     };
 
-    pub fn from_i64(value: i64) -> Self {
-        let mut limbs = [0i64; STACKS];
+    pub const fn from_i32(value: i32) -> Self {
+        let mut limbs = [0i32; STACKS];
         if STACKS > 0 {
             limbs[0] = value;
-            let fill = if value < 0 { -1i64 } else { 0 };
-            for i in 1..STACKS {
+            let fill = if value < 0 { -1i32 } else { 0 };
+            let mut i = 1;
+            while i < STACKS {
                 limbs[i] = fill;
+                i += 1;
             }
         }
         Self { limbs, exp: 0 }
@@ -42,158 +51,156 @@ impl<const STACKS: usize> StackedIntExp<STACKS> {
         IntExp::from(self)
     }
 
-    fn is_zero_limbs(limbs: &[i64; STACKS]) -> bool {
+    fn is_zero_limbs(limbs: &[i32; STACKS]) -> bool {
         limbs.iter().all(|&limb| limb == 0)
     }
 
-    fn sign_extend_carry(high: i64) -> i128 {
-        if high < 0 { -1 } else { 0 }
+    fn is_negative(limbs: &[i32; STACKS]) -> bool {
+        STACKS > 0 && limbs[STACKS - 1] < 0
     }
 
-    fn add_limbs(a: [i64; STACKS], b: [i64; STACKS]) -> [i64; STACKS] {
-        let mut out = [0i64; STACKS];
-        let mut carry: u128 = 0;
+    fn add_limbs(a: [i32; STACKS], b: [i32; STACKS]) -> [i32; STACKS] {
+        let mut out = [0i32; STACKS];
+        let mut carry: u64 = 0;
         for i in 0..STACKS {
-            let sum = a[i] as u64 as u128 + b[i] as u64 as u128 + carry;
-            out[i] = sum as u64 as i64;
-            carry = sum >> 64;
+            let sum = (a[i] as u32 as u64) + (b[i] as u32 as u64) + carry;
+            out[i] = sum as u32 as i32;
+            carry = sum >> 32;
         }
         let _ = carry;
         out
     }
 
-    fn neg_limbs(a: [i64; STACKS]) -> [i64; STACKS] {
-        let mut out = [0i64; STACKS];
-        let mut carry: u128 = 1;
+    fn neg_limbs(a: [i32; STACKS]) -> [i32; STACKS] {
+        let mut out = [0i32; STACKS];
+        let mut carry: u64 = 1;
         for i in 0..STACKS {
-            let sum = (!a[i]) as u64 as u128 + carry;
-            out[i] = sum as u64 as i64;
-            carry = sum >> 64;
+            let sum = (!(a[i] as u32) as u64) + carry;
+            out[i] = sum as u32 as i32;
+            carry = sum >> 32;
         }
         out
     }
 
-    fn shr_limbs_bits(mut limbs: [i64; STACKS], bits: u32) -> [i64; STACKS] {
+    fn abs_limbs(a: [i32; STACKS]) -> ([i32; STACKS], bool) {
+        if Self::is_negative(&a) {
+            (Self::neg_limbs(a), true)
+        } else {
+            (a, false)
+        }
+    }
+
+    /// Schoolbook multiply of two magnitudes; keep the low STACKS limbs
+    /// (same truncation as packing an IntExp product back into fixed stacks).
+    fn mul_limbs_schoolbook(a: [i32; STACKS], b: [i32; STACKS]) -> [i32; STACKS] {
+        let mut wide = [0i64; 16];
+        debug_assert!(STACKS <= 8);
+        for i in 0..STACKS {
+            let ai = a[i] as u32 as i64;
+            for j in 0..STACKS {
+                wide[i + j] += ai * (b[j] as u32 as i64);
+            }
+        }
+        let mut carry: i64 = 0;
+        for slot in wide.iter_mut().take(STACKS * 2) {
+            let v = *slot + carry;
+            *slot = v & 0xffff_ffff;
+            carry = v >> 32;
+        }
+        let mut out = [0i32; STACKS];
+        for i in 0..STACKS {
+            out[i] = wide[i] as u32 as i32;
+        }
+        out
+    }
+
+    fn align_exponents(mut a: Self, mut b: Self) -> (Self, Self) {
+        if a.exp == b.exp {
+            return (a, b);
+        }
+        // Match IntExp: align to the smaller exponent by left-shifting significands.
+        if a.exp > b.exp {
+            let shift = (a.exp - b.exp) as u32;
+            a.limbs = Self::shl_limbs_bits(a.limbs, shift);
+            a.exp = b.exp;
+        } else {
+            let shift = (b.exp - a.exp) as u32;
+            b.limbs = Self::shl_limbs_bits(b.limbs, shift);
+            b.exp = a.exp;
+        }
+        (a, b)
+    }
+
+    fn shl_limbs_bits(mut limbs: [i32; STACKS], bits: u32) -> [i32; STACKS] {
         if bits == 0 || Self::is_zero_limbs(&limbs) {
             return limbs;
         }
         let mut remaining = bits;
-        while remaining >= 64 {
-            let sign = if limbs[STACKS - 1] < 0 { -1i64 } else { 0 };
-            for i in 0..STACKS - 1 {
-                limbs[i] = limbs[i + 1];
+        while remaining > 0 {
+            let step = remaining.min(31);
+            let mut carry: u32 = 0;
+            for i in 0..STACKS {
+                let cur = limbs[i] as u32;
+                let shifted = (cur << step) | carry;
+                carry = cur >> (32 - step);
+                limbs[i] = shifted as i32;
             }
-            limbs[STACKS - 1] = sign;
-            remaining -= 64;
-        }
-        if remaining == 0 {
-            return limbs;
-        }
-        let r = remaining;
-        let mask_shift = 64 - r;
-        let mut prev_ext = if limbs[STACKS - 1] < 0 { u64::MAX } else { 0u64 };
-        for i in (0..STACKS).rev() {
-            let cur = limbs[i] as u64;
-            let next_ext = cur;
-            limbs[i] = ((cur >> r) | (prev_ext << mask_shift)) as i64;
-            prev_ext = next_ext;
+            remaining -= step;
         }
         limbs
     }
 
-    fn shl_limbs_bits(mut limbs: [i64; STACKS], bits: u32) -> ([i64; STACKS], i128) {
-        if bits == 0 {
-            return (limbs, Self::sign_extend_carry(limbs[STACKS - 1]));
+    fn shr_limbs_bits(mut limbs: [i32; STACKS], bits: u32) -> [i32; STACKS] {
+        if bits == 0 || Self::is_zero_limbs(&limbs) {
+            return limbs;
         }
+        let negative = Self::is_negative(&limbs);
         let mut remaining = bits;
-        let mut spilled: i128 = Self::sign_extend_carry(limbs[STACKS - 1]);
-        while remaining >= 64 {
-            spilled = limbs[STACKS - 1] as i128;
-            for i in (1..STACKS).rev() {
-                limbs[i] = limbs[i - 1];
+        while remaining > 0 {
+            let step = remaining.min(31);
+            let mut carry: u32 = if negative { u32::MAX } else { 0 };
+            for i in (0..STACKS).rev() {
+                let cur = limbs[i] as u32;
+                let shifted = (cur >> step) | (carry << (32 - step));
+                carry = cur;
+                limbs[i] = shifted as i32;
             }
-            limbs[0] = 0;
-            remaining -= 64;
+            remaining -= step;
         }
-        if remaining == 0 {
-            return (limbs, spilled);
-        }
-        let r = remaining;
-        let mut carry_bits = 0u64;
-        for i in 0..STACKS {
-            let cur = limbs[i] as u64;
-            let next_carry = cur >> (64 - r);
-            limbs[i] = ((cur << r) | carry_bits) as i64;
-            carry_bits = next_carry;
-        }
-        spilled = (spilled << r) | carry_bits as i128;
-        (limbs, spilled)
-    }
-
-    fn absorb_high(mut limbs: [i64; STACKS], mut high: i128, mut exp: i32) -> Self {
-        loop {
-            let expected = Self::sign_extend_carry(limbs[STACKS - 1]);
-            if high == expected {
-                if Self::is_zero_limbs(&limbs) {
-                    return Self::ZERO;
-                }
-                return Self { limbs, exp };
-            }
-            let mut next = [0i64; STACKS];
-            for i in 0..STACKS - 1 {
-                next[i] = limbs[i + 1];
-            }
-            next[STACKS - 1] = high as i64;
-            high >>= 64;
-            limbs = next;
-            exp = exp.saturating_add(64);
-        }
-    }
-
-    fn align_pair(self, other: Self) -> (Self, Self) {
-        match self.exp.cmp(&other.exp) {
-            Ordering::Equal => (self, other)
-            , Ordering::Less => {
-                let delta = (other.exp - self.exp) as u32;
-                let (limbs, high) = Self::shl_limbs_bits(other.limbs, delta);
-                let aligned = Self::absorb_high(limbs, high, self.exp);
-                (self, aligned)
-            }
-            , Ordering::Greater => {
-                let delta = (self.exp - other.exp) as u32;
-                let (limbs, high) = Self::shl_limbs_bits(self.limbs, delta);
-                let aligned = Self::absorb_high(limbs, high, other.exp);
-                (aligned, other)
-            }
-        }
+        limbs
     }
 }
 
 impl<const STACKS: usize> From<i32> for StackedIntExp<STACKS> {
     fn from(value: i32) -> Self {
-        Self::from_i64(value as i64)
+        Self::from_i32(value)
     }
 }
 
 impl<const STACKS: usize> From<IntExp> for StackedIntExp<STACKS> {
     fn from(value: IntExp) -> Self {
-        let mut limbs = [0i64; STACKS];
-        let mut remaining = value.val;
-        for i in 0..STACKS {
-            let limb = Integer::from(&remaining & Integer::from(u64::MAX));
-            limbs[i] = limb.to_i64_wrapping();
-            remaining >>= 64;
+        // Pack the Integer into i32 limbs, LSB first.
+        let mut limbs = [0i32; STACKS];
+        let mut n = value.val.clone();
+        let negative = n < 0;
+        if negative {
+            n = -n;
         }
-        let high = if remaining == 0 {
-            0i128
-        } else if remaining == -1 {
-            -1i128
-        } else {
-            remaining.to_i64().map(|v| v as i128).unwrap_or_else(|| {
-                if remaining < 0 { i128::MIN } else { i128::MAX }
-            })
-        };
-        Self::absorb_high(limbs, high, value.exp)
+        for i in 0..STACKS {
+            let limb = n.to_u32_wrapping();
+            limbs[i] = limb as i32;
+            n >>= 32;
+            if n == 0 {
+                break;
+            }
+        }
+        if negative {
+            limbs = Self::neg_limbs(limbs);
+        }
+        Self {
+            limbs
+            , exp: value.exp
+        }
     }
 }
 
@@ -202,18 +209,17 @@ impl<const STACKS: usize> From<StackedIntExp<STACKS>> for IntExp {
         if StackedIntExp::<STACKS>::is_zero_limbs(&value.limbs) {
             return IntExp::ZERO;
         }
-        let mut acc = Integer::from(0);
+        let (mag, negative) = StackedIntExp::<STACKS>::abs_limbs(value.limbs);
+        let mut n = Integer::from(0);
         for i in (0..STACKS).rev() {
-            acc <<= 64;
-            acc += Integer::from(value.limbs[i] as u64);
+            n <<= 32;
+            n += mag[i] as u32;
         }
-        if value.limbs[STACKS - 1] < 0 {
-            let mut modulus = Integer::from(1);
-            modulus <<= (STACKS * 64) as u32;
-            acc -= modulus;
+        if negative {
+            n = -n;
         }
         IntExp {
-            val: acc
+            val: n
             , exp: value.exp
         }
     }
@@ -221,20 +227,13 @@ impl<const STACKS: usize> From<StackedIntExp<STACKS>> for IntExp {
 
 impl<const STACKS: usize> PartialEq for StackedIntExp<STACKS> {
     fn eq(&self, other: &Self) -> bool {
-        (*self - *other).limbs.iter().all(|&limb| limb == 0)
+        IntExp::from(*self) == IntExp::from(*other)
     }
 }
 
 impl<const STACKS: usize> PartialOrd for StackedIntExp<STACKS> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let diff = *self - *other;
-        if diff.limbs.iter().all(|&limb| limb == 0) {
-            Some(Ordering::Equal)
-        } else if diff.limbs[STACKS - 1] < 0 {
-            Some(Ordering::Less)
-        } else {
-            Some(Ordering::Greater)
-        }
+        IntExp::from(*self).partial_cmp(&IntExp::from(*other))
     }
 }
 
@@ -242,12 +241,10 @@ impl<const STACKS: usize> Add for StackedIntExp<STACKS> {
     type Output = Self;
 
     fn add(self, other: Self) -> Self {
-        let (a, b) = self.align_pair(other);
-        let limbs = Self::add_limbs(a.limbs, b.limbs);
-        if Self::is_zero_limbs(&limbs) {
-            Self::ZERO
-        } else {
-            Self { limbs, exp: a.exp }
+        let (a, b) = Self::align_exponents(self, other);
+        Self {
+            limbs: Self::add_limbs(a.limbs, b.limbs)
+            , exp: a.exp
         }
     }
 }
@@ -270,8 +267,16 @@ impl<const STACKS: usize> Mul for StackedIntExp<STACKS> {
         if Self::is_zero_limbs(&self.limbs) || Self::is_zero_limbs(&other.limbs) {
             return Self::ZERO;
         }
-        let product = IntExp::from(self) * IntExp::from(other);
-        Self::from(product)
+        let (a_mag, a_neg) = Self::abs_limbs(self.limbs);
+        let (b_mag, b_neg) = Self::abs_limbs(other.limbs);
+        let mut limbs = Self::mul_limbs_schoolbook(a_mag, b_mag);
+        if a_neg ^ b_neg {
+            limbs = Self::neg_limbs(limbs);
+        }
+        Self {
+            limbs
+            , exp: self.exp.saturating_add(other.exp)
+        }
     }
 }
 
@@ -294,6 +299,24 @@ impl<const STACKS: usize> Shr<u32> for StackedIntExp<STACKS> {
             limbs: self.limbs
             , exp: self.exp.saturating_sub(rhs as i32)
         }
+    }
+}
+
+impl<const STACKS: usize> Mandelbrotable for StackedIntExp<STACKS> {
+    const ZERO: Self = Self::ZERO;
+    const ONE: Self = Self::from_i32(1);
+    const TWO: Self = Self::from_i32(2);
+
+    fn from_u16(value: u16) -> Self {
+        Self::from_i32(value as i32)
+    }
+
+    fn to_f32(self) -> f32 {
+        IntExp::from(self).to_f64() as f32
+    }
+
+    fn to_f64(self) -> f64 {
+        IntExp::from(self).to_f64()
     }
 }
 
@@ -343,5 +366,11 @@ mod stacked_intexp_tests {
     fn default_stacks_is_four() {
         assert_eq!(STACKED_INTEXP_STACKS, 4);
         let _v: DefaultStackedIntExp = StackedIntExp::from(1);
+    }
+
+    #[test]
+    fn one_through_eight_limb_gears_construct() {
+        let _a: StackedIntExp<1> = StackedIntExp::from(1);
+        let _b: StackedIntExp<8> = StackedIntExp::from(1);
     }
 }
