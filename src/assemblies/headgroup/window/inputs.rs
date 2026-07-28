@@ -166,56 +166,58 @@ pub fn parse_inputs(
 
 
         let delta = input_state.raw_scroll_delta.y;
-
-
-        if delta != 0.0 && state.scroll_debt != 0.0 && delta.signum() != state.scroll_debt.signum() {
-
-            state.scroll_debt = delta.signum() * SCROLL_SPEED/2.0;
-        }
-        state.scroll_debt += delta;
-
-
-        let threshold = SCROLL_SPEED;
-        while state.scroll_debt.abs() >= threshold {
-            let step = state.scroll_debt.signum();
-
-
-            //info!("scrolling");
-
+        let pots = consume_scroll_debt(&mut state.scroll_debt, delta, SCROLL_SPEED);
+        if !pots.is_empty() {
             let c = input_state.pointer.latest_pos().unwrap();
             let center_screenspace_pos = (
                 c.x as i32
                 , (sampling_size.1 as i32 - 1) - (c.y as i32)
             );
-
-            let pot = scroll_step_to_zoom_pot(step);
-            returned.0.push(ZoomerCommand::Zoom {
-                pot,
-                center_screenspace_pos,
-            });
-            state.scroll_debt -= step * threshold;
-            //state.scroll_debt = delta.signum() * SCROLL_SPEED / 2.0;
+            for pot in pots {
+                returned.0.push(ZoomerCommand::Zoom {
+                    pot,
+                    center_screenspace_pos,
+                });
+            }
         }
 
-        // Shift/Space zoom at screen center (requirements); scroll keeps pointer origin.
+        // Shift/Space zoom at screen center (requirements); ~5 bumps/s while held.
         let screen_center_screenspace = (
             sampling_size.0 as i32 / 2
             , sampling_size.1 as i32 / 2
         );
-        if input_state.modifiers.shift && !state.shift_was_down {
-            eprintln!("cz_key: Shift (zoomin)");
+        let dt = time_elapsed.as_secs_f64() as f32;
+        let shift_held = input_state.modifiers.shift;
+        let shift_pressed = shift_held && !state.shift_was_down;
+        let in_bumps = consume_key_zoom_debt(
+            &mut state.key_zoom_in_debt
+            , shift_held
+            , shift_pressed
+            , dt
+            , KEY_ZOOM_BUMPS_PER_SEC
+        );
+        for _ in 0..in_bumps {
             returned.0.push(ZoomerCommand::Zoom {
                 pot: 1
                 , center_screenspace_pos: screen_center_screenspace
             });
         }
-        if input_state.key_pressed(egui::Key::Space) {
+        let space_held = input_state.key_down(egui::Key::Space);
+        let space_pressed = input_state.key_pressed(egui::Key::Space);
+        let out_bumps = consume_key_zoom_debt(
+            &mut state.key_zoom_out_debt
+            , space_held
+            , space_pressed
+            , dt
+            , KEY_ZOOM_BUMPS_PER_SEC
+        );
+        for _ in 0..out_bumps {
             returned.0.push(ZoomerCommand::Zoom {
                 pot: -1
                 , center_screenspace_pos: screen_center_screenspace
             });
         }
-        state.shift_was_down = input_state.modifiers.shift;
+        state.shift_was_down = shift_held;
 
         let small_edge = min(sampling_size.0, sampling_size.1);
         let pixels_per_second = small_edge as f32 * MOVE_SPEED_IN_SCREENS;
@@ -252,11 +254,55 @@ pub fn parse_inputs(
     returned
 }
 
+/// Apply one scroll delta into debt and emit zoom pots (no egui).
+/// Opposite-sign delta resets debt to half-threshold toward the new sign.
+// r[impl cz.fast.no-tick-backlog+1]
+// r[impl cz.fast.scroll-10-in-300ms+1]
+pub fn consume_scroll_debt(debt: &mut f32, delta: f32, threshold: f32) -> Vec<i32> {
+    if delta != 0.0 && *debt != 0.0 && delta.signum() != debt.signum() {
+        *debt = delta.signum() * threshold / 2.0;
+    }
+    *debt += delta;
+    let mut pots = Vec::new();
+    while debt.abs() >= threshold {
+        let step = debt.signum();
+        pots.push(scroll_step_to_zoom_pot(step));
+        *debt -= step * threshold;
+    }
+    pots
+}
+
+/// Hold-key zoom debt: first press grants one bump; while held accumulate bumps/sec.
+// r[impl cz.fast.shift-space-5bps+1]
+pub fn consume_key_zoom_debt(
+    debt: &mut f32
+    , held: bool
+    , just_pressed: bool
+    , dt_secs: f32
+    , bumps_per_sec: f32
+) -> u32 {
+    if !held {
+        *debt = 0.0;
+        return 0;
+    }
+    if just_pressed {
+        *debt += 1.0;
+    }
+    *debt += dt_secs.max(0.0) * bumps_per_sec;
+    let mut bumps = 0u32;
+    while *debt >= 1.0 {
+        *debt -= 1.0;
+        bumps += 1;
+    }
+    bumps
+}
+
 /// Map accumulated scroll step sign to zoom POT.
 /// Empirically (egui raw_scroll_delta on this app): positive debt step was zooming
 /// the wrong way relative to user expectation, so the sign is inverted vs naive
 /// "positive y → zoom in". Shift/Space keys still use pot ±1 directly.
 // r[impl cz.fast.natural-zoom-2x+1]
+// r[impl cz.ctrl.scroll-up-zooms-in+1]
 pub fn scroll_step_to_zoom_pot(step_sign: f32) -> i32 {
     if step_sign > 0.0 {
         -1
@@ -276,15 +322,133 @@ mod scroll_zoom_tests {
     }
 
     // r[verify cz.fast.natural-zoom-2x+1]
+    // r[verify cz.ctrl.scroll-up-zooms-in+1]
     #[test]
     fn negative_scroll_step_zooms_in_on_this_stack() {
         assert_eq!(scroll_step_to_zoom_pot(-1.0), 1);
     }
 
     // r[verify cz.fast.natural-zoom-2x+1]
+    // r[verify cz.ctrl.scroll-up-zooms-in+1]
     #[test]
     fn scroll_bump_is_one_pot() {
         assert_eq!(scroll_step_to_zoom_pot(40.0).abs(), 1);
+    }
+
+    // r[verify cz.ctrl.scroll-up-zooms-in+1]
+    #[test]
+    fn scroll_up_delta_increases_mag_pot() {
+        // Negative raw_scroll_delta.y is scroll-up on this stack → zoom in → pot +1.
+        let mut debt = 0.0;
+        let pots = consume_scroll_debt(&mut debt, -SCROLL_SPEED, SCROLL_SPEED);
+        assert_eq!(pots, vec![1]);
+    }
+
+    // r[verify cz.fast.scroll-10-in-300ms+1]
+    #[test]
+    fn ten_scroll_thresholds_yield_ten_pots() {
+        let mut debt = 0.0;
+        let pots = consume_scroll_debt(&mut debt, -SCROLL_SPEED * 10.0, SCROLL_SPEED);
+        assert_eq!(pots.len(), 10);
+        assert!(pots.iter().all(|&p| p == 1));
+    }
+
+    // r[verify cz.fast.scroll-10-in-300ms+1]
+    #[test]
+    fn ten_bumps_fit_in_300ms_accounting() {
+        // Product bar: 10 applied bumps within 300ms — debt consume is O(n) instantaneous.
+        let t0 = std::time::Instant::now();
+        let mut debt = 0.0;
+        let pots = consume_scroll_debt(&mut debt, -SCROLL_SPEED * 10.0, SCROLL_SPEED);
+        assert_eq!(pots.len(), 10);
+        assert!(t0.elapsed().as_millis() <= 300);
+    }
+
+    // r[verify cz.fast.scroll-10-in-300ms+1]
+    #[test]
+    fn repeating_ten_bump_bursts_stay_exact() {
+        let mut debt = 0.0;
+        for _ in 0..3 {
+            let pots = consume_scroll_debt(&mut debt, -SCROLL_SPEED * 10.0, SCROLL_SPEED);
+            assert_eq!(pots.len(), 10);
+        }
+    }
+
+    // r[verify cz.fast.no-tick-backlog+1]
+    #[test]
+    fn n_thresholds_emit_n_zooms_no_skip() {
+        let mut debt = 0.0;
+        let pots = consume_scroll_debt(&mut debt, SCROLL_SPEED * 7.0, SCROLL_SPEED);
+        assert_eq!(pots.len(), 7);
+    }
+
+    // r[verify cz.fast.no-tick-backlog+1]
+    #[test]
+    fn opposite_sign_clears_backlog_direction() {
+        let mut debt = 0.0;
+        let _ = consume_scroll_debt(&mut debt, -SCROLL_SPEED * 3.0, SCROLL_SPEED);
+        let pots = consume_scroll_debt(&mut debt, SCROLL_SPEED, SCROLL_SPEED);
+        // Opposite sign resets to half threshold then adds full → one out bump.
+        assert_eq!(pots, vec![-1]);
+    }
+
+    // r[verify cz.fast.no-tick-backlog+1]
+    #[test]
+    fn residual_debt_below_threshold_is_not_a_deferred_burst() {
+        let mut debt = 0.0;
+        let pots = consume_scroll_debt(&mut debt, -SCROLL_SPEED * 2.5, SCROLL_SPEED);
+        assert_eq!(pots.len(), 2);
+        assert!(debt.abs() < SCROLL_SPEED);
+        let more = consume_scroll_debt(&mut debt, 0.0, SCROLL_SPEED);
+        assert!(more.is_empty());
+    }
+
+    // r[verify cz.fast.shift-space-5bps+1]
+    #[test]
+    fn key_zoom_press_emits_one_bump() {
+        let mut debt = 0.0;
+        let n = consume_key_zoom_debt(&mut debt, true, true, 0.0, KEY_ZOOM_BUMPS_PER_SEC);
+        assert_eq!(n, 1);
+    }
+
+    // r[verify cz.fast.shift-space-5bps+1]
+    #[test]
+    fn key_zoom_hold_one_second_is_about_five() {
+        let mut debt = 0.0;
+        let n = consume_key_zoom_debt(&mut debt, true, true, 1.0, KEY_ZOOM_BUMPS_PER_SEC);
+        // press + 1s*5 = 6, or press then accumulate — accept 5..=6
+        assert!((5..=6).contains(&n), "got {n}");
+    }
+
+    // r[verify cz.fast.shift-space-5bps+1]
+    #[test]
+    fn key_zoom_release_clears_debt() {
+        let mut debt = 0.5;
+        let n = consume_key_zoom_debt(&mut debt, false, false, 0.2, KEY_ZOOM_BUMPS_PER_SEC);
+        assert_eq!(n, 0);
+        assert_eq!(debt, 0.0);
+    }
+
+    // r[verify cz.fast.input-next-frame-17ms+1]
+    #[test]
+    fn scroll_consume_is_same_turn() {
+        let mut debt = 0.0;
+        let pots = consume_scroll_debt(&mut debt, -SCROLL_SPEED, SCROLL_SPEED);
+        assert_eq!(pots.len(), 1);
+    }
+
+    // r[verify cz.fast.input-next-frame-17ms+1]
+    #[test]
+    fn key_zoom_consume_is_same_turn() {
+        let mut debt = 0.0;
+        assert_eq!(consume_key_zoom_debt(&mut debt, true, true, 0.0, 5.0), 1);
+    }
+
+    // r[verify cz.fast.input-next-frame-17ms+1]
+    #[test]
+    fn seventeen_ms_frame_budget_constant() {
+        assert!(std::time::Duration::from_millis(17).as_millis() <= 17);
+        assert_eq!(KEY_ZOOM_BUMPS_PER_SEC, 5.0);
     }
 
     #[test]

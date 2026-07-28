@@ -24,6 +24,9 @@ pub const GLITCH_THRESHOLD: f64 = 1e-4;
 pub const STACKED_INTEXP_STACKS: usize = 4;
 
 pub const SCROLL_SPEED:f32 = 40.0;
+/// Shift/Space hold zoom rate (requirements: about 5 bumps per second).
+// r[impl cz.fast.shift-space-5bps+1]
+pub const KEY_ZOOM_BUMPS_PER_SEC: f32 = 5.0;
 
 // r[impl cz.display.nores-when-no-proximate+1]
 // r[impl cz.tenacious.nores-not-flat-black+1]

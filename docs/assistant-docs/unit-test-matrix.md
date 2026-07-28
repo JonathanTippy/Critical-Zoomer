@@ -37,6 +37,24 @@ Status: `green` | `in-progress` | `blocked-impl`
 | cz.shade.node-smallness-minimum+1 | shade_tests (≥3) | n/a | shade_tests.rs | green |
 | cz.shade.small-time-edge-nonzero+1 | shade_tests (≥3) | n/a | shade_tests.rs | green |
 | cz.shade.layers-in-script-order+1 | shade_tests (≥3) | GPU↔oracle | shade_tests.rs | green |
+| cz.perf.foveation-half-time+1 | tile_session (≥3) | 50/50 time | tile_session / standards_perf | green |
+| cz.perf.home-100tps+1 | home fill release (≥3) | ≤5s | tile_session | green |
+| cz.perf.min-300m-ips-cpu+1 | standards_perf (≥3) | ≥300M | standards_perf | green |
+| cz.perf.min-30b-ips-gpu+1 | perturb_gpu (≥3) | ≥30B | perturb_gpu | green |
+| cz.perf.optimal-ipp+1 | standards_perf (≥3) | escape IPP | standards_perf | green |
+| cz.perf.headgroup-shaders-2ms+1 | standards_perf (≥3) | ≤2ms | standards_perf | green |
+| cz.perf.headgroup-vsync+1 | standards_perf (≥3) | Fifo | window / standards_perf | green |
+| cz.ctrl.zoom-in-homothety+1 | transforms (≥3) | pointer-fixed | transforms.rs | green |
+| cz.ctrl.scroll-up-zooms-in+1 | inputs (≥3) | polarity | inputs.rs | green |
+| cz.fast.settings-100ms+1 | standards_perf (≥3) | ≤100ms | standards_perf | green |
+| cz.fast.cosmetic-17ms-1080p+1 | standards_perf (≥3) | ≤17ms | standards_perf | green |
+| cz.fast.scroll-10-in-300ms+1 | inputs (≥3) | debt | inputs.rs | green |
+| cz.fast.no-tick-backlog+1 | inputs (≥3) | debt | inputs.rs | green |
+| cz.fast.shift-space-5bps+1 | inputs (≥3) | ~5/s | inputs.rs | green |
+| cz.fast.input-next-frame-17ms+1 | inputs (≥3) | same-turn | inputs.rs | green |
+| cz.system.memory-default-1gb+1 | standards_perf (≥3) | 1e9 | settings | green |
+| cz.cosmetic.bailout-range-2-255+1 | standards_perf (≥3) | [2,255] | settings | green |
+| cz.deep.min-zoom-pot-capacity+1 | standards_perf (≥3) | pot | gear / intexp | green |
 
 ## B — Untagged requirement slices
 

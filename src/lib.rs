@@ -36,3 +36,4 @@ pub mod floatexp;
 pub mod e2e_oracle;
 pub mod e2e_harness;
 pub mod gpu_nativity_properties;
+pub mod standards_perf;

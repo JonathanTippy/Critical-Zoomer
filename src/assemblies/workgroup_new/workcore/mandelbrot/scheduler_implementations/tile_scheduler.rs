@@ -80,6 +80,13 @@ impl TileSchedulerState {
     pub fn debug_scredge_lens(&self) -> (usize, usize) {
         (self.scredge.len(), self.scredge_active.len())
     }
+
+    /// True while current-stencil tiles or scredge seats remain unfinished.
+    pub fn screen_work_pending(&self) -> bool {
+        self.tiles.iter().any(|t| !t.begun && !t.finished)
+            || !self.scredge.is_empty()
+            || !self.scredge_active.is_empty()
+    }
 }
 
 pub struct TileScheduler;
@@ -117,27 +124,6 @@ impl TileScheduler {
         let mut scredge: VecDeque<(usize, usize)> = scredge_set.into_iter().collect();
         let attention = ((screen_res.0 / 2) as i32, (screen_res.1 / 2) as i32);
         sort_seats_foveated(&mut scredge, attention);
-        // #region agent log
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("/home/jonathan/git/Critical-Zoomer/.cursor/debug-4c6f94.log")
-        {
-            use std::io::Write;
-            let _ = writeln!(
-                f,
-                "{{\"sessionId\":\"4c6f94\",\"runId\":\"post-fix\",\"hypothesisId\":\"H3\",\"location\":\"tile_scheduler.rs:init\",\"message\":\"scredge_seed\",\"data\":{{\"screen\":[{},{}],\"scredge_len\":{},\"tiles\":{}}},\"timestamp\":{}}}",
-                screen_res.0,
-                screen_res.1,
-                scredge.len(),
-                tiles.len(),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis())
-                    .unwrap_or(0)
-            );
-        }
-        // #endregion
         TileSchedulerState {
             screen_res
             , attention
@@ -332,6 +318,38 @@ impl TileScheduler {
             }
         }
         best.map(|(_, idx)| idx)
+    }
+
+    /// Claim the next screen tile for the foveation current-stencil half.
+    /// Independent of mag-velocity lookahead ordering so 50/50 time can start screen work.
+    pub fn claim_next_screen_tile(state: &mut TileSchedulerState) -> Option<usize> {
+        if let Some(tile) = Self::take_unbegun_nearest(state, true)
+            .or_else(|| Self::take_unbegun_nearest(state, false))
+        {
+            state.tiles[tile].begun = true;
+            return Some(tile);
+        }
+        None
+    }
+
+    /// True while stationary screen fill still has unbegun tiles or scredge seats.
+    pub fn screen_structure_pending(state: &TileSchedulerState) -> bool {
+        state.tiles.iter().any(|t| !t.begun && !t.finished)
+            || !state.scredge.is_empty()
+            || !state.scredge_active.is_empty()
+    }
+
+    /// Claim the next lookahead zoom bump for the foveation lookahead half.
+    pub fn claim_next_lookahead_zoom(state: &mut TileSchedulerState) -> Option<i32> {
+        if state.lookahead_column_done {
+            return None;
+        }
+        if state.lookahead_bump < 8 {
+            state.lookahead_bump += 1;
+            return Some(state.base_mag.saturating_add(state.lookahead_bump as i32));
+        }
+        state.lookahead_column_done = true;
+        None
     }
 
     /// Batch cleared without a finish (init miss, empty points): put the seat

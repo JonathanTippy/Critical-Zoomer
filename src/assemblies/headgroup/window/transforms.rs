@@ -37,6 +37,7 @@ pub fn transform(
                 );
 
                 context.location.zoom_pot += *pot; // r[impl cz.fast.natural-zoom-2x+1]
+                // r[impl cz.ctrl.zoom-in-homothety+1]
 
                 let pixel_width = IntExp { val: Integer::from(1), exp: -context.location.zoom_pot }.shift(-PIXELS_PER_UNIT_POT);
 
@@ -160,6 +161,64 @@ mod zoom_tests {
             &mut ctx,
         );
         assert_eq!(ctx.location.zoom_pot, 1);
+    }
+
+    // r[verify cz.ctrl.zoom-in-homothety+1]
+    #[test]
+    fn zoom_in_increments_magnification_pot_by_one() {
+        let mut ctx = ctx_at(2);
+        transform(
+            vec![ZoomerCommand::Zoom {
+                pot: 1,
+                center_screenspace_pos: (100, 50),
+            }],
+            &mut ctx,
+        );
+        assert_eq!(ctx.location.zoom_pot, 3);
+    }
+
+    // r[verify cz.ctrl.zoom-in-homothety+1]
+    #[test]
+    fn zoom_in_keeps_pointer_complex_fixed() {
+        // Pointer-fixed: zoom in then out at the same screenspace point restores UL.
+        let mut ctx = ctx_at(0);
+        let pointer = (100, 50);
+        let before = (
+            ctx.location.pos.0.clone(),
+            ctx.location.pos.1.clone(),
+            ctx.location.zoom_pot,
+        );
+        transform(
+            vec![
+                ZoomerCommand::Zoom {
+                    pot: 1,
+                    center_screenspace_pos: pointer,
+                },
+                ZoomerCommand::Zoom {
+                    pot: -1,
+                    center_screenspace_pos: pointer,
+                },
+            ],
+            &mut ctx,
+        );
+        assert_eq!(ctx.location.zoom_pot, before.2);
+        assert_eq!(ctx.location.pos.0.round(2).val, before.0.round(2).val);
+        assert_eq!(ctx.location.pos.1.round(2).val, before.1.round(2).val);
+    }
+
+    // r[verify cz.ctrl.zoom-in-homothety+1]
+    #[test]
+    fn zoom_out_is_inverse_of_zoom_in_at_center() {
+        let mut ctx = ctx_at(0);
+        let center = (400, 240);
+        transform(
+            vec![
+                ZoomerCommand::Zoom { pot: 1, center_screenspace_pos: center },
+                ZoomerCommand::Zoom { pot: -1, center_screenspace_pos: center },
+            ],
+            &mut ctx,
+        );
+        assert_eq!(ctx.location.zoom_pot, 0);
     }
 
     #[test]

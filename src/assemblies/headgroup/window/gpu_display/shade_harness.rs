@@ -12,6 +12,7 @@ use std::task::Context;
 use std::task::Poll;
 use std::task::Wake;
 use std::task::Waker;
+use std::time::{Duration, Instant};
 
 use eframe::egui_wgpu::wgpu;
 
@@ -48,6 +49,61 @@ impl TestGpu {
         let queue = shared.queue.clone();
         let resources = Mutex::new(GpuDisplayResources::new(&device, TARGET_FORMAT));
         Some(Self { device, queue, resources })
+    }
+
+    /// Run sample+shade prepare/paint/submit without CPU readback (for frametime bars).
+    /// Returns wall time of one prepare+paint+submit+gpu-wait after a warm pass.
+    /// Texture alloc is outside the timed window so the bar measures shader work.
+    pub fn paint_frametime(&self, frame: &ShadeFrame) -> Duration {
+        let width = frame.uniforms.viewport_size[0] as u32;
+        let height = frame.uniforms.viewport_size[1] as u32;
+        let mut resources = self.resources.lock().expect("shade parity resources poisoned");
+        let target = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("shade_timing_target")
+            , size: wgpu::Extent3d {
+                width
+                , height
+                , depth_or_array_layers: 1
+            }
+            , mip_level_count: 1
+            , sample_count: 1
+            , dimension: wgpu::TextureDimension::D2
+            , format: TARGET_FORMAT
+            , usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+            , view_formats: &[]
+        });
+        let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+        let paint_once = |resources: &mut GpuDisplayResources| {
+            resources.prepare(&self.device, &self.queue, frame);
+            let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("shade_timing_encoder")
+            });
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("shade_timing_pass")
+                    , color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view
+                        , resolve_target: None
+                        , ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK)
+                            , store: wgpu::StoreOp::Store
+                        }
+                    })]
+                    , depth_stencil_attachment: None
+                    , timestamp_writes: None
+                    , occlusion_query_set: None
+                }).forget_lifetime();
+                resources.paint(&mut pass);
+            }
+            self.queue.submit([encoder.finish()]);
+            let _ = self.device.poll(wgpu::PollType::Wait);
+        };
+        paint_once(&mut resources);
+        let t0 = Instant::now();
+        paint_once(&mut resources);
+        let elapsed = t0.elapsed();
+        std::hint::black_box(target.size());
+        elapsed
     }
 
     /// Run the pipeline over one frame and read the target back, row major.

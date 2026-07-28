@@ -13,22 +13,29 @@ pub struct OutfillInfillScheduler;
 enum Step {
     Out
     , Edge
+    , InFilamentEdge
+    , OutFilamentEdge
     , Scredge
     , PeriodEdge
     , FloodIn
     , In
+    , SmallTimeEdge
 }
 
 impl Step {
     /// Auth intratile preference: fill out > edge > scredge > period edge > flood in > in.
     fn preference_rank(self) -> u8 {
+        // PO: out → in/out+filament edges → scredge → period → flood → in → STE last.
         match self {
             Step::Out => 0,
             Step::Edge => 1,
-            Step::Scredge => 2,
-            Step::PeriodEdge => 3,
-            Step::FloodIn => 4,
-            Step::In => 5,
+            Step::InFilamentEdge => 2,
+            Step::OutFilamentEdge => 3,
+            Step::Scredge => 4,
+            Step::PeriodEdge => 5,
+            Step::FloodIn => 6,
+            Step::In => 7,
+            Step::SmallTimeEdge => 8,
         }
     }
 
@@ -98,6 +105,9 @@ pub struct OutfillInfillSchedulerState {
     , kind: [Option<SeatKind>; TILE_SEAT_COUNT]
     , scredge: VecDeque<(i32, i32)>
     , edge_queue: VecDeque<((i32, i32), u32)>
+    , in_filament_edge_queue: VecDeque<((i32, i32), u32)>
+    , out_filament_edge_queue: VecDeque<((i32, i32), u32)>
+    , small_time_edge_queue: VecDeque<((i32, i32), u32)>
     , out_queue: VecDeque<((i32, i32), u32)>
     , period_edge_queue: VecDeque<((i32, i32), u32)>
     , flood_in_queue: VecDeque<((i32, i32), u32)>
@@ -107,6 +117,8 @@ pub struct OutfillInfillSchedulerState {
     , extent: (usize, usize)
     , hint_queue: VecDeque<((usize, usize), CalibratedAnswer)>
     , period_resolve_done: bool
+    , phase_jobs: PhaseJobTracker
+    , out_fill_complete: bool
 }
 
 fn exact_range<T: crate::range::Value>(value: T) -> crate::range::Range<T> {
@@ -298,52 +310,46 @@ impl OutfillInfillSchedulerState {
         let try_order: &[Step] = &[
             Step::Out
             , Step::Edge
+            , Step::InFilamentEdge
+            , Step::OutFilamentEdge
             , Step::Scredge
             , Step::PeriodEdge
             , Step::FloodIn
             , Step::In
+            , Step::SmallTimeEdge
         ];
         for step in try_order {
-            match step {
-                Step::Out => {
-                    if let Some((pos, _)) = self.out_queue.front().copied() {
-                        return Some((pos, Step::Out));
-                    }
+            // STE only after out-fill drained (PO phase 4).
+            if matches!(step, Step::SmallTimeEdge) && !self.out_fill_complete {
+                if self.out_queue.is_empty() && self.edge_queue.is_empty() {
+                    self.out_fill_complete = true;
+                } else {
+                    continue;
                 }
-                Step::Edge => {
-                    if let Some((pos, _)) = self.edge_queue.front().copied() {
-                        return Some((pos, Step::Edge));
-                    }
-                }
-                Step::Scredge => {
-                    if let Some(pos) = self.scredge.front().copied() {
-                        return Some((pos, Step::Scredge));
-                    }
-                }
+            }
+            let found = match step {
+                Step::Out => self.out_queue.front().map(|(pos, _)| (*pos, Step::Out)),
+                Step::Edge => self.edge_queue.front().map(|(pos, _)| (*pos, Step::Edge)),
+                Step::InFilamentEdge => self.in_filament_edge_queue.front().map(|(pos, _)| (*pos, Step::InFilamentEdge)),
+                Step::OutFilamentEdge => self.out_filament_edge_queue.front().map(|(pos, _)| (*pos, Step::OutFilamentEdge)),
+                Step::Scredge => self.scredge.front().map(|pos| (*pos, Step::Scredge)),
                 Step::PeriodEdge => {
-                    if !self.screen_edge_complete() {
-                        continue;
-                    }
-                    if let Some((pos, _)) = self.period_edge_queue.front().copied() {
-                        return Some((pos, Step::PeriodEdge));
-                    }
+                    if !self.screen_edge_complete() { None }
+                    else { self.period_edge_queue.front().map(|(pos, _)| (*pos, Step::PeriodEdge)) }
                 }
                 Step::FloodIn => {
-                    if !self.screen_edge_complete() {
-                        continue;
-                    }
-                    if let Some((pos, _)) = self.flood_in_queue.front().copied() {
-                        return Some((pos, Step::FloodIn));
-                    }
+                    if !self.screen_edge_complete() { None }
+                    else { self.flood_in_queue.front().map(|(pos, _)| (*pos, Step::FloodIn)) }
                 }
                 Step::In => {
-                    if !self.screen_edge_complete() {
-                        continue;
-                    }
-                    if let Some((pos, _)) = self.in_queue.front().copied() {
-                        return Some((pos, Step::In));
-                    }
+                    if !self.screen_edge_complete() { None }
+                    else { self.in_queue.front().map(|(pos, _)| (*pos, Step::In)) }
                 }
+                Step::SmallTimeEdge => self.small_time_edge_queue.front().map(|(pos, _)| (*pos, Step::SmallTimeEdge)),
+            };
+            if let Some((pos, st)) = found {
+                self.phase_jobs.consider_incoming(st.preference_rank());
+                return Some((pos, st));
             }
         }
         None
@@ -353,6 +359,9 @@ impl OutfillInfillSchedulerState {
         match step {
             Step::Scredge => { self.scredge.pop_front(); }
             Step::Edge => { self.edge_queue.pop_front(); }
+            Step::InFilamentEdge => { self.in_filament_edge_queue.pop_front(); }
+            Step::OutFilamentEdge => { self.out_filament_edge_queue.pop_front(); }
+            Step::SmallTimeEdge => { self.small_time_edge_queue.pop_front(); }
             Step::Out => { self.out_queue.pop_front(); }
             Step::PeriodEdge => { self.period_edge_queue.pop_front(); }
             Step::FloodIn => { self.flood_in_queue.pop_front(); }
@@ -382,7 +391,8 @@ impl OutfillInfillSchedulerState {
                     self.scredge.push_back(item);
                 }
             }
-            Step::Edge | Step::PeriodEdge => {}
+            Step::Edge | Step::PeriodEdge
+            | Step::InFilamentEdge | Step::OutFilamentEdge | Step::SmallTimeEdge => {}
         }
     }
 
@@ -646,6 +656,39 @@ impl OutfillInfillSchedulerState {
         if let Some(edge) = self.seat_is_period_edge(pos) {
             self.queue_contour_to(edge.0, edge.1, true);
         }
+        // D-SCH-3: enqueue STE candidates from finished seats with meaningful small_time.
+        if answer.min_magnitude_time.lower_bound > 0 {
+            for n in [
+                (pos.0 + 1, pos.1), (pos.0 - 1, pos.1),
+                (pos.0, pos.1 + 1), (pos.0, pos.1 - 1),
+            ] {
+                if self.in_bounds(n) {
+                    let ni = local_index((n.0 as usize, n.1 as usize));
+                    if !self.done[ni] {
+                        self.small_time_edge_queue.push_back((n, 0));
+                    }
+                }
+            }
+        }
+        // Out-filament edge: period step between finished insides seeds out-filament queue.
+        if let CalibratedMandelbrotResult::Inside { period } = answer.result {
+            let p = period.lower_bound as u32;
+            if p > 0 {
+                for n in [
+                    (pos.0 + 1, pos.1), (pos.0 - 1, pos.1),
+                    (pos.0, pos.1 + 1), (pos.0, pos.1 - 1),
+                ] {
+                    if !self.in_bounds(n) { continue; }
+                    let ni = local_index((n.0 as usize, n.1 as usize));
+                    if let Some(SeatKind::Inside { period: op }) = self.kind[ni] {
+                        if self.done[ni] && op != 0 && op != p {
+                            self.out_filament_edge_queue.push_back((n, 0));
+                        }
+                    }
+                }
+            }
+        }
+
     }
 
     fn fill_remaining_in(&mut self) {
@@ -673,6 +716,9 @@ impl OutfillInfillScheduler {
             , kind: [None; TILE_SEAT_COUNT]
             , scredge: VecDeque::new()
             , edge_queue: VecDeque::new()
+            , in_filament_edge_queue: VecDeque::new()
+            , out_filament_edge_queue: VecDeque::new()
+            , small_time_edge_queue: VecDeque::new()
             , out_queue: VecDeque::new()
             , period_edge_queue: VecDeque::new()
             , flood_in_queue: VecDeque::new()
@@ -682,6 +728,8 @@ impl OutfillInfillScheduler {
             , extent
             , hint_queue: VecDeque::new()
             , period_resolve_done: false
+            , phase_jobs: PhaseJobTracker::idle()
+            , out_fill_complete: false
         };
         for y in 0..TILE_EDGE_LENGTH {
             for x in 0..TILE_EDGE_LENGTH {
@@ -840,6 +888,9 @@ impl OutfillInfillSchedulerState {
         let pos = (local.0 as i32, local.1 as i32);
         self.scredge.retain(|p| *p != pos);
         self.edge_queue.retain(|(p, _)| *p != pos);
+        self.in_filament_edge_queue.retain(|(p, _)| *p != pos);
+        self.out_filament_edge_queue.retain(|(p, _)| *p != pos);
+        self.small_time_edge_queue.retain(|(p, _)| *p != pos);
         self.out_queue.retain(|(p, _)| *p != pos);
         self.period_edge_queue.retain(|(p, _)| *p != pos);
         self.flood_in_queue.retain(|(p, _)| *p != pos);
@@ -937,5 +988,36 @@ mod d_sch1_tests {
             state.flood_in_queue.iter().any(|(pos, period)| *pos == (2, 1) && *period == 5)
             , "D-SCH-2: period resolve must queue flood-in neighbors with the resolved period"
         );
+    }
+}
+
+#[cfg(test)]
+mod d_sch3_tests {
+    use super::*;
+
+    #[test]
+    fn ste_rank_is_last() {
+        assert!(Step::Out.prefers_over(Step::SmallTimeEdge));
+        assert!(Step::Edge.prefers_over(Step::InFilamentEdge));
+        assert!(Step::InFilamentEdge.prefers_over(Step::OutFilamentEdge));
+        assert!(Step::In.prefers_over(Step::SmallTimeEdge));
+    }
+
+    #[test]
+    fn phase_job_tracker_preempts_lower_with_higher() {
+        let mut t = PhaseJobTracker::idle();
+        t.start(Step::In.preference_rank());
+        assert!(t.consider_incoming(Step::Out.preference_rank()));
+        assert_eq!(t.active_rank(), Some(Step::Out.preference_rank()));
+        assert_eq!(t.suspended_rank(), Some(Step::In.preference_rank()));
+    }
+
+    #[test]
+    fn ste_queue_present_on_fresh_state() {
+        let state = OutfillInfillScheduler::init_for_tile_extent((8, 8));
+        assert!(state.small_time_edge_queue.is_empty());
+        assert!(state.in_filament_edge_queue.is_empty());
+        assert!(state.out_filament_edge_queue.is_empty());
+        assert!(!state.out_fill_complete);
     }
 }

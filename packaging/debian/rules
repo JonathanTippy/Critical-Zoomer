@@ -1,0 +1,12 @@
+#!/usr/bin/make -f
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh $@ --debian-directory=packaging/debian
+
+override_dh_auto_build:
+	cargo build --release
+
+override_dh_auto_test:
+	# Packaging build skips the full test suite; CI covers tests separately.

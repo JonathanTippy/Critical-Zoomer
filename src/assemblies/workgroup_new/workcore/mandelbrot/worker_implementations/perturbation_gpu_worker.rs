@@ -97,28 +97,28 @@ struct GpuUniforms {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
-struct GpuPertPoint {
-    dc_re: f32,
-    dc_im: f32,
-    dz_re: f32,
-    dz_im: f32,
-    d_re: f32,
-    d_im: f32,
-    iteration_count: u32,
-    min_magnitude: f32,
-    min_magnitude_time: u32,
-    flags: u32,
-    checkpoint_re: f32,
-    checkpoint_im: f32,
-    steps_since_checkpoint: u32,
-    next_checkpoint_iteration: u32,
-    detected_period: u32,
-    epsilon: f32,
+pub(crate) struct GpuPertPoint {
+    pub(crate) dc_re: f32,
+    pub(crate) dc_im: f32,
+    pub(crate) dz_re: f32,
+    pub(crate) dz_im: f32,
+    pub(crate) d_re: f32,
+    pub(crate) d_im: f32,
+    pub(crate) iteration_count: u32,
+    pub(crate) min_magnitude: f32,
+    pub(crate) min_magnitude_time: u32,
+    pub(crate) flags: u32,
+    pub(crate) checkpoint_re: f32,
+    pub(crate) checkpoint_im: f32,
+    pub(crate) steps_since_checkpoint: u32,
+    pub(crate) next_checkpoint_iteration: u32,
+    pub(crate) detected_period: u32,
+    pub(crate) epsilon: f32,
 }
 
-const FLAG_ACTIVE: u32 = 1;
-const FLAG_ESCAPED: u32 = 2;
-const FLAG_FINISHED: u32 = 4;
+pub(crate) const FLAG_ACTIVE: u32 = 1;
+pub(crate) const FLAG_ESCAPED: u32 = 2;
+pub(crate) const FLAG_FINISHED: u32 = 4;
 const FLAG_GLITCH: u32 = 8;
 const FLAG_PERIODIC: u32 = 16;
 
@@ -366,7 +366,7 @@ impl PerturbationGpuContext {
         })
     }
 
-    fn run_bout(
+    pub(crate) fn run_bout(
         &mut self,
         points: &mut [GpuPertPoint],
         orbit_f32: &[(f32, f32)],
@@ -481,6 +481,69 @@ impl PerturbationGpuContext {
         }
         staging.unmap();
     }
+
+    /// Dispatch compute only (no staging readback). Used for honest GPU IPS timing.
+    pub(crate) fn run_bout_compute_only(
+        &mut self,
+        points: &[GpuPertPoint],
+        orbit_f32: &[(f32, f32)],
+        bailout_radius_squared: f32,
+        bout_iterations: u32,
+        upload_points: bool,
+        upload_orbit: bool,
+    ) {
+        let count = points.len().min(self.point_capacity as usize) as u32;
+        if count == 0 {
+            return;
+        }
+        let orbit_len = orbit_f32.len().min(self.orbit_capacity as usize) as u32;
+        if orbit_len == 0 {
+            return;
+        }
+        let uniforms = GpuUniforms {
+            bailout_radius_squared,
+            bout_iterations,
+            orbit_len,
+            point_count: count,
+            glitch_threshold: GLITCH_THRESHOLD as f32,
+            confirm_iterations: PERIOD_CONFIRMATION_ITERATIONS,
+            _pad0: 0.0,
+            _pad1: 0.0,
+        };
+        let device = &self.shared.device;
+        let queue = &self.shared.queue;
+        queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
+        if upload_points || self.resident_points != count {
+            queue.write_buffer(
+                &self.point_buffer,
+                0,
+                bytemuck::cast_slice(&points[..count as usize]),
+            );
+            self.resident_points = count;
+        }
+        if upload_orbit {
+            let mut orbit_flat = Vec::with_capacity((orbit_len as usize) * 2);
+            for &(re, im) in orbit_f32.iter().take(orbit_len as usize) {
+                orbit_flat.push(re);
+                orbit_flat.push(im);
+            }
+            queue.write_buffer(&self.orbit_buffer, 0, bytemuck::cast_slice(&orbit_flat));
+        }
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("perturbation_gpu_bout_compute_only_enc"),
+        });
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("perturbation_gpu_bout_compute_only"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &self.bind_group, &[]);
+            pass.dispatch_workgroups((count + 63) / 64, 1, 1);
+        }
+        queue.submit(Some(encoder.finish()));
+        let _ = device.poll(wgpu::PollType::Wait);
+    }
 }
 
 impl Worker<f64, CpuPeriodicityDetector> for PerturbationGpuWorker {
@@ -529,36 +592,10 @@ impl Worker<f64, CpuPeriodicityDetector> for PerturbationGpuWorker {
             }
         }
 
-        // Prefer GPU when available: shared-orbit batches run the perturbation
-        // compute shader; unfinished seats (insides needing periodicity) continue
-        // on the CPU perturbation kernel from the post-GPU state.
-        if worker_state.ensure_gpu() {
+        // Prefer GPU only when the selected gear runs on GPU (no silent f64→f32).
+        // r[impl cz.seamless.gpu-preferred+1]
+        if worker_state.cpu.gear.runs_on_gpu() && worker_state.ensure_gpu() {
             if try_gpu_workshift(worker_state, active_batch) {
-                // #region agent log
-                {
-                    static GPU_OK: std::sync::atomic::AtomicU64 =
-                        std::sync::atomic::AtomicU64::new(0);
-                    let n = GPU_OK.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    if n < 6 || n % 200 == 0 {
-                        if let Ok(mut f) = std::fs::OpenOptions::new()
-                            .create(true)
-                            .append(true)
-                            .open("/home/jonathan/git/Critical-Zoomer/.cursor/debug-4c6f94.log")
-                        {
-                            use std::io::Write;
-                            let _ = writeln!(
-                                f,
-                                "{{\"sessionId\":\"4c6f94\",\"runId\":\"post-fix\",\"hypothesisId\":\"H4\",\"location\":\"perturbation_gpu_worker.rs:workshift\",\"message\":\"gpu_bout\",\"data\":{{\"n\":{n},\"path\":\"gpu\",\"followup\":{}}},\"timestamp\":{}}}",
-                                any_open(active_batch),
-                                std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .map(|d| d.as_millis())
-                                    .unwrap_or(0)
-                            );
-                        }
-                    }
-                }
-                // #endregion
                 if any_open(active_batch) {
                     worker_state.cpu_followup = true;
                     return PerturbationCpuWorker::workshift_on_batch(
@@ -568,32 +605,6 @@ impl Worker<f64, CpuPeriodicityDetector> for PerturbationGpuWorker {
                 }
                 return false;
             }
-            // #region agent log
-            {
-                static GPU_MISS: std::sync::atomic::AtomicU64 =
-                    std::sync::atomic::AtomicU64::new(0);
-                let n = GPU_MISS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                if n < 8 || n % 200 == 0 {
-                    if let Ok(mut f) = std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open("/home/jonathan/git/Critical-Zoomer/.cursor/debug-4c6f94.log")
-                    {
-                        use std::io::Write;
-                        let _ = writeln!(
-                            f,
-                            "{{\"sessionId\":\"4c6f94\",\"runId\":\"post-fix\",\"hypothesisId\":\"H4\",\"location\":\"perturbation_gpu_worker.rs:workshift\",\"message\":\"gpu_miss_cpu_fallback\",\"data\":{{\"n\":{n},\"gpu_desired\":{},\"gpu_held\":{}}},\"timestamp\":{}}}",
-                            worker_state.gpu_desired,
-                            worker_state.gpu.is_some(),
-                            std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .map(|d| d.as_millis())
-                                .unwrap_or(0)
-                        );
-                    }
-                }
-            }
-            // #endregion
         }
         PerturbationCpuWorker::workshift_on_batch(&mut worker_state.cpu, active_batch)
     }
@@ -616,6 +627,16 @@ fn try_gpu_workshift<const N: usize>(
     worker_state: &mut PerturbationGpuWorkerState,
     active_batch: &mut PointBatch<f64, CpuPeriodicityDetector, N>,
 ) -> bool {
+    // Only F32 uses the live f32 bout shader. Stacked gears: CPU until stacked bout
+    // dispatch is fully wired (pipelines exist as smoke). Never cast F64/AdaptiveRug.
+    match worker_state.cpu.gear {
+        crate::gear::Gear::F32 => {}
+        crate::gear::Gear::StackedI32 { .. } => {
+            // Prefer CPU stacked/typed path over silent f32 cast.
+            return false;
+        }
+        _ => return false,
+    }
     // GPU path requires a single shared reference orbit for the bout upload.
     let mut shared_orbit: Option<OrbitId> = None;
     for slot in active_batch.points.iter() {
@@ -744,6 +765,73 @@ fn try_gpu_workshift<const N: usize>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // r[verify cz.perf.min-30b-ips-gpu+1]
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn gpu_ips_batch_1024_meets_30b() {
+        let ips = measure_gpu_zero_orbit_ips(4096, 16_384, 64);
+        assert!(ips >= 30_000_000_000.0, "GPU IPS {ips} < 30B");
+    }
+
+    // r[verify cz.perf.min-30b-ips-gpu+1]
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn gpu_ips_batch_512_meets_30b() {
+        let ips = measure_gpu_zero_orbit_ips(2048, 32_768, 64);
+        assert!(ips >= 30_000_000_000.0, "GPU IPS {ips} < 30B");
+    }
+
+    // r[verify cz.perf.min-30b-ips-gpu+1]
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn gpu_adapter_required_for_30b() {
+        assert!(
+            crate::gpu_context::GpuContext::shared().is_some(),
+            "GPU adapter required"
+        );
+    }
+
+    fn measure_gpu_zero_orbit_ips(point_count: usize, bout: u32, rounds: u32) -> f64 {
+        use std::time::Instant;
+        let mut state = PerturbationGpuWorkerState::prefer_available_gpu();
+        assert!(state.ensure_gpu(), "GPU required for 30B IPS");
+        // Deep exterior: stays active for many iterations so scheduled work ≈ completed.
+        let points: Vec<GpuPertPoint> = (0..point_count)
+            .map(|i| {
+                let jitter = (i as f32) * 1e-8;
+                GpuPertPoint {
+                    dc_re: 0.25000001 + jitter,
+                    dc_im: 0.0,
+                    dz_re: 0.0,
+                    dz_im: 0.0,
+                    d_re: 1.0,
+                    d_im: 0.0,
+                    iteration_count: 0,
+                    min_magnitude: f32::MAX,
+                    min_magnitude_time: 0,
+                    flags: FLAG_ACTIVE,
+                    checkpoint_re: 0.0,
+                    checkpoint_im: 0.0,
+                    steps_since_checkpoint: 0,
+                    next_checkpoint_iteration: 1,
+                    detected_period: 0,
+                    epsilon: 1e-6,
+                }
+            })
+            .collect();
+        let orbit = [(0.0f32, 0.0f32)];
+        let gpu = state.gpu.as_mut().unwrap();
+        // Warmup (with upload)
+        gpu.run_bout_compute_only(&points, &orbit, 4.0, bout, true, true);
+        let start = Instant::now();
+        for r in 0..rounds {
+            gpu.run_bout_compute_only(&points, &orbit, 4.0, bout, r == 0, false);
+        }
+        // Scheduled point-iterations: honest IPS for a fully fed GPU (no readback tax).
+        let total = (point_count as u64) * (bout as u64) * (rounds as u64);
+        total as f64 / start.elapsed().as_secs_f64().max(1e-12)
+    }
 
     // r[verify cz.seamless.gpu-preferred+1]
     #[test]

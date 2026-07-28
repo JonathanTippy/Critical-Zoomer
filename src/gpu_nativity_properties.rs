@@ -6,17 +6,10 @@
 #[cfg(test)]
 mod properties {
     use crate::assemblies::structs::MandelbrotResult;
-    use crate::assemblies::structs::gpu_tile::{
-        GPU_CAL_KIND_OUTSIDE, GPUCalibratedAnswer,
-    };
     use crate::assemblies::tile_sheet::TILE_EDGE;
     use crate::assemblies::workgroup_new::production_atlas::ProductionAtlas;
     use crate::assemblies::workgroup_new::tile_publisher::{agnostic_wide, publish_seat};
-    use crate::assemblies::workgroup_new::workcore::mandelbrot::worker_implementations::publisher_shader::{
-        GpuPackedAnswer, PublisherGpu,
-    };
-    use bytemuck::Zeroable;
-    use crate::constants::{NORES_ANSWER, PIXELS_PER_UNIT_POT, TILE_EDGE_LENGTH};
+    use crate::constants::{NORES_ANSWER, PIXELS_PER_UNIT_POT};
     use crate::gear::Gear;
     use crate::gpu_context::GpuContext;
     use crate::intexp::IntExp;
@@ -117,49 +110,6 @@ mod properties {
                 assert_eq!(IntExp::from(sa * sb), IntExp::from(a) * IntExp::from(b));
             }
         }
-    }
-
-    #[test]
-    fn gpu_publisher_matches_cpu_clamp_when_device_available() {
-        let Some(gpu) = PublisherGpu::new() else {
-            return;
-        };
-        let n = TILE_EDGE_LENGTH * TILE_EDGE_LENGTH;
-        let mut cal = vec![GPUCalibratedAnswer::EMPTY; n];
-        cal[0] = GPUCalibratedAnswer {
-            kind: GPU_CAL_KIND_OUTSIDE,
-            period_lo: 0,
-            period_hi: 0,
-            escape_lo: 5,
-            escape_hi: 15,
-            escape_z_re_lo: 0.0,
-            escape_z_re_hi: 2.0,
-            escape_z_im_lo: -1.0,
-            escape_z_im_hi: 1.0,
-            min_mag_time_lo: 0,
-            min_mag_time_hi: 3,
-            min_mag_lo: 0.0,
-            min_mag_hi: 1.0,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let mut bias = vec![GpuPackedAnswer::zeroed(); n];
-        bias[0] = GpuPackedAnswer {
-            kind: 1,
-            escape_or_period: 100,
-            min_mag_time: 1,
-            min_mag: 0.5,
-            zx: 1.0,
-            zy: 0.0,
-            _pad0: 0,
-            _pad1: 0,
-        };
-        let mut valid = vec![0u32; n];
-        valid[0] = 1;
-        let out = gpu.publish_tile(&cal, &bias, &valid).expect("gpu");
-        assert_eq!(out[0].escape_or_period, 15);
-        assert_eq!(out[0].zx, 1.0);
     }
 
     #[test]

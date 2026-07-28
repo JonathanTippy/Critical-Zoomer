@@ -1,0 +1,4 @@
+target/release/critical_zoomer usr/bin/
+packaging/critical-zoomer.desktop usr/share/applications/com.criticalzoomer.CriticalZoomer.desktop
+icons/assembly_chain_crosshair.png usr/share/icons/hicolor/512x512/apps/com.criticalzoomer.CriticalZoomer.png
+packaging/com.criticalzoomer.CriticalZoomer.metainfo.xml usr/share/metainfo/

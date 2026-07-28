@@ -11,6 +11,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Lib tests
+        # Requires a GPU adapter for cz.perf.min-30b-ips-gpu+1 and
+        # cz.perf.headgroup-shaders-2ms+1 (hard-fail if none). ubuntu-latest
+        # runners without GPU will fail those release asserts.
         run: cargo test --release --lib -- --test-threads=1
       - name: Oracle proving
         run: cargo test --release --lib e2e_oracle -- --test-threads=1
@@ -30,6 +33,45 @@ jobs:
             -- --test-threads=1 \
             --skip home_800x480_fills_within_five_seconds_cpu
 
+  packaging:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install packaging validators
+        run: sudo apt-get update && sudo apt-get install -y desktop-file-utils libxml2-utils
+      - name: Validate packaging files exist
+        run: |
+          set -euo pipefail
+          required=(
+            packaging/critical-zoomer.desktop
+            packaging/com.criticalzoomer.CriticalZoomer.metainfo.xml
+            packaging/flatpak/com.criticalzoomer.CriticalZoomer.yml
+            packaging/debian/control
+            packaging/debian/rules
+            packaging/debian/changelog
+            packaging/debian/critical-zoomer.install
+            packaging/debian/compat
+            packaging/README.md
+            icons/assembly_chain_crosshair.png
+          )
+          for f in "${required[@]}"; do
+            test -f "$f" || { echo "missing: $f"; exit 1; }
+          done
+          test -x packaging/debian/rules || { echo "packaging/debian/rules must be executable"; exit 1; }
+      - name: Validate desktop entry
+        run: desktop-file-validate packaging/critical-zoomer.desktop
+      - name: Validate AppStream metainfo
+        run: xmllint --noout packaging/com.criticalzoomer.CriticalZoomer.metainfo.xml
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build release binary (packaging artifact)
+        run: cargo build --release --bin critical_zoomer
+      - name: Upload release binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: critical_zoomer-linux-amd64
+          path: target/release/critical_zoomer
+
   # Headed e2e (manual/local): taskset -c 4-11 scripts/e2e_suite.sh
   # Fuzz smoke (manual/local, nightly + cargo-fuzz): taskset -c 4-11 scripts/fuzz_smoke.sh 45
-  # Tracey: tracey query status (31/31 covered+verified as of QC)
+  # Tracey: docs/tracey/*-rules.md — hard bars in standards-rules.md + product-rules.md
+  # GPU required for release IPS/shader hard asserts (see Lib tests step).

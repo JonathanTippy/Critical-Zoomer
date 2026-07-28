@@ -9,7 +9,7 @@ PO quotes: `he-said/`. This file tracks status, loci, and follow-through.
 ### B-DISP-1 — Phase 2 cutover display regressions (grey / ~15fps / no GPU escape)
 - **Symptom:** Immediate display grey; ~15fps; no escaper on GPU; settings open greys window; location UI misplaced / no input box.
 - **Mechanism (PO):** Headgroup must own a GPU tile collection and run sampler → escape → edge → shade shaders. Tiles are independent, share a homothety; CPU only computes seat deltas (IntExp O(1)). Live path CPU-shades every frame and cleared the tile hoard on location change.
-- **Status:** landing — root cause of flat grey: eframe created a second wgpu device while the production atlas lived on `GpuContext::shared()`, so GPU tile handoffs never reached the paint callback (viewport stayed NORES mid-grey). Fixed by adopting the shared device via `WgpuSetup::Existing`. Shade parity also fixed (vertex UV Y origin; oracle `instruction_count` footgun; `smallness_pit` fixture). Headless home now shows Mandelbrot structure; e2e grey-hole count ignores far-right escape-1 exterior (same mid-grey as NORES under default sinus wash). **Still open:** full coloring_script parity, full filament escape path on GPU, fps re-measure, STE-until-zoom.
+- **Status:** landing — shared-device grey fixed; shade/oracle parity tests cover default ops including out-filament + STE. Vsync Fifo forced (`HEADGROUP_PRESENT_MODE`). **Still open:** headed fps re-measure evidence; full coloring_script edge cases beyond default.
 - **Locus:** `headgroup/window/{mod,sampling,shade,gpu_display}.rs`; quotes in `he-said/phase-2-display-regressions.md`.
 
 ### B-TEN-1 — Unknown painted as set-black (tenacity)
@@ -30,7 +30,7 @@ PO quotes: `he-said/`. This file tracks status, loci, and follow-through.
 ### B-STE-1 — Small-time edges (interior tree missing / stray lines)
 - **Symptom:** Interior small-time tree missing until first zoom-in; also stray lines from exterior `small_time == 0` vs nonzero neighbors.
 - **Mechanism (PO):** Exterior `small_time == 0` is valid — do **not** filter all zeros for **paint**. Small_time updates matter of course each iterate; period resolve is a separate phase (see D-PER-1), not a bolted-on mid-loop `determine_period`.
-- **Status:** partial — CPU `color.rs` `edge_relevant_small_time` maps `0 → None` for STE ridge only (stray-line fix); paint keeps exterior `0` (`b_ste1_*` tests pass). GPU `shade.wgsl` matches: `OP_SMALL_TIME` paints raw `finished.small_time` (zeros kept); `raw_small_time` filters `< 0.5` for `OP_STE` only (same as CPU edge filter — not a paint filter). **Still open:** STE-until-zoom interior tree missing until first zoom — unverified / no failing test yet.
+- **Status:** landing — paint/stray-line fixes remain; D-SCH-3 now schedules `small_time_edge` after out-fill so STE work is not zoom-gated by scheduler starvation. Visual confirm interior tree without zoom still needed.
 - **Locus:** `tile_session.rs`; `color.rs` `is_node_tree`; `naive_cpu_worker.rs` `iterate_point_bout`; `shade.wgsl`.
 - **Quotes:** `he-said/scheduler-and-edges.md`, `he-said/period-small-time.md`, `he-said/period-determination-phase.md`, `he-said/scheduler-boundary-trace.md`
 
@@ -50,6 +50,16 @@ PO quotes: `he-said/`. This file tracks status, loci, and follow-through.
 
 ## Design gaps (open)
 
+### D-GEAR-TYPED — Host batch still f64; stacked/FloatExp bout not fully monomorphized
+- **Need:** Typed ActivePoint enum / Mandelbrotable bout for StackedI32 + AdaptiveRug (FloatExp). Today gear is read: F32 has f32 bout; GPU gated on `runs_on_gpu()` (no silent F64→f32). Stacked GPU bout still deferred to CPU.
+- **Status:** open (partial P3)
+- **Locus:** `perturbation_{cpu,gpu}_worker.rs`; `gears.wgsl`
+
+
+### D-PUB-GPU — GPU publisher deleted; CPU publish_seat is live path
+- **Status:** closed (purge) — `publisher_shader.rs` / `publisher.wgsl` removed; tile publish uses CPU `publish_seat` in `tile_publisher.rs`.
+- **Locus:** `workgroup_new/tile_publisher.rs`.
+
 ### D-PER-1 — Period-determination phase after boundary + out-fill
 - **Need:** After boundary tracing and out-fill complete, run a phase that determines periods of the **in-edge**. Regular iterate must stay certain (no false periods); unknown period is allowed until this phase. Out-filament rendering must not show an ugly boundary between period-unknown Inside and period-known Inside.
 - **Status:** landing — `OutfillInfillScheduler::{needs,take,apply}_period_resolve*` + `TileSession::try_resolve_periods` after `screen_edge_complete()`. Flood-in period propagation wired (see D-SCH-2). Verify flood-in + out-filament seam visually.
@@ -58,8 +68,8 @@ PO quotes: `he-said/`. This file tracks status, loci, and follow-through.
 
 ### D-SCH-3 — Boundary-trace all renderable edges (not only in/out)
 - **Need:** Scheduler is out-fill + boundary trace. Order: out-fill until a real boundary → trace **in/out**, **in-filament**, **out-filament** edges → finish out-fill → trace **small-time** edges. Also period-change edges; future **derivative magnitude angle** on Answers (in-filament detection outside workgroup). Do not time-slice inefficiently across phases.
-- **Status:** open — live `TileSession` only has scredge / in/out / edge queues (in/out style).
-- **Locus:** `tile_session.rs` (and later Answer field for derivative magnitude angle).
+- **Status:** landing — `in_filament_edge` / `out_filament_edge` / `small_time_edge` queues + ranks + PhaseJobTracker wire in `outfill_infill_scheduler.rs`. STE gated until out-fill complete. In-filament still needs derivative-magnitude-angle on Answers for full seed quality.
+- **Locus:** `outfill_infill_scheduler.rs`; `tile_session.rs`; Answer angle field still future.
 - **Quotes:** `he-said/scheduler-boundary-trace.md`
 
 ### D-SCH-1 — Full screen-edge seed missing on live tile path

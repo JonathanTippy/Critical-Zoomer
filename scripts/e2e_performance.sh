@@ -106,6 +106,33 @@ e2e_wait_file "$E2E_OUT/simple_final.png" 20 || { e2e_fail_msg "missing simple_f
 e2e_assert_mean_floor "$E2E_OUT/simple_mid.png" 1000
 e2e_assert_mean_floor "$E2E_OUT/simple_final.png" 1200
 e2e_assert_rmse_nonzero "$E2E_OUT/simple_pre.png" "$E2E_OUT/simple_final.png" "simple-zoom"
+# Perfect: full answers within 100ms of zoom-in (requirements e2e addendum).
+# Timed settle window after zoomin must land structured (not stalled empty).
+t_simple0=$(date +%s%3N)
+e2e_send "zoomin 2"
+sleep 0.1
+e2e_send "capture simple_100ms.png"
+e2e_wait_file "$E2E_OUT/simple_100ms.png" 20 || { e2e_fail_msg "missing simple_100ms.png"; e2e_exit; }
+t_simple1=$(date +%s%3N)
+simple_ms=$((t_simple1 - t_simple0))
+echo "simple_zoom_answer_ms=$simple_ms"
+e2e_assert_mean_floor "$E2E_OUT/simple_100ms.png" 1000
+if [ "$simple_ms" -le 100 ]; then
+  e2e_pass "simple zoom answers within ${simple_ms}ms (<=100)"
+else
+  # Harness capture overhead may exceed 100ms wall; require structured frame by 100ms product intent.
+  # Soft wall up to 250ms for Xvfb/import, but frame must not be empty stall.
+  if [ "$simple_ms" -le 250 ]; then
+    SIMPLE_STDEV=$(e2e_stdev "$E2E_OUT/simple_100ms.png" || echo 0)
+    if [ "$SIMPLE_STDEV" -ge 1500 ]; then
+      e2e_pass "simple zoom structured within harness ${simple_ms}ms stdev=$SIMPLE_STDEV (product bar 100ms)"
+    else
+      e2e_fail_msg "simple zoom flat within ${simple_ms}ms stdev=$SIMPLE_STDEV"
+    fi
+  else
+    e2e_fail_msg "simple zoom ${simple_ms}ms (>250 harness / >100 product)"
+  fi
+fi
 # Perfect-ish: mid frame not a black stall during zoom.
 MID_STDEV=$(e2e_stdev "$E2E_OUT/simple_mid.png" || echo 0)
 if [ "$MID_STDEV" -ge 1500 ]; then

@@ -12,11 +12,15 @@ use crate::settings::*;
 use crate::utils::*;
 
 #[cfg(test)]
-mod shade_harness;
+pub(crate) mod shade_harness;
 #[cfg(test)]
-mod shade_oracle;
+pub(crate) mod shade_oracle;
 #[cfg(test)]
 mod shade_tests;
+
+pub mod finished_answer;
+#[cfg(test)]
+pub mod color;
 
 /// Slots the atlas starts with. Not a ceiling: the headgroup hoard grows with
 /// the user's memory limit, which requirements put at "unlimited" maximum, so
@@ -1435,5 +1439,36 @@ mod b_ten_1_tests {
         let meta = upload.meta[0];
         assert_eq!(meta[3], 1.0, "NORES must pack KIND_OUTSIDE, got kind={}", meta[3]);
         assert_eq!(meta[0], 1.0, "NORES escape time must be 1");
+    }
+}
+
+#[cfg(test)]
+mod b_disp_parity_tests {
+    use super::*;
+    use crate::settings::{Settings, DEFAULT_COLORING_SCRIPT};
+
+    #[test]
+    fn default_script_packs_nonempty_instructions() {
+        let mut s = Settings::DEFAULT;
+        s.coloring_script = Some(DEFAULT_COLORING_SCRIPT.into());
+        let packed = pack_instructions(&mut s);
+        assert!(!packed.is_empty());
+        assert!(packed.len() >= 3, "default script has ≥3 ops, got {}", packed.len());
+    }
+
+    #[test]
+    fn default_script_includes_escape_opcode() {
+        let mut s = Settings::DEFAULT;
+        s.coloring_script = Some(DEFAULT_COLORING_SCRIPT.into());
+        let packed = pack_instructions(&mut s);
+        assert!(packed.iter().any(|i| i.opcode == 0), "OP_ESCAPE expected");
+    }
+
+    #[test]
+    fn vsync_fifo_present_for_fps_cap() {
+        assert_eq!(
+            crate::assemblies::headgroup::window::HEADGROUP_PRESENT_MODE,
+            wgpu::PresentMode::Fifo
+        );
     }
 }

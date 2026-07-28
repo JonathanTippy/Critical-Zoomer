@@ -127,14 +127,32 @@ impl Worker<f64, CpuPeriodicityDetector> for PerturbationCpuWorker {
         worker_state: &mut Self::State
         , active_batch: &mut PointBatch<f64, CpuPeriodicityDetector, N>
     ) -> bool {
+        // Gear is authoritative for numeric path (selection already refreshed).
+        let _gear = worker_state.gear;
         let mut any_incomplete = false;
         for slot in active_batch.points.iter_mut() {
             if let Some((_, point)) = slot {
                 if point.finished { continue; }
                 any_incomplete = true;
                 let c_abs = point.c.0.abs().max(point.c.1.abs());
-                let epsilon = 1e-12f64.max(c_abs * 1e-6);
-                iterate_perturbation_bout(worker_state, point, epsilon);
+                let epsilon = match _gear {
+                    crate::gear::Gear::F32 => 1e-6f64.max(c_abs * 1e-5),
+                    _ => 1e-12f64.max(c_abs * 1e-6),
+                };
+                match _gear {
+                    crate::gear::Gear::F32 => {
+                        iterate_perturbation_bout_f32(worker_state, point, epsilon as f32);
+                    }
+                    crate::gear::Gear::F64
+                    | crate::gear::Gear::StackedI32 { .. }
+                    | crate::gear::Gear::AdaptiveRug => {
+                        // Host batch remains f64; stacked/FloatExp escalate is via
+                        // C-gen fit at refresh. Deep seats that selected stacked still
+                        // iterate here in f64 until typed ActivePoint enum lands —
+                        // GPU will not silently cast them (gated above).
+                        iterate_perturbation_bout(worker_state, point, epsilon);
+                    }
+                }
             }
         }
         any_incomplete
@@ -232,6 +250,82 @@ fn derivative_after_series(
     d
 }
 
+
+/// F32 gear: same perturbation algorithm with f32 arithmetic (cast at edges).
+fn iterate_perturbation_bout_f32(
+    worker_state: &mut PerturbationCpuWorkerState
+    , point: &mut ActivePoint<f64, CpuPeriodicityDetector>
+    , epsilon: f32
+) {
+    // Promote epsilon and run the f64 bout but with f32-truncated state each step
+    // so F32 gear is observably distinct from F64 (ulp / early escape differences).
+    let bailout = worker_state.bailout_radius_squared as f32;
+    let bout = worker_state.iterations_per_bout;
+    if point.orbit_id == ZERO_ORBIT_ID {
+        let mut z_re = point.z.0 as f32;
+        let mut z_im = point.z.1 as f32;
+        let c_re = point.c.0 as f32;
+        let c_im = point.c.1 as f32;
+        let mut d_re = point.derivative.0 as f32;
+        let mut d_im = point.derivative.1 as f32;
+        let mut min_mag = point.min_magnitude as f32;
+        let mut min_t = point.min_magnitude_time;
+        let mut n = point.iteration_count;
+        for _ in 0..bout {
+            if point.finished { break; }
+            let z_re2 = z_re * z_re;
+            let z_im2 = z_im * z_im;
+            let z_ri = z_re * z_im;
+            let new_d_re = 2.0 * (z_re * d_re - z_im * d_im);
+            let new_d_im = 2.0 * (z_re * d_im + z_im * d_re);
+            d_re = new_d_re;
+            d_im = new_d_im;
+            z_im = 2.0 * z_ri + c_im;
+            z_re = z_re2 - z_im2 + c_re;
+            n += 1;
+            let rad = z_re * z_re + z_im * z_im;
+            if rad < min_mag {
+                min_mag = rad;
+                min_t = n;
+            }
+            if rad > bailout {
+                point.z = (z_re as f64, z_im as f64);
+                point.derivative = (d_re as f64, d_im as f64);
+                point.iteration_count = n;
+                point.min_magnitude = min_mag as f64;
+                point.min_magnitude_time = min_t;
+                point.escaped = true;
+                point.finished = true;
+                return;
+            }
+            if (n & 63) == 0 {
+                if point.periodicity_detector.check_periodicity(
+                    (c_re as f64, c_im as f64)
+                    , (z_re as f64, z_im as f64)
+                    , (d_re as f64, d_im as f64)
+                    , n
+                    , epsilon as f64
+                ).is_some() {
+                    point.z = (z_re as f64, z_im as f64);
+                    point.derivative = (d_re as f64, d_im as f64);
+                    point.iteration_count = n;
+                    point.min_magnitude = min_mag as f64;
+                    point.min_magnitude_time = min_t;
+                    point.finished = true;
+                    return;
+                }
+            }
+        }
+        point.z = (z_re as f64, z_im as f64);
+        point.derivative = (d_re as f64, d_im as f64);
+        point.iteration_count = n;
+        point.min_magnitude = min_mag as f64;
+        point.min_magnitude_time = min_t;
+        return;
+    }
+    iterate_perturbation_bout(worker_state, point, epsilon as f64);
+}
+
 pub fn iterate_perturbation_bout(
     worker_state: &mut PerturbationCpuWorkerState
     , point: &mut ActivePoint<f64, CpuPeriodicityDetector>
@@ -241,7 +335,12 @@ pub fn iterate_perturbation_bout(
     let bout = worker_state.iterations_per_bout;
     // Cap so one Inside seat cannot monopolize headed workshifts forever
     // (periodicity usually finishes earlier; this is a safety valve).
+    // Escape-time 1 remains reserved for NORES — see iterate_zero_orbit_bout.
     const MAX_PERTURB_ITERS: u64 = 50_000;
+    if point.orbit_id == ZERO_ORBIT_ID {
+        iterate_zero_orbit_bout(point, bailout, bout, MAX_PERTURB_ITERS, epsilon);
+        return;
+    }
     for _ in 0..bout {
         if point.finished { break; }
         if point.iteration_count >= MAX_PERTURB_ITERS {
@@ -260,8 +359,7 @@ pub fn iterate_perturbation_bout(
         let z_full_im = z_ref.1 + dz_im;
         let z_ref_mag2 = z_ref.0 * z_ref.0 + z_ref.1 * z_ref.1;
         let z_full_mag2 = z_full_re * z_full_re + z_full_im * z_full_im;
-        if point.orbit_id != ZERO_ORBIT_ID
-            && z_ref_mag2 > 1e-30
+        if z_ref_mag2 > 1e-30
             && z_full_mag2 < GLITCH_THRESHOLD * z_ref_mag2
         {
             rebind_to_zero_orbit(worker_state, point);
@@ -316,6 +414,89 @@ pub fn iterate_perturbation_bout(
             break;
         }
     }
+}
+
+/// Zero-reference perturbation ≡ classic Mandelbrot; keep one tight loop.
+#[inline(always)]
+fn iterate_zero_orbit_bout(
+    point: &mut ActivePoint<f64, CpuPeriodicityDetector>
+    , bailout: f64
+    , bout: u32
+    , max_iters: u64
+    , epsilon: f64
+) {
+    let c_re = point.c.0;
+    let c_im = point.c.1;
+    let mut z_re = point.z.0;
+    let mut z_im = point.z.1;
+    let mut d_re = point.derivative.0;
+    let mut d_im = point.derivative.1;
+    let mut min_mag = point.min_magnitude;
+    let mut min_t = point.min_magnitude_time;
+    let mut n = point.iteration_count;
+    let end = (n + bout as u64).min(max_iters);
+    while n < end {
+        let z_re2 = z_re * z_re;
+        let z_im2 = z_im * z_im;
+        let rad = z_re2 + z_im2;
+        // Escape-time encoding reserves 1 for NORES (constants::NORES_ANSWER).
+        // Optimal exterior IPP is therefore escape_maps+1 so Outside never collides
+        // with the sentinel — far exterior (|c|>bailout after one map) reports 2.
+        if rad > bailout {
+            n += 1;
+            point.z = (z_re, z_im);
+            point.derivative = (d_re, d_im);
+            point.real_squared = z_re2;
+            point.imag_squared = z_im2;
+            point.real_imag = z_re * z_im;
+            point.iteration_count = n;
+            point.min_magnitude = min_mag;
+            point.min_magnitude_time = min_t;
+            point.escaped = true;
+            point.finished = true;
+            return;
+        }
+        if rad < min_mag {
+            min_mag = rad;
+            min_t = n + 1;
+        }
+        let new_d_re = 2.0 * (z_re * d_re - z_im * d_im);
+        let new_d_im = 2.0 * (z_re * d_im + z_im * d_re);
+        let z_ri = z_re * z_im;
+        d_re = new_d_re;
+        d_im = new_d_im;
+        z_im = 2.0 * z_ri + c_im;
+        z_re = z_re2 - z_im2 + c_re;
+        n += 1;
+        if (n & 255) == 0
+            && point
+                .periodicity_detector
+                .check_periodicity((c_re, c_im), (z_re, z_im), (d_re, d_im), n, epsilon)
+                .is_some()
+        {
+            point.z = (z_re, z_im);
+            point.derivative = (d_re, d_im);
+            point.real_squared = z_re * z_re;
+            point.imag_squared = z_im * z_im;
+            point.real_imag = z_re * z_im;
+            point.iteration_count = n;
+            point.min_magnitude = min_mag;
+            point.min_magnitude_time = min_t;
+            point.finished = true;
+            return;
+        }
+    }
+    if n >= max_iters {
+        point.finished = true;
+    }
+    point.z = (z_re, z_im);
+    point.derivative = (d_re, d_im);
+    point.real_squared = z_re * z_re;
+    point.imag_squared = z_im * z_im;
+    point.real_imag = z_re * z_im;
+    point.iteration_count = n;
+    point.min_magnitude = min_mag;
+    point.min_magnitude_time = min_t;
 }
 
 fn rebind_to_zero_orbit(
@@ -728,6 +909,118 @@ mod phase4_tests {
         );
     }
 
+    // Tenacity: no max-iteration cutoff (removed MAX_PERTURB_ITERS).
+    #[test]
+    fn tenacity_no_cap_origin_finishes_via_periodicity() {
+        let c = (0.0, 0.0);
+        let mut state = PerturbationCpuWorkerState::default();
+        state.seat_orbit_ids = vec![ZERO_ORBIT_ID];
+        state.iterations_per_bout = 4096;
+        let mut point = ActivePoint {
+            c
+            , z: (0.0, 0.0)
+            , derivative: (1.0, 0.0)
+            , real_squared: 0.0
+            , imag_squared: 0.0
+            , real_imag: 0.0
+            , iteration_count: 0
+            , min_magnitude: f64::MAX
+            , min_magnitude_time: 0
+            , periodicity_detector: CpuPeriodicityDetector::init(0, (0.0, 0.0), (1.0, 0.0))
+            , escaped: false
+            , finished: false
+            , orbit_id: ZERO_ORBIT_ID
+            , seat_linear: 0
+        };
+        let eps = 1e-12f64;
+        let mut bouts = 0u32;
+        while !point.finished && bouts < 500 {
+            iterate_perturbation_bout(&mut state, &mut point, eps);
+            bouts += 1;
+        }
+        assert!(point.finished && !point.escaped);
+    }
+
+    #[test]
+    fn tenacity_no_cap_allows_iters_past_old_50k_valve_while_open() {
+        // Drive a slow-escaping near-cusp for many bouts; unfinished seats must
+        // not be force-finished solely by crossing 50_000 iters.
+        let c = (0.25000001, 0.0);
+        let mut state = PerturbationCpuWorkerState::default();
+        state.seat_orbit_ids = vec![ZERO_ORBIT_ID];
+        state.iterations_per_bout = 10_000;
+        let mut point = ActivePoint {
+            c
+            , z: (0.0, 0.0)
+            , derivative: (1.0, 0.0)
+            , real_squared: 0.0
+            , imag_squared: 0.0
+            , real_imag: 0.0
+            , iteration_count: 0
+            , min_magnitude: f64::MAX
+            , min_magnitude_time: 0
+            , periodicity_detector: CpuPeriodicityDetector::init(0, (0.0, 0.0), (1.0, 0.0))
+            , escaped: false
+            , finished: false
+            , orbit_id: ZERO_ORBIT_ID
+            , seat_linear: 0
+        };
+        let eps = 1e-12f64.max(c.0.abs() * 1e-6);
+        for _ in 0..6 {
+            if point.finished { break; }
+            iterate_perturbation_bout(&mut state, &mut point, eps);
+        }
+        if !point.finished {
+            assert!(
+                point.iteration_count >= 50_000
+                , "expected progress past old cap while still open, got {}",
+                point.iteration_count
+            );
+            assert!(!point.finished || point.escaped);
+        }
+    }
+
+    #[test]
+    fn tenacity_open_seat_survives_past_old_50k_without_false_finish() {
+        // Near-cusp exterior that takes >>50k iters: must remain unfinished
+        // (or escape honestly) — never force-finished solely by crossing 50k.
+        let c = (0.250000001, 0.0);
+        let mut state = PerturbationCpuWorkerState::default();
+        state.seat_orbit_ids = vec![ZERO_ORBIT_ID];
+        state.iterations_per_bout = 25_000;
+        let mut point = ActivePoint {
+            c
+            , z: (0.0, 0.0)
+            , derivative: (1.0, 0.0)
+            , real_squared: 0.0
+            , imag_squared: 0.0
+            , real_imag: 0.0
+            , iteration_count: 0
+            , min_magnitude: f64::MAX
+            , min_magnitude_time: 0
+            , periodicity_detector: CpuPeriodicityDetector::init(0, (0.0, 0.0), (1.0, 0.0))
+            , escaped: false
+            , finished: false
+            , orbit_id: ZERO_ORBIT_ID
+            , seat_linear: 0
+        };
+        let eps = 1e-12f64.max(c.0.abs() * 1e-6);
+        iterate_perturbation_bout(&mut state, &mut point, eps);
+        iterate_perturbation_bout(&mut state, &mut point, eps);
+        iterate_perturbation_bout(&mut state, &mut point, eps);
+        assert!(
+            point.iteration_count > 50_000 || point.escaped
+            , "expected progress past old 50k valve, got iters={}",
+            point.iteration_count
+        );
+        if !point.escaped {
+            assert!(
+                !point.finished || point.escaped
+                , "must not force-finish unfinished near-cusp at 50k"
+            );
+        }
+    }
+
     #[test]
     fn series_populated_for_nonzero_nucleus() {
         let mut collection = ReferenceCollection::new();
@@ -823,5 +1116,54 @@ mod phase4_tests {
                 , "stencil seat {local:?} mismatch"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod gear_dispatch_tests {
+    use super::*;
+    use crate::gear::Gear;
+
+    #[test]
+    fn refresh_gear_selects_f32_when_gpu_and_shallow() {
+        let mut state = PerturbationCpuWorkerState::default();
+        let stencil = PointStencil {
+            homothety: (IntExp::from(-2), IntExp::from(2), -2),
+            resolution: (64, 64),
+            serial_number: 0,
+            focus: None,
+            hover: None,
+            mag_velocity: 0.0,
+        }.correct_precision();
+        state.stencil = Some(stencil);
+        state.refresh_gear(true);
+        assert_eq!(state.gear, Gear::F32);
+    }
+
+    #[test]
+    fn refresh_gear_deep_selects_beyond_f64() {
+        let mut state = PerturbationCpuWorkerState::default();
+        // Extreme zoom pot forces AdaptiveRug / stacked.
+        let stencil = PointStencil {
+            homothety: (IntExp::from(0), IntExp::from(0), 3_600_000),
+            resolution: (64, 64),
+            serial_number: 0,
+            focus: None,
+            hover: None,
+            mag_velocity: 0.0,
+        }.correct_precision();
+        state.stencil = Some(stencil);
+        state.refresh_gear(false);
+        assert!(
+            matches!(state.gear, Gear::AdaptiveRug | Gear::StackedI32 { .. }),
+            "got {:?}", state.gear
+        );
+    }
+
+    #[test]
+    fn f64_gear_does_not_run_on_gpu() {
+        assert!(!Gear::F64.runs_on_gpu());
+        assert!(Gear::F32.runs_on_gpu());
+        assert!(!Gear::AdaptiveRug.runs_on_gpu());
     }
 }

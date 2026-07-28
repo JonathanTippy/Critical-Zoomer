@@ -70,7 +70,7 @@ Agnostic answers: impossible.
 #### IO
 
 Input: Stencil
-flow per second (moving): 60
+flow per second (moving): vsync
 flow per second (still): 0
 
 Output: GPUTile<GPUAnswer> 

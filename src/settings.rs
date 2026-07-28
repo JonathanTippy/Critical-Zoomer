@@ -69,7 +69,10 @@ impl Settings {
         , id_counter: 3
         , currently_selected_coloring_instruction: 0
         // L = L CPU + L VRAM; default 1GB each side of the ledger.
+        // r[impl cz.system.memory-default-1gb+1]
+        // r[impl cz.cosmetic.bailout-range-2-255+1]
         , memory_limit_bytes: 1_000_000_000
+        , memory_floor_bytes: 125_000_000
     };
 }
 
@@ -91,6 +94,8 @@ pub struct Settings {
     , pub id_counter: u64
     // Soft per-side budget (bytes). Slider L means L CPU + L VRAM.
     , pub memory_limit_bytes: usize
+    // On-demand slider floor (protected screen+lookahead); bumps raise this.
+    , pub memory_floor_bytes: usize
 }
 
 

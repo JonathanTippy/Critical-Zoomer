@@ -1,0 +1,31 @@
+app-id: com.criticalzoomer.CriticalZoomer
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: critical_zoomer
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --share=ipc
+  - --share=network
+
+modules:
+  - name: critical-zoomer
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      env:
+        CARGO_HOME: /run/build/critical-zoomer/cargo
+        RUSTUP_HOME: /run/build/critical-zoomer/rustup
+    build-commands:
+      - cargo --offline build --release
+      - install -Dm755 target/release/critical_zoomer /app/bin/critical_zoomer
+      - install -Dm644 packaging/critical-zoomer.desktop /app/share/applications/com.criticalzoomer.CriticalZoomer.desktop
+      - install -Dm644 icons/assembly_chain_crosshair.png /app/share/icons/hicolor/512x512/apps/com.criticalzoomer.CriticalZoomer.png
+      - install -Dm644 packaging/com.criticalzoomer.CriticalZoomer.metainfo.xml /app/share/metainfo/com.criticalzoomer.CriticalZoomer.metainfo.xml
+    sources:
+      - type: dir
+        path: ../..

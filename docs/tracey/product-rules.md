@@ -56,6 +56,70 @@ r[cz.fast.natural-zoom-2x+1]
 - [x] Scroll handling changes zoom_pot by ±1 per discrete bump under natural scroll
   (`inputs.rs` scroll_zoom_tests; e2e_zoom_smoke exercises headed scroll).
 
+r[cz.fast.settings-100ms+1]
+
+**Normative summary.** Settings changes visible within 100ms (hoard recolor / shade path).
+
+**Acceptance criteria.**
+- [x] Release hard-assert shade/recolor ≤100ms for ≥3 setting deltas
+
+r[cz.fast.cosmetic-17ms-1080p+1]
+
+**Normative summary.** Continuous cosmetics animable within 17ms at 1080p.
+
+**Acceptance criteria.**
+- [x] Release hard-assert shade path ≤17ms @1080p for ≥3 continuous params
+
+r[cz.fast.scroll-10-in-300ms+1]
+
+**Normative summary.** Sustain 10 zoom bumps within 300ms (applied ticks, not harness wall alone).
+
+**Acceptance criteria.**
+- [x] Unit: 10 debt thresholds ⇒ Δpot ±10 within 300ms accounting
+- [x] ≥3 verifies; e2e must not waive product 300ms via 2000ms harness bound alone
+
+r[cz.fast.shift-space-5bps+1]
+
+**Normative summary.** Shift/Space zoom hold rate about 5 bumps per second (center origin).
+
+**Acceptance criteria.**
+- [x] Hold-repeat ~5 bumps/s; ≥3 clocked verifies
+
+r[cz.fast.no-tick-backlog+1]
+
+**Normative summary.** Fast spinning neither skips nor backlogs scroll ticks (debt gaps).
+
+**Acceptance criteria.**
+- [x] N thresholds ⇒ N zooms; reverse-sign clears; no deferred burst (≥3)
+
+r[cz.fast.input-next-frame-17ms+1]
+
+**Normative summary.** Movements/zooms visible this or next frame (≤17ms at 60Hz).
+
+**Acceptance criteria.**
+- [x] Same-turn transform/input apply; ≥3 verifies (headed latency hard-assert when measurable)
+
+r[cz.system.memory-default-1gb+1]
+
+**Normative summary.** Default memory limit is 1GB CPU + 1GB VRAM class (1gb settings default).
+
+**Acceptance criteria.**
+- [x] Default const/settings == 1_000_000_000 class; ≥3 verifies
+
+r[cz.cosmetic.bailout-range-2-255+1]
+
+**Normative summary.** Bailout radius accepts at least [2, 255].
+
+**Acceptance criteria.**
+- [x] Accept/clamp verifies at 2, mid, 255 (≥3)
+
+r[cz.deep.min-zoom-pot-capacity+1]
+
+**Normative summary.** Types/gears can represent magnification factor ≥ 2^3600000 (pot magnitude).
+
+**Acceptance criteria.**
+- [x] Capacity/property verifies — not a 100-hour zoom run (≥3)
+
 r[cz.hoarding.one-answer-per-point+1]
 
 **Normative summary.** There is one answer per point; cosmetic settings recolor from hoarded work.

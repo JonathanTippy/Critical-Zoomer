@@ -1,3 +1,5 @@
+pub mod work_controller;
+pub mod screen_worker;
 pub mod structs;
 pub mod workcore;
 pub mod tile_session;

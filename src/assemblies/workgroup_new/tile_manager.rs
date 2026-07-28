@@ -128,6 +128,28 @@ pub fn apply_memory_bump(current_limit_bytes: usize, needed: usize) -> usize {
     current_limit_bytes.max(needed)
 }
 
+/// Bytes of current-stencil + lookahead tiles (slider floor / on-demand minimum).
+// r[impl cz.system.memory-default-1gb+1]
+pub fn protected_bytes(tiles: &HashMap<(i32, i32, i32), ManagedTileMeta>) -> usize {
+    tiles
+        .values()
+        .filter(|m| {
+            matches!(
+                m.keep,
+                TileKeepClass::CurrentStencil | TileKeepClass::Lookahead
+            )
+        })
+        .map(|m| m.bytes)
+        .sum()
+}
+
+/// Slider floor in GB: at least 0.125, raised by protected footprint when larger.
+pub fn memory_slider_floor_gb(protected_byte_total: usize) -> f64 {
+    let from_protected = (protected_byte_total as f64) / 1_000_000_000.0;
+    from_protected.max(0.125)
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,5 +256,24 @@ mod tests {
         // Must drop enough unprotected mags to approach the 8-homothety budget.
         assert!(!plan.is_empty());
         assert!(!plan.contains(&(0, 0, 0)));
+    }
+
+    #[test]
+    fn protected_bytes_sums_current_and_lookahead_only() {
+        let mut tiles = HashMap::new();
+        tiles.insert((0, 0, 0), meta(TileKeepClass::CurrentStencil, 100));
+        tiles.insert((1, 0, 0), meta(TileKeepClass::Lookahead, 50));
+        tiles.insert((-1, 0, 0), meta(TileKeepClass::UnrelatedHoard, 999));
+        assert_eq!(protected_bytes(&tiles), 150);
+    }
+
+    #[test]
+    fn memory_slider_floor_gb_respects_eighth() {
+        assert!((memory_slider_floor_gb(0) - 0.125).abs() < 1e-9);
+    }
+
+    #[test]
+    fn memory_slider_floor_gb_raises_with_protected() {
+        assert!((memory_slider_floor_gb(2_000_000_000) - 2.0).abs() < 1e-9);
     }
 }

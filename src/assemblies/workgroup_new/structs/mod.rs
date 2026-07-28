@@ -1,4 +1,3 @@
-pub mod sparse_views;
 pub mod mandelbrotable;
 
 use std::cmp::Ordering;
@@ -26,29 +25,6 @@ pub enum SchedulingMandelbrotResult {
 }
 
 
-
-#[derive(PartialEq, Clone, Debug)]
-
-pub struct SparseView<T> {
-    stencil: PointStencil
-    , points: Vec<(T, u8, (usize, usize))>
-    , map: HashMap<(usize, usize), usize>
-}
-
-
-impl<T: Copy + Clone> From<View<T>> for SparseView<T> {
-    fn from(input: View<T>) -> SparseView<T> {
-        let mut returned = SparseView::new(input.stencil);
-        for i in 0..input.data.len() {
-            if input.alignment[i] != 0 {
-                let value = input.data[i];
-                let align = input.alignment[i];
-                returned.insert_with_align((value, align, returned.stencil.seat_and_row(i)));
-            }
-        }
-        returned
-    }
-}
 
 pub struct PointUpdate<T>{
     update: T

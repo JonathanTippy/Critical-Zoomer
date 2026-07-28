@@ -16,6 +16,7 @@ The app must be distributed on Flatpak and in debian linux.
 ### System Policy
 
 The app must have a memory limit box in settings defaulting to 1gb meaning 1GB cpu memory + 1GB vram.
+r[cz.system.memory-default-1gb+1]
 The maximum limit must be unlimited and the minimum limit must be calculated on-demand.
 The minimum limit must be able to bump the slider if it rises.
 The on-screen hoard must never be evicted for memory reasons.
@@ -88,9 +89,10 @@ The app must allow specifying the base color for each layer, its opacity inside 
 The app must highlight features such as in filaments, out filaments, and minibrots (nodes), and allow including these results in the coloration or not.
 
 The app must allow customizing the bailout radius to at least any value in: [2, 255].
+r[cz.cosmetic.bailout-range-2-255+1]
 
 All these cosmetic features must run quickly because they start from hoarded work.
-All cosmetic features (that are continuous rather than enumerated) must animate at 60fps 1080p.
+All cosmetic features (that are continuous rather than enumerated) must hit 17ms frametime at 1080p.
 
 The cosmetic settings must come set to a reasonable default which allows browsing without needing to edit them:
 - shows escape time
@@ -144,8 +146,9 @@ The app must use fovated rendering to prioritize the area around the mouse point
 The app must go as deep as the user wants.
 This means 100 hours of comfortably zooming in, here estimated to be 2^(10 * 2 * 60 * 60 * 100) which is factor 2^3600000;
 The app must zoom to at least factor 2^3600000.
+r[cz.deep.min-zoom-pot-capacity+1]
 
-depth doesn't compromise responsiveness requrements: the app must still feel snappy when at its depth target.
+depth doesn't compromise responsiveness requrements: the app must still feel snappy (definition: headgroup running at full framerate. pan controls and zoom controls executed at framerate, browsing headgroup's current answer hoard.) when at its depth target.
 
 ### Tenacious
 
@@ -182,20 +185,26 @@ Display settings (including highlighting, bailout, and coloring) change how pixe
 ### Fast
 
 all settings must feel instant: result visible within 100ms.
+r[cz.fast.settings-100ms+1]
 
-All non-enumerated, rendering related settings must be animable at full monitor refresh rate. (60hz 1080p)
+All non-enumerated, rendering related settings must be animable at full monitor refresh rate. (17ms 1080p)
+r[cz.fast.cosmetic-17ms-1080p+1]
 
 r[cz.fast.natural-zoom-2x+1]
 
 Definition of "natural": Zooming must zoom at 2x magnification per mouse wheel bump.
 (when zoom origin is center, this means the middle half of the screen (by side length) becomes the entire screen.)
 The app must be able to sustain real time activity when zooming 10 bumps within 300ms, and when repeating that movement every second.
+r[cz.fast.scroll-10-in-300ms+1]
 The space / shift control options will be a little slower than the mouse, about 5 bumps per second.
+r[cz.fast.shift-space-5bps+1]
 
 The user must see an immediate step on every wheel tick, and fast spinning must not skip or backlog ticks.
+r[cz.fast.no-tick-backlog+1]
 Work might not keep up the pace; it Should, but if it doesn't, 
 the user must see what they just saw, just magnified, so they must see big square pixels / low-res.
 The user must see their movements and zooms on this or the next frame; 17ms at 60hz.
+r[cz.fast.input-next-frame-17ms+1]
 
 To that end, component or components responsible for generating work must be extremely fast and efficient with scheduling; What the user recieves is a direct result of how efficiently the time available is used. Target is that scheduling & data transfer are insignificant compared with time spent working even in trivial cases. (without cheating by making work harder than it is)
 
@@ -222,7 +231,7 @@ r[cz.e2e.perf-zoom-simple+1]
 
 r[cz.e2e.perf-zoom-hard+1]
 
-- the app is as fast as expected (<5s to fill the home screen, smoothly humming along (apparently, completely and utterly perfect) when user zooms into simpler areas, does as well as it should (lower res, still keeping pace) when user zooms into less simple areas)
+- the app is as fast as expected (<5s to fill the home screen, smoothly humming along (apparently, completely and utterly perfect (meaning new full view of answers are complete within 100ms of zooming in)) when user zooms into simpler areas, does as well as it should (lower res, still keeping pace (meaning apply greedy methods and progressive refinement)) when user zooms into less simple areas)
 
 r[cz.e2e.visual-oracle+1]
 

@@ -108,6 +108,15 @@ impl SubmissionBudget {
     pub fn seconds_per_point_iteration(&self) -> f64 {
         self.seconds_per_point_iteration
     }
+
+    /// Observed iterations per second (point-iterations), once calibrated.
+    pub fn estimated_ips(&self) -> f64 {
+        let s = self.seconds_per_point_iteration;
+        if s <= 0.0 || !s.is_finite() {
+            return 0.0;
+        }
+        1.0 / s
+    }
 }
 
 #[cfg(test)]

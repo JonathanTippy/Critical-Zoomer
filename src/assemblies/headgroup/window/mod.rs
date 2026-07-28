@@ -24,7 +24,6 @@ use crate::assemblies::headgroup::window::widgetize::*;
 use crate::assemblies::structs::*;
 use crate::assemblies::headgroup::window::inputs::*;
 use crate::assemblies::headgroup::window::sampling::*;
-use crate::assemblies::headgroup::window::shade::*;
 use crate::assemblies::headgroup::window::gpu_display::*;
 
 use crate::intexp::*;
@@ -33,7 +32,6 @@ pub mod rolling;
 pub mod widgetize;
 pub mod inputs;
 pub mod sampling;
-pub mod shade;
 pub mod gpu_display;
 pub mod transforms;
 pub mod coords;
@@ -51,9 +49,12 @@ const RECOVER_EGUI_CRASHES:bool = false;
 // be minimized or not on top, it might bother the user by restarting.
 //const MIN_FRAME_RATE:f64 = 20.0;
 //const MAX_FRAME_TIME:f64 = 1.0 / MIN_FRAME_RATE;
-// r[impl cz.display.headgroup-60fps+1]
-const VSYNC:bool = true;
+// r[impl cz.perf.headgroup-vsync+1]
+pub const VSYNC: bool = true;
+/// Wake pacing hint only; present rate is Fifo/vsync (do not fake an FPS cap).
 const TARGET_FRAME_PERIOD: std::time::Duration = std::time::Duration::from_nanos(16_666_667);
+/// wgpu present mode forced for vsync (NativeOptions.vsync does not drive wgpu).
+pub const HEADGROUP_PRESENT_MODE: wgpu::PresentMode = wgpu::PresentMode::Fifo;
 
 
 
@@ -115,6 +116,12 @@ pub struct WindowState {
     , pub coord_input: String
     , pub atlas_location: Option<ObjectivePosAndZoom>
     , pub shift_was_down: bool
+    // Accumulator for Shift hold zoom (~5 bumps/s).
+    , pub key_zoom_in_debt: f32
+    // Accumulator for Space hold zoom (~5 bumps/s).
+    , pub key_zoom_out_debt: f32
+    // Headgroup completed-tile TPS (standards HUD).
+    , pub tps_counter: crate::assemblies::headgroup::window::rolling::TpsCounter
 }
 
 /// Entry point for the window actor.
@@ -182,6 +189,9 @@ async fn internal_behavior<A: SteadyActor>(
         }
         , atlas_location: None
         , shift_was_down: false
+        , key_zoom_in_debt: 0.0
+        , key_zoom_out_debt: 0.0
+        , tps_counter: crate::assemblies::headgroup::window::rolling::TpsCounter::new()
         , settings_window_context: Arc::new(Mutex::new(DEFAULT_SETTINGS_WINDOW_CONTEXT))
         , settings_window_open: false
         , controls_settings: ControlsSettings::H
@@ -232,7 +242,7 @@ async fn internal_behavior<A: SteadyActor>(
     // NativeOptions.vsync only affects the glow backend. wgpu presents from
     // wgpu_options.present_mode; AutoVsync can pick Immediate/Mailbox and run
     // uncapped (~300fps), starving compute. Force FIFO for the 60fps cap.
-    wgpu_options.present_mode = wgpu::PresentMode::Fifo;
+    wgpu_options.present_mode = HEADGROUP_PRESENT_MODE;
     // One device for compute and display: the production atlas hands tiles to the
     // headgroup by GPU copy. A second eframe-owned device would make that copy
     // address the wrong hoard and leave the viewport as flat NORES grey.
@@ -393,35 +403,6 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             // Final schedule is applied at end-of-frame from this_frame_start.
             ctx.request_repaint_after(TARGET_FRAME_PERIOD);
 
-            // #region agent log
-            {
-                static FRAME_N: std::sync::atomic::AtomicU64 =
-                    std::sync::atomic::AtomicU64::new(0);
-                let n = FRAME_N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                if n < 8 || n % 120 == 0 {
-                    let dt_ms = state
-                        .last_frame_period
-                        .map(|(a, _)| a.elapsed().as_secs_f64() * 1000.0)
-                        .unwrap_or(-1.0);
-                    if let Ok(mut f) = std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open("/home/jonathan/git/Critical-Zoomer/.cursor/debug-4c6f94.log")
-                    {
-                        use std::io::Write;
-                        let _ = writeln!(
-                            f,
-                            "{{\"sessionId\":\"4c6f94\",\"runId\":\"post-fix\",\"hypothesisId\":\"H2\",\"location\":\"window/mod.rs:update\",\"message\":\"frame_pace\",\"data\":{{\"n\":{n},\"dt_ms\":{dt_ms:.3},\"present\":\"Fifo\"}},\"timestamp\":{}}}",
-                            std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .map(|d| d.as_millis())
-                                .unwrap_or(0)
-                        );
-                    }
-                }
-            }
-            // #endregion
-
             let size = (state.size.x as usize, state.size.y as usize);
             let pixels = size.0 * size.1;
 
@@ -431,6 +412,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 match actor.try_take(&mut pixels_in) {
                     Some(tile) => {
                         state.sampling_context.ingest_gpu_handle(tile);
+                        state.tps_counter.record(1, Instant::now());
                     }
                     None => { break; }
                 }
@@ -584,7 +566,8 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
                                 match rolling_frame_result.1 {
                                     Some(r) => {
-                                        response += format!("fps:{:.0} / 1s low: {:.1}", r.0.0 as f64 / 1000000000.0, 1.0 / r.1.0.as_secs_f64()).as_str();
+                                        let tps = state.tps_counter.tps(Instant::now());
+                                        response += format!("fps:{:.0} / tps:{:.0} / 1s low: {:.1}", r.0.0 as f64 / 1000000000.0, tps, 1.0 / r.1.0.as_secs_f64()).as_str();
 
                                     }
                                     None => {}

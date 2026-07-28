@@ -2,6 +2,7 @@ use eframe::emath::Rect;
 use egui::{color_picker, Slider, Ui};
 use egui_dnd::dnd;
 use crate::settings::*;
+use crate::assemblies::workgroup_new::tile_manager::memory_slider_floor_gb;
 impl Settings {
     pub fn widgetize(&mut self, ui:&mut Ui) {
 
