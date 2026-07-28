@@ -100,6 +100,7 @@ pub fn plan_prunes(
 }
 
 /// If current+lookahead alone exceed the limit, the limit must bump (design).
+// r[impl cz.int.memory-bump+1]
 pub fn required_limit_bump(
     tiles: &HashMap<(i32, i32, i32), ManagedTileMeta>,
     memory_limit_bytes: usize,
@@ -119,6 +120,12 @@ pub fn required_limit_bump(
     } else {
         None
     }
+}
+
+/// Raise the memory limit to at least `needed` (never lowers).
+// r[impl cz.int.memory-bump+1]
+pub fn apply_memory_bump(current_limit_bytes: usize, needed: usize) -> usize {
+    current_limit_bytes.max(needed)
 }
 
 #[cfg(test)]

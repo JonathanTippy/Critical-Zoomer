@@ -170,60 +170,23 @@ pub fn parse_inputs(
             //state.scroll_debt = delta.signum() * SCROLL_SPEED / 2.0;
         }
 
-        let pointer = input_state.pointer.latest_pos()
-            .map(|p| (p.x as i32, p.y as i32))
-            .unwrap_or((
-                sampling_size.0 as i32 / 2
-                , sampling_size.1 as i32 / 2
-            ));
-        let center_screenspace_pos = (
-            pointer.0
-            , (sampling_size.1 as i32 - 1) - pointer.1
+        // Shift/Space zoom at screen center (requirements); scroll keeps pointer origin.
+        let screen_center_screenspace = (
+            sampling_size.0 as i32 / 2
+            , sampling_size.1 as i32 / 2
         );
         if input_state.modifiers.shift && !state.shift_was_down {
             eprintln!("cz_key: Shift (zoomin)");
-            // #region agent log
-            crate::assemblies::headgroup::window::agent_dbg(
-                "H-KEY"
-                , "inputs.rs:shift"
-                , "key_shift_zoomin"
-                , "{\"key\":\"Shift\"}"
-            );
-            // #endregion
-            // #region agent log
-            crate::assemblies::headgroup::window::agent_dbg(
-                "H-ZOOM-Y"
-                , "inputs.rs:shift"
-                , "zoom_center"
-                , &format!(
-                    "{{\"dir\":\"in\",\"pointer\":[{},{}],\"center\":[{},{}],\"screen\":[{},{}]}}"
-                    , pointer.0
-                    , pointer.1
-                    , center_screenspace_pos.0
-                    , center_screenspace_pos.1
-                    , sampling_size.0
-                    , sampling_size.1
-                )
-            );
-            // #endregion
             returned.0.push(ZoomerCommand::Zoom {
                 pot: 1
-                , center_screenspace_pos
+                , center_screenspace_pos: screen_center_screenspace
             });
         }
         if input_state.key_pressed(egui::Key::Space) {
             eprintln!("cz_key: Space (zoomout)");
-            // #region agent log
-            crate::assemblies::headgroup::window::agent_dbg(
-                "H-KEY"
-                , "inputs.rs:space"
-                , "key_space_zoomout"
-                , "{\"key\":\"Space\"}"
-            );
-            // #endregion
             returned.0.push(ZoomerCommand::Zoom {
                 pot: -1
-                , center_screenspace_pos
+                , center_screenspace_pos: screen_center_screenspace
             });
         }
         if input_state.key_pressed(egui::Key::K) {
@@ -249,20 +212,24 @@ pub fn parse_inputs(
             , exp: -10
         };
 
-        if input_state.key_down(egui::Key::S)
-            && !input_state.key_pressed(egui::Key::S) {
+        let move_down = (input_state.key_down(egui::Key::S) && !input_state.key_pressed(egui::Key::S))
+            || (input_state.key_down(egui::Key::ArrowDown) && !input_state.key_pressed(egui::Key::ArrowDown));
+        let move_up = (input_state.key_down(egui::Key::W) && !input_state.key_pressed(egui::Key::W))
+            || (input_state.key_down(egui::Key::ArrowUp) && !input_state.key_pressed(egui::Key::ArrowUp));
+        let move_left = (input_state.key_down(egui::Key::A) && !input_state.key_pressed(egui::Key::A))
+            || (input_state.key_down(egui::Key::ArrowLeft) && !input_state.key_pressed(egui::Key::ArrowLeft));
+        let move_right = (input_state.key_down(egui::Key::D) && !input_state.key_pressed(egui::Key::D))
+            || (input_state.key_down(egui::Key::ArrowRight) && !input_state.key_pressed(egui::Key::ArrowRight));
+        if move_down {
             returned.0.push(ZoomerCommand::Move { pixels_x: IntExp::from(0), pixels_y: delta.clone() });
         }
-        if input_state.key_down(egui::Key::W)
-            && !input_state.key_pressed(egui::Key::W) {
+        if move_up {
             returned.0.push(ZoomerCommand::Move { pixels_x: IntExp::from(0), pixels_y: IntExp::from(0)-delta.clone() });
         }
-        if input_state.key_down(egui::Key::A)
-            && !input_state.key_pressed(egui::Key::A) {
+        if move_left {
             returned.0.push(ZoomerCommand::Move { pixels_x: IntExp::from(0)-delta.clone(), pixels_y: IntExp::from(0) });
         }
-        if input_state.key_down(egui::Key::D)
-            && !input_state.key_pressed(egui::Key::D) {
+        if move_right {
             returned.0.push(ZoomerCommand::Move { pixels_x: delta.clone(), pixels_y: IntExp::from(0) });
         }
     });

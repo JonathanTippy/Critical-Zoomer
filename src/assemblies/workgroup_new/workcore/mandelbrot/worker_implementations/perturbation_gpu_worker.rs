@@ -184,6 +184,7 @@ impl PerturbationGpuWorkerState {
     /// Use CPU bouts only (keeps GPU preference flag for probes; skips device).
     /// Intended for unit tests that need interactive-rate period detection.
     pub fn use_cpu_bouts_only(&mut self) {
+        self.path = PerturbationComputePath::Cpu;
         self.gpu_desired = false;
         self.gpu = None;
     }

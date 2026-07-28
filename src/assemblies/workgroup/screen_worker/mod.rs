@@ -1,10 +1,13 @@
 use std::cmp::{max, min};
+use std::time::Instant;
 use steady_state::*;
 use crate::utils::{signed_shift, ObjectivePosAndZoom};
 use crate::assemblies::workgroup::work_controller::*;
 use crate::assemblies::workgroup::screen_worker::workshift::*;
 use crate::assemblies::workgroup_new::tile_session::TileSession;
+use crate::assemblies::workgroup_new::tile_publisher::{LivePublisher, MemoryBump};
 use crate::assemblies::structs::*;
+use crate::settings::Settings;
 
 pub mod workshift;
 
@@ -29,6 +32,9 @@ pub struct WorkerState {
     , workshift_token_cost: u32
     , total_workshifts: u32
     , unsent_tiles: Vec<AnswerTilePublish>
+    , full_republish_done: bool
+    // Interim host for publisher cadence + memory policy until full actor extract.
+    , live_publisher: LivePublisher
 }
 
 pub async fn run(
@@ -36,13 +42,20 @@ pub async fn run(
     , commands_in: SteadyRx<WorkerCommand>
     , tiles_out: SteadyTx<AnswerTilePublish>
     , attention_in: SteadyRx<(i32, i32)>
+    , settings_in: SteadyRx<Settings>
+    , memory_bump_out: SteadyTx<MemoryBump>
     , state: SteadyState<WorkerState>
 ) -> Result<(), Box<dyn Error>> {
     internal_behavior(
-        actor.into_spotlight([&commands_in, &attention_in], [&tiles_out])
+        actor.into_spotlight(
+            [&commands_in, &attention_in, &settings_in]
+            , [&tiles_out, &memory_bump_out]
+        )
         , commands_in
         , tiles_out
         , attention_in
+        , settings_in
+        , memory_bump_out
         , state
     )
         .await
@@ -53,11 +66,15 @@ async fn internal_behavior<A: SteadyActor>(
     , commands_in: SteadyRx<WorkerCommand>
     , tiles_out: SteadyTx<AnswerTilePublish>
     , attention_in: SteadyRx<(i32, i32)>
+    , settings_in: SteadyRx<Settings>
+    , memory_bump_out: SteadyTx<MemoryBump>
     , state: SteadyState<WorkerState>
 ) -> Result<(), Box<dyn Error>> {
     let mut commands_in = commands_in.lock().await;
     let mut tiles_out = tiles_out.lock().await;
     let mut attention_in = attention_in.lock().await;
+    let mut settings_in = settings_in.lock().await;
+    let mut memory_bump_out = memory_bump_out.lock().await;
 
     let mut state = state.lock(|| WorkerState {
         work_context: None
@@ -69,9 +86,13 @@ async fn internal_behavior<A: SteadyActor>(
         , point_token_cost: 150
         , total_workshifts: 0
         , unsent_tiles: Vec::new()
+        , full_republish_done: false
+        , live_publisher: LivePublisher::new(true)
     }).await;
 
-    let max_sleep = Duration::from_millis(50);
+        let max_sleep = Duration::from_millis(50);
+        // Wake often enough to honor the 30 Hz publish floor while incomplete.
+        let publish_floor = Duration::from_millis(34);
 
     while actor.is_running(
         || i!(tiles_out.mark_closed())
@@ -80,12 +101,22 @@ async fn internal_behavior<A: SteadyActor>(
             Some(session) => {session.percent_completed() < 100.0}
             , None => {false}
         };
+        // Yield when we have a publish backlog so uploader/window can drain;
+        // otherwise keep computing without a fixed per-loop sleep.
+        let backlog = !state.unsent_tiles.is_empty();
 
-        if working {} else {
+        if !working || backlog {
             await_for_any!(
-                actor.wait_periodic(max_sleep)
+                actor.wait_periodic(if working { publish_floor } else { max_sleep })
                 , actor.wait_avail(&mut commands_in, 1)
+                , actor.wait_avail(&mut settings_in, 1)
             );
+        }
+
+        while actor.avail_units(&mut settings_in) > 0 {
+            if let Some(settings) = actor.try_take(&mut settings_in) {
+                state.live_publisher.memory_limit_bytes = settings.memory_limit_bytes;
+            }
         }
 
         if actor.avail_units(&mut attention_in) > 0 {
@@ -142,21 +173,107 @@ async fn internal_behavior<A: SteadyActor>(
                         }
                     }
                     state.work_context = None;
+                    state.live_publisher.set_incomplete(true);
+                    state.full_republish_done = false;
                     // Keep in-flight publishes; absolute hoard keys retain continuity.
                 }
             }
         }
 
-        let published = if let Some(session) = &mut state.tile_session {
+        let need_full_republish = !state.full_republish_done;
+        let workshifts = state.total_workshifts;
+        let now = Instant::now();
+        // Take session so we can touch live_publisher without overlapping borrows.
+        let mut session_slot = state.tile_session.take();
+        let published = if let Some(session) = session_slot.as_mut() {
+            // One budgeted workshift then flush so the uploader/window keep pace
+            // with seat completion (double 100ms shifts starved the publish path).
             session.workshift();
-            Some(drain_publish(session))
+            let pct = session.percent_completed();
+            let incomplete = pct < 100.0;
+            state.live_publisher.set_incomplete(incomplete);
+            let pulse_full = pct >= 70.0 && workshifts % 4 == 0;
+            let complete_full = pct >= 100.0 && need_full_republish;
+            let has_work = session.has_unsent_publish() || !state.unsent_tiles.is_empty();
+            let cadence_ok = complete_full
+                || pulse_full
+                || state.live_publisher.should_publish(now, has_work);
+
+            let mut tiles = Vec::new();
+            if cadence_ok {
+                tiles = drain_publish(session);
+                // Full republish at completion, and pulse near the end so headed
+                // display does not keep stale NORES blocks past the <5s bar.
+                if complete_full || pulse_full {
+                    let screen_res = session.screen_res;
+                    let location = session.location.clone();
+                    let all = session.drain_all_answer_tiles();
+                    for tile in all {
+                        tiles.push(AnswerTilePublish {
+                            tile
+                            , screen_res
+                            , location: location.clone()
+                        });
+                    }
+                }
+                if !tiles.is_empty() || complete_full || pulse_full
+                    || state.live_publisher.cadence.min_interval_due(now)
+                {
+                    state.live_publisher.record_publish(now);
+                }
+            }
+
+            // Memory policy: prune hoard; bump when protected exceeds limit.
+            let memory_limit = state.live_publisher.memory_limit_bytes;
+            if let Some(needed) = session.prune_for_memory(memory_limit) {
+                state.live_publisher.memory_limit_bytes = needed.max(
+                    state.live_publisher.memory_limit_bytes
+                );
+                let _ = actor.try_send(
+                    &mut memory_bump_out
+                    , MemoryBump { needed_bytes: needed }
+                );
+            }
+
+            Some((tiles, pct, complete_full))
         } else {
             None
         };
-        if let Some(tiles) = published {
+        state.tile_session = session_slot;
+        if let Some((tiles, pct, do_full)) = published {
             state.total_workshifts += 1;
+            if do_full {
+                state.full_republish_done = true;
+            }
+            if pct < 100.0 {
+                state.full_republish_done = false;
+            }
             state.unsent_tiles.extend(tiles);
+            let pending_before = state.unsent_tiles.len();
             flush_unsent_tiles(&mut actor, &mut tiles_out, &mut state);
+            if do_full
+                || std::env::var("CZ_DEBUG_FILL")
+                    .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                    .unwrap_or(false)
+                    && state.total_workshifts % 20 == 1
+            {
+                let _ = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open("/tmp/cz_fill_debug.log")
+                    .and_then(|mut file| {
+                        use std::io::Write;
+                        writeln!(
+                            file
+                            , "publish ws={} pct={:.2} do_full={} queued={} leftover={}"
+                            , state.total_workshifts
+                            , pct
+                            , do_full
+                            , pending_before
+                            , state.unsent_tiles.len()
+                        )
+                    });
+            }
         }
     }
     info!("Computer shutting down.");
@@ -267,6 +384,7 @@ pub fn relative_location_i32_row_and_seat(seat: usize, row: usize) -> (i32, i32)
 
 #[inline]
 pub fn index_from_relative_location(l: (i32, i32), data_res: (u32, u32), data_length: usize) -> usize {
+    let _ = data_length;
     let normalized_l = (
         max(min(l.0, (data_res.0 - 1) as i32), 0)
         , max(min(l.1, (data_res.1 - 1) as i32), 0)
@@ -283,6 +401,7 @@ pub fn index_from_relative_location(l: (i32, i32), data_res: (u32, u32), data_le
 
 #[inline]
 pub fn optional_index_from_relative_location(l: (i32, i32), data_res: (u32, u32), data_length: usize) -> Option<usize> {
+    let _ = data_length;
     if l.0 >= 0 && l.0 <= (data_res.0 - 1) as i32 && l.1 >= 0 && l.1 <= (data_res.1 - 1) as i32 {
         let i =
             (

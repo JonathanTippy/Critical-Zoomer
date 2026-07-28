@@ -52,11 +52,17 @@ settings:
 ### Display Scheme
 
 window:
+
+r[cz.display.window-default-800x480+1]
+
 - The app must default to 800x480 on startup and not restore a customized size on launch.
 
 viewport:
 - one viewport must cover the entire window. It must dynamically resize with the window.
-  The viewport must display the mandelbrot set.
+
+r[cz.math.mandelbrot-real-axis-symmetry+1]
+
+- The viewport must display the mandelbrot set.
   See Controls Mechanics for details on wandering off / zooming out too far.
 
 location:
@@ -114,14 +120,22 @@ The app must not have a "max iteration count" setting;
 points must be iterated to completion. 
 This should keep up with the user but might not. Low-res interim systems are acceptable.
 
+r[cz.seamless.perturbation-always-on+1]
+
 The app must not have a perturbation toggle;
 perturbation must always be on.
+
+r[cz.seamless.gpu-preferred+1]
 
 The app must not have a GPU toggle;
 GPU acceleration must always be on.
 
+r[cz.seamless.reference-background+1]
+
 The app must not have a reference orbit input;
 Reference orbits must be computed in the background and must not show a progress bar or prevent user activity.
+
+r[cz.seamless.foveated-mag-velocity+1]
 
 The app must use fovated rendering to prioritize the area around the mouse pointer and do deep lookahead, balancing it with filling in the screen, so that the user will be met with the best res possible given available working time and recent movements.
 
@@ -138,6 +152,10 @@ depth doesn't compromise responsiveness requrements: the app must still feel sna
 The app must discard the concept of a "max iteration count" and instead always 
 attempt to finish its work, as long as its still visible.
 
+r[cz.tenacious.nores-not-flat-black+1]
+
+r[cz.display.nores-when-no-proximate+1]
+
 Unfinished pixels must not be colored flat black: 
 If work (In or Out conclusion), being exact or proximate, exists covering the pixels, 
 they must be filled from low-res work, or if bailout was unexpectedly difficult, 
@@ -146,6 +164,8 @@ If it does not, the pixels must not be unceremoniously colored black.
 The app must include a "no resolution" point, the point at infinity, which completes the dynamic res stack and fills in missing data.
 
 ### Hoarding
+
+r[cz.hoarding.one-answer-per-point+1]
 
 There must be only one answer per point; Mandelbrot work must be deterministic and, as far as is possible, exact with regard to values relevant to rendering.
 
@@ -165,6 +185,8 @@ all settings must feel instant: result visible within 100ms.
 
 All non-enumerated, rendering related settings must be animable at full monitor refresh rate. (60hz 1080p)
 
+r[cz.fast.natural-zoom-2x+1]
+
 Definition of "natural": Zooming must zoom at 2x magnification per mouse wheel bump.
 (when zoom origin is center, this means the middle half of the screen (by side length) becomes the entire screen.)
 The app must be able to sustain real time activity when zooming 10 bumps within 300ms, and when repeating that movement every second.
@@ -181,3 +203,31 @@ To that end, component or components responsible for generating work must be ext
 
 The app must interpolate and output low-res where appropriate.
 When older work is proven incorrect by newer work, the app must show a synthesis which discards neither and takes full advantage of all data continuously.
+
+# E2E Addendum:
+
+r[cz.e2e.harness-stack+1]
+
+The most important 3 things;
+
+r[cz.e2e.controls-bindings+1]
+
+r[cz.e2e.controls-no-jump+1]
+
+- controls work as expected (tie to requirements) and don't jump around or do weird things
+
+r[cz.e2e.perf-home-fill+1]
+
+r[cz.e2e.perf-zoom-simple+1]
+
+r[cz.e2e.perf-zoom-hard+1]
+
+- the app is as fast as expected (<5s to fill the home screen, smoothly humming along (apparently, completely and utterly perfect) when user zooms into simpler areas, does as well as it should (lower res, still keeping pace) when user zooms into less simple areas)
+
+r[cz.e2e.visual-oracle+1]
+
+r[cz.e2e.visual-assistant-review+1]
+
+- app contains no visual artifacts (compute oracles via known good code & oracle proving tests, then test against those. Also always do an assistant visual check, which is imperfect (makes mistakes human eyes wouldnt) but worth doing.)
+
+Controls and visual will be hard to test but must be rigorously tested via properties & known-good oracles.

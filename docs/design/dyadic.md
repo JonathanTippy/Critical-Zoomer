@@ -37,6 +37,9 @@ Theory (may not apply as stated to current design but same principles can easily
 // The best known algorithm for this is nearest with top left bias.
 // A .5px bias will be present for the whole frame, which is easily accounted for and not visually noticeable.
 // EDIT: unproven; likely to introduce a small error.
+
+r[cz.math.homothety-zoom-fill-associative+1]
+
 // ideally, fill_from must yield the same result for a 4x zoom and two 2x zooms for example;
 // functions which combine views must be associative. May not be possible while applying the half-offset.
 // But, its the only way to propoerly avoid layout shift. expect to dedicate a lot of time to testing & debugging layout shift.
@@ -61,7 +64,3 @@ The associativity problem is moot because no part of the program performs repeat
 each required pixel must take  the nearest available datapoint, using a decrease of precision and integer techniques to define its neighborhood and avoid searching, and taking the further up-left value when there is a tie.
 
 The sampling shader must include all of the tiles in the possible samplable space, which is only max 8 layers. It must sample from smaller to larger magnification level.
-
-
-
-

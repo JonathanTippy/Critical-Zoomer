@@ -576,6 +576,56 @@ impl OutfillInfillScheduler {
             || Self::needs_period_resolve(state)
     }
 
+    /// Seats enter `active` when handed to a worker batch. If that batch is
+    /// cleared without `apply_finished` (empty init, GPU miss, etc.), they stay
+    /// in `active` forever: `get_next` skips them, `has_work` stays true, and
+    /// the session either freezes or BeginTile-overwrites a begun tile.
+    /// Re-queue unfinished orphans onto scredge (edge) or in_queue (interior).
+    pub fn reclaim_orphaned_active(state: &mut OutfillInfillSchedulerState) -> bool {
+        if state.active.is_empty() {
+            return false;
+        }
+        let orphans: Vec<(usize, usize)> = state.active.iter().copied().collect();
+        let mut any = false;
+        for local in orphans {
+            state.active.remove(&local);
+            any = true;
+            let index = local_index(local);
+            if state.done[index] {
+                continue;
+            }
+            let pos = (local.0 as i32, local.1 as i32);
+            if state.is_tile_edge_seat(pos) {
+                state.scredge.push_back(pos);
+            } else {
+                state.in_queue.push_back((pos, 0));
+            }
+        }
+        if any {
+            state.recount_tile_edge_remaining();
+        }
+        any
+    }
+
+    /// Recover when get_next is empty but unfinished seats remain: reclaim
+    /// orphans, recount edge, reseed scredge, and fill interiors once the edge
+    /// is complete. Returns true if queues may now offer work.
+    pub fn force_progress(state: &mut OutfillInfillSchedulerState) -> bool {
+        let mut any = Self::reclaim_orphaned_active(state);
+        state.recount_tile_edge_remaining();
+        if state.tile_edge_remaining > 0 {
+            let before = state.scredge.len();
+            state.seed_scredge();
+            any |= state.scredge.len() > before;
+        }
+        if state.screen_edge_complete() {
+            let before = state.in_queue.len();
+            state.fill_remaining_in();
+            any |= state.in_queue.len() > before;
+        }
+        any || Self::has_work(state)
+    }
+
     pub fn needs_period_resolve(state: &OutfillInfillSchedulerState) -> bool {
         !state.period_resolve_done && state.screen_edge_complete()
     }
@@ -740,6 +790,50 @@ impl OutfillInfillSchedulerState {
 #[cfg(test)]
 mod d_sch1_tests {
     use super::*;
+
+    #[test]
+    fn reclaim_orphaned_active_requeues_edge_and_interior() {
+        let mut state = OutfillInfillScheduler::init_for_tile_extent((4, 4));
+        state.scredge.clear();
+        state.out_queue.clear();
+        state.edge_queue.clear();
+        // Finish every seat except the two we will orphan in `active`.
+        for y in 0..4usize {
+            for x in 0..4usize {
+                if (x, y) == (0, 0) || (x, y) == (1, 1) {
+                    continue;
+                }
+                state.done[local_index((x, y))] = true;
+            }
+        }
+        state.recount_tile_edge_remaining();
+        // Simulate seats handed to a batch that was cleared without apply_finished.
+        state.active.insert((0, 0)); // edge
+        state.active.insert((1, 1)); // interior
+        assert!(OutfillInfillScheduler::has_work(&state));
+        let mut tile = Tile::new((0, 0), 0);
+        let seats = OutfillInfillScheduler::get_next_n_seats::<4>(&mut state, &mut tile);
+        assert!(
+            seats.iter().all(|s| s.is_none())
+            , "active seats must be invisible to get_next until reclaimed, got {seats:?}"
+        );
+        assert!(OutfillInfillScheduler::reclaim_orphaned_active(&mut state));
+        assert!(state.active.is_empty());
+        assert!(
+            state.scredge.iter().any(|p| *p == (0, 0))
+            , "edge orphan must return to scredge"
+        );
+        assert!(
+            state.in_queue.iter().any(|(p, _)| *p == (1, 1))
+            , "interior orphan must return to in_queue"
+        );
+        // Edge seat must be obtainable again (interior stays gated until edge done).
+        let seats = OutfillInfillScheduler::get_next_n_seats::<4>(&mut state, &mut tile);
+        assert!(
+            seats.iter().any(|s| matches!(s, Some(((0, 0), None))))
+            , "reclaimed edge must be offered as work, got {seats:?}"
+        );
+    }
 
     #[test]
     fn flood_in_period_edge_in_gated_until_screen_edge_complete() {

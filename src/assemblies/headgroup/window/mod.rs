@@ -76,7 +76,9 @@ const RECOVER_EGUI_CRASHES:bool = false;
 // be minimized or not on top, it might bother the user by restarting.
 //const MIN_FRAME_RATE:f64 = 20.0;
 //const MAX_FRAME_TIME:f64 = 1.0 / MIN_FRAME_RATE;
-const VSYNC:bool = false;
+// r[impl cz.display.headgroup-60fps+1]
+const VSYNC:bool = true;
+const TARGET_FRAME_PERIOD: std::time::Duration = std::time::Duration::from_nanos(16_666_667);
 
 
 
@@ -147,14 +149,19 @@ pub async fn run(
     , stencil_out: SteadyTx<(PointStencil)>
     , settings_out: SteadyTxBundle<Settings,2>
     , attention_out: SteadyTx<(i32, i32)>
+    , memory_bump_in: SteadyRx<crate::assemblies::workgroup_new::tile_publisher::MemoryBump>
     , state: SteadyState<WindowState>
 ) -> Result<(), Box<dyn Error>> {
     internal_behavior(
-        actor.into_spotlight([&pixels_in], [&stencil_out, &settings_out[0], &settings_out[1], &attention_out])
+        actor.into_spotlight(
+            [&pixels_in, &memory_bump_in]
+            , [&stencil_out, &settings_out[0], &settings_out[1], &attention_out]
+        )
         , pixels_in
         , stencil_out
         , settings_out
         , attention_out
+        , memory_bump_in
         , state
     )
     .await
@@ -166,6 +173,7 @@ async fn internal_behavior<A: SteadyActor>(
     , stencil_out: SteadyTx<(PointStencil)>
     , settings_out: SteadyTxBundle<Settings, 2>
     , attention_out: SteadyTx<(i32, i32)>
+    , memory_bump_in: SteadyRx<crate::assemblies::workgroup_new::tile_publisher::MemoryBump>
     , state: SteadyState<WindowState>
 ) -> Result<(), Box<dyn Error>> {
 
@@ -193,6 +201,8 @@ async fn internal_behavior<A: SteadyActor>(
             }
             , updated: true
             , mouse_drag_start: None
+            , memory_limit_bytes: 1_000_000_000
+            , last_memory_bump: None
         }
         , atlas_location: None
         , shift_was_down: false
@@ -262,6 +272,7 @@ async fn internal_behavior<A: SteadyActor>(
         , stencil_out: stencil_out.clone()
         , settings_out: settings_out.clone()
         , attention_out: attention_out.clone()
+        , memory_bump_in: memory_bump_in.clone()
         , portable_state: portable_state.clone()
     };
 
@@ -315,6 +326,7 @@ struct EguiWindowPassthrough<'a, A> {
     , stencil_out: SteadyTx<(PointStencil)>
     , settings_out: SteadyTxBundle<Settings, 2>
     , attention_out: SteadyTx<(i32, i32)>
+    , memory_bump_in: SteadyRx<crate::assemblies::workgroup_new::tile_publisher::MemoryBump>
     , portable_state:Arc<Mutex<StateGuard<'a, WindowState>>>
 }
 
@@ -335,12 +347,20 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             ,self.settings_out[1].try_lock().unwrap()
         ];
         let mut attention_out = self.attention_out.try_lock().unwrap();
+        let mut memory_bump_in = self.memory_bump_in.try_lock().unwrap();
         let mut state = self.portable_state.lock().unwrap();
 
 
         if actor.is_running(
             || i!(true)
         ) {
+
+            // Drain workgroup memory bumps → raise slider floor + sampling limit.
+            while actor.avail_units(&mut memory_bump_in) > 0 {
+                if let Some(bump) = actor.try_take(&mut memory_bump_in) {
+                    apply_ui_memory_bump(&mut state, bump.needed_bytes);
+                }
+            }
 
             // calculate framerate and frametime
 
@@ -374,8 +394,8 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             );
 
 
-            // prevent vsync
-            ctx.request_repaint();
+            // Cap headgroup wakeups near 60fps (design/headgroup.md).
+            ctx.request_repaint_after(TARGET_FRAME_PERIOD);
 
             let size = (state.size.x as usize, state.size.y as usize);
             let pixels = size.0 * size.1;
@@ -489,10 +509,19 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 .ok()
                 .map(|guard| guard.settings.clone())
                 .unwrap_or_else(|| Settings::DEFAULT);
+            // Keep sampling budget aligned with the settings slider before prune.
+            state.sampling_context.memory_limit_bytes =
+                settings_for_shade.memory_limit_bytes;
             let blit_frame = build_shade_frame(
                 &mut state.sampling_context
                 , &mut settings_for_shade
             );
+            // Local prune may have bumped; raise the settings slider floor.
+            if let Some(needed) = state.sampling_context.last_memory_bump.take() {
+                apply_ui_memory_bump(&mut state, needed);
+                settings_for_shade.memory_limit_bytes =
+                    state.sampling_context.memory_limit_bytes;
+            }
             if let Ok(mut guard) = state.settings_window_context.try_lock() {
                 guard.settings = settings_for_shade;
             }
@@ -576,19 +605,8 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                     hover: None,
                                 };
                                 let view = ViewportComplexRect::from_stencil(&screen_stencil);
-                                if view.needs_red_arrows() {
-                                    response += match view.classify_r2() {
-                                        R2ScreenRelation::OffScreen => "\n← set off-screen →",
-                                        R2ScreenRelation::MostlyOffScreen => {
-                                            "\n← set mostly off-screen →"
-                                        }
-                                        R2ScreenRelation::TooSmall => "\n↑ set too small ↓",
-                                        R2ScreenRelation::MostlyTooSmall => {
-                                            "\n↑ set mostly too small ↓"
-                                        }
-                                        R2ScreenRelation::OnScreen => "",
-                                    };
-                                }
+                                // Red arrows drawn below via painter; keep debug free of unicode HUD.
+                                let _ = view.needs_red_arrows();
 
                                 response
                             }
@@ -604,30 +622,137 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     }
                 );
 
+                // Red off-screen / too-small guidance arrows (requirements).
+                {
+                    let screen_stencil = PointStencil {
+                        homothety: (
+                            state.sampling_context.location.pos.0.clone(),
+                            IntExp::ZERO
+                                - state.sampling_context.location.pos.1.clone(),
+                            state.sampling_context.location.zoom_pot,
+                        ),
+                        resolution: (
+                            state.size.x.max(1.0) as usize,
+                            state.size.y.max(1.0) as usize,
+                        ),
+                        serial_number: 0,
+                        focus: None,
+                        hover: None,
+                    };
+                    let view = ViewportComplexRect::from_stencil(&screen_stencil);
+                    if view.needs_red_arrows() {
+                        let painter = ui.painter();
+                        let rect = ui.max_rect();
+                        let red = Color32::from_rgb(220, 40, 40);
+                        let stroke = egui::Stroke::new(3.0, red);
+                        let cx = rect.center().x;
+                        let cy = rect.center().y;
+                        let arm = 28.0;
+                        match view.classify_r2() {
+                            R2ScreenRelation::OffScreen | R2ScreenRelation::MostlyOffScreen => {
+                                // Point toward origin: arrows on edge facing the set.
+                                let set_cx = 0.0;
+                                let set_cy = 0.0;
+                                let view_cx = (view.real_min + view.real_max) * 0.5;
+                                let view_cy = (view.imag_min + view.imag_max) * 0.5;
+                                let dx = set_cx - view_cx;
+                                let dy = set_cy - view_cy;
+                                if dx.abs() >= dy.abs() {
+                                    let x = if dx > 0.0 { rect.right() - 40.0 } else { rect.left() + 40.0 };
+                                    let dir = if dx > 0.0 { 1.0 } else { -1.0 };
+                                    painter.line_segment(
+                                        [egui::pos2(x - dir * arm, cy), egui::pos2(x, cy)],
+                                        stroke,
+                                    );
+                                    painter.line_segment(
+                                        [egui::pos2(x, cy), egui::pos2(x - dir * 12.0, cy - 10.0)],
+                                        stroke,
+                                    );
+                                    painter.line_segment(
+                                        [egui::pos2(x, cy), egui::pos2(x - dir * 12.0, cy + 10.0)],
+                                        stroke,
+                                    );
+                                } else {
+                                    let y = if dy > 0.0 { rect.top() + 40.0 } else { rect.bottom() - 40.0 };
+                                    // +imag is up on screen roughly when dy>0 toward higher imag
+                                    let dir = if dy > 0.0 { -1.0 } else { 1.0 };
+                                    painter.line_segment(
+                                        [egui::pos2(cx, y - dir * arm), egui::pos2(cx, y)],
+                                        stroke,
+                                    );
+                                    painter.line_segment(
+                                        [egui::pos2(cx, y), egui::pos2(cx - 10.0, y - dir * 12.0)],
+                                        stroke,
+                                    );
+                                    painter.line_segment(
+                                        [egui::pos2(cx, y), egui::pos2(cx + 10.0, y - dir * 12.0)],
+                                        stroke,
+                                    );
+                                }
+                            }
+                            R2ScreenRelation::TooSmall | R2ScreenRelation::MostlyTooSmall => {
+                                // Up and down arrows: zoomed out too far.
+                                for (y, dir) in [(rect.top() + 36.0, -1.0), (rect.bottom() - 36.0, 1.0)] {
+                                    painter.line_segment(
+                                        [egui::pos2(cx, y), egui::pos2(cx, y + dir * arm)],
+                                        stroke,
+                                    );
+                                    painter.line_segment(
+                                        [egui::pos2(cx, y), egui::pos2(cx - 10.0, y + dir * 12.0)],
+                                        stroke,
+                                    );
+                                    painter.line_segment(
+                                        [egui::pos2(cx, y), egui::pos2(cx + 10.0, y + dir * 12.0)],
+                                        stroke,
+                                    );
+                                }
+                            }
+                            R2ScreenRelation::OnScreen => {}
+                        }
+                    }
+                }
+
                 egui::Area::new(egui::Id::new("coord_bar"))
-                    .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(12.0, -12.0))
+                    .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 8.0))
                     .order(egui::Order::Foreground)
                     .show(ctx, |ui| {
                         egui::Frame::popup(ui.style())
                             .inner_margin(egui::Margin::symmetric(8, 6))
                             .show(ui, |ui| {
-                                ui.set_min_width(420.0);
-                                let loc = &state.sampling_context.location;
-                                ui.label(format!(
-                                    "re {}   im {}   zoom {}"
-                                    , loc.pos.0
-                                    , loc.pos.1
-                                    , loc.zoom_pot
-                                ));
+                                ui.set_min_width(520.0);
+                                let screen = (
+                                    state.size.x.max(1.0) as u32
+                                    , state.size.y.max(1.0) as u32
+                                );
+                                let (cre, cim) = viewport_center(
+                                    &state.sampling_context.location
+                                    , screen
+                                );
+                                let center_text = format!("{} + {}i", cre, cim);
+                                ui.horizontal(|ui| {
+                                    ui.label("location");
+                                    let mut readonly = center_text.clone();
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut readonly)
+                                            .desired_width(320.0)
+                                            .interactive(true)
+                                    );
+                                    if ui.button("Copy").clicked() {
+                                        ui.ctx().copy_text(center_text);
+                                    }
+                                });
                                 ui.horizontal(|ui| {
                                     ui.label("goto");
                                     let response = ui.add(
                                         egui::TextEdit::singleline(&mut state.coord_input)
                                             .desired_width(280.0)
-                                            .hint_text("re, im, zoom")
+                                            .hint_text("re, im  or  a+bi")
                                     );
-                                    let go = ui.button("Go").clicked()
-                                        || (response.lost_focus()
+                                    let valid = goto_line_is_valid(&state.coord_input);
+                                    let apply = ui.add_enabled(valid, egui::Button::new("Apply"));
+                                    let go = apply.clicked()
+                                        || (valid
+                                            && response.lost_focus()
                                             && ui.input(|i| i.key_pressed(egui::Key::Enter)));
                                     if go {
                                         if let Some(cmds) = commands_from_goto_line(&state.coord_input) {
@@ -645,7 +770,6 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                         egui::vec2(40.0, 40.0)
                     ),
                     |ui: &mut egui::Ui| {
-                        // create button and get its state
                         let button_state = ui.button("⚙");
                         if button_state.clicked() {
                             state.settings_window_open = true;
@@ -654,20 +778,25 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     }
                 );
 
-                // Add a home icon button in the top-right corner
+                // Home → viewport center at (0+0i); keep framed startup zoom.
                 ui.put(
                     egui::Rect::from_min_size(
                         egui::pos2(ui.available_width() - 80.0, 0.0),
                         egui::vec2(40.0, 40.0)
                     ),
                     |ui: &mut egui::Ui| {
-                        // create button and get its state
                         let button_state = ui.button("🏠");
                         if button_state.clicked() {
-                            state.sampling_context.location = ObjectivePosAndZoom {
-                                pos: (IntExp::from(HOME_POSITION.0), IntExp::from(HOME_POSITION.1))
-                                , zoom_pot: HOME_POSITION.2
-                            };
+                            let screen = (
+                                state.size.x.max(1.0) as u32
+                                , state.size.y.max(1.0) as u32
+                            );
+                            state.sampling_context.location = ul_for_center(
+                                IntExp::ZERO
+                                , IntExp::ZERO
+                                , HOME_POSITION.2
+                                , screen
+                            );
                             state.sampling_context.clear_tiles();
                             state.sampling_context.mouse_drag_start = None;
                             state.atlas_location = None;
@@ -675,18 +804,6 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                             state.gpu_atlas_clear = true;
                             state.nav_target = None;
                             state.sampling_context.updated = true;
-                            // #region agent log
-                            agent_dbg(
-                                "H-GREY"
-                                , "mod.rs:home"
-                                , "home_clicked"
-                                , &format!(
-                                    "{{\"zoom\":{},\"reset\":{}}}"
-                                    , state.sampling_context.location.zoom_pot
-                                    , state.sampling_context.reset_gpu_tile_slots
-                                )
-                            );
-                            // #endregion
                         }
                         return button_state;
                     }
@@ -718,12 +835,20 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     {
                         state.sampling_context.proximate_answers = true;
                     }
+                    state.sampling_context.memory_limit_bytes =
+                        result.settings.memory_limit_bytes;
                     for mut channel in settings_out {
                         actor.try_send(&mut channel, result.settings.clone());
                     }
-                } else if let Ok(guard) = state.settings_window_context.try_lock() {
+                } else if let Some((limit, settings)) = state
+                    .settings_window_context
+                    .try_lock()
+                    .ok()
+                    .map(|guard| (guard.settings.memory_limit_bytes, guard.settings.clone()))
+                {
+                    state.sampling_context.memory_limit_bytes = limit;
                     for mut channel in settings_out {
-                        actor.try_send(&mut channel, guard.settings.clone());
+                        actor.try_send(&mut channel, settings.clone());
                     }
                 }
             });
@@ -735,6 +860,16 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
         else {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
+    }
+}
+
+fn apply_ui_memory_bump(state: &mut WindowState, needed: usize) {
+    use crate::assemblies::workgroup_new::tile_manager::apply_memory_bump;
+    state.sampling_context.memory_limit_bytes =
+        apply_memory_bump(state.sampling_context.memory_limit_bytes, needed);
+    if let Ok(mut guard) = state.settings_window_context.try_lock() {
+        guard.settings.memory_limit_bytes =
+            apply_memory_bump(guard.settings.memory_limit_bytes, needed);
     }
 }
 

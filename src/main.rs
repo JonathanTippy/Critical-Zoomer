@@ -69,7 +69,7 @@ fn build_graph(graph: &mut Graph) {
     let (
         uploader_tx_to_window
         , window_rx_from_uploader
-    ) = channel_builder.with_capacity(50).build();
+    ) = channel_builder.with_capacity(512).build();
 
     let (
         window_tx_to_work_controller
@@ -83,7 +83,7 @@ fn build_graph(graph: &mut Graph) {
 
     let (
         window_tx_to_stuff
-        , _stuff_rx_from_window
+        , stuff_rx_from_window
     ) = channel_builder.with_capacity(50).build_channel_bundle();
 
     let (
@@ -94,7 +94,13 @@ fn build_graph(graph: &mut Graph) {
     let (
         screen_worker_tx_to_uploader
         , uploader_rx_from_screen_worker
-    ) = channel_builder.with_capacity(50).build();
+    ) = channel_builder.with_capacity(512).build();
+
+    // Publisher (interim: screen_worker) → headgroup memory bumps.
+    let (
+        screen_worker_tx_memory_bump
+        , window_rx_memory_bump
+    ) = channel_builder.with_capacity(8).build();
 
     let actor_builder = graph.actor_builder()
         .with_thread_info()
@@ -113,6 +119,7 @@ fn build_graph(graph: &mut Graph) {
                 , window_tx_to_work_controller.clone()
                 , window_tx_to_stuff.clone()
                 , window_tx_to_worker.clone()
+                , window_rx_memory_bump.clone()
                 , state.clone()
             )
                , SoloAct);
@@ -135,6 +142,8 @@ fn build_graph(graph: &mut Graph) {
                , SoloAct);
 
     let state = new_state();
+    // Settings bundle slot 0 → screen_worker (memory limit); slot 1 reserved.
+    let settings_rx_to_screen_worker = stuff_rx_from_window[0].clone();
     actor_builder.with_name(NAME_SCREEN_WORKER)
         .build(move |context|
                    workgroup::screen_worker::run(
@@ -142,6 +151,8 @@ fn build_graph(graph: &mut Graph) {
                        , screen_worker_rx_from_work_controller.clone()
                        , screen_worker_tx_to_uploader.clone()
                        , worker_rx_from_window.clone()
+                       , settings_rx_to_screen_worker.clone()
+                       , screen_worker_tx_memory_bump.clone()
                        , state.clone()
                    )
                , SoloAct);

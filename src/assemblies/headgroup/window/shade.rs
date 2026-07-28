@@ -29,6 +29,7 @@ pub fn answer_to_completed(answer: Answer) -> CompletedPoint {
     }
 }
 
+// r[impl cz.hoarding.one-answer-per-point+1]
 pub fn recolor_hoard(
     sampling_context: &mut SamplingContext
     , settings: &mut Settings

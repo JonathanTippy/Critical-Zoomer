@@ -2,6 +2,8 @@ headgroup contains shaders
 
 The headgroup is a single actor for speed / pacing reasons. Its responsibility is to be extremely responsive to user changes, so it has to have a stable framerate and good feeling controls.
 
+r[cz.int.hoard-ingest-sample+1]
+
 It must recieve tiles from the workgroup, and heap them into its tile collection.
 Each frame, it must sample its collection to construct a frame of answers, then shade those answers and display them. both shaders must be extremely fast.
 
@@ -10,11 +12,19 @@ To avoid wasting GPU working time, the fps of the headgroup must be limited to 6
 The headgroup must have a settings struct containing all the required settings
 
 The headgroup handles its location by using a stencil.
+
+r[cz.int.stencil-retarget+1]
+
 The stencil is transformed when zooming by using a homothety.
 The headgroup also stores a location for drag in full intexp for dragging then zooming out then zooming back in.
 When zooming out, the actual screen stencil always loses one bit of precision per mouse bump.
 The hybrid window actor must properly handle controls for the preceeding frame by accounting for elapsed time and debt gaps:
 elapsed time for pan and debt gaps for scroll zoom.
+
+r[cz.math.intexp-add-commutative+1]
+
+r[cz.math.intexp-mul-associative+1]
+
 The basis for fast and exact location storage is intexp, which is a rug integer glued to an i32 for the exponent. It is used for all homotheties across the program.
 
 Consult requirements for specific shader filters and chrome bits and bobs.
@@ -26,8 +36,9 @@ shaders: layer colors according to coloring script in the settings struct. shoul
 settigns screen:
 widgets for each setting, drag-n-drop area for layering of coloring layers, and can select each to configure.
 
+r[cz.display.offscreen-r2-circle+1]
+
 off screen = r=2 circle is off screen
 mostly off screen = r=2 circle is within 10% to being fully off screen
 too small = r=2 circle is 1px or smaller
 mostly too small = r=2 circle is smaller than 10% of screen
-

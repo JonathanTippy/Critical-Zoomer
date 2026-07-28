@@ -99,10 +99,12 @@ pub const DEFAULT_COLORING_SCRIPT:[ColoringInstruction;7] = [
         }
         , normalizing_method: Normalizing::None{}}
     , ColoringInstruction::HighlightInFilaments{id: 3, opacity:255, color:(0,0,0)}
+    // Out filaments: paint like ∞ escape (shade path); color unused when ∞-escape path is used.
     , ColoringInstruction::HighlightOutFilaments{id: 4, opacity:255, color:(128,128,128)}
     , ColoringInstruction::HighlightNodes{id: 5, inside_opacity:0, outside_opacity:0
         , color:(128,128,128), thickness:10, only_fattest:true}
-    , ColoringInstruction::HighlightSmallTimeEdges{id: 6, inside_opacity:255, outside_opacity:255
+    // Subtle by default (requirements: other features subtle).
+    , ColoringInstruction::HighlightSmallTimeEdges{id: 6, inside_opacity:40, outside_opacity:40
         , color:(255,0,0)}
 ];
 
@@ -120,6 +122,8 @@ impl Settings {
         , estimate_extra_iterations: false
         , id_counter: 7
         , currently_selected_coloring_instruction: 0
+        // L = L CPU + L VRAM; default 1GB each side of the ledger.
+        , memory_limit_bytes: 1_000_000_000
     };
 }
 
@@ -140,6 +144,8 @@ pub struct Settings {
     , pub estimate_extra_iterations:bool
     , pub currently_selected_coloring_instruction: u64
     , pub id_counter: u64
+    // Soft per-side budget (bytes). Slider L means L CPU + L VRAM.
+    , pub memory_limit_bytes: usize
 }
 
 
@@ -546,5 +552,110 @@ pub fn settings (
     SettingsWindowResult{
         will_close: will_close,
         settings: state.settings.clone()
+    }
+}
+
+#[cfg(test)]
+mod animable_tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn static_animable(value: f64, range: (f64, f64)) -> Animable {
+        Animable {
+            start: None,
+            period: Duration::from_secs(10),
+            value,
+            animated: false,
+            range,
+            limits: range,
+            normalizing: Normalizing::None {},
+        }
+    }
+
+    #[test]
+    fn determine_static_returns_value_inside_limits() {
+        let mut a = static_animable(3.5, (1.0, 10.0));
+        let v = a.determine();
+        assert!((v - 3.5).abs() < 1e-9, "got {v}");
+        assert!(v >= 1.0 && v <= 10.0);
+    }
+
+    #[test]
+    fn determine_animated_stays_in_normalized_range() {
+        let mut a = Animable {
+            start: Some(Instant::now()),
+            period: Duration::from_secs(2),
+            value: 0.0,
+            animated: true,
+            range: (2.0, 8.0),
+            limits: (2.0, 8.0),
+            normalizing: Normalizing::None {},
+        };
+        for _ in 0..20 {
+            let v = a.determine();
+            assert!(
+                (2.0..=8.0).contains(&v),
+                "animated wave left range: {v}"
+            );
+            // Must not collapse to constant 0/1/-1 (common mutants).
+            std::thread::sleep(Duration::from_millis(30));
+        }
+        let samples: Vec<f64> = (0..5).map(|_| {
+            std::thread::sleep(Duration::from_millis(50));
+            a.determine()
+        }).collect();
+        let spread = samples.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
+            - samples.iter().cloned().fold(f64::INFINITY, f64::min);
+        assert!(spread > 1e-6 || samples.iter().any(|&x| (x - 0.0).abs() > 1e-6));
+    }
+
+    #[test]
+    fn determine_period_modulo_not_division_identity() {
+        // Phase uses elapsed % period; if mutated to / the value drifts unboundedly.
+        let mut a = Animable {
+            start: Some(Instant::now() - Duration::from_secs(100)),
+            period: Duration::from_secs(3),
+            value: 0.0,
+            animated: true,
+            range: (0.0, 1.0),
+            limits: (0.0, 1.0),
+            normalizing: Normalizing::None {},
+        };
+        let v = a.determine();
+        assert!((0.0..=1.0).contains(&v), "phase escaped unit range: {v}");
+    }
+
+    #[test]
+    fn determine_wave_is_half_raised_cosine_not_identity() {
+        // At phase 0: (1-cos(0))/2 == 0 → denorm to range.0
+        // At phase 0.5: (1-cos(π))/2 == 1 → denorm to range.1
+        // Mutating /2.0 to % or * breaks endpoints.
+        let mut a = Animable {
+            start: Some(Instant::now()),
+            period: Duration::from_secs(10_000),
+            value: 0.0,
+            animated: true,
+            range: (4.0, 12.0),
+            limits: (4.0, 12.0),
+            normalizing: Normalizing::None {},
+        };
+        let near_start = a.determine();
+        assert!(
+            (near_start - 4.0).abs() < 0.05,
+            "phase~0 should sit near range min, got {near_start}"
+        );
+        a.start = Some(Instant::now() - Duration::from_secs(5_000));
+        let near_mid = a.determine();
+        assert!(
+            (near_mid - 12.0).abs() < 0.05,
+            "phase~0.5 should sit near range max, got {near_mid}"
+        );
+    }
+
+    #[test]
+    fn max_frame_time_is_reciprocal_of_min_frame_rate() {
+        // Guards const MAX_FRAME_TIME = 1.0 / MIN_FRAME_RATE mutants (% or *).
+        assert!((super::MAX_FRAME_TIME - (1.0 / super::MIN_FRAME_RATE)).abs() < 1e-12);
+        assert!((super::MAX_FRAME_TIME - 0.05).abs() < 1e-12);
     }
 }

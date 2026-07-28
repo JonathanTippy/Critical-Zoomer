@@ -30,3 +30,5 @@ pub mod assemblies;
 pub mod intexp;
 pub mod stacked_intexp;
 pub mod floatexp;
+pub mod e2e_oracle;
+pub mod e2e_harness;

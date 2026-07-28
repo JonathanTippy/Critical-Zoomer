@@ -219,8 +219,15 @@ pub fn iterate_perturbation_bout(
 ) {
     let bailout = worker_state.bailout_radius_squared;
     let bout = worker_state.iterations_per_bout;
+    // Cap so one Inside seat cannot monopolize headed workshifts forever
+    // (periodicity usually finishes earlier; this is a safety valve).
+    const MAX_PERTURB_ITERS: u64 = 50_000;
     for _ in 0..bout {
         if point.finished { break; }
+        if point.iteration_count >= MAX_PERTURB_ITERS {
+            point.finished = true;
+            break;
+        }
         let Some(orbit) = worker_state.references.get(point.orbit_id) else {
             rebind_to_zero_orbit(worker_state, point);
             continue;

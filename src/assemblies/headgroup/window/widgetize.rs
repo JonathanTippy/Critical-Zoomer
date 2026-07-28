@@ -1,5 +1,5 @@
 use eframe::emath::Rect;
-use egui::{color_picker, Ui};
+use egui::{color_picker, Slider, Ui};
 use egui_dnd::dnd;
 use crate::settings::*;
 impl Settings {
@@ -8,6 +8,38 @@ impl Settings {
         ui.label("bailout radius:");
         self.bailout_radius.widgetize(ui);
 
+        ui.separator();
+        ui.label("memory limit (per side: CPU and VRAM each get this budget):");
+        // Soft max for the slider UI; treat near-max as "unlimited" display.
+        const SLIDER_MAX: f64 = 64.0 * 1024.0 * 1024.0 * 1024.0; // 64 GiB
+        let mut gb = if self.memory_limit_bytes == usize::MAX {
+            SLIDER_MAX / 1_000_000_000.0
+        } else {
+            (self.memory_limit_bytes as f64) / 1_000_000_000.0
+        };
+        let response = ui.add(
+            Slider::new(&mut gb, 0.125..=(SLIDER_MAX / 1_000_000_000.0))
+                .logarithmic(true)
+                .suffix(" GB")
+                .text("L")
+        );
+        if response.changed() {
+            if gb * 1_000_000_000.0 >= SLIDER_MAX * 0.99 {
+                self.memory_limit_bytes = usize::MAX;
+            } else {
+                self.memory_limit_bytes = (gb * 1_000_000_000.0).round().max(1.0) as usize;
+            }
+        }
+        if self.memory_limit_bytes == usize::MAX {
+            ui.label("current: unlimited");
+        } else {
+            ui.label(format!(
+                "current: {:.3} GB  (bumps raise the floor when on-screen+lookahead exceed L)"
+                , self.memory_limit_bytes as f64 / 1_000_000_000.0
+            ));
+        }
+
+        ui.separator();
         ui.label("order of coloring steps:");
 
         //ui.add(egui::Slider::new(&mut state.settings.bailout_max_additional_iterations,  0..=100000).logarithmic(true));

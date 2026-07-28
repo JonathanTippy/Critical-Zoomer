@@ -33,6 +33,10 @@ criterion = "0.8.2"
 name = "my_bench"
 harness = false
 
+[[bench]]
+name = "worker_throughput"
+harness = false
+
 [lib]
 bench = false
 

@@ -66,23 +66,17 @@ pub fn transform(
                 // mouse screenspace position should be invariant under zoom
                 // as the mouse's screenspace position is the zoom center.
 
-                /*match &context.mouse_drag_start {
-                    Some(d) => {
-                        context.mouse_drag_start = Some(
-                            (
-                                /*ObjectivePosAndZoom{
-                                    pos: context.location.pos.clone()
-                                    , zoom_pot: context.location.zoom_pot
-                                }*/
-                                d.0.clone()
-                                , egui::Pos2 {
-                                x: center_screenspace_pos.0 as f32
-                                , y: center_screenspace_pos.1 as f32
-                            }
-                            ));
-                    }
-                    None => {}
-                }*/
+                // Keep objective drag bookmark; resync screenspace so zoom-back works.
+                if let Some((objective, _)) = context.mouse_drag_start.clone() {
+                    let imag_flip_y = (context.screen_size.1 as i32 - 1).saturating_sub(center_screenspace_pos.1);
+                    context.mouse_drag_start = Some((
+                        objective
+                        , egui::Pos2 {
+                            x: center_screenspace_pos.0 as f32
+                            , y: imag_flip_y as f32
+                        }
+                    ));
+                }
 
 
                 // #region agent log
@@ -118,7 +112,15 @@ pub fn transform(
             }
 
             ZoomerCommand::SetPos { real, imag } => {
-                context.location.pos = (real.clone(), IntExp::ZERO - imag.clone());
+                // Requirements: field location is viewport center.
+                let screen = context.screen_size;
+                let zoom = context.location.zoom_pot;
+                context.location = crate::assemblies::headgroup::window::coords::ul_for_center(
+                    real.clone()
+                    , imag.clone()
+                    , zoom
+                    , screen
+                );
                 context.mouse_drag_start = None;
                 context.updated = true;
             }
@@ -154,6 +156,8 @@ mod zoom_tests {
             },
             updated: false,
             mouse_drag_start: None,
+            memory_limit_bytes: 1_000_000_000,
+            last_memory_bump: None,
         }
     }
 

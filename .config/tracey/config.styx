@@ -1,13 +1,16 @@
 specs (
   {
     name critical-zoomer
-    include (docs/tracey/*-rules.md)
+    include (
+      docs/requirements.md
+      docs/design/*.md
+    )
     impls (
       {
         name rust
-        include (src/**/*.rs)
+        include (src/**/*.rs scripts/**/*.sh)
         exclude (target/**)
-        test_include (src/**/*.rs)
+        test_include (src/**/*.rs scripts/**/*.sh)
       }
     )
   }

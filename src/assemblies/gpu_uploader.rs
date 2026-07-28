@@ -31,15 +31,18 @@ async fn internal_behavior<A: SteadyActor>(
     let mut tiles_out = tiles_out.lock().await;
     let mut state = state.lock(|| GpuUploaderState { unsent: None }).await;
 
-    let max_sleep = Duration::from_millis(8);
+    let max_sleep = Duration::from_millis(2);
 
     while actor.is_running(
         || i!(tiles_out.mark_closed())
     ) {
-        await_for_any!(
-            actor.wait_periodic(max_sleep)
-            , actor.wait_avail(&mut tiles_in, 1)
-        );
+        // Prefer draining publish backlog over sleeping when work is waiting.
+        if actor.avail_units(&mut tiles_in) == 0 && state.unsent.is_none() {
+            await_for_any!(
+                actor.wait_periodic(max_sleep)
+                , actor.wait_avail(&mut tiles_in, 1)
+            );
+        }
 
         if let Some(tile) = state.unsent.take() {
             match actor.try_send(&mut tiles_out, tile) {

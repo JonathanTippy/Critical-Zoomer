@@ -330,6 +330,32 @@ mod property_tests {
         let c = IntExp { val: Integer::from(5), exp: -2 };
         assert_eq!((a.clone() * b.clone()) * c.clone(), a * (b * c));
     }
+
+    #[test]
+    fn shl_adds_to_exponent_not_value() {
+        let a = IntExp { val: Integer::from(7), exp: -3 };
+        let b = a.clone() << 5u32;
+        assert_eq!(b.val, Integer::from(7));
+        assert_eq!(b.exp, 2);
+        // Distinguishes exp+ from exp* / val mutation mutants.
+        assert_ne!(b.exp, a.exp.wrapping_mul(5));
+        assert_ne!(b.val, Integer::from(7i32.wrapping_shl(5)));
+    }
+
+    #[test]
+    fn shr_subtracts_from_exponent() {
+        let a = IntExp { val: Integer::from(9), exp: 4 };
+        let b = a.clone() >> 3u32;
+        assert_eq!(b.val, Integer::from(9));
+        assert_eq!(b.exp, 1);
+    }
+
+    #[test]
+    fn shift_method_matches_shl_shr() {
+        let a = IntExp { val: Integer::from(5), exp: -2 };
+        assert_eq!(a.clone().shift(3).exp, (a.clone() << 3u32).exp);
+        assert_eq!(a.clone().shift(-2).exp, (a << 0u32 >> 2u32).exp);
+    }
 }
 
 #[test]

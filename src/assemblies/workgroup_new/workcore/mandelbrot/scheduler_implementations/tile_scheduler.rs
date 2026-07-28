@@ -60,6 +60,28 @@ pub struct TileSchedulerState {
     , seat_kind: HashMap<(usize, usize), TileSeatKind>
 }
 
+impl TileSchedulerState {
+    pub fn debug_tile_counts(&self) -> (u32, u32, u32) {
+        let mut begun = 0u32;
+        let mut finished = 0u32;
+        let mut unbegun = 0u32;
+        for t in &self.tiles {
+            if t.finished {
+                finished += 1;
+            } else if t.begun {
+                begun += 1;
+            } else {
+                unbegun += 1;
+            }
+        }
+        (begun, finished, unbegun)
+    }
+
+    pub fn debug_scredge_lens(&self) -> (usize, usize) {
+        (self.scredge.len(), self.scredge_active.len())
+    }
+}
+
 pub struct TileScheduler;
 
 impl TileScheduler {
@@ -139,11 +161,11 @@ impl TileScheduler {
         // r[impl cz.seamless.foveated-mag-velocity+1]
         // Design (docs/design/tile_scheduler.md):
         // - mag_velocity > 0: focus on foveated lookahead (DFS column under attention)
-        // - mag_velocity == 0: foveated screen fill; also lookahead (column first, then spiral)
+        // - mag_velocity == 0: foveated screen fill; also lookahead (spiral first, then column)
         // - mag_velocity < 0: prefer low-res / scredge fill (backtracking)
         //
-        // Safe default for the column: attention-containing absolute tile at each
-        // deeper mag (base+1..base+8), finish depth-first, then same-mag spiral.
+        // At rest, finishing the on-screen spiral before deeper lookahead avoids a
+        // sparse foveal strip while the column eats workshifts.
         if state.mag_velocity < 0 {
             if let Some(seat) = Self::take_scredge(state) {
                 return TileSchedulerNext::Scredge(seat);
@@ -154,6 +176,37 @@ impl TileScheduler {
             }
             return TileSchedulerNext::Idle;
         }
+        if state.mag_velocity == 0 {
+            // Whole-screen scredge first: paints Outside perimeter everywhere so the
+            // viewport fills quickly, then BeginTile outfill/flood for interiors.
+            if let Some(seat) = Self::take_scredge(state) {
+                return TileSchedulerNext::Scredge(seat);
+            }
+            // take_scredge returns None when every remaining seat is in-flight
+            // (scredge_active). Must not BeginTile yet — that orphans the perimeter
+            // and freezes interiors behind an open active tile.
+            if !state.scredge.is_empty() || !state.scredge_active.is_empty() {
+                return TileSchedulerNext::Idle;
+            }
+            if let Some(tile) = Self::take_unbegun_nearest(state, true) {
+                state.tiles[tile].begun = true;
+                return TileSchedulerNext::BeginTile(tile);
+            }
+            if let Some(tile) = Self::take_unbegun_nearest(state, false) {
+                state.tiles[tile].begun = true;
+                return TileSchedulerNext::BeginTile(tile);
+            }
+            if !state.lookahead_column_done {
+                if state.lookahead_bump < 8 {
+                    state.lookahead_bump += 1;
+                    let zoom_pot = state.base_mag.saturating_add(state.lookahead_bump as i32);
+                    return TileSchedulerNext::BeginLookahead { zoom_pot };
+                }
+                state.lookahead_column_done = true;
+            }
+            return TileSchedulerNext::Idle;
+        }
+        // mag_velocity > 0: lookahead column first, then same-mag spiral.
         if !state.lookahead_column_done {
             if state.lookahead_bump < 8 {
                 state.lookahead_bump += 1;
@@ -162,8 +215,6 @@ impl TileScheduler {
             }
             state.lookahead_column_done = true;
         }
-        // After the attention column: known-outside tiles, then any unbegun near
-        // attention, then scredge.
         if let Some(tile) = Self::take_unbegun_nearest(state, true) {
             state.tiles[tile].begun = true;
             return TileSchedulerNext::BeginTile(tile);
@@ -265,6 +316,33 @@ impl TileScheduler {
         best.map(|(_, idx)| idx)
     }
 
+    /// Batch cleared without a finish (init miss, empty points): put the seat
+    /// back on the scredge queue so take_scredge can offer it again.
+    pub fn release_scredge_active(
+        state: &mut TileSchedulerState
+        , seat: (usize, usize)
+    ) {
+        state.scredge_active.remove(&seat);
+        if state.seat_kind.contains_key(&seat) {
+            return;
+        }
+        if !state.scredge.iter().any(|s| *s == seat) {
+            state.scredge.push_back(seat);
+        }
+    }
+
+    /// Recover seats left in scredge_active after a batch was dropped.
+    pub fn reclaim_orphaned_scredge_active(state: &mut TileSchedulerState) -> bool {
+        if state.scredge_active.is_empty() {
+            return false;
+        }
+        let stuck: Vec<(usize, usize)> = state.scredge_active.iter().copied().collect();
+        for seat in stuck {
+            Self::release_scredge_active(state, seat);
+        }
+        true
+    }
+
     pub fn note_finished(
         state: &mut TileSchedulerState
         , seat: (usize, usize)
@@ -314,6 +392,49 @@ impl TileScheduler {
         if let Some(tile) = state.tiles.get_mut(tile_index) {
             tile.finished = true;
         }
+    }
+
+    /// Drop a begun-but-incomplete tile so `next` can offer it again (or others).
+    pub fn release_begun_tile(state: &mut TileSchedulerState, tile_index: usize) {
+        if let Some(tile) = state.tiles.get_mut(tile_index) {
+            tile.begun = false;
+            tile.finished = false;
+        }
+    }
+
+    /// Any begun/finished tile whose screen seats are not all done can be retried.
+    pub fn reopen_incomplete_tiles(
+        state: &mut TileSchedulerState
+        , screen_done: &[bool]
+        , screen_width: usize
+    ) -> bool {
+        let mut any = false;
+        for tile in state.tiles.iter_mut() {
+            if !tile.begun && !tile.finished {
+                continue;
+            }
+            let mut incomplete = false;
+            for ly in 0..tile.extent.1 {
+                for lx in 0..tile.extent.0 {
+                    let sx = tile.origin.0 + lx;
+                    let sy = tile.origin.1 + ly;
+                    let idx = sy * screen_width + sx;
+                    if idx >= screen_done.len() || !screen_done[idx] {
+                        incomplete = true;
+                        break;
+                    }
+                }
+                if incomplete {
+                    break;
+                }
+            }
+            if incomplete {
+                tile.begun = false;
+                tile.finished = false;
+                any = true;
+            }
+        }
+        any
     }
 
     pub fn tile_origin(state: &TileSchedulerState, tile_index: usize) -> (usize, usize) {
@@ -477,26 +598,42 @@ mod tile_scheduler_tests {
 
     #[test]
     fn next_prefers_tile_near_attention() {
-        let mut state = TileScheduler::init((256, 256));
+        // Small screen: at rest next() drains whole-screen scredge before BeginTile;
+        // keep the drain cheap (esp. under llvm-cov instrumentation).
+        let mut state = TileScheduler::init((96, 96));
         TileScheduler::set_base_mag(&mut state, 0);
-        // Skip the DFS lookahead column so same-mag spiral is exercised.
         state.lookahead_column_done = true;
         state.lookahead_bump = 8;
-        // Attention in the bottom-right quadrant.
-        TileScheduler::set_attention(&mut state, (200, 200));
-        // set_attention resets column — force done again.
+        TileScheduler::set_attention(&mut state, (72, 72));
         state.lookahead_column_done = true;
         state.lookahead_bump = 8;
+        let mut guard = 0;
+        while guard < 50_000 {
+            guard += 1;
+            match TileScheduler::next(&mut state) {
+                TileSchedulerNext::Scredge(seat) => {
+                    TileScheduler::note_finished(&mut state, seat, TileSeatKind::Outside);
+                }
+                TileSchedulerNext::Idle => {
+                    if !TileScheduler::reclaim_orphaned_scredge_active(&mut state) {
+                        break;
+                    }
+                }
+                TileSchedulerNext::BeginTile(_) | TileSchedulerNext::BeginLookahead { .. } => {
+                    break;
+                }
+            }
+        }
         let mut saw_near = false;
-        for _ in 0..20 {
+        for _ in 0..40 {
             match TileScheduler::next(&mut state) {
                 TileSchedulerNext::BeginTile(i) => {
                     let origin = TileScheduler::tile_origin(&state, i);
                     let extent = TileScheduler::tile_extent(&state, i);
                     let cx = (origin.0 + extent.0 / 2) as i32;
                     let cy = (origin.1 + extent.1 / 2) as i32;
-                    let dist = (cx - 200).abs().max((cy - 200).abs());
-                    if dist <= 96 {
+                    let dist = (cx - 72).abs().max((cy - 72).abs());
+                    if dist <= 64 {
                         saw_near = true;
                         break;
                     }
@@ -522,6 +659,81 @@ mod tile_scheduler_tests {
             dist_first <= 64,
             "first scredge {first:?} should be near attention, dist={dist_first}"
         );
+    }
+
+    #[test]
+    fn at_rest_does_not_begin_tile_while_scredge_in_flight() {
+        let mut state = TileScheduler::init((128, 96));
+        TileScheduler::set_mag_velocity(&mut state, 0);
+        let seat = TileScheduler::take_scredge(&mut state).expect("scredge seat");
+        // Seat is in scredge_active; draining take_scredge should yield Idle, not BeginTile.
+        match TileScheduler::next(&mut state) {
+            TileSchedulerNext::Scredge(_) => {}
+            TileSchedulerNext::Idle => {}
+            TileSchedulerNext::BeginTile(i) => {
+                panic!("BeginTile({i}) while scredge seat {seat:?} still in-flight");
+            }
+            TileSchedulerNext::BeginLookahead { zoom_pot } => {
+                panic!("BeginLookahead({zoom_pot}) while scredge in-flight");
+            }
+        }
+        // Exhaust takeable seats into active without finishing — still must not BeginTile.
+        for _ in 0..10_000 {
+            match TileScheduler::next(&mut state) {
+                TileSchedulerNext::Scredge(_) => {}
+                TileSchedulerNext::Idle => break,
+                other => panic!("expected Scredge/Idle while perimeter in-flight, got {other:?}"),
+            }
+        }
+        assert!(
+            matches!(TileScheduler::next(&mut state), TileSchedulerNext::Idle)
+            , "must Idle until in-flight scredge is finished or released"
+        );
+        TileScheduler::reclaim_orphaned_scredge_active(&mut state);
+        assert!(
+            matches!(TileScheduler::next(&mut state), TileSchedulerNext::Scredge(_))
+            , "after reclaim, scredge must be offered again"
+        );
+    }
+
+    #[test]
+    fn release_scredge_active_requeues_unfinished() {
+        let mut state = TileScheduler::init((64, 64));
+        let seat = TileScheduler::take_scredge(&mut state).expect("seat");
+        assert!(state.scredge_active.contains(&seat));
+        TileScheduler::release_scredge_active(&mut state, seat);
+        assert!(!state.scredge_active.contains(&seat));
+        assert!(
+            state.scredge.iter().any(|s| *s == seat)
+            , "released seat must return to the scredge queue"
+        );
+        // Drain until the released seat is offered again (foveated order may
+        // prefer other unfinished seats first).
+        let mut found = false;
+        for _ in 0..state.scredge.len().saturating_add(8) {
+            let Some(next) = TileScheduler::take_scredge(&mut state) else {
+                break;
+            };
+            if next == seat {
+                found = true;
+                break;
+            }
+            TileScheduler::note_finished(&mut state, next, TileSeatKind::Outside);
+        }
+        assert!(found, "released seat {seat:?} must be takeable again");
+    }
+
+    #[test]
+    fn reopen_incomplete_tiles_clears_begun_finished() {
+        let mut state = TileScheduler::init((64, 64));
+        state.tiles[0].begun = true;
+        state.tiles[0].finished = true;
+        let mut done = vec![true; 64 * 64];
+        // One seat in tile 0 still NORES.
+        done[0] = false;
+        assert!(TileScheduler::reopen_incomplete_tiles(&mut state, &done, 64));
+        assert!(!state.tiles[0].begun);
+        assert!(!state.tiles[0].finished);
     }
 
     #[test]
@@ -567,16 +779,16 @@ mod tile_scheduler_tests {
 
     // r[verify cz.seamless.foveated-mag-velocity+1]
     #[test]
-    fn stationary_also_emits_lookahead_before_screen_fill() {
+    fn stationary_prefers_screen_fill_before_lookahead() {
         let mut state = TileScheduler::init((128, 128));
         TileScheduler::set_base_mag(&mut state, 0);
         TileScheduler::set_attention(&mut state, (20, 20));
         TileScheduler::set_mag_velocity(&mut state, 0);
         match TileScheduler::next(&mut state) {
-            TileSchedulerNext::BeginLookahead { zoom_pot } => {
-                assert_eq!(zoom_pot, 1);
-            }
-            other => panic!("stationary should BeginLookahead first, got {other:?}"),
+            TileSchedulerNext::Scredge(_) | TileSchedulerNext::BeginTile(_) => {}
+            other => panic!(
+                "stationary should Scredge/BeginTile before lookahead, got {other:?}"
+            ),
         }
     }
 

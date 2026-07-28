@@ -72,6 +72,7 @@ Remember what belongs where and avoid overusing the 'design hole' exception.
 Details:
 1. Where .styx / who own?
 Default place. assistant own. assistant is allowed to add annotations to the authoritative spec but must maintain a strict rule not to edit its actual contents and remember that the annotations themselves are not authoritative, only the content they addresss.
+This IS an exception allowing the assistant to edit files which say not to edit them. Interpret the warnings as applying to content, not linking notations.
 2. Where tests / who own?
 Tests are generally to be written and managed by the assistant but must still consider the voice requirements and prefer elegant properties to inelegant input/output tests.
 

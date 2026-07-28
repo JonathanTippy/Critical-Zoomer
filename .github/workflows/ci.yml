@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Lib tests
+        run: cargo test --release --lib -- --test-threads=1
+      - name: Oracle proving
+        run: cargo test --release --lib e2e_oracle -- --test-threads=1
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Lib coverage (skip instrumented-slow home fill; ignore GUI shells)
+        run: |
+          cargo llvm-cov --lib --release --summary-only \
+            --ignore-filename-regex='(main\.rs|do_work\.rs|settings\.rs|window/mod\.rs|widgetize\.rs|shade\.rs|escaper\.rs|colorer/mod\.rs|shadergroup/structs\.rs|screen_worker/|work_collector\.rs|work_controller\.rs|naive_gpu_worker\.rs)' \
+            -- --test-threads=1 \
+            --skip home_800x480_fills_within_five_seconds_cpu
+
+  # Headed e2e (manual/local): taskset -c 4-11 scripts/e2e_suite.sh
+  # Fuzz smoke (manual/local, nightly + cargo-fuzz): taskset -c 4-11 scripts/fuzz_smoke.sh 45
+  # Tracey: tracey query status (31/31 covered+verified as of QC)

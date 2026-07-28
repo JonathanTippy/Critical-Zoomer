@@ -135,27 +135,6 @@ pub fn seat_delta_pixels(
     pos_delta_pixels(&hoard.pos, &current.pos, hoard.zoom_pot)
 }
 
-/// Absolute dyadic seat of a location's upper-left corner at that location's mag.
-pub fn world_ul_seats(location: &ObjectivePosAndZoom) -> Option<(i32, i32)> {
-    pos_delta_pixels(
-        &(IntExp::ZERO, IntExp::ZERO)
-        , &location.pos
-        , location.zoom_pot
-    )
-}
-
-/// Convert a screen-relative tile origin into an absolute dyadic seat key.
-pub fn absolute_tile_origin(
-    location: &ObjectivePosAndZoom
-    , origin_seat: (usize, usize)
-) -> Option<(i32, i32)> {
-    let (wx, wy) = world_ul_seats(location)?;
-    Some((
-        wx.wrapping_add(origin_seat.0 as i32)
-        , wy.wrapping_add(origin_seat.1 as i32)
-    ))
-}
-
 fn normalizing_code(n: &Normalizing) -> u32 {
     match n {
         Normalizing::None {} => 0
@@ -474,93 +453,94 @@ pub fn build_shade_frame(
     let mut lesser_n = 0u32;
     let mut finer_n = 0u32;
 
-    // Hoard keys are absolute dyadic seats at each tile's mag. Placement subtracts
-    // the current view's absolute UL so pans keep prior tiles instead of clobbering
-    // screen-relative (0,0)/(16,0)/… slots.
-    if let Some((view_ul_x, view_ul_y)) = world_ul_seats(&current) {
-        for ((z, ox, oy), versions) in &sampling_context.tiles {
-            for (vi, _tile) in versions.iter().enumerate() {
-                let Some(ids) = sampling_context.tile_gpu_ids.get(&(*z, *ox, *oy)) else {
+    for ((z, ox, oy), versions) in &sampling_context.tiles {
+        for (vi, tile) in versions.iter().enumerate() {
+            let Some(ids) = sampling_context.tile_gpu_ids.get(&(*z, *ox, *oy)) else {
+                continue;
+            };
+            let Some(&id) = ids.get(vi) else { continue; };
+            if *z == zoom {
+                let Some((pan_x, pan_y)) = seat_delta_pixels(&tile.location, &current) else {
+                    overflow_skips += 1;
                     continue;
                 };
-                let Some(&id) = ids.get(vi) else { continue; };
-                if *z == zoom {
-                    let pan_x = view_ul_x;
-                    let pan_y = view_ul_y;
-                    let screen_dx = ox.wrapping_sub(view_ul_x);
-                    let screen_dy = oy.wrapping_sub(view_ul_y);
-                    let rank = 3_000_000u32.saturating_sub(
-                        (screen_dx.abs().saturating_add(screen_dy.abs())).min(2_999_999) as u32
-                    );
-                    entries.push(GpuTileEntry {
-                        origin_x: *ox
-                        , origin_y: *oy
-                        , pan_x
-                        , pan_y
-                        , zoom_delta: 0
-                        , slot: 0
-                        , rank
-                        , _pad: 0
-                    });
-                    entry_ids.push(id);
-                    same_n += 1;
-                } else if *z < zoom {
-                    let mag_delta = zoom - *z;
-                    if mag_delta > 31 {
-                        overflow_skips += 1;
-                        continue;
-                    }
-                    let pan_x = view_ul_x;
-                    let pan_y = view_ul_y;
-                    let screen_dx = ((*ox as i64) << mag_delta as u32)
-                        .saturating_sub(view_ul_x as i64);
-                    let screen_dy = ((*oy as i64) << mag_delta as u32)
-                        .saturating_sub(view_ul_y as i64);
-                    let rank = 2_000_000u32.saturating_sub(
-                        ((screen_dx.abs() + screen_dy.abs()).min(1_999_999)) as u32
-                    );
-                    entries.push(GpuTileEntry {
-                        origin_x: *ox
-                        , origin_y: *oy
-                        , pan_x
-                        , pan_y
-                        , zoom_delta: mag_delta
-                        , slot: 0
-                        , rank
-                        , _pad: 0
-                    });
-                    entry_ids.push(id);
-                    lesser_n += 1;
-                } else if *z > zoom {
-                    let mag_delta = *z - zoom;
-                    if mag_delta > 31 {
-                        overflow_skips += 1;
-                        continue;
-                    }
-                    let pan_x = view_ul_x;
-                    let pan_y = view_ul_y;
-                    let screen_dx = (*ox >> mag_delta).wrapping_sub(view_ul_x);
-                    let screen_dy = (*oy >> mag_delta).wrapping_sub(view_ul_y);
-                    let rank = 1_000_000u32.saturating_sub(
-                        (screen_dx.abs().saturating_add(screen_dy.abs())).min(999_999) as u32
-                    );
-                    entries.push(GpuTileEntry {
-                        origin_x: *ox
-                        , origin_y: *oy
-                        , pan_x
-                        , pan_y
-                        , zoom_delta: -mag_delta
-                        , slot: 0
-                        , rank
-                        , _pad: 0
-                    });
-                    entry_ids.push(id);
-                    finer_n += 1;
+                let rank = 3_000_000u32.saturating_sub(
+                    (pan_x.abs().saturating_add(pan_y.abs())).min(2_999_999) as u32
+                );
+                entries.push(GpuTileEntry {
+                    origin_x: *ox
+                    , origin_y: *oy
+                    , pan_x
+                    , pan_y
+                    , zoom_delta: 0
+                    , slot: 0
+                    , rank
+                    , _pad: 0
+                });
+                entry_ids.push(id);
+                same_n += 1;
+            } else if *z < zoom {
+                // Coarser / lesser: lowest preference band (finer wins when overlapping).
+                let mag_delta = zoom - *z;
+                if mag_delta > 31 {
+                    overflow_skips += 1;
+                    continue;
                 }
+                let Some((pan_x, pan_y)) = pos_delta_pixels(
+                    &tile.location.pos
+                    , &current.pos
+                    , zoom
+                ) else {
+                    overflow_skips += 1;
+                    continue;
+                };
+                let rank = 1_000_000u32.saturating_sub(
+                    (pan_x.abs().saturating_add(pan_y.abs())).min(999_999) as u32
+                );
+                entries.push(GpuTileEntry {
+                    origin_x: *ox
+                    , origin_y: *oy
+                    , pan_x
+                    , pan_y
+                    , zoom_delta: mag_delta
+                    , slot: 0
+                    , rank
+                    , _pad: 0
+                });
+                entry_ids.push(id);
+                lesser_n += 1;
+            } else if *z > zoom {
+                // Finer: prefer over coarser (dyadic: sample finer-first).
+                let mag_delta = *z - zoom;
+                if mag_delta > 31 {
+                    overflow_skips += 1;
+                    continue;
+                }
+                let Some((pan_x, pan_y)) = pos_delta_pixels(
+                    &tile.location.pos
+                    , &current.pos
+                    , zoom
+                ) else {
+                    overflow_skips += 1;
+                    continue;
+                };
+                let rank = 2_000_000u32.saturating_sub(
+                    (pan_x.abs().saturating_add(pan_y.abs())).min(1_999_999) as u32
+                );
+                entries.push(GpuTileEntry {
+                    origin_x: *ox
+                    , origin_y: *oy
+                    , pan_x
+                    , pan_y
+                    , zoom_delta: -mag_delta
+                    , slot: 0
+                    , rank
+                    , _pad: 0
+                });
+                entry_ids.push(id);
+                finer_n += 1;
             }
         }
-    } else {
-        overflow_skips = overflow_skips.saturating_add(sampling_context.tile_count() as u32);
     }
 
     let grid_w = ((viewport.0 as i32 + edge - 1) / edge).max(1) as u32 + 2;
@@ -1347,8 +1327,6 @@ mod b_ten_1_tests {
     use crate::constants::NORES_ANSWER;
     use crate::utils::ObjectivePosAndZoom;
 
-    // r[verify cz.display.nores-when-no-proximate+1]
-    // r[verify cz.tenacious.nores-not-flat-black+1]
     #[test]
     fn nores_answer_packs_as_outside_not_missing() {
         let mut tile = Tile::new((0, 0), -2);
