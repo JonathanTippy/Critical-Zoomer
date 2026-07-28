@@ -5,7 +5,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-IGNORE='(main\.rs|do_work\.rs|settings\.rs|window/mod\.rs|widgetize\.rs|shade\.rs|escaper\.rs|colorer/mod\.rs|shadergroup/structs\.rs|screen_worker/|work_collector\.rs|work_controller\.rs|naive_gpu_worker\.rs)'
+IGNORE='(main\.rs|settings\.rs|window/mod\.rs|widgetize\.rs)'
 taskset -c "${CZ_CPUSET:-4-11}" cargo llvm-cov --lib --release --summary-only \
   --ignore-filename-regex="$IGNORE" \
   -- \

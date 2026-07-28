@@ -29,7 +29,7 @@ jobs:
       - name: Lib coverage (skip instrumented-slow home fill; ignore GUI shells)
         run: |
           cargo llvm-cov --lib --release --summary-only \
-            --ignore-filename-regex='(main\.rs|do_work\.rs|settings\.rs|window/mod\.rs|widgetize\.rs|shade\.rs|escaper\.rs|colorer/mod\.rs|shadergroup/structs\.rs|screen_worker/|work_collector\.rs|work_controller\.rs|naive_gpu_worker\.rs)' \
+            --ignore-filename-regex='(main\.rs|settings\.rs|window/mod\.rs|widgetize\.rs)' \
             -- --test-threads=1 \
             --skip home_800x480_fills_within_five_seconds_cpu
 
@@ -71,7 +71,11 @@ jobs:
           name: critical_zoomer-linux-amd64
           path: target/release/critical_zoomer
 
-  # Headed e2e (manual/local): taskset -c 4-11 scripts/e2e_suite.sh
-  # Fuzz smoke (manual/local, nightly + cargo-fuzz): taskset -c 4-11 scripts/fuzz_smoke.sh 45
+  # Headed e2e (manual/local until GPU/Xvfb runner lands):
+  #   taskset -c 3-8 scripts/e2e_suite.sh
+  # GPU hard bars (standards ≥30B IPS / shade ≤2ms): require a GPU-capable job —
+  # soft-skip on GPU-less runners is not green.
+  # FOSS LICENSE: blocked until developer names the FOSS license (requirements).
+  # Fuzz smoke (manual/local, nightly + cargo-fuzz): taskset -c 3-8 scripts/fuzz_smoke.sh 45
   # Tracey: docs/tracey/*-rules.md — hard bars in standards-rules.md + product-rules.md
   # GPU required for release IPS/shader hard asserts (see Lib tests step).

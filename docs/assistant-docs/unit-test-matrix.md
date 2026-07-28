@@ -1,6 +1,6 @@
 # Unit-test matrix (assistant-owned, non-authoritative)
 
-Phase gate: every row `green`. Soft-skip GPU ≠ green. `D-*` decisions are oracles (incl. D-PUB-1: no 30/s floor).
+Phase gate: every row `green`. Soft-skip GPU ≠ green. `D-*` decisions are oracles only when they do not contradict authoritative docs. D-PUB-1: flat 1000 Hz + GPU publisher (no min floor).
 
 Status: `green` | `in-progress` | `blocked-impl`
 
@@ -28,7 +28,7 @@ Status: `green` | `in-progress` | `blocked-impl`
 | cz.int.memory-bump+1 | tile_manager + window + unit extras | n/a | multi | in-progress |
 | cz.int.hoard-ingest-sample+1 | sampling (≥3 unit) | n/a | sampling.rs | in-progress |
 | cz.int.publisher-nores-bias+1 | tile_publisher (≥3) | clamp bounds | tile_publisher.rs | green |
-| cz.int.publish-cadence+1 | cadence max 1000; **no min-30** (D-PUB-1) | n/a | tile_publisher.rs | in-progress |
+| cz.int.publish-cadence+1 | cadence max 1000; no min floor (D-PUB-1 flat 1000) | n/a | tile_publisher.rs | in-progress |
 | cz.int.stencil-retarget+1 | unit extract (≥3) | n/a | stencil / window | in-progress |
 | cz.int.session-pipeline+1 | unit extract (≥3) | n/a | tile_session | in-progress |
 | cz.shade.escape-continues-to-bailout+1 | shade_tests (≥3) | n/a | shade_tests.rs | green |
@@ -88,7 +88,7 @@ Status: `green` | `in-progress` | `blocked-impl`
 | D-MEM-4 | keep-set property | in-progress |
 | D-SCH-1 | mouse column depth 8 | in-progress |
 | D-SCH-2 | EWMA mag velocity | in-progress |
-| D-SCH-3 | immediate preempt | blocked-impl |
+| D-SCH-3 | immediate preempt + resume_suspended on drain | in-progress |
 | D-PER-1 | twin N=16 | in-progress |
 | D-PER-2 | relative ε | in-progress |
 | D-PER-3 | POT snapshots | in-progress |
@@ -97,7 +97,7 @@ Status: `green` | `in-progress` | `blocked-impl`
 | D-CANCEL-1 | cancel keeps hoard | in-progress |
 | D-REF-1 | +20 bits | in-progress |
 | D-REF-2 | retire last-user or >N=3 | in-progress |
-| D-PUB-1 | max 1000; no min floor | in-progress |
+| D-PUB-1 | max 1000; no min floor; GPU publisher | in-progress |
 | D-PUB-2 | clamp all-numeric | in-progress |
 | D-STEN-1 | mouse+vel+seq fields | in-progress |
 | D-WORK-1 | address-only keys | in-progress |
@@ -124,12 +124,12 @@ Status: `green` | `in-progress` | `blocked-impl`
 
 ## Auth note
 
-`docs/design/tile_publisher.md` still says ≥30/s; D-PUB-1 withdraws that floor. Auth edit pending human; tests enforce D-PUB-1.
+Developer cadence rule: flat **1000/s** ceiling (D-PUB-1). Auth `tile_publisher.md` still mentions ≥30/s — treat as stale until human edits; tests enforce flat 1000. GPU publisher shader is still required.
 
 ## Preflight (2026-07-27)
 
 - GPU: `/dev/dri` present; `gpu_context` tests pass.
 - Series: `series_skip` exists in `perturbation_cpu_worker.rs` — needs ≥3 dedicated tests + absorption.
-- Preempt: no suspend API in outfill_infill — **blocked-impl** until added.
-- Default script: 7 layers — must shrink to 3 for D-COLOR-1.
-- Publisher: `PUBLISH_MIN_HZ=30` — remove per D-PUB-1.
+- Preempt: PhaseJobTracker exists; live drain resume still **blocked-impl** until wired.
+- Default script: 3 layers for D-COLOR-1.
+- Publisher: flat `PUBLISH_MAX_HZ=1000` + GPU shader path.

@@ -7,8 +7,8 @@
 mod properties {
     use crate::assemblies::structs::MandelbrotResult;
     use crate::assemblies::tile_sheet::TILE_EDGE;
-    use crate::assemblies::workgroup_new::production_atlas::ProductionAtlas;
-    use crate::assemblies::workgroup_new::tile_publisher::{agnostic_wide, publish_seat};
+    use crate::assemblies::workgroup::production_atlas::ProductionAtlas;
+    use crate::assemblies::workgroup::tile_publisher::{agnostic_wide, publish_seat};
     use crate::constants::{NORES_ANSWER, PIXELS_PER_UNIT_POT};
     use crate::gear::Gear;
     use crate::gpu_context::GpuContext;

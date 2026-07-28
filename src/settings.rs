@@ -26,7 +26,8 @@ pub const DEFAULT_SETTINGS_WINDOW_RES:(u32, u32) = (500, 800);
 
 // D-COLOR-1: escape time; in-filaments black; out-filaments as outside ∞-escape; nothing else.
 pub const DEFAULT_COLORING_SCRIPT:[ColoringInstruction;3] = [
-    ColoringInstruction::PaintEscapeTime{id: 0, opacity:255
+    ColoringInstruction::PaintEscapeTime{id: 0
+        , inside_opacity:255, outside_opacity:255
         , color:(128,128,128), range:64
         , shading_method: ShadingInstruction{
             shading: Shading::Sinus{}
@@ -50,9 +51,13 @@ pub const DEFAULT_COLORING_SCRIPT:[ColoringInstruction;3] = [
             }
         }
         , normalizing_method: Normalizing::None{}}
-    , ColoringInstruction::HighlightInFilaments{id: 1, opacity:255, color:(0,0,0)}
+    , ColoringInstruction::HighlightInFilaments{
+        id: 1, inside_opacity:255, outside_opacity:255, color:(0,0,0)
+    }
     // Out filaments: paint like ∞ escape (shade path); color unused when ∞-escape path is used.
-    , ColoringInstruction::HighlightOutFilaments{id: 2, opacity:255, color:(128,128,128)}
+    , ColoringInstruction::HighlightOutFilaments{
+        id: 2, inside_opacity:255, outside_opacity:255, color:(128,128,128)
+    }
 ];
 
 
@@ -220,7 +225,7 @@ pub enum Shading {
 
 pub enum ColoringInstruction {
     PaintEscapeTime{
-         opacity:u8
+         inside_opacity:u8, outside_opacity:u8
         , color:(u8,u8,u8), range:u8
         , shading_method: ShadingInstruction
         , normalizing_method: Normalizing
@@ -241,11 +246,11 @@ pub enum ColoringInstruction {
         , id:u64
     }
     , HighlightInFilaments{
-        opacity:u8, color:(u8,u8,u8)
+        inside_opacity:u8, outside_opacity:u8, color:(u8,u8,u8)
         , id:u64
     }
     , HighlightOutFilaments{
-        opacity:u8, color:(u8,u8,u8)
+        inside_opacity:u8, outside_opacity:u8, color:(u8,u8,u8)
         , id:u64
     }
     , HighlightNodes{
@@ -597,11 +602,21 @@ mod animable_tests {
     #[test]
     fn highlights_are_script_layer_variants() {
         assert!(matches!(
-            ColoringInstruction::HighlightInFilaments { id: 0, opacity: 255, color: (0, 0, 0) },
+            ColoringInstruction::HighlightInFilaments {
+                id: 0,
+                inside_opacity: 255,
+                outside_opacity: 255,
+                color: (0, 0, 0)
+            },
             ColoringInstruction::HighlightInFilaments { .. }
         ));
         assert!(matches!(
-            ColoringInstruction::HighlightOutFilaments { id: 0, opacity: 255, color: (1, 1, 1) },
+            ColoringInstruction::HighlightOutFilaments {
+                id: 0,
+                inside_opacity: 255,
+                outside_opacity: 255,
+                color: (1, 1, 1)
+            },
             ColoringInstruction::HighlightOutFilaments { .. }
         ));
         assert!(matches!(

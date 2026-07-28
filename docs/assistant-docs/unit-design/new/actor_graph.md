@@ -41,7 +41,7 @@ Replace if profiling shows structural backup (that is a bug, not a reason to inf
 ## Wake rates (UD-ACT-4) — inferred
 
 - Headgroup: frame-driven ≤60Hz.
-- Publisher: event + pace to respect 1000/s ceiling (no 30/s floor).
+- Publisher: event + pace to respect 1000/s ceiling (no min floor).
 - Uploader: event or minimum wake to drain.
 - Reference: event on mag change.
 - Schedulers/worker: steady-state workshift cadence; pause off-screen WIP.

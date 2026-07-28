@@ -2,7 +2,7 @@ use eframe::emath::Rect;
 use egui::{color_picker, Slider, Ui};
 use egui_dnd::dnd;
 use crate::settings::*;
-use crate::assemblies::workgroup_new::tile_manager::memory_slider_floor_gb;
+use crate::assemblies::workgroup::tile_manager::memory_slider_floor_gb;
 impl Settings {
     pub fn widgetize(&mut self, ui:&mut Ui) {
 
@@ -19,7 +19,11 @@ impl Settings {
             (self.memory_limit_bytes as f64) / 1_000_000_000.0
         };
         let response = ui.add(
-            Slider::new(&mut gb, 0.125..=(SLIDER_MAX / 1_000_000_000.0))
+            Slider::new(
+                &mut gb,
+                memory_slider_floor_gb(self.memory_floor_bytes)
+                    ..=(SLIDER_MAX / 1_000_000_000.0),
+            )
                 .logarithmic(true)
                 .suffix(" GB")
                 .text("L")
@@ -81,7 +85,7 @@ impl ColoringInstruction {
     pub fn widgetize(&mut self, ui: &mut Ui) {
         match self {
             ColoringInstruction::PaintEscapeTime{
-                opacity, color, range, shading_method, normalizing_method, ..
+                inside_opacity, outside_opacity, color, range, shading_method, normalizing_method, ..
             } => {
                 ui.label("Escape Time Coloring Settings");
                 ui.label("Escape Time shading method:");
@@ -94,8 +98,10 @@ impl ColoringInstruction {
                 let mut color_array = [color.0, color.1, color.2];
                 color_picker::color_edit_button_srgb(ui, &mut color_array);
                 *color = (color_array[0], color_array[1], color_array[2]);
-                ui.label("Escape Time opacity of shading:");
-                ui.add(egui::Slider::new(opacity, 0..=255));
+                ui.label("Escape Time opacity of inside shading:");
+                ui.add(egui::Slider::new(inside_opacity, 0..=255));
+                ui.label("Escape Time opacity of outside shading:");
+                ui.add(egui::Slider::new(outside_opacity, 0..=255));
             }
             , ColoringInstruction::PaintSmallTime{
                 inside_opacity, outside_opacity, color, range, shading_method, normalizing_method, ..
@@ -136,26 +142,30 @@ impl ColoringInstruction {
                 ui.add(egui::Slider::new(outside_opacity, 0..=255));
             }
             , ColoringInstruction::HighlightInFilaments{
-                opacity, color, ..
+                inside_opacity, outside_opacity, color, ..
             } => {
                 ui.label("In Filament Highlighting Settings");
                 ui.label("In Filament color of shading:");
                 let mut color_array = [color.0, color.1, color.2];
                 color_picker::color_edit_button_srgb(ui, &mut color_array);
                 *color = (color_array[0], color_array[1], color_array[2]);
-                ui.label("In Filament opacity of shading:");
-                ui.add(egui::Slider::new(opacity, 0..=255));
+                ui.label("In Filament opacity of inside shading:");
+                ui.add(egui::Slider::new(inside_opacity, 0..=255));
+                ui.label("In Filament opacity of outside shading:");
+                ui.add(egui::Slider::new(outside_opacity, 0..=255));
             }
             , ColoringInstruction::HighlightOutFilaments{
-                opacity, color, ..
+                inside_opacity, outside_opacity, color, ..
             } => {
                 ui.label("Out Filament Highlighting Settings");
                 ui.label("Out Filament color of shading:");
                 let mut color_array = [color.0, color.1, color.2];
                 color_picker::color_edit_button_srgb(ui, &mut color_array);
                 *color = (color_array[0], color_array[1], color_array[2]);
-                ui.label("Out Filament opacity of shading:");
-                ui.add(egui::Slider::new(opacity, 0..=255));
+                ui.label("Out Filament opacity of inside shading:");
+                ui.add(egui::Slider::new(inside_opacity, 0..=255));
+                ui.label("Out Filament opacity of outside shading:");
+                ui.add(egui::Slider::new(outside_opacity, 0..=255));
             }
             , ColoringInstruction::HighlightNodes{
                 inside_opacity, outside_opacity, color, thickness, ..

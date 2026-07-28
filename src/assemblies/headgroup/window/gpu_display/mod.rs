@@ -18,10 +18,6 @@ pub(crate) mod shade_oracle;
 #[cfg(test)]
 mod shade_tests;
 
-pub mod finished_answer;
-#[cfg(test)]
-pub mod color;
-
 /// Slots the atlas starts with. Not a ceiling: the headgroup hoard grows with
 /// the user's memory limit, which requirements put at "unlimited" maximum, so
 /// running out of slots grows the atlas rather than dropping a tile.
@@ -194,15 +190,15 @@ pub fn pack_instructions(settings: &mut Settings) -> Vec<GpuInstruction> {
     for instruction in script.iter_mut() {
         match instruction {
             ColoringInstruction::PaintEscapeTime {
-                opacity, color, range, shading_method, normalizing_method, ..
+                inside_opacity, outside_opacity, color, range, shading_method, normalizing_method, ..
             } => {
                 out.push(GpuInstruction {
                     opcode: 0
                     , shading: shading_code(&shading_method.shading)
                     , normalizing: normalizing_code(normalizing_method)
                     , thickness: 0
-                    , opacity_inside: 0.0
-                    , opacity_outside: *opacity as f32
+                    , opacity_inside: *inside_opacity as f32
+                    , opacity_outside: *outside_opacity as f32
                     , range: *range as f32 / 255.0
                     , period: shading_method.period.determine() as f32
                     , phase: shading_method.phase.determine() as f32
@@ -247,14 +243,16 @@ pub fn pack_instructions(settings: &mut Settings) -> Vec<GpuInstruction> {
                     , color_b: color.2 as f32
                 });
             }
-            ColoringInstruction::HighlightInFilaments { opacity, color, .. } => {
+            ColoringInstruction::HighlightInFilaments {
+                inside_opacity, outside_opacity, color, ..
+            } => {
                 out.push(GpuInstruction {
                     opcode: 3
                     , shading: 0
                     , normalizing: 0
                     , thickness: 0
-                    , opacity_inside: 0.0
-                    , opacity_outside: *opacity as f32
+                    , opacity_inside: *inside_opacity as f32
+                    , opacity_outside: *outside_opacity as f32
                     , range: 0.0
                     , period: 1.0
                     , phase: 0.0
@@ -263,14 +261,16 @@ pub fn pack_instructions(settings: &mut Settings) -> Vec<GpuInstruction> {
                     , color_b: color.2 as f32
                 });
             }
-            ColoringInstruction::HighlightOutFilaments { opacity, color, .. } => {
+            ColoringInstruction::HighlightOutFilaments {
+                inside_opacity, outside_opacity, color, ..
+            } => {
                 out.push(GpuInstruction {
                     opcode: 4
                     , shading: 0
                     , normalizing: 0
                     , thickness: 0
-                    , opacity_inside: 0.0
-                    , opacity_outside: *opacity as f32
+                    , opacity_inside: *inside_opacity as f32
+                    , opacity_outside: *outside_opacity as f32
                     , range: 0.0
                     , period: 1.0
                     , phase: 0.0
@@ -680,7 +680,7 @@ pub fn build_shade_frame(
             , zoom_match: 1
             , instruction_count: instructions.len() as u32
             , bailout_radius: settings.bailout_radius.determine() as f32
-            , bailout_max_extra: settings.bailout_max_additional_iterations
+            , bailout_max_extra: 0 // no computation settings; shade does not continue iterates
             , origin_re
             , origin_im
             , space
@@ -1090,7 +1090,7 @@ impl GpuDisplayResources {
         let mut handoff_copies = 0u32;
         let mut handoff_cpu_fallback = 0u32;
         let mut released_slots: Vec<u32> = Vec::new();
-        let production = crate::assemblies::workgroup_new::production_atlas::ProductionAtlas::shared();
+        let production = crate::assemblies::workgroup::production_atlas::ProductionAtlas::shared();
         for upload in &frame.pending_uploads {
             let Some(slot) = self.slot_for_id(device, queue, upload.id) else {
                 alloc_fail += 1;
@@ -1362,7 +1362,7 @@ mod atlas_tests {
     #[test]
     fn a_production_slot_handoff_lands_in_the_headgroup_atlas() {
         let Some((shared, mut resources)) = resources() else { return };
-        let Some(production) = crate::assemblies::workgroup_new::production_atlas::ProductionAtlas::shared() else {
+        let Some(production) = crate::assemblies::workgroup::production_atlas::ProductionAtlas::shared() else {
             return;
         };
         let src_slot = {

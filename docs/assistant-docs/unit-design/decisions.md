@@ -54,7 +54,7 @@ Recorded from the unit-design closing pass. These override assistant guesses in 
 
 | Id | Decision |
 |----|----------|
-| D-PUB-1 | Publisher rate is a flat **1000/s** ceiling. The “at least 30/s” floor in authoritative tile_publisher text was a mistake for this closing pass — treat floor as absent until authoritative docs are corrected. |
+| D-PUB-1 | Publisher cadence is a flat **1000/s** ceiling while incomplete; idle when complete. No minimum floor. GPU shader path is required. |
 | D-PUB-2 | Calibrated→answer bias: clamp the proximate value into the proven range, field by field. All answer fields treated as numeric (no non-numeric special case). |
 | D-STEN-1 | Stencil carries, beyond homothety + resolution: mouse position, magnification velocity, and a sequence number. |
 | D-WORK-1 | Workgroup keys hoarded work by **tile address only**; stencil expresses current desire, not a work key. |

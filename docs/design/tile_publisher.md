@@ -14,4 +14,4 @@ Definition of nores: nores is not a special case. it is literally just what resu
 
 r[cz.int.publish-cadence+1]
 
-The publisher publishes at max 1000/s but at least 30 per second, depending on ease of current work.
+The publisher publishes at a flat 1000 per second.

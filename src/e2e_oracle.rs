@@ -4,14 +4,14 @@
 //! r[impl cz.e2e.visual-oracle+1]
 
 use crate::assemblies::structs::*;
-use crate::assemblies::workgroup_new::structs::mandelbrotable::*;
-use crate::assemblies::workgroup_new::workcore::mandelbrot::ActivePoint;
-use crate::assemblies::workgroup_new::workcore::mandelbrot::PeriodicityDetector;
-use crate::assemblies::workgroup_new::workcore::mandelbrot::worker_implementations::naive_cpu_worker::{
+use crate::assemblies::workgroup::structs::mandelbrotable::*;
+use crate::assemblies::workgroup::workcore::mandelbrot::ActivePoint;
+use crate::assemblies::workgroup::workcore::mandelbrot::PeriodicityDetector;
+use crate::assemblies::workgroup::workcore::mandelbrot::worker_implementations::naive_cpu_worker::{
     iterate_point_bout, point_to_answer,
 };
-use crate::assemblies::workgroup_new::workcore::mandelbrot::worker_implementations::periodicity_detector::CpuPeriodicityDetector;
-use crate::assemblies::workgroup_new::workcore::mandelbrot::ZERO_ORBIT_ID;
+use crate::assemblies::workgroup::workcore::mandelbrot::worker_implementations::periodicity_detector::CpuPeriodicityDetector;
+use crate::assemblies::workgroup::workcore::mandelbrot::ZERO_ORBIT_ID;
 use crate::constants::{HOME_POSITION, PIXELS_PER_UNIT_POT};
 use crate::intexp::IntExp;
 use crate::range::*;

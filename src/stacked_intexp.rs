@@ -7,7 +7,7 @@
 use std::cmp::*;
 use std::ops::*;
 use rug::Integer;
-use crate::assemblies::workgroup_new::structs::mandelbrotable::Mandelbrotable;
+use crate::assemblies::workgroup::structs::mandelbrotable::Mandelbrotable;
 use crate::constants::*;
 use crate::intexp::*;
 

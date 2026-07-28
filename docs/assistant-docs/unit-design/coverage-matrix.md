@@ -73,9 +73,9 @@ Status key: **covered** (auth), **closed-here** (assistant), **hole** (explicit)
 | Item | Note |
 |------|------|
 | Form-factor packaging (Flatpak/deb) | Outside unit design |
-| Authoritative tile_publisher “≥30/s” floor | D-PUB-1: treat as mistaken until auth edit |
-| `shadergroup` assembly vs shaders-in-headgroup | **closed** — actor assembly removed; pure color helpers live under `gpu_display/color.rs`; live shade is `gpu_display` wgsl |
-| Parallel `workgroup` vs `workgroup_new` | **reduced** — dead `workshift` / `work_collector` / `do_work` purged; live path is `TileSession` + `screen_worker` tile publish |
+| GPU tile publisher restore | GPU shader required; cadence flat 1000 Hz (D-PUB-1); CPU `publish_seat` interim for single-seat until GPU tile path used |
+| `shadergroup` assembly vs shaders-in-headgroup | **closed** — actor assembly removed; live shade is `gpu_display` wgsl |
+| Parallel `workgroup` vs `workgroup` | **reduced** — dead paths purged; live path is `TileSession` + `screen_worker`; rename pending |
 | Exact EWMA half-life / α for mag velocity | Assumed in tile_scheduler supplement |
 | Exact N for A-REF-MAX-N | Assumed = 3 |
 | In-fil / node numeric thresholds | Assumed placeholders A-SHADE-* |

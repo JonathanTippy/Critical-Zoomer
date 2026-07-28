@@ -25,6 +25,8 @@ Tiles solve these issues and make transferring, managing, and persisting work po
 Tiles must have a CPU variant and a GPU variant. The workgroup deals with tiles for continuity and scheduling with data either on CPU or GPU, while the headgroup deals with tiles for visual persistence, with data exclusively in the GPU. Of course, actual intexp transform calculations must be done on the cpu, yielding screenspace offsets for the GPU to use for sampling. This must be an exactly correct process via a few branches based on scale where even very large numbers are handled correctly and extremely quickly, as is obviously possible.
 Also, the workgroup may sometimes do work on the GPU instead and must prefer to when possible, but it depends what types are available what is doable and not.
 
+Correct tile usage:
+Tile hoard is never cleared, and tile hoard is correctly and completely sampled every single frame.
 
 #### Tile Manager
 
@@ -34,6 +36,10 @@ The tile manager is a function, not an actor. Equality is maintained by simple e
 The workgroup and headgroup have their own hoards.
 The tile manager must enforce the memory limit from the headgroup, and bump it whenever it must.
 Each tile manager acts locally with regard to its own collection of tiles.
+
+clear_tiles must not even exist. 
+it is not compatible with the app in any way that makes sense at all. 
+There is literally no case in which all tiles should be cleared.
 
 ## Assemblies
 

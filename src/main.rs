@@ -9,7 +9,6 @@ use rug::*;
 use std::thread;
 use assemblies::{headgroup, workgroup, gpu_uploader};
 
-pub mod actor {}
 pub mod settings;
 
 pub mod utils;
@@ -88,22 +87,22 @@ fn build_graph(graph: &mut Graph, _gpu: gpu_context::SharedGpu) {
     let (
         window_tx_to_work_controller
         , work_controller_rx_from_window
-    ) = channel_builder.with_capacity(50).build();
+    ) = channel_builder.with_capacity(64).build();
 
     let (
         window_tx_to_worker
         , worker_rx_from_window
-    ) = channel_builder.with_capacity(50).build();
+    ) = channel_builder.with_capacity(64).build();
 
     let (
         window_tx_to_stuff
         , stuff_rx_from_window
-    ) = channel_builder.with_capacity(50).build_channel_bundle();
+    ) = channel_builder.with_capacity(64).build_channel_bundle();
 
     let (
         work_controller_tx_to_screen_worker
         , screen_worker_rx_from_work_controller
-    ) = channel_builder.with_capacity(10).build();
+    ) = channel_builder.with_capacity(64).build();
 
     let (
         screen_worker_tx_to_uploader
@@ -146,7 +145,7 @@ fn build_graph(graph: &mut Graph, _gpu: gpu_context::SharedGpu) {
     let state = new_state();
     actor_builder.with_name(NAME_TILE_PUBLISHER)
         .build(move |context|
-            assemblies::workgroup_new::tile_publisher::run_actor(
+            assemblies::workgroup::tile_publisher::run_actor(
                 context
                 , publisher_rx_from_uploader.clone()
                 , publisher_tx_to_window.clone()

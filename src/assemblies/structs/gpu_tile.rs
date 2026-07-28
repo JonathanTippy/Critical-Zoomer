@@ -1,5 +1,5 @@
 use crate::assemblies::structs::*;
-use crate::assemblies::workgroup_new::structs::*;
+use crate::assemblies::workgroup::structs::*;
 use crate::constants::*;
 use crate::range::Range;
 use crate::utils::ObjectivePosAndZoom;
@@ -315,7 +315,7 @@ impl GPUTile {
         , location: ObjectivePosAndZoom
         , proximate: Option<&Tile<Answer>>
     ) -> Self {
-        let published = crate::assemblies::workgroup_new::tile_publisher::publish_tile(
+        let published = crate::assemblies::workgroup::tile_publisher::publish_tile(
             tile
             , proximate
         );

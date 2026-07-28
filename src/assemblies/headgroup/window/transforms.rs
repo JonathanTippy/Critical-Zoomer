@@ -133,7 +133,6 @@ mod zoom_tests {
             pending_tile_uploads: Vec::new(),
             next_tile_gpu_id: 0,
             reset_gpu_tile_slots: false,
-            color_screen: None,
             proximate_answers: true,
             unsent_answers: true,
             screen_size: (800, 480),

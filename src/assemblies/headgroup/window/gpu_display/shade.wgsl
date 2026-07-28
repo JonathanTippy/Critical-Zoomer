@@ -263,12 +263,12 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
                 rgb = paint(rgb, base, n, inst, side);
             }
         } else if (inst.opcode == OP_IN_FILAMENT) {
-            if (outside && inst.opacity_outside > 0.0 && is_in_filament(screen_seat)) {
-                rgb = layer_colors(rgb, base, inst.opacity_outside);
+            if (side > 0.0 && outside && is_in_filament(screen_seat)) {
+                rgb = layer_colors(rgb, base, side);
             }
         } else if (inst.opcode == OP_OUT_FILAMENT) {
-            if (inside && inst.opacity_outside > 0.0 && is_out_filament(screen_seat)) {
-                rgb = layer_colors(rgb, base, inst.opacity_outside);
+            if (side > 0.0 && inside && is_out_filament(screen_seat)) {
+                rgb = layer_colors(rgb, base, side);
             }
         } else if (inst.opcode == OP_NODES) {
             if (side > 0.0 && is_node(screen_seat, i32(inst.thickness))) {

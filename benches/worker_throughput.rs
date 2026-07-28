@@ -19,13 +19,13 @@ use criterion::{
     criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
 };
 
-use critical_zoomer::assemblies::workgroup_new::workcore::mandelbrot::worker_implementations::naive_cpu_worker::iterate_point_bout;
-use critical_zoomer::assemblies::workgroup_new::workcore::mandelbrot::worker_implementations::periodicity_detector::*;
-use critical_zoomer::assemblies::workgroup_new::workcore::mandelbrot::worker_implementations::perturbation_cpu_worker::{
+use critical_zoomer::assemblies::workgroup::workcore::mandelbrot::worker_implementations::naive_cpu_worker::iterate_point_bout;
+use critical_zoomer::assemblies::workgroup::workcore::mandelbrot::worker_implementations::periodicity_detector::*;
+use critical_zoomer::assemblies::workgroup::workcore::mandelbrot::worker_implementations::perturbation_cpu_worker::{
     iterate_perturbation_bout
     , PerturbationCpuWorkerState
 };
-use critical_zoomer::assemblies::workgroup_new::workcore::mandelbrot::*;
+use critical_zoomer::assemblies::workgroup::workcore::mandelbrot::*;
 use critical_zoomer::gear::Gear;
 use critical_zoomer::gpu_budget::SubmissionBudget;
 use critical_zoomer::stacked_intexp::StackedIntExp;

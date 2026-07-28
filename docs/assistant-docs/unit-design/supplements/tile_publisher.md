@@ -8,7 +8,7 @@ Last workgroup stage before headgroup: calibrated/honest tiles → best-effort *
 
 ## Rate (UD-PUB-2) — D-PUB-1
 
-Flat **1000 publications/s** ceiling. **No** minimum 30/s floor (auth floor treated as mistaken for this closing pass until authoritative text is corrected).
+Flat **1000 publications/s** ceiling while incomplete; idle when complete. No minimum floor. GPU shader combines hoard + new work.
 
 ## Bias / calibrated → answer (UD-PUB-3) — D-PUB-2
 

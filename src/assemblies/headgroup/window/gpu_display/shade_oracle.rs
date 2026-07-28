@@ -397,18 +397,18 @@ pub fn shade_seat(
             }
             OP_IN_FILAMENT => {
                 if finished.is_outside()
-                    && inst.opacity_outside > 0.0
+                    && side_opacity > 0.0
                     && is_in_filament(grid, uniforms, seat)
                 {
-                    rgb = layer_colors(rgb, base, inst.opacity_outside);
+                    rgb = layer_colors(rgb, base, side_opacity);
                 }
             }
             OP_OUT_FILAMENT => {
                 if finished.is_inside()
-                    && inst.opacity_outside > 0.0
+                    && side_opacity > 0.0
                     && is_out_filament(grid, uniforms, seat)
                 {
-                    rgb = layer_colors(rgb, base, inst.opacity_outside);
+                    rgb = layer_colors(rgb, base, side_opacity);
                 }
             }
             OP_NODES => {

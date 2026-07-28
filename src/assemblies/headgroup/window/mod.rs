@@ -4,10 +4,9 @@ use eframe::{egui, NativeOptions};
 use winit::platform::x11::EventLoopBuilderExtX11; // For X11
 //use winit::platform::wayland::EventLoopBuilderExtWayland; // For Wayland
 //use winit::platform::windows::EventLoopBuilderExtWindows; // For Windows
-use egui::{Color32, ColorImage, Pos2, TextureHandle, Vec2, ViewportInfo};
+use egui::{Color32, Pos2, Vec2, ViewportInfo};
 use std::error::Error;
 use std::sync::{Arc, Mutex};
-
 use std::collections::*;
 use std::cmp::*;
 
@@ -63,33 +62,11 @@ pub const HEADGROUP_PRESENT_MODE: wgpu::PresentMode = wgpu::PresentMode::Fifo;
 
 /// State struct for the window actor.
 
-pub struct ZoomerState {
-    pub settings_window_open: bool
-    , pub position: (String, String)
-    , pub zoom: String
-}
-
-pub struct ZoomerReport {
-    pub actor_start: Instant,
-    pub actor_wake: Instant,
-    pub time_to_xyz: Vec<(String, Duration)>
-}
-
-
-
-pub struct ZoomerCommandPackage {
-    pub start_time: Instant
-    , pub commands: Vec<ZoomerCommand>
-}
-
-
 #[derive(Clone)]
 pub struct WindowState {
     pub size: Vec2
     , pub location: Option<Pos2>
     , pub last_frame_period: Option<(Instant, Instant)>
-    , pub buffers: Vec<Vec<Color32>>
-    , pub id_counter:u64
     , pub sampling_context: SamplingContext
     , pub settings_window_context: Arc<Mutex<SettingsWindowContext>>
     , pub settings_window_open: bool
@@ -100,17 +77,12 @@ pub struct WindowState {
         , VecDeque<(Instant, u64, Duration, Duration)>
         , Option<Instant>
     )
-    , pub texturing_things: Vec<(TextureHandle, ColorImage, Vec<Color32>)>
-    //, pub sampling_resolution_multiplier: f32
     , pub timer: Instant
-    , pub fps_margin: f32
-    , pub timer2: Instant
     , pub controls_timer: Instant
     , pub stencil_serial_number_counter: u64
     , pub scroll_debt: f32
     , pub startup_goto_applied: bool
     , pub nav_target: Option<(IntExp, IntExp, i32)>
-    , pub pending_gpu_tile_origins: HashSet<(usize, usize)>
     , pub gpu_atlas_size: (u32, u32)
     , pub gpu_atlas_clear: bool
     , pub coord_input: String
@@ -131,7 +103,7 @@ pub async fn run(
     , stencil_out: SteadyTx<(PointStencil)>
     , settings_out: SteadyTxBundle<Settings,2>
     , attention_out: SteadyTx<(i32, i32)>
-    , memory_bump_in: SteadyRx<crate::assemblies::workgroup_new::tile_publisher::MemoryBump>
+    , memory_bump_in: SteadyRx<crate::assemblies::workgroup::tile_publisher::MemoryBump>
     , state: SteadyState<WindowState>
 ) -> Result<(), Box<dyn Error>> {
     internal_behavior(
@@ -155,7 +127,7 @@ async fn internal_behavior<A: SteadyActor>(
     , stencil_out: SteadyTx<(PointStencil)>
     , settings_out: SteadyTxBundle<Settings, 2>
     , attention_out: SteadyTx<(i32, i32)>
-    , memory_bump_in: SteadyRx<crate::assemblies::workgroup_new::tile_publisher::MemoryBump>
+    , memory_bump_in: SteadyRx<crate::assemblies::workgroup::tile_publisher::MemoryBump>
     , state: SteadyState<WindowState>
 ) -> Result<(), Box<dyn Error>> {
 
@@ -165,8 +137,6 @@ async fn internal_behavior<A: SteadyActor>(
         size: egui::vec2(DEFAULT_WINDOW_RES.0 as f32, DEFAULT_WINDOW_RES.1 as f32)
         , location: None
         , last_frame_period: None
-        , buffers: vec!(vec!(Color32::BLACK;(DEFAULT_WINDOW_RES.0*DEFAULT_WINDOW_RES.1) as usize))
-        , id_counter: 0
         , sampling_context: SamplingContext {
             tiles: HashMap::new()
             , tile_gpu_ids: HashMap::new()
@@ -174,7 +144,6 @@ async fn internal_behavior<A: SteadyActor>(
             , pending_tile_uploads: Vec::new()
             , next_tile_gpu_id: 1
             , reset_gpu_tile_slots: false
-            , color_screen: None
             , proximate_answers: true
             , unsent_answers: true
             , screen_size: (DEFAULT_WINDOW_RES.0, DEFAULT_WINDOW_RES.1)
@@ -196,16 +165,12 @@ async fn internal_behavior<A: SteadyActor>(
         , settings_window_open: false
         , controls_settings: ControlsSettings::H
         , rolling_frame_info: (VecDeque::new(), VecDeque::new(), VecDeque::new(), None)
-        , texturing_things: vec!()
         , timer: Instant::now()
-        , fps_margin: 0.0
-        , timer2: Instant::now()
         , controls_timer: Instant::now()
         , stencil_serial_number_counter: 0
         , scroll_debt: SCROLL_SPEED/2.0
         , startup_goto_applied: false
         , nav_target: None
-        , pending_gpu_tile_origins: HashSet::new()
         , gpu_atlas_size: (DEFAULT_WINDOW_RES.0, DEFAULT_WINDOW_RES.1)
         , gpu_atlas_clear: true
         , coord_input: String::new()
@@ -332,7 +297,7 @@ struct EguiWindowPassthrough<'a, A> {
     , stencil_out: SteadyTx<(PointStencil)>
     , settings_out: SteadyTxBundle<Settings, 2>
     , attention_out: SteadyTx<(i32, i32)>
-    , memory_bump_in: SteadyRx<crate::assemblies::workgroup_new::tile_publisher::MemoryBump>
+    , memory_bump_in: SteadyRx<crate::assemblies::workgroup::tile_publisher::MemoryBump>
     , portable_state:Arc<Mutex<StateGuard<'a, WindowState>>>
 }
 
@@ -795,7 +760,6 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                             state.sampling_context.clear_tiles();
                             state.sampling_context.mouse_drag_start = None;
                             state.atlas_location = None;
-                            state.pending_gpu_tile_origins.clear();
                             state.gpu_atlas_clear = true;
                             state.nav_target = None;
                             state.sampling_context.updated = true;
@@ -862,12 +826,14 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 }
 
 fn apply_ui_memory_bump(state: &mut WindowState, needed: usize) {
-    use crate::assemblies::workgroup_new::tile_manager::apply_memory_bump;
+    use crate::assemblies::workgroup::tile_manager::apply_memory_bump;
     state.sampling_context.memory_limit_bytes =
         apply_memory_bump(state.sampling_context.memory_limit_bytes, needed);
     if let Ok(mut guard) = state.settings_window_context.try_lock() {
         guard.settings.memory_limit_bytes =
             apply_memory_bump(guard.settings.memory_limit_bytes, needed);
+        // On-demand floor rises with protected screen+lookahead so the slider cannot drop below.
+        guard.settings.memory_floor_bytes = guard.settings.memory_floor_bytes.max(needed);
     }
 }
 

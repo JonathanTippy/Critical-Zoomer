@@ -19,8 +19,8 @@ r[cz.e2e.controls-bindings+1]
 match requirements; scroll-up zooms in.
 
 **Acceptance criteria.**
-- [x] Headed verifies for scroll / key zoom / pan bindings
-  (`scripts/e2e_controls.sh`: shift-zoomin, space-zoomout, scroll10, arrow-pan).
+- [ ] Headed verifies for scroll / key zoom / pan bindings
+  (`scripts/e2e_controls.sh`: shift-zoomin, space-zoomout, scroll10, arrow-pan). CI does not gate headed e2e yet.
 
 r[cz.e2e.controls-no-jump+1]
 
@@ -28,7 +28,7 @@ r[cz.e2e.controls-no-jump+1]
 backlog under 10 bumps/300ms, opposite Shift vs Space, hover-fixed scroll.
 
 **Acceptance criteria.**
-- [x] Headed property-style verifies for no-jump / tick sustain / opposite zoom
+- [ ] Headed property-style verifies for no-jump / tick sustain / opposite zoom
   (`e2e_controls.sh`: zoomout nearer home than zoomin; scroll10 dispatch; nonzero RMSE steps).
 
 r[cz.e2e.perf-home-fill+1]
@@ -37,7 +37,7 @@ r[cz.e2e.perf-home-fill+1]
 flat-black empty panes mid-wait.
 
 **Acceptance criteria.**
-- [x] Timed home fill headed verifies (time, non-black mid, settled quality)
+- [ ] Timed home fill headed verifies (time, non-black mid, settled quality)
   (`scripts/e2e_performance.sh`).
 
 r[cz.e2e.perf-zoom-simple+1]
@@ -46,7 +46,7 @@ r[cz.e2e.perf-zoom-simple+1]
 and full/oracle quality (no sustained low-res lag).
 
 **Acceptance criteria.**
-- [x] Simple-region zoom headed verifies (`e2e_performance.sh` exterior goto + zoomin).
+- [ ] Simple-region zoom headed verifies (`e2e_performance.sh` exterior goto + zoomin).
 
 r[cz.e2e.perf-zoom-hard+1]
 
@@ -54,7 +54,7 @@ r[cz.e2e.perf-zoom-hard+1]
 keep pace (continuity; not stalled empty panes).
 
 **Acceptance criteria.**
-- [x] Hard-region (seahorse) zoom/goto headed verifies (`e2e_performance.sh`).
+- [ ] Hard-region (seahorse) zoom/goto headed verifies (`e2e_performance.sh`).
 
 r[cz.e2e.visual-oracle+1]
 
@@ -62,8 +62,8 @@ r[cz.e2e.visual-oracle+1]
 known-good code, prove with tests, compare live captures/metrics against them.
 
 **Acceptance criteria.**
-- [x] Oracle proving tests + headed compares
-  (`src/e2e_oracle.rs` proving suite; `scripts/e2e_visual.sh` structure/continuity/no flat-black).
+- [x] Oracle proving unit tests (`src/e2e_oracle.rs`; CI)
+- [ ] Headed compares (`scripts/e2e_visual.sh`) — not CI-gated yet
 
 r[cz.e2e.visual-assistant-review+1]
 

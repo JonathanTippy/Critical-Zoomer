@@ -1,3 +1,12 @@
-//! Compatibility re-exports: live actors live under `workgroup_new`.
-pub use crate::assemblies::workgroup_new::work_controller;
-pub use crate::assemblies::workgroup_new::screen_worker;
+pub mod work_controller;
+pub mod screen_worker;
+pub mod structs;
+pub mod workcore;
+pub mod tile_session;
+pub mod tile_manager;
+pub mod tile_publisher;
+pub mod publisher_shader;
+pub mod production_atlas;
+
+#[cfg(test)]
+mod integration_tests;

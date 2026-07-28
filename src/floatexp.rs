@@ -1,7 +1,7 @@
 use std::cmp::*;
 use std::ops::*;
 use rug::Float;
-use crate::assemblies::workgroup_new::structs::mandelbrotable::*;
+use crate::assemblies::workgroup::structs::mandelbrotable::*;
 use crate::intexp::*;
 
 #[derive(Clone, Copy, Debug)]

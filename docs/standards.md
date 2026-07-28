@@ -45,6 +45,18 @@ Workgroup performance requirements;
 - IPP must be optimal always
   r[cz.perf.optimal-ipp+1]
 
+# References addednudm
+
+The reference datastructure must correctly handle looping points.
+There must be a const reference orbit starting at big Z of zero
+when a better reference is not available, this const reference must be used.
+The path of code used must not be different.
+
+# Publisher Addendum
+
+Work remaining native n the GPU is of pivotal importance 
+because otherwise there is not enough throughput to complete a full screen of work quiclly in easy cases.
+
 # Headgroup
 
 Perforamnce north star:
@@ -64,6 +76,7 @@ r[cz.ctrl.zoom-in-homothety+1]
 The sampling shader must always take the same path: see north star.
 
 Scroll *up* must correspond to zoom *in* which is an *increase* of magnification pot by one.
+(In egui, scroll up is a positive scroll delta.)
 r[cz.ctrl.scroll-up-zooms-in+1]
 
 

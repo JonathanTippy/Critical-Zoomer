@@ -2,11 +2,11 @@ use steady_state::*;
 use crate::assemblies::structs::*;
 use crate::assemblies::headgroup::window::gpu_display::pack_tile_upload;
 use crate::assemblies::workgroup::screen_worker::AnswerTilePublish;
-use crate::assemblies::workgroup_new::production_atlas::ProductionAtlas;
+use crate::assemblies::workgroup::production_atlas::ProductionAtlas;
 
 pub struct GpuUploaderState {
     unsent: Option<GpuTileHandle>
-    , production: crate::assemblies::workgroup_new::production_atlas::SharedProductionAtlas
+    , production: crate::assemblies::workgroup::production_atlas::SharedProductionAtlas
 }
 
 pub async fn run(
@@ -92,7 +92,7 @@ async fn internal_behavior<A: SteadyActor>(
 }
 
 fn place_on_production_atlas(
-    production: &crate::assemblies::workgroup_new::production_atlas::SharedProductionAtlas
+    production: &crate::assemblies::workgroup::production_atlas::SharedProductionAtlas
     , gpu_tile: GPUTile
 ) -> GpuTileHandle {
     let Some(atlas) = production else {

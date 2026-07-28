@@ -1,4 +1,4 @@
-use egui::{Color32, Pos2};
+use egui::{Pos2};
 use std::collections::HashMap;
 
 use crate::assemblies::headgroup::window::gpu_display::{pos_delta_pixels, seat_delta_pixels};
@@ -28,8 +28,6 @@ pub enum ZoomerCommand {
     ,
     UntrackAllPoints
 }
-pub const NUMBER_OF_COMMANDS: u16 = 10;
-
 #[derive(Clone, Debug)]
 pub struct SamplingContext {
     pub tiles: HashMap<(i32, i32, i32), Vec<Box<GPUTile>>>
@@ -37,7 +35,6 @@ pub struct SamplingContext {
     , pub pending_tile_uploads: Vec<crate::assemblies::headgroup::window::gpu_display::PendingTileUpload>
     , pub next_tile_gpu_id: u64
     , pub reset_gpu_tile_slots: bool
-    , pub color_screen: Option<View<Color32>>
     , pub proximate_answers: bool
     , pub unsent_answers: bool
     , pub screen_size: (u32, u32)
@@ -86,21 +83,20 @@ impl SamplingContext {
         self.handle_filled.clear();
         self.pending_tile_uploads.clear();
         self.reset_gpu_tile_slots = true;
-        self.color_screen = None;
         self.proximate_answers = true;
         self.unsent_answers = true;
     }
 
     // r[impl cz.int.memory-bump+1]
     pub fn prune_distant_tiles(&mut self) {
-        use crate::assemblies::workgroup_new::tile_manager::{
+        use crate::assemblies::workgroup::tile_manager::{
             apply_memory_bump, plan_prunes, required_limit_bump, ManagedTileMeta, TileKeepClass,
         };
 
         let z = self.location.zoom_pot;
         // Soft prefilter only: the tile manager's 8-homothety cap is authoritative.
         // Keep a little headroom so prune can choose which mags to drop.
-        let prefilter = crate::assemblies::workgroup_new::tile_manager::MAX_HOMOTHETIES as i32;
+        let prefilter = crate::assemblies::workgroup::tile_manager::MAX_HOMOTHETIES as i32;
         self.tiles.retain(|(tz, _, _), _| (z - *tz).abs() <= prefilter);
         self.tile_gpu_ids.retain(|k, _| self.tiles.contains_key(k));
         self.handle_filled.retain(|k, _| self.tiles.contains_key(k));
@@ -162,7 +158,7 @@ impl SamplingContext {
             if handle.filled_seats < existing {
                 // Drop the unused production slot so it does not leak.
                 if let Some(prod) = handle.production_slot.take() {
-                    if let Some(atlas) = crate::assemblies::workgroup_new::production_atlas::ProductionAtlas::shared() {
+                    if let Some(atlas) = crate::assemblies::workgroup::production_atlas::ProductionAtlas::shared() {
                         if let Ok(mut atlas) = atlas.lock() {
                             atlas.release(prod);
                         }
@@ -377,7 +373,6 @@ mod hoard_tests {
             pending_tile_uploads: Vec::new(),
             next_tile_gpu_id: 1,
             reset_gpu_tile_slots: false,
-            color_screen: None,
             proximate_answers: true,
             unsent_answers: true,
             screen_size: (64, 64),
@@ -536,13 +531,13 @@ mod hoard_tests {
             ctx.ingest_gpu_tile(GPUTile::from_answer_tile(&tile, (64, 64), loc));
         }
         assert!(
-            ctx.homothety_count() > crate::assemblies::workgroup_new::tile_manager::MAX_HOMOTHETIES
+            ctx.homothety_count() > crate::assemblies::workgroup::tile_manager::MAX_HOMOTHETIES
             , "precondition: more than eight mags ingested"
         );
         ctx.prune_distant_tiles();
         assert!(
             ctx.homothety_count()
-                <= crate::assemblies::workgroup_new::tile_manager::MAX_HOMOTHETIES
+                <= crate::assemblies::workgroup::tile_manager::MAX_HOMOTHETIES
             , "after prune the live hoard must obey the 8-homothety limit, got {}"
             , ctx.homothety_count()
         );

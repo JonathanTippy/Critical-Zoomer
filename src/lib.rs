@@ -20,7 +20,6 @@ use std::thread;
 use assemblies::{headgroup, workgroup};
 
 
-pub mod actor {}
 pub mod settings;
 
 pub mod utils;

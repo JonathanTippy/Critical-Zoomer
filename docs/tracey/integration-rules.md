@@ -15,22 +15,22 @@ references; zoom rebuilds mag-sensitive state; attention and mag_velocity propag
 
 r[cz.int.publish-cadence+1]
 
-**Normative summary.** Incomplete work publishes tiles in the design band
-([30, 1000]/s); when the stencil is complete, publish cadence goes idle (0).
+**Normative summary.** Incomplete work publishes tiles under a flat **1000/s** ceiling
+(D-PUB-1; no minimum floor); when the stencil is complete, publish cadence goes idle (0).
 
 **Acceptance criteria.**
-- [x] While incomplete, publishes are allowed under the max-Hz cap; after complete, cadence idles
-  (`tile_publisher::PublishCadence` + session assembly verifies).
+- [ ] While incomplete, publishes are allowed under the max-Hz cap when work is ready; after complete, cadence idles
+  (`tile_publisher::PublishCadence` + GPU publisher path + session assembly verifies).
 
 r[cz.int.publisher-nores-bias+1]
 
-**Normative summary.** Tile publisher converts calibrated answers with proximate bias;
-disproven proximate → nearest-in-bounds; no proximate → NORES; never invents Inside
+**Normative summary.** Tile publisher converts calibrated answers with proximate bias
+via GPU shader; disproven proximate → nearest-in-bounds; no proximate → NORES; never invents Inside
 from empty proximate.
 
 **Acceptance criteria.**
-- [x] Bias kept when in bounds; clamped when disproven; NORES when no proximate
-  (`tile_publisher` + live `publish_seat` on the session path).
+- [ ] Bias kept when in bounds; clamped when disproven; NORES when no proximate
+  (GPU publisher + bias unit verifies).
 
 r[cz.int.memory-bump+1]
 

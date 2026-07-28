@@ -8,36 +8,21 @@ PO quotes: `he-said/`. This file tracks status, loci, and follow-through.
 
 ### B-DISP-1 — Phase 2 cutover display regressions (grey / ~15fps / no GPU escape)
 - **Symptom:** Immediate display grey; ~15fps; no escaper on GPU; settings open greys window; location UI misplaced / no input box.
-- **Mechanism (PO):** Headgroup must own a GPU tile collection and run sampler → escape → edge → shade shaders. Tiles are independent, share a homothety; CPU only computes seat deltas (IntExp O(1)). Live path CPU-shades every frame and cleared the tile hoard on location change.
-- **Status:** landing — shared-device grey fixed; shade/oracle parity tests cover default ops including out-filament + STE. Vsync Fifo forced (`HEADGROUP_PRESENT_MODE`). **Still open:** headed fps re-measure evidence; full coloring_script edge cases beyond default.
-- **Locus:** `headgroup/window/{mod,sampling,shade,gpu_display}.rs`; quotes in `he-said/phase-2-display-regressions.md`.
-
-### B-TEN-1 — Unknown painted as set-black (tenacity)
-- **Symptom:** Unfinished / unknown seats render as black (looks like Inside). Made the home antenna look gapped / off the real axis when seats were merely unknown.
-- **Mechanism (PO):** Marking unknown as black breaches tenacity. Unknown must use `NORES_ANSWER` (Outside, escape after 1 iteration, `escape_z` at infinity) — not Dummy/black-as-set.
-- **Status:** fixed — `pack_tile_upload` no longer drops infinite `min_magnitude` (NORES); shade treats missing as Outside escape-1. Test: `b_ten_1_tests::nores_answer_packs_as_outside_not_missing`.
-- **Locus:** `gpu_display/{mod.rs,shade.wgsl}`; `constants::NORES_ANSWER`.
-- **Quotes:** `he-said/unknown-nores.md`
+- **Mechanism (PO):** Headgroup must own a GPU tile collection and run sampler → escape → edge → shade shaders.
+- **Status:** landing — shared-device grey fixed; shade/oracle parity; vsync Fifo; CPU Color32 path purged. **Still open:** headed fps re-measure; full coloring_script edge cases.
+- **Locus:** `headgroup/window/{mod,sampling,gpu_display}.rs`.
 
 ### B-PER-2 — Period bands in deeper minibrots (regression / thought-fixed)
-- **Symptom:** Concentric gray bands inside deeper minibrots; ugly seam between solid black (period known) and banded (period wrong/unknown) regions. Reappearance of period-banding class (was B-PER-1).
-- **Mechanism (PO):** Correct period detection is demanding. Emitting **false periodicity** violates tenacity. Regular iterate must use the simplest **certain** check only; full period resolve belongs in a later phase (D-PER-1). `period == 0` means unknown (never a real period).
-- **Status:** landing — regular Inside answers emit `period == 0`; shade `opt_period` ignores 0; D-PER-1 resolve after tile edge complete. Test: `b_per_2_tests::regular_inside_answer_emits_unknown_period_zero`. Verify deeper minibrot visually.
-- **Locus:** `naive_{cpu,gpu}_worker` answers; `tile_session::try_resolve_periods`; `shade.wgsl`.
-- **Quotes:** `he-said/period-determination-phase.md`
-- **Evidence:** PO screenshot (deeper minibrot right half banded vs left solid).
+- **Status:** landing — regular Inside answers emit `period == 0`; max-iter force-finish removed from perturbation bout. Deeper minibrot visual confirm still needed.
+- **Locus:** `perturbation_*_worker`; `tile_session::try_resolve_periods`; `shade.wgsl`.
 
 ### B-STE-1 — Small-time edges (interior tree missing / stray lines)
-- **Symptom:** Interior small-time tree missing until first zoom-in; also stray lines from exterior `small_time == 0` vs nonzero neighbors.
-- **Mechanism (PO):** Exterior `small_time == 0` is valid — do **not** filter all zeros for **paint**. Small_time updates matter of course each iterate; period resolve is a separate phase (see D-PER-1), not a bolted-on mid-loop `determine_period`.
-- **Status:** landing — paint/stray-line fixes remain; D-SCH-3 now schedules `small_time_edge` after out-fill so STE work is not zoom-gated by scheduler starvation. Visual confirm interior tree without zoom still needed.
-- **Locus:** `tile_session.rs`; `color.rs` `is_node_tree`; `naive_cpu_worker.rs` `iterate_point_bout`; `shade.wgsl`.
-- **Quotes:** `he-said/scheduler-and-edges.md`, `he-said/period-small-time.md`, `he-said/period-determination-phase.md`, `he-said/scheduler-boundary-trace.md`
+- **Status:** landing — STE scheduled after out-fill; shade/oracle STE coverage. Visual confirm interior tree without zoom still needed.
 
 ### B-SCH-3 — Regularly shaped incomplete (black) bands
 - **Symptom:** Rectangular / striped unfinished regions.
-- **Mechanism (PO):** Structural — worker→collector pipes backing up is not acceptable as a product state. Requeue-on-blocked is a visibility/mitigation only, not the fix. Proper redress when Phase 2 tile path lands (tiles should shrink batch pressure / clarify ownership).
-- **Status:** **parked** — readdress at Phase 2 execution. Do not add further send-path tooling/tests for this.
+- **Mechanism (PO):** Structural — worker→collector pipes backing up is not acceptable as a product state. Requeue-on-blocked is a visibility/mitigation only, not the fix.
+- **Status:** unparked — Phase 2 tile path is live; publish/upload channels raised to 512 and control channels to 64 to remove artificial backpressure. Re-verify headed rectangular bands.
 - **Locus:** `screen_worker/mod.rs`; `main.rs` capacities; `tile_session.rs`.
 - **Quotes:** `he-said/scheduler-and-edges.md`
 
@@ -51,14 +36,15 @@ PO quotes: `he-said/`. This file tracks status, loci, and follow-through.
 ## Design gaps (open)
 
 ### D-GEAR-TYPED — Host batch still f64; stacked/FloatExp bout not fully monomorphized
-- **Need:** Typed ActivePoint enum / Mandelbrotable bout for StackedI32 + AdaptiveRug (FloatExp). Today gear is read: F32 has f32 bout; GPU gated on `runs_on_gpu()` (no silent F64→f32). Stacked GPU bout still deferred to CPU.
-- **Status:** open (partial P3)
-- **Locus:** `perturbation_{cpu,gpu}_worker.rs`; `gears.wgsl`
+- **Need:** Typed ActivePoint enum / Mandelbrotable bout for StackedI32 + AdaptiveRug (FloatExp). StackedI32 now dispatches GPU stacked bout pipelines; AdaptiveRug still CPU.
+- **Status:** partial — StackedI32 GPU path live; typed host batch for AdaptiveRug still open.
+- **Locus:** `perturbation_{cpu,gpu}_worker.rs`; `gears.wgsl` / `stacked_bout_tail.wgsl`
 
 
-### D-PUB-GPU — GPU publisher deleted; CPU publish_seat is live path
-- **Status:** closed (purge) — `publisher_shader.rs` / `publisher.wgsl` removed; tile publish uses CPU `publish_seat` in `tile_publisher.rs`.
-- **Locus:** `workgroup_new/tile_publisher.rs`.
+### D-PUB-GPU — GPU publisher required; CPU publish_seat is interim only
+- **Need:** GPU shader that combines hoarded tiles with new calibrated work (NORES / proximate bias). Cadence flat **1000/s** ceiling while incomplete (D-PUB-1).
+- **Status:** landing — GPU `publisher_shader` restored; `publish_tile` prefers GPU when available; single-seat CPU path remains for tests.
+- **Locus:** `workgroup/tile_publisher.rs`, `workgroup/publisher_shader.rs`, `publisher.wgsl`.
 
 ### D-PER-1 — Period-determination phase after boundary + out-fill
 - **Need:** After boundary tracing and out-fill complete, run a phase that determines periods of the **in-edge**. Regular iterate must stay certain (no false periods); unknown period is allowed until this phase. Out-filament rendering must not show an ugly boundary between period-unknown Inside and period-known Inside.

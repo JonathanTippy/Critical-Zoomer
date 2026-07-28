@@ -240,3 +240,5 @@ r[cz.e2e.visual-assistant-review+1]
 - app contains no visual artifacts (compute oracles via known good code & oracle proving tests, then test against those. Also always do an assistant visual check, which is imperfect (makes mistakes human eyes wouldnt) but worth doing.)
 
 Controls and visual will be hard to test but must be rigorously tested via properties & known-good oracles.
+
+

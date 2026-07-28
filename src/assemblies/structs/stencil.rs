@@ -1,5 +1,5 @@
 use crate::assemblies::structs::*;
-use crate::assemblies::workgroup_new::structs::mandelbrotable::*;
+use crate::assemblies::workgroup::structs::mandelbrotable::*;
 
 pub struct CGenerator<T: Mandelbrotable> {
     origin: (T, T)

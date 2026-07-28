@@ -32,7 +32,7 @@ flatpak install --user critical-zoomer.flatpak
 flatpak run com.criticalzoomer.CriticalZoomer
 ```
 
-`cargo --offline` is used inside the sandbox; ensure `Cargo.lock` is committed and vendor deps if building fully offline.
+`cargo --offline` is preferred inside the Flatpak sandbox when a `vendor/` tree is present. Until vendored, build with network (`--disable-rofiles-fuse` / online Flatpak source fetch) or run `cargo vendor` into `vendor/` and point `.cargo/config.toml` at it.
 
 ## Debian (.deb, amd64)
 
