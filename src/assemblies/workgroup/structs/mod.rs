@@ -39,6 +39,9 @@ pub struct CalibratedAnswer {
     , pub min_magnitude_time: Range<u64>
     , pub min_magnitude: Range<f64>
     , pub highlights: CalibratedHighlights
+    // Derivative-magnitude slope angle (D-SCH-3); 0..=255, 0 when unknown.
+    , pub escape_time_angle: u8
+    , pub min_magnitude_angle: u8
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -137,8 +140,10 @@ impl CalibratedAnswer {
                 self.min_magnitude_time.guess_biased(bias.min_magnitude_time)
             , min_magnitude:
                 self.min_magnitude.guess_biased(bias.min_magnitude)
-            ,
+            , escape_time_angle: bias.escape_time_angle
+            , min_magnitude_angle: bias.min_magnitude_angle
         }
+
     }
 }
 
@@ -195,6 +200,8 @@ mod calibrated_bias_tests {
                     upper_bound: false,
                 },
             },
+            escape_time_angle: 0,
+            min_magnitude_angle: 0,
         }
     }
 
@@ -209,7 +216,9 @@ mod calibrated_bias_tests {
             },
             min_magnitude_time: 0,
             min_magnitude: 1.0,
-        };
+            escape_time_angle: 0,
+            min_magnitude_angle: 0
+};
         let out = cal.guess_biased(bias);
         match out.result {
             MandelbrotResult::Outside { escape_time_r2, .. } => assert_eq!(escape_time_r2, 20),
@@ -227,7 +236,9 @@ mod calibrated_bias_tests {
             },
             min_magnitude_time: 0,
             min_magnitude: 1.0,
-        };
+            escape_time_angle: 0,
+            min_magnitude_angle: 0
+};
         let out = cal.guess_biased(bias);
         match out.result {
             MandelbrotResult::Outside { escape_time_r2, .. } => assert_eq!(escape_time_r2, 50),

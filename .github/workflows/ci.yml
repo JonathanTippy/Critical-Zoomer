@@ -30,8 +30,24 @@ jobs:
         run: |
           cargo llvm-cov --lib --release --summary-only \
             --ignore-filename-regex='(main\.rs|settings\.rs|window/mod\.rs|widgetize\.rs)' \
+            --fail-under-regions=70 \
             -- --test-threads=1 \
             --skip home_800x480_fills_within_five_seconds_cpu
+
+  mutants-core:
+    runs-on: ubuntu-latest
+    # Scoped mutants on math core; full-tree is too slow for PR CI.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-mutants
+      - name: Mutants on intexp+range
+        run: |
+          cargo mutants --file 'src/intexp.rs' --file 'src/range.rs' \
+            --timeout 120 --jobs 1 -- \
+            --lib -- --test-threads=1 --skip home_800x480 --skip gpu_ips --skip standards_perf::
 
   packaging:
     runs-on: ubuntu-latest

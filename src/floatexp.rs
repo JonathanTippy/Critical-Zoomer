@@ -183,12 +183,35 @@ impl Mandelbrotable for FloatExp {
         Self::from_f64(value as f64)
     }
 
+    fn from_f64(value: f64) -> Self {
+        FloatExp::from_f64(value)
+    }
+
     fn to_f32(self) -> f32 {
         FloatExp::to_f32(self)
     }
 
     fn to_f64(self) -> f64 {
         FloatExp::to_f64(self)
+    }
+
+    fn abs(self) -> Self {
+        Self {
+            mantissa: self.mantissa.abs()
+            , exp: self.exp
+        }
+    }
+
+    fn neg(self) -> Self {
+        Self {
+            mantissa: -self.mantissa
+            , exp: self.exp
+        }
+    }
+
+    fn max_value() -> Self {
+        // Large finite sentinel for min-magnitude init (not IEEE inf).
+        Self::new(0.5, 1023)
     }
 }
 

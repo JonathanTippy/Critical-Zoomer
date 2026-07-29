@@ -49,6 +49,7 @@ pub fn parse_inputs(
     let settings = &state.controls_settings;
 
     let mut returned = (vec!(), attention_from_pointer(None, sampling_size));
+    let mut signed_zoom_bumps: i32 = 0;
 
     let ppp = ctx.pixels_per_point();
 
@@ -169,11 +170,10 @@ pub fn parse_inputs(
         let pots = consume_scroll_debt(&mut state.scroll_debt, delta, SCROLL_SPEED);
         if !pots.is_empty() {
             let c = input_state.pointer.latest_pos().unwrap();
-            let center_screenspace_pos = (
-                c.x as i32
-                , (sampling_size.1 as i32 - 1) - (c.y as i32)
-            );
+            // Seat / drag / Shift-Space all use top-left screenspace; do not Y-flip.
+            let center_screenspace_pos = (c.x as i32, c.y as i32);
             for pot in pots {
+                signed_zoom_bumps = signed_zoom_bumps.saturating_add(pot);
                 returned.0.push(ZoomerCommand::Zoom {
                     pot,
                     center_screenspace_pos,
@@ -197,6 +197,7 @@ pub fn parse_inputs(
             , KEY_ZOOM_BUMPS_PER_SEC
         );
         for _ in 0..in_bumps {
+            signed_zoom_bumps = signed_zoom_bumps.saturating_add(1);
             returned.0.push(ZoomerCommand::Zoom {
                 pot: 1
                 , center_screenspace_pos: screen_center_screenspace
@@ -212,6 +213,7 @@ pub fn parse_inputs(
             , KEY_ZOOM_BUMPS_PER_SEC
         );
         for _ in 0..out_bumps {
+            signed_zoom_bumps = signed_zoom_bumps.saturating_sub(1);
             returned.0.push(ZoomerCommand::Zoom {
                 pot: -1
                 , center_screenspace_pos: screen_center_screenspace
@@ -250,6 +252,12 @@ pub fn parse_inputs(
             returned.0.push(ZoomerCommand::Move { pixels_x: delta.clone(), pixels_y: IntExp::from(0) });
         }
     });
+
+    update_mag_velocity_ewma(
+        &mut state.mag_velocity_ewma
+        , signed_zoom_bumps
+        , time_elapsed.as_secs_f64()
+    );
 
     returned
 }
@@ -297,17 +305,46 @@ pub fn consume_key_zoom_debt(
     bumps
 }
 
+/// EWMA α for magnification velocity (D-SCH-2): half-life ~5 wakes.
+pub const MAG_VELOCITY_EWMA_ALPHA: f64 = 1.0 / 8.0;
+/// Below this absolute rate, treat velocity as stationary (mode 0).
+pub const MAG_VELOCITY_IDLE_EPS: f64 = 0.05;
+/// Floor dt so a hitch does not explode bumps/sec.
+pub const MAG_VELOCITY_DT_FLOOR_SECS: f64 = 1.0 / 240.0;
+
+/// Update EWMA of signed zoom bumps/sec. Zero-bump frames decay toward 0.
+pub fn update_mag_velocity_ewma(ewma: &mut f64, signed_bumps: i32, dt_secs: f64) -> f64 {
+    let dt = dt_secs.max(MAG_VELOCITY_DT_FLOOR_SECS);
+    let rate = (signed_bumps as f64) / dt;
+    *ewma += MAG_VELOCITY_EWMA_ALPHA * (rate - *ewma);
+    if ewma.abs() < MAG_VELOCITY_IDLE_EPS {
+        *ewma = 0.0;
+    }
+    *ewma
+}
+
+/// Scheduler mode from EWMA: >0 zoom-in, <0 zoom-out, 0 stationary.
+pub fn mag_velocity_mode(ewma: f64) -> i32 {
+    if ewma > MAG_VELOCITY_IDLE_EPS {
+        1
+    } else if ewma < -MAG_VELOCITY_IDLE_EPS {
+        -1
+    } else {
+        0
+    }
+}
+
 /// Map accumulated scroll step sign to zoom POT.
-/// Empirically (egui raw_scroll_delta on this app): positive debt step was zooming
-/// the wrong way relative to user expectation, so the sign is inverted vs naive
-/// "positive y → zoom in". Shift/Space keys still use pot ±1 directly.
+/// egui `raw_scroll_delta`: positive Y means content moves down (classic scroll-up /
+/// natural swipe-down). Scroll-up must zoom in → pot +1 (standards).
+/// Shift/Space keys still use pot ±1 directly.
 // r[impl cz.fast.natural-zoom-2x+1]
 // r[impl cz.ctrl.scroll-up-zooms-in+1]
 pub fn scroll_step_to_zoom_pot(step_sign: f32) -> i32 {
     if step_sign > 0.0 {
-        -1
-    } else {
         1
+    } else {
+        -1
     }
 }
 
@@ -316,16 +353,17 @@ mod scroll_zoom_tests {
     use super::*;
 
     // r[verify cz.fast.natural-zoom-2x+1]
+    // r[verify cz.ctrl.scroll-up-zooms-in+1]
     #[test]
-    fn positive_scroll_step_zooms_out_on_this_stack() {
-        assert_eq!(scroll_step_to_zoom_pot(1.0), -1);
+    fn positive_scroll_step_zooms_in() {
+        assert_eq!(scroll_step_to_zoom_pot(1.0), 1);
     }
 
     // r[verify cz.fast.natural-zoom-2x+1]
     // r[verify cz.ctrl.scroll-up-zooms-in+1]
     #[test]
-    fn negative_scroll_step_zooms_in_on_this_stack() {
-        assert_eq!(scroll_step_to_zoom_pot(-1.0), 1);
+    fn negative_scroll_step_zooms_out() {
+        assert_eq!(scroll_step_to_zoom_pot(-1.0), -1);
     }
 
     // r[verify cz.fast.natural-zoom-2x+1]
@@ -338,9 +376,9 @@ mod scroll_zoom_tests {
     // r[verify cz.ctrl.scroll-up-zooms-in+1]
     #[test]
     fn scroll_up_delta_increases_mag_pot() {
-        // Negative raw_scroll_delta.y is scroll-up on this stack → zoom in → pot +1.
+        // Positive raw_scroll_delta.y = content down = scroll-up → zoom in → pot +1.
         let mut debt = 0.0;
-        let pots = consume_scroll_debt(&mut debt, -SCROLL_SPEED, SCROLL_SPEED);
+        let pots = consume_scroll_debt(&mut debt, SCROLL_SPEED, SCROLL_SPEED);
         assert_eq!(pots, vec![1]);
     }
 
@@ -348,7 +386,7 @@ mod scroll_zoom_tests {
     #[test]
     fn ten_scroll_thresholds_yield_ten_pots() {
         let mut debt = 0.0;
-        let pots = consume_scroll_debt(&mut debt, -SCROLL_SPEED * 10.0, SCROLL_SPEED);
+        let pots = consume_scroll_debt(&mut debt, SCROLL_SPEED * 10.0, SCROLL_SPEED);
         assert_eq!(pots.len(), 10);
         assert!(pots.iter().all(|&p| p == 1));
     }
@@ -359,7 +397,7 @@ mod scroll_zoom_tests {
         // Product bar: 10 applied bumps within 300ms — debt consume is O(n) instantaneous.
         let t0 = std::time::Instant::now();
         let mut debt = 0.0;
-        let pots = consume_scroll_debt(&mut debt, -SCROLL_SPEED * 10.0, SCROLL_SPEED);
+        let pots = consume_scroll_debt(&mut debt, SCROLL_SPEED * 10.0, SCROLL_SPEED);
         assert_eq!(pots.len(), 10);
         assert!(t0.elapsed().as_millis() <= 300);
     }
@@ -369,7 +407,7 @@ mod scroll_zoom_tests {
     fn repeating_ten_bump_bursts_stay_exact() {
         let mut debt = 0.0;
         for _ in 0..3 {
-            let pots = consume_scroll_debt(&mut debt, -SCROLL_SPEED * 10.0, SCROLL_SPEED);
+            let pots = consume_scroll_debt(&mut debt, SCROLL_SPEED * 10.0, SCROLL_SPEED);
             assert_eq!(pots.len(), 10);
         }
     }
@@ -386,8 +424,8 @@ mod scroll_zoom_tests {
     #[test]
     fn opposite_sign_clears_backlog_direction() {
         let mut debt = 0.0;
-        let _ = consume_scroll_debt(&mut debt, -SCROLL_SPEED * 3.0, SCROLL_SPEED);
-        let pots = consume_scroll_debt(&mut debt, SCROLL_SPEED, SCROLL_SPEED);
+        let _ = consume_scroll_debt(&mut debt, SCROLL_SPEED * 3.0, SCROLL_SPEED);
+        let pots = consume_scroll_debt(&mut debt, -SCROLL_SPEED, SCROLL_SPEED);
         // Opposite sign resets to half threshold then adds full → one out bump.
         assert_eq!(pots, vec![-1]);
     }
@@ -396,7 +434,7 @@ mod scroll_zoom_tests {
     #[test]
     fn residual_debt_below_threshold_is_not_a_deferred_burst() {
         let mut debt = 0.0;
-        let pots = consume_scroll_debt(&mut debt, -SCROLL_SPEED * 2.5, SCROLL_SPEED);
+        let pots = consume_scroll_debt(&mut debt, SCROLL_SPEED * 2.5, SCROLL_SPEED);
         assert_eq!(pots.len(), 2);
         assert!(debt.abs() < SCROLL_SPEED);
         let more = consume_scroll_debt(&mut debt, 0.0, SCROLL_SPEED);
@@ -433,7 +471,7 @@ mod scroll_zoom_tests {
     #[test]
     fn scroll_consume_is_same_turn() {
         let mut debt = 0.0;
-        let pots = consume_scroll_debt(&mut debt, -SCROLL_SPEED, SCROLL_SPEED);
+        let pots = consume_scroll_debt(&mut debt, SCROLL_SPEED, SCROLL_SPEED);
         assert_eq!(pots.len(), 1);
     }
 
@@ -467,6 +505,32 @@ mod scroll_zoom_tests {
         assert_eq!(attention_from_pointer(Some((900, 100)), (800, 480)), (400, 240));
         assert_eq!(attention_from_pointer(Some((100, -5)), (800, 480)), (400, 240));
         assert_eq!(attention_from_pointer(Some((100, 500)), (800, 480)), (400, 240));
+    }
+
+    #[test]
+    fn ewma_burst_then_idle_decays_to_zero() {
+        let mut ewma = 0.0;
+        update_mag_velocity_ewma(&mut ewma, 10, 0.3);
+        assert!(ewma > MAG_VELOCITY_IDLE_EPS, "got {ewma}");
+        for _ in 0..64 {
+            update_mag_velocity_ewma(&mut ewma, 0, 1.0 / 60.0);
+        }
+        assert_eq!(ewma, 0.0);
+        assert_eq!(mag_velocity_mode(ewma), 0);
+    }
+
+    #[test]
+    fn ewma_zoom_in_sets_positive_mode() {
+        let mut ewma = 0.0;
+        update_mag_velocity_ewma(&mut ewma, 5, 0.2);
+        assert_eq!(mag_velocity_mode(ewma), 1);
+    }
+
+    #[test]
+    fn ewma_zoom_out_sets_negative_mode() {
+        let mut ewma = 0.0;
+        update_mag_velocity_ewma(&mut ewma, -5, 0.2);
+        assert_eq!(mag_velocity_mode(ewma), -1);
     }
 }
 

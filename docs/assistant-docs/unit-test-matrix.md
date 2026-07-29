@@ -10,7 +10,6 @@ Status: `green` | `in-progress` | `blocked-impl`
 |----|------------|----------|--------|--------|
 | cz.math.intexp-add-commutative+1 | prop + examples in `intexp.rs` | add commutative | intexp.rs | green |
 | cz.math.intexp-mul-associative+1 | prop + examples in `intexp.rs` | mul associative | intexp.rs | green |
-| cz.math.homothety-zoom-fill-associative+1 | views.rs prop + cases | associative fill | views.rs | green |
 | cz.math.mandelbrot-real-axis-symmetry+1 | naive_cpu + e2e_oracle | conjugate symmetry | naive_cpu / e2e_oracle | green |
 | cz.range.guess-biased-nearest+1 | range.rs + calibrated + gpu_tile | stays in bounds | range.rs | green |
 | cz.display.window-default-800x480+1 | constants.rs (≥3) | n/a | constants.rs | green |
@@ -26,21 +25,21 @@ Status: `green` | `in-progress` | `blocked-impl`
 | cz.system.tile-manager-protect-current-lookahead+1 | tile_manager (≥3) | n/a | tile_manager.rs | green |
 | cz.system.max-homotheties+1 | tile_manager + sampling (≥3) | n/a | multi | green |
 | cz.int.memory-bump+1 | tile_manager + window + unit extras | n/a | multi | in-progress |
-| cz.int.hoard-ingest-sample+1 | sampling (≥3 unit) | n/a | sampling.rs | in-progress |
+| cz.int.hoard-ingest-sample+1 | sampling (≥3 unit) | n/a | sampling.rs | green |
 | cz.int.publisher-nores-bias+1 | tile_publisher (≥3) | clamp bounds | tile_publisher.rs | green |
-| cz.int.publish-cadence+1 | cadence max 1000; no min floor (D-PUB-1 flat 1000) | n/a | tile_publisher.rs | in-progress |
-| cz.int.stencil-retarget+1 | unit extract (≥3) | n/a | stencil / window | in-progress |
-| cz.int.session-pipeline+1 | unit extract (≥3) | n/a | tile_session | in-progress |
+| cz.int.publish-cadence+1 | cadence max 1000; no min floor (D-PUB-1 flat 1000) | n/a | tile_publisher.rs | green |
+| cz.int.stencil-retarget+1 | unit extract (≥3) | n/a | stencil / window | green |
+| cz.int.session-pipeline+1 | unit extract (≥3) | n/a | tile_session | green |
 | cz.shade.escape-continues-to-bailout+1 | shade_tests (≥3) | n/a | shade_tests.rs | green |
 | cz.shade.in-filament-slope-inversion+1 | shade_tests (≥3) | n/a | shade_tests.rs | green |
-| cz.shade.out-filament-period-step+1 | shade_tests + higher-period side | n/a | shade_tests.rs | in-progress |
+| cz.shade.out-filament-period-step+1 | shade_tests (≥3: lower/zero/highlight) | n/a | shade_tests.rs | green |
 | cz.shade.node-smallness-minimum+1 | shade_tests (≥3) | n/a | shade_tests.rs | green |
 | cz.shade.small-time-edge-nonzero+1 | shade_tests (≥3) | n/a | shade_tests.rs | green |
 | cz.shade.layers-in-script-order+1 | shade_tests (≥3) | GPU↔oracle | shade_tests.rs | green |
 | cz.perf.foveation-half-time+1 | tile_session (≥3) | 50/50 time | tile_session / standards_perf | green |
 | cz.perf.home-100tps+1 | home fill release (≥3) | ≤5s | tile_session | green |
-| cz.perf.min-300m-ips-cpu+1 | standards_perf (≥3) | ≥300M | standards_perf | green |
-| cz.perf.min-30b-ips-gpu+1 | perturb_gpu (≥3) | ≥30B | perturb_gpu | green |
+| cz.perf.min-300m-ips-cpu+1 | standards_perf fullstack (≥3; outside r=2 + inside) + microbench | ≥300M | standards_perf | green |
+| cz.perf.min-30b-ips-gpu+1 | standards_perf fullstack (≥3; outside r=2 + inside) + gpu microbench | ≥30B | standards_perf / perturb_gpu | green |
 | cz.perf.optimal-ipp+1 | standards_perf (≥3) | escape IPP | standards_perf | green |
 | cz.perf.headgroup-shaders-2ms+1 | standards_perf (≥3) | ≤2ms | standards_perf | green |
 | cz.perf.headgroup-vsync+1 | standards_perf (≥3) | Fifo | window / standards_perf | green |
@@ -60,45 +59,45 @@ Status: `green` | `in-progress` | `blocked-impl`
 
 | Id | Tests | Property | Status |
 |----|-------|----------|--------|
-| REQ-CTRL-PARSE | coords.rs (≥3) | n/a | in-progress |
+| REQ-CTRL-PARSE | coords.rs (≥3 parse forms + reject) | n/a | green |
 | REQ-CTRL-APPLY | apply enable + D-UI-1 (≥3) | n/a | in-progress |
 | REQ-CTRL-ZOOM | inputs/transforms (≥3) | n/a | green |
 | REQ-COSMETIC-LAYER | settings layer model (≥3) | n/a | in-progress |
-| REQ-COSMETIC-DEFAULT | D-COLOR-1 exact three layers (≥3) | n/a | in-progress |
+| REQ-COSMETIC-DEFAULT | D-COLOR-1 exact three layers (≥3) | n/a | green |
 | REQ-BAILOUT | D-BAIL-1 (≥3) | n/a | in-progress |
 | REQ-SYS-MEM | D-MEM-* (≥3) | keep-set det. | in-progress |
 | REQ-CALIBRATED | calibrated bias (≥3) | clamp | green |
-| REQ-DEEP-GEAR | C gen fail-closed + D-GEAR-1 (≥3) | n/a | in-progress |
+| REQ-DEEP-GEAR | C gen fail-closed + D-GEAR-1 (≥3) | n/a | green |
 
 ## C — Decisions `D-*`
 
 | Id | Tests | Status |
 |----|-------|--------|
-| D-COLOR-1 | default script length 3; kinds escape/in-fil/out-fil | in-progress |
+| D-COLOR-1 | default script length 3; kinds escape/in-fil/out-fil | green |
 | D-COLOR-2 | layer field presence | in-progress |
 | D-COLOR-3 | alpha-over order | in-progress |
 | D-COLOR-4 | highlights in script list | in-progress |
 | D-BAIL-1 | recolor-only membership stable | in-progress |
 | D-SHADE-1 | INFIL threshold constant applied | in-progress |
 | D-SHADE-2 | NODE threshold constant applied | in-progress |
-| D-SHADE-3 | higher-period side only | in-progress |
+| D-SHADE-3 | higher-period side only (≥3 shade_tests) | green |
 | D-MEM-1 | exact bump | in-progress |
 | D-MEM-2 | slider moves | in-progress |
 | D-MEM-3 | packed bytes cost | in-progress |
 | D-MEM-4 | keep-set property | in-progress |
-| D-SCH-1 | mouse column depth 8 | in-progress |
-| D-SCH-2 | EWMA mag velocity | in-progress |
-| D-SCH-3 | immediate preempt + resume_suspended on drain | in-progress |
-| D-PER-1 | twin N=16 | in-progress |
-| D-PER-2 | relative ε | in-progress |
+| D-SCH-1 | screen_edge_complete gate (≥3) | green |
+| D-SCH-2 | EWMA mag velocity (≥3 inputs) | green |
+| D-SCH-3 | immediate preempt + resume_suspended on drain | green |
+| D-PER-1 | twin N=16 (≥3 periodicity_detector) | green |
+| D-PER-2 | relative ε | green |
 | D-PER-3 | POT snapshots | in-progress |
-| D-GEAR-1 | no mid-tile escalate API | in-progress |
-| D-SERIES-1 | series_skip + absorption (≥3) | in-progress |
+| D-GEAR-1 | no mid-tile escalate API | green |
+| D-SERIES-1 | series_skip + absorption (≥3) | green |
 | D-CANCEL-1 | cancel keeps hoard | in-progress |
 | D-REF-1 | +20 bits | in-progress |
 | D-REF-2 | retire last-user or >N=3 | in-progress |
-| D-PUB-1 | max 1000; no min floor; GPU publisher | in-progress |
-| D-PUB-2 | clamp all-numeric | in-progress |
+| D-PUB-1 | max 1000; no min floor; GPU publisher | green |
+| D-PUB-2 | clamp all-numeric | green |
 | D-STEN-1 | mouse+vel+seq fields | in-progress |
 | D-WORK-1 | address-only keys | in-progress |
 | D-UI-1 | apply enabled when equal | in-progress |
@@ -112,10 +111,9 @@ Status: `green` | `in-progress` | `blocked-impl`
 | StackedIntExp | agrees IntExp | green |
 | FloatExp | production invariant | in-progress |
 | Range guess_biased | in bounds | green |
-| Homothety fill | associative | green |
 | Mandelbrot | conjugate symmetry | green |
 | Tile manager | deterministic keep-set | in-progress |
-| Sampling nearest | up-left tie | in-progress |
+| Sampling (static tiles → stencil) | nearest + up-left; no remapping chains | in-progress |
 | Publisher clamp | within bounds | green |
 | Shade GPU↔oracle | pixel agree | green |
 | Work controller locals | enumerated helpers | in-progress |

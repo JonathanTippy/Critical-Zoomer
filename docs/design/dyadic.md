@@ -23,7 +23,7 @@ This was a comment block but I wrote it and I like it so im putting it here to m
 // The actual spacing distance between points is given by 1/(2^(PPU POT)).
 
 
-Theory (may not apply as stated to current design but same principles can easily extend to tile sampling.):
+# Theory (may not apply as stated to current design but same principles can easily extend to tile sampling.):
 // When filling one View from another, pixels are considered to represent:
 // the area from their top left corner (inclusive) to their bottom right corner (limit).
 // inexact mappings of larger to smaller are thusly fully defined.
@@ -37,8 +37,6 @@ Theory (may not apply as stated to current design but same principles can easily
 // The best known algorithm for this is nearest with top left bias.
 // A .5px bias will be present for the whole frame, which is easily accounted for and not visually noticeable.
 // EDIT: unproven; likely to introduce a small error.
-
-r[cz.math.homothety-zoom-fill-associative+1]
 
 // ideally, fill_from must yield the same result for a 4x zoom and two 2x zooms for example;
 // functions which combine views must be associative. May not be possible while applying the half-offset.
@@ -56,9 +54,9 @@ r[cz.math.homothety-zoom-fill-associative+1]
 
 // mapping is exact when one mapped exact pixel is identified,
 // and the larger pixel step off of that pixel yields pixels still represented in the smaller pixel view.
-Theory end
 
 The half-offset problem seems important until you realize that almost all tiles will contain regular exact values which are trivial, and only the proximate ones are not trivial to propagate.
+# Theory end
 
 The associativity problem is moot because no part of the program performs repeated data remapping. static tiles are sampled, and thats all.
 each required pixel must take  the nearest available datapoint, using a decrease of precision and integer techniques to define its neighborhood and avoid searching, and taking the further up-left value when there is a tie.

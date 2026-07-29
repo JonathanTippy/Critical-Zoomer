@@ -227,12 +227,28 @@ fn paint(bottom: vec3<f32>, base: vec3<f32>, n: f32, inst: Instruction, opacity:
 // Each layer goes over what is under it, in the order the script is written. A layer whose
 // opacity for this seat's side is zero is skipped outright, so a disabled layer costs nothing
 // and cannot nudge the pixel it is sitting on.
+// Seats farther than edge_margin from every tile-grid cell cannot host edge
+// features (filament / STE / nodes). Their color is the constant nores shade
+// the host precomputed into uniforms — avoid per-pixel sample+bailout there.
+fn far_from_tiles(seat: vec2<i32>) -> bool {
+    let margin = i32(uniforms.edge_margin);
+    let max_x = i32(uniforms.grid_w) * TILE_EDGE;
+    let max_y = i32(uniforms.grid_h) * TILE_EDGE;
+    return seat.x < -margin
+        || seat.y < -margin
+        || seat.x >= max_x + margin
+        || seat.y >= max_y + margin;
+}
+
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     if (uniforms.zoom_match == 0u) {
         return vec4<f32>(0.05, 0.05, 0.08, 1.0);
     }
     let screen_seat = vec2<i32>(floor(in.uv * uniforms.viewport_size));
+    if (far_from_tiles(screen_seat)) {
+        return vec4<f32>(uniforms.nores_r, uniforms.nores_g, uniforms.nores_b, 1.0);
+    }
     let finished = finished_at(screen_seat);
     let inside = finished.kind > 1.5;
     let outside = finished.kind > 0.5 && finished.kind < 1.5;

@@ -30,6 +30,8 @@ Work Management:
 - must get around to everything eventually (make the hoard recontinuable)
 - foveated (Dedicate half of available working time to filling the current stencil, and half to lookahead.)
   r[cz.perf.foveation-half-time+1]
+- aggressively minimize play: no or very small initialization phases. continuous delivery of work so far.
+  r[cz.perf.play-minimize+1]
 
 
 Workgroup performance requirements;
@@ -45,6 +47,9 @@ Workgroup performance requirements;
 - IPP must be optimal always
   r[cz.perf.optimal-ipp+1]
 
+- When the user has zoomed in 8 bumps at a time, *some* new work must be visible within 100ms of the last bump of the gesture. See north star on play.
+  r[cz.perf.play-8bump-100ms+1]
+
 # References addednudm
 
 The reference datastructure must correctly handle looping points.
@@ -56,6 +61,23 @@ The path of code used must not be different.
 
 Work remaining native n the GPU is of pivotal importance 
 because otherwise there is not enough throughput to complete a full screen of work quiclly in easy cases.
+
+# Benchmarking addendum
+
+IPS requirements must be tested in real plausible situations, not microbenches. This means that the benchmark will include all scheduling overhead.
+It should test both the worst case for scheduling (easy tiles, outside of r=2) and the best case (work takes longer, eg inside the set).
+
+Microbenches should also be made as its useful to know whether an issue is the math itself or scheduling or something else.
+
+# Play addendum
+
+- Each actor must always check its input channel at a quick pace at the start of its loop (1000hz is the standard but lower is fine)
+- Each actor must fully drain its channel when anything is there
+- each actor must immediately prioritize the most recent work over previous work
+
+# TPS addendum
+
+For the home view at default res, Even when on CPU, tps must >= 100. When on GPU, tps must >= 10000.
 
 # Headgroup
 

@@ -1,9 +1,10 @@
 //! Mandelbrot worker iteration throughput.
 //!
 //! Reports iterations/sec for the live hot loops:
-//! - naive CPU (`iterate_point_bout`)
 //! - perturbation CPU zero-orbit (`iterate_perturbation_bout`)
 //! - perturbation CPU with a live period-2 reference orbit
+//!
+//! Naive iterate is test-only and is not benched here.
 //!
 //! An "iteration" is one `iteration_count += 1` step inside a bout.
 //! Timing covers bouts only (no initialize_batch / series skip).
@@ -19,7 +20,6 @@ use criterion::{
     criterion_group, criterion_main, BenchmarkId, Criterion, Throughput,
 };
 
-use critical_zoomer::assemblies::workgroup::workcore::mandelbrot::worker_implementations::naive_cpu_worker::iterate_point_bout;
 use critical_zoomer::assemblies::workgroup::workcore::mandelbrot::worker_implementations::periodicity_detector::*;
 use critical_zoomer::assemblies::workgroup::workcore::mandelbrot::worker_implementations::perturbation_cpu_worker::{
     iterate_perturbation_bout
@@ -71,15 +71,6 @@ fn fresh_point(c: (f64, f64), orbit_id: OrbitId) -> ActivePoint<f64, CpuPeriodic
     }
 }
 
-fn characterize_naive(c: (f64, f64), cap: u64) -> (u64, bool, bool) {
-    let eps = epsilon(c);
-    let mut point = fresh_point(c, ZERO_ORBIT_ID);
-    while !point.finished && point.iteration_count < cap {
-        iterate_point_bout(&mut point, 4.0, eps, BOUT);
-    }
-    (point.iteration_count, point.escaped, point.finished)
-}
-
 fn characterize_perturb(c: (f64, f64), cap: u64) -> (u64, bool, bool) {
     let eps = epsilon(c);
     let mut state = PerturbationCpuWorkerState::default();
@@ -90,27 +81,6 @@ fn characterize_perturb(c: (f64, f64), cap: u64) -> (u64, bool, bool) {
         iterate_perturbation_bout(&mut state, &mut point, eps);
     }
     (point.iteration_count, point.escaped, point.finished)
-}
-
-fn run_naive(c: (f64, f64), target: u64) -> (Duration, u64) {
-    let eps = epsilon(c);
-    let mut total = 0u64;
-    let start = Instant::now();
-    while total < target {
-        let mut point = fresh_point(c, ZERO_ORBIT_ID);
-        while !point.finished && total < target {
-            let before = point.iteration_count;
-            let bout = ((target - total) as u32).min(BOUT).max(1);
-            iterate_point_bout(&mut point, 4.0, eps, bout);
-            let gained = point.iteration_count - before;
-            if gained == 0 {
-                break;
-            }
-            total += gained;
-        }
-        black_box(point.iteration_count);
-    }
-    (start.elapsed(), total)
 }
 
 fn run_perturb_zero(c: (f64, f64), target: u64) -> (Duration, u64) {
@@ -182,22 +152,19 @@ fn print_baseline_snapshot() {
     println!();
     println!("=== fixture characterization (cap=200000) ===");
     for &(name, c) in FIXTURES {
-        let (ni, ne, nf) = characterize_naive(c, 200_000);
         let (pi, pe, pf) = characterize_perturb(c, 200_000);
         println!(
-            "  {name:12}  naive: iters={ni:<6} escaped={ne} finished={nf}  |  perturb: iters={pi:<6} escaped={pe} finished={pf}"
+            "  {name:12}  perturb: iters={pi:<6} escaped={pe} finished={pf}"
         );
     }
     println!();
     println!("=== worker throughput baseline (single-threaded, TARGET_ITERS={TARGET_ITERS}) ===");
     println!("    (Miter/s = million counted iterations per second)");
     for &(name, c) in FIXTURES {
-        let (naive_t, naive_n) = run_naive(c, TARGET_ITERS);
         let (pert_t, pert_n) = run_perturb_zero(c, TARGET_ITERS);
         let (p2_t, p2_n) = run_perturb_period2(c, TARGET_ITERS);
         println!(
-            "  {name:12}  naive={:>8.2} Miter/s  perturb_zero={:>8.2} Miter/s  perturb_p2={:>8.2} Miter/s"
-            , rate_m(naive_n, naive_t)
+            "  {name:12}  perturb_zero={:>8.2} Miter/s  perturb_p2={:>8.2} Miter/s"
             , rate_m(pert_n, pert_t)
             , rate_m(p2_n, p2_t)
         );
@@ -205,14 +172,12 @@ fn print_baseline_snapshot() {
     // Longer sustained sample on the slowest-escape exterior fixture.
     let deep = FIXTURES[0].1;
     let sustain = 2_000_000u64;
-    let (naive_t, naive_n) = run_naive(deep, sustain);
     let (pert_t, pert_n) = run_perturb_zero(deep, sustain);
     let (p2_t, p2_n) = run_perturb_period2(deep, sustain);
     println!();
     println!("=== sustained 2M-iter sample @ {} ===", FIXTURES[0].0);
     println!(
-        "  naive={:>8.2} Miter/s  perturb_zero={:>8.2} Miter/s  perturb_p2={:>8.2} Miter/s"
-        , rate_m(naive_n, naive_t)
+        "  perturb_zero={:>8.2} Miter/s  perturb_p2={:>8.2} Miter/s"
         , rate_m(pert_n, pert_t)
         , rate_m(p2_n, p2_t)
     );
@@ -231,23 +196,6 @@ fn worker_throughput(c: &mut Criterion) {
     group.noise_threshold(0.10);
 
     for &(name, point_c) in FIXTURES {
-        group.bench_with_input(
-            BenchmarkId::new("naive", name)
-            , &point_c
-            , |b, &c_val| {
-                b.iter_custom(|samples| {
-                    let mut elapsed = Duration::ZERO;
-                    for _ in 0..samples {
-                        let (t, n) = run_naive(c_val, TARGET_ITERS);
-                        assert!(n >= TARGET_ITERS / 2, "naive under-iterated: {n}");
-                        elapsed += t;
-                        black_box(n);
-                    }
-                    elapsed
-                });
-            }
-        );
-
         group.bench_with_input(
             BenchmarkId::new("perturb_zero", name)
             , &point_c

@@ -22,19 +22,27 @@ r[cz.perf.home-100tps+1]
 
 r[cz.perf.min-300m-ips-cpu+1]
 
-**Normative summary.** ≥300M iterations/s on CPU perturbation path (honest IPS fixtures).
+**Normative summary.** ≥300M iterations/s on CPU perturbation path in real plausible
+workgroup situations (TileSession workshifts), including all scheduling overhead.
+Also keep bout microbenches as a diagnostic suite (math vs scheduling).
 
 **Acceptance criteria.**
-- [x] Release hard-assert ≥300e6 IPS on ≥3 exterior fixtures/gears
-- [x] Counts bout iterations only (same definition as standards IPS)
+- [x] Release hard-assert ≥300e6 IPS on ≥3 full-stack fixtures spanning both classes:
+  easy tiles outside r=2 (scheduling-worst) and longer work inside the set (iteration-best)
+- [x] Bout/microbench suite present and passing (diagnostic only; not a substitute for full-stack)
 
 r[cz.perf.min-30b-ips-gpu+1]
 
-**Normative summary.** ≥30B iterations/s on GPU perturbation path. No adapter ⇒ fail.
+**Normative summary.** ≥30B iterations/s on GPU perturbation path in real plausible
+workgroup situations (TileSession workshifts), including all scheduling overhead.
+Also keep bout microbenches as a diagnostic suite (math vs scheduling).
+No adapter ⇒ fail.
 
 **Acceptance criteria.**
-- [x] Release hard-assert ≥30e9 IPS on ≥3 fixtures
+- [x] Release hard-assert ≥30e9 IPS on ≥3 full-stack fixtures spanning both classes:
+  easy tiles outside r=2 (scheduling-worst) and longer work inside the set (iteration-best)
 - [x] Missing GPU adapter fails the verify
+- [x] Bout/microbench suite present and passing (diagnostic only; not a substitute for full-stack)
 
 r[cz.perf.optimal-ipp+1]
 

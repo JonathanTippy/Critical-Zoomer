@@ -11,8 +11,12 @@ struct Uniforms {
     tile_count: u32,
     grid_w: u32,
     grid_h: u32,
-    _pad1: u32,
-    _pad2: u32,
+    nores_r: f32,
+    nores_g: f32,
+    nores_b: f32,
+    edge_margin: u32,
+    _pad_end: u32,
+    _pad_end2: u32,
 }
 
 struct TileEntry {

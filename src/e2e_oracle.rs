@@ -7,10 +7,10 @@ use crate::assemblies::structs::*;
 use crate::assemblies::workgroup::structs::mandelbrotable::*;
 use crate::assemblies::workgroup::workcore::mandelbrot::ActivePoint;
 use crate::assemblies::workgroup::workcore::mandelbrot::PeriodicityDetector;
-use crate::assemblies::workgroup::workcore::mandelbrot::worker_implementations::naive_cpu_worker::{
-    iterate_point_bout, point_to_answer,
-};
 use crate::assemblies::workgroup::workcore::mandelbrot::worker_implementations::periodicity_detector::CpuPeriodicityDetector;
+use crate::assemblies::workgroup::workcore::mandelbrot::worker_implementations::perturbation_cpu_worker::{
+    iterate_perturbation_bout, point_to_answer, PerturbationCpuWorkerState,
+};
 use crate::assemblies::workgroup::workcore::mandelbrot::ZERO_ORBIT_ID;
 use crate::constants::{HOME_POSITION, PIXELS_PER_UNIT_POT};
 use crate::intexp::IntExp;
@@ -55,16 +55,18 @@ fn fresh_point(c: (f64, f64)) -> ActivePoint<f64, CpuPeriodicityDetector> {
     }
 }
 
-/// Iterate a single c until finished (known-good naive CPU path).
+/// Iterate a single c until finished (perturbation + zero-orbit — live one-path).
 pub fn oracle_answer_at(c: (f64, f64), max_bouts: u32) -> Answer {
     let mut point = fresh_point(c);
-    let bailout = 4.0f64;
+    let mut state = PerturbationCpuWorkerState::default();
+    state.seat_orbit_ids = vec![ZERO_ORBIT_ID];
+    state.iterations_per_bout = 1000;
     let epsilon = 1e-12f64.max(c.0.abs().max(c.1.abs()) * 1e-6);
     for _ in 0..max_bouts {
         if point.finished {
             break;
         }
-        iterate_point_bout(&mut point, bailout, epsilon, 1000);
+        iterate_perturbation_bout(&mut state, &mut point, epsilon);
     }
     point_to_answer(&point)
 }

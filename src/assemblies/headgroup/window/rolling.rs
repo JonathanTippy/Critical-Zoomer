@@ -215,4 +215,17 @@ mod tps_tests {
         c.record(2, t0);
         assert_eq!(c.tps(t0), 2.0);
     }
+
+    // Standards: TPS is completed whole tiles / s, not emit rate.
+    // r[verify cz.perf.home-100tps+1]
+    #[test]
+    fn hud_tps_is_count_of_recorded_completions_not_emits() {
+        let mut c = TpsCounter::new();
+        let t0 = Instant::now();
+        // Simulate old bug: 20 WIP emits in a second would show "20tps".
+        // Correct HUD only records completions (here: 2).
+        c.record(2, t0);
+        assert_eq!(c.tps(t0), 2.0);
+        assert!(c.tps(t0) < 10.0, "must not look like WIP emit rate");
+    }
 }

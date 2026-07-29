@@ -25,6 +25,65 @@ use crate::assemblies::workgroup::workcore::mandelbrot::worker_implementations::
 };
 use crate::constants::{GLITCH_THRESHOLD, GPU_WORKER_BATCH_N, PERIOD_CONFIRMATION_ITERATIONS};
 
+/// Shared-device play rule: the display thread owns `device.poll`.
+/// Worker must not call `PollType::Wait` (headed hard-stall after a few zooms).
+/// Prefer not polling at all so the window actor can advance the queue; fall
+/// back to non-blocking Poll if the map is slow (headless tests).
+fn await_map_async(
+    device: &wgpu::Device,
+    receiver: &mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
+) {
+    let started = std::time::Instant::now();
+    let mut logged_slow = false;
+    loop {
+        match receiver.recv_timeout(std::time::Duration::from_millis(1)) {
+            Ok(Ok(())) => {
+                // #region agent log
+                let ms = started.elapsed().as_secs_f64() * 1000.0;
+                if ms > 16.0 {
+                    crate::assemblies::workgroup::debug_session::log(
+                        "H-GPU-MAP",
+                        "perturbation_gpu_worker.rs:await_map",
+                        "map_complete",
+                        &format!("{{\"map_ms\":{ms:.3}}}"),
+                    );
+                }
+                // #endregion
+                return;
+            }
+            Ok(Err(err)) => panic!("gpu map: {err:?}"),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                // Nudge the queue without blocking (headless has no display poller).
+                let _ = device.poll(wgpu::PollType::Poll);
+                // #region agent log
+                if !logged_slow && started.elapsed().as_millis() > 100 {
+                    logged_slow = true;
+                    crate::assemblies::workgroup::debug_session::log(
+                        "H-GPU-STALL",
+                        "perturbation_gpu_worker.rs:await_map",
+                        "map_slow_recv_timeout",
+                        &format!(
+                            "{{\"map_ms\":{:.3}}}",
+                            started.elapsed().as_secs_f64() * 1000.0
+                        ),
+                    );
+                }
+                // #endregion
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => panic!("gpu map channel closed"),
+        }
+    }
+}
+
+/// After compute submit: poll briefly without Wait (harvest/map owns completion).
+fn poll_submitted_briefly(device: &wgpu::Device) {
+    let started = std::time::Instant::now();
+    while started.elapsed().as_millis() < 2 {
+        let _ = device.poll(wgpu::PollType::Poll);
+        std::thread::yield_now();
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PerturbationComputePath {
     Gpu,
@@ -56,9 +115,20 @@ pub struct PerturbationGpuWorkerState {
     gpu: Option<PerturbationGpuContext>,
     /// Sizes each compute dispatch so it cannot delay present past a frame.
     pub budget: crate::gpu_budget::SubmissionBudget,
-    /// After a GPU bout leaves interiors open, finish them on CPU without
-    /// another sync GPU round-trip every workshift (was making headed fill ~10× slower).
+    /// After harvest leaves only deep interiors / glitch follow-up, finish on CPU
+    /// without another sync GPU round-trip every workshift.
     cpu_followup: bool,
+    /// Host mirror of the GPU-resident unfinished batch (seat indices into PointBatch).
+    resident_map_idx: Vec<usize>,
+    /// Last uploaded / harvested GpuPertPoint rows (same order as `resident_map_idx`).
+    resident_gpu_points: Vec<GpuPertPoint>,
+    resident_orbit_key: Option<u64>,
+    /// `None` = f32 pipeline; `Some(limbs)` = stacked.
+    resident_limbs: Option<Option<u8>>,
+    /// Point-iterations advanced this session (full-stack IPS / diagnostics).
+    pub iterations_advanced: u64,
+    /// Consecutive GPU harvests that finished few seats — fall through to CPU.
+    gpu_low_yield_streak: u32,
 }
 
 struct PerturbationGpuContext {
@@ -144,6 +214,12 @@ impl PerturbationGpuWorkerState {
             gpu: None,
             budget: crate::gpu_budget::SubmissionBudget::new(),
             cpu_followup: false,
+            resident_map_idx: Vec::new(),
+            resident_gpu_points: Vec::new(),
+            resident_orbit_key: None,
+            resident_limbs: None,
+            iterations_advanced: 0,
+            gpu_low_yield_streak: 0,
         }
     }
 
@@ -156,6 +232,22 @@ impl PerturbationGpuWorkerState {
             gpu: None,
             budget: crate::gpu_budget::SubmissionBudget::new(),
             cpu_followup: false,
+            resident_map_idx: Vec::new(),
+            resident_gpu_points: Vec::new(),
+            resident_orbit_key: None,
+            resident_limbs: None,
+            iterations_advanced: 0,
+            gpu_low_yield_streak: 0,
+        }
+    }
+
+    fn clear_resident(&mut self) {
+        self.resident_map_idx.clear();
+        self.resident_gpu_points.clear();
+        self.resident_orbit_key = None;
+        self.resident_limbs = None;
+        if let Some(gpu) = self.gpu.as_mut() {
+            gpu.resident_points = 0;
         }
     }
 
@@ -194,12 +286,35 @@ impl PerturbationGpuWorkerState {
         self.gpu_desired = false;
         self.gpu = None;
         self.cpu_followup = false;
+        self.clear_resident();
     }
 
     /// Refresh the numeric gear from the current stencil (D-GEAR-1).
-    pub fn refresh_selected_gear(&mut self) {
+    /// Returns `true` when the gear identity changed (caller must drop typed batches).
+    pub fn refresh_selected_gear(&mut self) -> bool {
+        let prev = self.cpu.gear;
         let gpu = self.is_gpu_preferred();
         self.cpu.refresh_gear(gpu);
+        self.cpu.gear != prev
+    }
+
+    /// Workshift an ActiveGearWork batch: GPU path bridges to host f64; CPU uses typed arms.
+    pub fn workshift_active_gear<const N: usize>(
+        &mut self
+        , batch: &mut crate::assemblies::workgroup::workcore::mandelbrot::worker_implementations::active_gear_work::ActiveGearWork<N>
+    ) -> bool {
+        // Forced CPU / no adapter: stay on typed Mandelbrotable arms.
+        let use_typed_cpu = matches!(self.path, PerturbationComputePath::Cpu)
+            || self.gpu.is_none()
+            || !self.cpu.gear.runs_on_gpu();
+        if use_typed_cpu {
+            return batch.workshift_cpu(&mut self.cpu);
+        }
+        // GPU path still packs from host f64 (Phase 4 extends native stacked upload).
+        let mut host = batch.to_host_batch();
+        let out = PerturbationGpuWorker::workshift_on_batch(self, &mut host);
+        batch.absorb_host_batch(host);
+        out
     }
 }
 
@@ -391,6 +506,23 @@ impl PerturbationGpuContext {
         let device = &self.shared.device;
         let queue = &self.shared.queue;
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
+        // #region agent log
+        {
+            let n = crate::assemblies::workgroup::debug_session::gpu_tick();
+            if crate::assemblies::workgroup::debug_session::should_sample(n) {
+                crate::assemblies::workgroup::debug_session::log(
+                    "H-GPU-WIDTH",
+                    "perturbation_gpu_worker.rs:dispatch",
+                    "gpu_dispatch",
+                    &format!(
+                        "{{\"n\":{n},\"point_count\":{count},\"workgroups\":{},\"batch_n\":{},\"bout_iters\":{bout_iterations}}}",
+                        (count + 63) / 64,
+                        crate::constants::GPU_WORKER_BATCH_N
+                    ),
+                );
+            }
+        }
+        // #endregion
         // Keep GpuPertPoint resident across bouts: only re-upload when the CPU
         // side changed the batch (new seats or a different orbit).
         if upload_points || self.resident_points != count {
@@ -450,25 +582,8 @@ impl PerturbationGpuContext {
             let _ = sender.send(result);
         });
         // Prefer polling over a hard wait so the shared queue can still service
-        // the display between checks when a bout is long.
-        let mut spins = 0u32;
-        loop {
-            let _ = device.poll(wgpu::PollType::Poll);
-            match receiver.try_recv() {
-                Ok(Ok(())) => break,
-                Ok(Err(err)) => panic!("gpu map: {err:?}"),
-                Err(mpsc::TryRecvError::Empty) => {
-                    if spins > 10_000 {
-                        let _ = device.poll(wgpu::PollType::Wait);
-                        receiver.recv().expect("gpu map channel").expect("gpu map");
-                        break;
-                    }
-                    spins += 1;
-                    std::thread::yield_now();
-                }
-                Err(mpsc::TryRecvError::Disconnected) => panic!("gpu map channel closed"),
-            }
-        }
+        // the display. Never PollType::Wait — that hard-stalls on shared device.
+        await_map_async(device, &receiver);
         {
             let data = slice.get_mapped_range();
             let out: &[GpuPertPoint] = bytemuck::cast_slice(&data);
@@ -567,24 +682,7 @@ impl PerturbationGpuContext {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             let _ = sender.send(result);
         });
-        let mut spins = 0u32;
-        loop {
-            let _ = device.poll(wgpu::PollType::Poll);
-            match receiver.try_recv() {
-                Ok(Ok(())) => break,
-                Ok(Err(err)) => panic!("gpu map: {err:?}"),
-                Err(mpsc::TryRecvError::Empty) => {
-                    if spins > 10_000 {
-                        let _ = device.poll(wgpu::PollType::Wait);
-                        receiver.recv().expect("gpu map channel").expect("gpu map");
-                        break;
-                    }
-                    spins += 1;
-                    std::thread::yield_now();
-                }
-                Err(mpsc::TryRecvError::Disconnected) => panic!("gpu map channel closed"),
-            }
-        }
+        await_map_async(device, &receiver);
         {
             let data = slice.get_mapped_range();
             let out: &[GpuPertPoint] = bytemuck::cast_slice(&data);
@@ -593,7 +691,8 @@ impl PerturbationGpuContext {
         staging.unmap();
     }
 
-    /// Dispatch compute only (no staging readback). Used for honest GPU IPS timing.
+    /// Dispatch compute only (no staging readback). Used for honest GPU IPS timing
+    /// and for multi-bout residency (caller may chain several submits then harvest).
     pub(crate) fn run_bout_compute_only(
         &mut self,
         points: &[GpuPertPoint],
@@ -602,6 +701,108 @@ impl PerturbationGpuContext {
         bout_iterations: u32,
         upload_points: bool,
         upload_orbit: bool,
+    ) {
+        self.run_bout_compute_only_inner(
+            None,
+            points,
+            orbit_f32,
+            bailout_radius_squared,
+            bout_iterations,
+            upload_points,
+            upload_orbit,
+            true,
+        );
+    }
+
+    /// Encode `rounds` compute dispatches into one submit, then wait once.
+    /// Points stay resident on the GPU between rounds (no re-upload).
+    pub(crate) fn run_bout_compute_multi(
+        &mut self,
+        points: &[GpuPertPoint],
+        orbit_f32: &[(f32, f32)],
+        bailout_radius_squared: f32,
+        bout_iterations: u32,
+        rounds: u32,
+        upload_points: bool,
+        upload_orbit: bool,
+    ) {
+        if rounds == 0 {
+            return;
+        }
+        self.run_bout_compute_only_inner(
+            None,
+            points,
+            orbit_f32,
+            bailout_radius_squared,
+            bout_iterations,
+            upload_points,
+            upload_orbit,
+            false,
+        );
+        for _ in 1..rounds {
+            self.run_bout_compute_only_inner(
+                None,
+                points,
+                orbit_f32,
+                bailout_radius_squared,
+                bout_iterations,
+                false,
+                false,
+                false,
+            );
+        }
+        poll_submitted_briefly(&self.shared.device);
+    }
+
+    pub(crate) fn run_stacked_bout_compute_multi(
+        &mut self,
+        limbs: u8,
+        points: &[GpuPertPoint],
+        orbit_f32: &[(f32, f32)],
+        bailout_radius_squared: f32,
+        bout_iterations: u32,
+        rounds: u32,
+        upload_points: bool,
+        upload_orbit: bool,
+    ) {
+        if rounds == 0 {
+            return;
+        }
+        self.run_bout_compute_only_inner(
+            Some(limbs),
+            points,
+            orbit_f32,
+            bailout_radius_squared,
+            bout_iterations,
+            upload_points,
+            upload_orbit,
+            false,
+        );
+        for _ in 1..rounds {
+            self.run_bout_compute_only_inner(
+                Some(limbs),
+                points,
+                orbit_f32,
+                bailout_radius_squared,
+                bout_iterations,
+                false,
+                false,
+                false,
+            );
+        }
+        poll_submitted_briefly(&self.shared.device);
+    }
+
+    fn run_bout_compute_only_inner(
+        &mut self,
+        stacked_limbs: Option<u8>,
+        points: &[GpuPertPoint],
+        orbit_f32: &[(f32, f32)],
+        bailout_radius_squared: f32,
+        bout_iterations: u32,
+        upload_points: bool,
+        upload_orbit: bool,
+        wait: bool,
     ) {
         let count = points.len().min(self.point_capacity as usize) as u32;
         if count == 0 {
@@ -648,12 +849,62 @@ impl PerturbationGpuContext {
                 label: Some("perturbation_gpu_bout_compute_only"),
                 timestamp_writes: None,
             });
-            pass.set_pipeline(&self.pipeline);
+            if let Some(limbs) = stacked_limbs {
+                assert!((1..=8).contains(&limbs));
+                pass.set_pipeline(&self.stacked_gear_pipelines[(limbs - 1) as usize]);
+            } else {
+                pass.set_pipeline(&self.pipeline);
+            }
             pass.set_bind_group(0, &self.bind_group, &[]);
             pass.dispatch_workgroups((count + 63) / 64, 1, 1);
         }
         queue.submit(Some(encoder.finish()));
-        let _ = device.poll(wgpu::PollType::Wait);
+        if wait {
+            poll_submitted_briefly(device);
+        }
+    }
+
+    /// Copy `point_buffer` → staging and map into `points` (no compute). Used after
+    /// one or more compute-only dispatches so residency pays off.
+    pub(crate) fn harvest_points(&mut self, points: &mut [GpuPertPoint]) {
+        let count = points.len().min(self.point_capacity as usize) as u32;
+        if count == 0 {
+            return;
+        }
+        let copy_bytes = (count as u64) * (std::mem::size_of::<GpuPertPoint>() as u64);
+        let use_b = self.staging_flip;
+        self.staging_flip = !self.staging_flip;
+        let device = &self.shared.device;
+        let queue = &self.shared.queue;
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("perturbation_gpu_harvest_enc"),
+        });
+        {
+            let staging = if use_b {
+                &self.staging_buffer_b
+            } else {
+                &self.staging_buffer
+            };
+            encoder.copy_buffer_to_buffer(&self.point_buffer, 0, staging, 0, copy_bytes);
+        }
+        queue.submit(Some(encoder.finish()));
+        let staging = if use_b {
+            &self.staging_buffer_b
+        } else {
+            &self.staging_buffer
+        };
+        let slice = staging.slice(..copy_bytes);
+        let (sender, receiver) = mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+        await_map_async(device, &receiver);
+        {
+            let data = slice.get_mapped_range();
+            let out: &[GpuPertPoint] = bytemuck::cast_slice(&data);
+            points[..count as usize].copy_from_slice(out);
+        }
+        staging.unmap();
     }
 }
 
@@ -680,9 +931,54 @@ impl Worker<f64, CpuPeriodicityDetector> for PerturbationGpuWorker {
             })
         };
 
-        // Finish interiors on CPU after a GPU escape bout — do not re-enter the
-        // sync GPU readback path every workshift while those seats remain open.
-        // Fresh seats (iteration_count == 0) mean the batch was repacked; clear sticky.
+        // Forced-CPU / no-device: stay on the host bout (IPS + Xvfb escape hatch).
+        if worker_state.path == PerturbationComputePath::Cpu {
+            let open_before = active_batch
+                .points
+                .iter()
+                .filter(|s| s.as_ref().map(|(_, p)| !p.finished).unwrap_or(false))
+                .count();
+            let saved_bout = worker_state.cpu.iterations_per_bout;
+            worker_state.cpu.iterations_per_bout = saved_bout.max(4_096);
+            let t0 = std::time::Instant::now();
+            let mut rounds = 0u32;
+            while any_open(active_batch) && rounds < 32 {
+                if !PerturbationCpuWorker::workshift_on_batch(
+                    &mut worker_state.cpu,
+                    active_batch,
+                ) {
+                    break;
+                }
+                rounds += 1;
+            }
+            worker_state.cpu.iterations_per_bout = saved_bout;
+            let open_after = active_batch
+                .points
+                .iter()
+                .filter(|s| s.as_ref().map(|(_, p)| !p.finished).unwrap_or(false))
+                .count();
+            // #region agent log
+            {
+                let n = crate::assemblies::workgroup::debug_session::gpu_tick();
+                if n <= 32 || n % 16 == 0 {
+                    let ms = t0.elapsed().as_secs_f64() * 1000.0;
+                    crate::assemblies::workgroup::debug_session::log(
+                        "H-CPU-BOUT",
+                        "perturbation_gpu_worker.rs:workshift",
+                        "cpu_bout",
+                        &format!(
+                            "{{\"n\":{n},\"ms\":{ms:.3},\"rounds\":{rounds},\"open_before\":{open_before},\"open_after\":{open_after},\"finished\":{}}}",
+                            open_before.saturating_sub(open_after)
+                        ),
+                    );
+                }
+            }
+            // #endregion
+            return any_open(active_batch);
+        }
+
+        // Deep-interior / glitch sticky CPU: do not re-enter sync GPU harvest every
+        // workshift. Fresh seats (iteration_count == 0) mean the batch was repacked.
         if worker_state.cpu_followup {
             let fresh_open = active_batch.points.iter().any(|slot| {
                 slot.as_ref()
@@ -691,33 +987,110 @@ impl Worker<f64, CpuPeriodicityDetector> for PerturbationGpuWorker {
             });
             if fresh_open {
                 worker_state.cpu_followup = false;
+                worker_state.clear_resident();
             } else {
+                // #region agent log
+                let n = crate::assemblies::workgroup::debug_session::gpu_tick();
+                if crate::assemblies::workgroup::debug_session::should_sample(n) {
+                    crate::assemblies::workgroup::debug_session::log(
+                        "H-GPU-PATH",
+                        "perturbation_gpu_worker.rs:workshift",
+                        "bout_path",
+                        &format!(
+                            "{{\"n\":{n},\"path\":\"CpuFollowup\",\"cpu_followup\":true,\"gpu_held\":{}}}",
+                            worker_state.gpu.is_some()
+                        ),
+                    );
+                }
+                // #endregion
                 let still = PerturbationCpuWorker::workshift_on_batch(
                     &mut worker_state.cpu,
                     active_batch,
                 );
                 if !any_open(active_batch) {
                     worker_state.cpu_followup = false;
+                    worker_state.clear_resident();
                 }
                 return still;
             }
         }
 
-        // Prefer GPU only when the selected gear runs on GPU (no silent f64→f32).
-        // r[impl cz.seamless.gpu-preferred+1]
-        if worker_state.cpu.gear.runs_on_gpu() && worker_state.ensure_gpu() {
-            if try_gpu_workshift(worker_state, active_batch) {
-                if any_open(active_batch) {
-                    worker_state.cpu_followup = true;
-                    return PerturbationCpuWorker::workshift_on_batch(
-                        &mut worker_state.cpu,
-                        active_batch,
-                    );
-                }
-                return false;
+        // Prefer GPU when gear allows. Soft low-yield cooldown (skip one bout),
+        // never a permanent latch — headed logs showed streak==2 stuck forever.
+        let cooling = worker_state.gpu_low_yield_streak >= 2;
+        if cooling {
+            worker_state.gpu_low_yield_streak = 0;
+        }
+        let use_gpu = worker_state.cpu.gear.runs_on_gpu()
+            && !cooling
+            && worker_state.ensure_gpu();
+        // #region agent log
+        {
+            let n = crate::assemblies::workgroup::debug_session::gpu_tick();
+            if crate::assemblies::workgroup::debug_session::should_sample(n) {
+                crate::assemblies::workgroup::debug_session::log(
+                    "H-GPU-PATH",
+                    "perturbation_gpu_worker.rs:workshift",
+                    "bout_path",
+                    &format!(
+                        "{{\"n\":{n},\"path\":\"{}\",\"shallow\":false,\"gpu_held\":{},\"low_yield\":{},\"cooling\":{cooling}}}",
+                        if use_gpu { "Gpu" } else { "GpuDesiredButSkipped" },
+                        worker_state.gpu.is_some(),
+                        worker_state.gpu_low_yield_streak
+                    ),
+                );
             }
         }
-        PerturbationCpuWorker::workshift_on_batch(&mut worker_state.cpu, active_batch)
+        // #endregion
+        if use_gpu {
+            let open_before = active_batch
+                .points
+                .iter()
+                .filter(|s| s.as_ref().map(|(_, p)| !p.finished).unwrap_or(false))
+                .count();
+            if try_gpu_workshift(worker_state, active_batch) {
+                let open_after_gpu = active_batch
+                    .points
+                    .iter()
+                    .filter(|s| s.as_ref().map(|(_, p)| !p.finished).unwrap_or(false))
+                    .count();
+                let finished_gpu = open_before.saturating_sub(open_after_gpu);
+                if open_before > 0 && finished_gpu * 4 < open_before {
+                    worker_state.gpu_low_yield_streak =
+                        worker_state.gpu_low_yield_streak.saturating_add(1);
+                } else if finished_gpu * 2 >= open_before.max(1) {
+                    worker_state.gpu_low_yield_streak = 0;
+                }
+                if !any_open(active_batch) {
+                    worker_state.clear_resident();
+                    worker_state.cpu_followup = false;
+                    return false;
+                }
+                worker_state.clear_resident();
+                reseed_open_seats_for_cpu_followup(worker_state, active_batch);
+            }
+        }
+        if any_open(active_batch) {
+            worker_state.cpu_followup = true;
+            let saved_bout = worker_state.cpu.iterations_per_bout;
+            worker_state.cpu.iterations_per_bout = saved_bout.max(4_096);
+            // After a wide GPU harvest, finish leftovers without chewing the
+            // whole quantum — one host bout then yield so play can retarget.
+            let mut rounds = 0u32;
+            while any_open(active_batch) && rounds < 2 {
+                if !PerturbationCpuWorker::workshift_on_batch(
+                    &mut worker_state.cpu,
+                    active_batch,
+                ) {
+                    break;
+                }
+                rounds += 1;
+            }
+            worker_state.cpu.iterations_per_bout = saved_bout;
+            return any_open(active_batch);
+        }
+        worker_state.cpu_followup = false;
+        false
     }
 
     fn peek_batch<const N: usize>(
@@ -731,6 +1104,96 @@ impl Worker<f64, CpuPeriodicityDetector> for PerturbationGpuWorker {
         batches: [PointBatch<f64, CpuPeriodicityDetector, N>; B],
     ) -> [Option<PointBatch<f64, CpuPeriodicityDetector, N>>; B] {
         PerturbationCpuWorker::pack_batches(batches)
+    }
+}
+
+/// After a GPU harvest, unfinished interiors may carry f32/glitch state that
+/// strands the host period detector. Re-seed from the reference series so CPU
+/// follow-up matches a fresh initialize.
+fn reseed_open_seats_for_cpu_followup<const N: usize>(
+    worker_state: &mut PerturbationGpuWorkerState,
+    active_batch: &mut PointBatch<f64, CpuPeriodicityDetector, N>,
+) {
+    for slot in active_batch.points.iter_mut() {
+        let Some((_, point)) = slot else { continue };
+        if point.finished || point.escaped {
+            continue;
+        }
+        let Some(orbit) = worker_state.cpu.references.get(point.orbit_id) else {
+            continue;
+        };
+        let delta_c = point.c;
+        let (delta_z, iteration_count) = {
+            let series = &orbit.f64.series;
+            if series.len() < 2 {
+                ((0.0f64, 0.0f64), 0u64)
+            } else {
+                let dc_mag2 = delta_c.0 * delta_c.0 + delta_c.1 * delta_c.1;
+                let absorb = 1e-12f64.max(dc_mag2 * 1e-6);
+                let mut best_n = 0u64;
+                let mut best_dz = (0.0f64, 0.0f64);
+                for n in 1..series.len() {
+                    let a = series[n];
+                    let dz = (
+                        a.0 * delta_c.0 - a.1 * delta_c.1
+                        , a.0 * delta_c.1 + a.1 * delta_c.0
+                    );
+                    let mag2 = dz.0 * dz.0 + dz.1 * dz.1;
+                    if mag2 > absorb {
+                        break;
+                    }
+                    best_n = n as u64;
+                    best_dz = dz;
+                }
+                (best_dz, best_n)
+            }
+        };
+        let z_ref = if (iteration_count as usize) < orbit.f64.big_z_orbit.len() {
+            orbit.f64[iteration_count]
+        } else {
+            (0.0, 0.0)
+        };
+        let z_full = (z_ref.0 + delta_z.0, z_ref.1 + delta_z.1);
+        let derivative = if iteration_count > 0 {
+            let mut d = (0.0f64, 0.0f64);
+            let mut dz = (0.0f64, 0.0f64);
+            for n in 0..iteration_count {
+                let zr = orbit.f64[n];
+                let zf = (zr.0 + dz.0, zr.1 + dz.1);
+                d = (
+                    2.0 * (zf.0 * d.0 - zf.1 * d.1)
+                    , 2.0 * (zf.0 * d.1 + zf.1 * d.0)
+                );
+                let dz2 = (dz.0 * dz.0 - dz.1 * dz.1, 2.0 * dz.0 * dz.1);
+                dz = (
+                    2.0 * (zr.0 * dz.0 - zr.1 * dz.1) + dz2.0 + delta_c.0
+                    , 2.0 * (zr.0 * dz.1 + zr.1 * dz.0) + dz2.1 + delta_c.1
+                );
+            }
+            d
+        } else {
+            (1.0, 0.0)
+        };
+        point.z = delta_z;
+        point.derivative = derivative;
+        point.real_squared = delta_z.0 * delta_z.0;
+        point.imag_squared = delta_z.1 * delta_z.1;
+        point.real_imag = delta_z.0 * delta_z.1;
+        point.iteration_count = iteration_count;
+        point.min_magnitude = if iteration_count == 0 {
+            f64::MAX
+        } else {
+            z_full.0 * z_full.0 + z_full.1 * z_full.1
+        };
+        point.min_magnitude_time = if iteration_count == 0 {
+            0
+        } else {
+            iteration_count
+        };
+        point.periodicity_detector =
+            CpuPeriodicityDetector::init(iteration_count, z_full, derivative);
+        point.escaped = false;
+        point.finished = false;
     }
 }
 
@@ -770,7 +1233,6 @@ fn try_gpu_workshift<const N: usize>(
     let bailout = worker_state.cpu.bailout_radius_squared as f32;
     let orbit_key = orbit_id as u64;
 
-    let mut gpu_points = Vec::with_capacity(N);
     let mut map_idx = Vec::with_capacity(N);
     for (i, slot) in active_batch.points.iter().enumerate() {
         let Some((_, point)) = slot else { continue };
@@ -778,74 +1240,130 @@ fn try_gpu_workshift<const N: usize>(
             continue;
         }
         map_idx.push(i);
-        gpu_points.push(GpuPertPoint {
-            dc_re: point.c.0 as f32,
-            dc_im: point.c.1 as f32,
-            dz_re: point.z.0 as f32,
-            dz_im: point.z.1 as f32,
-            d_re: point.derivative.0 as f32,
-            d_im: point.derivative.1 as f32,
-            iteration_count: point.iteration_count.min(u32::MAX as u64) as u32,
-            min_magnitude: point.min_magnitude as f32,
-            min_magnitude_time: point.min_magnitude_time.min(u32::MAX as u64) as u32,
-            flags: FLAG_ACTIVE,
-            checkpoint_re: point.z.0 as f32,
-            checkpoint_im: point.z.1 as f32,
-            steps_since_checkpoint: 0,
-            next_checkpoint_iteration: 1,
-            detected_period: 0,
-            epsilon: 1e-12f32.max(
-                (point.c.0.abs().max(point.c.1.abs()) as f32) * 1e-6
-            ),
-        });
     }
-    if gpu_points.is_empty() {
+    if map_idx.is_empty() {
         return true;
     }
+
+    let limbs_key = Some(stacked_limbs);
+    let can_reuse = worker_state.resident_orbit_key == Some(orbit_key)
+        && worker_state.resident_limbs == limbs_key
+        && worker_state.resident_map_idx == map_idx
+        && worker_state.resident_gpu_points.len() == map_idx.len();
+
+    let mut gpu_points = if can_reuse {
+        std::mem::take(&mut worker_state.resident_gpu_points)
+    } else {
+        let mut built = Vec::with_capacity(map_idx.len());
+        for &bi in &map_idx {
+            let (_, point) = active_batch.points[bi].as_ref().expect("open seat");
+            built.push(GpuPertPoint {
+                dc_re: point.c.0 as f32,
+                dc_im: point.c.1 as f32,
+                dz_re: point.z.0 as f32,
+                dz_im: point.z.1 as f32,
+                d_re: point.derivative.0 as f32,
+                d_im: point.derivative.1 as f32,
+                iteration_count: point.iteration_count.min(u32::MAX as u64) as u32,
+                min_magnitude: point.min_magnitude as f32,
+                min_magnitude_time: point.min_magnitude_time.min(u32::MAX as u64) as u32,
+                flags: FLAG_ACTIVE,
+                checkpoint_re: point.z.0 as f32,
+                checkpoint_im: point.z.1 as f32,
+                steps_since_checkpoint: 0,
+                next_checkpoint_iteration: 1,
+                detected_period: 0,
+                epsilon: 1e-12f32.max(
+                    (point.c.0.abs().max(point.c.1.abs()) as f32) * 1e-6
+                ),
+            });
+        }
+        built
+    };
+
     let point_count = gpu_points.len() as u32;
+    // Escape filter: one short resident compute + one harvest. Interiors finish
+    // on CPU — long GPU bouts for period hunt were the home-fill stall.
+    const COMPUTE_ROUNDS: u32 = 1;
     let bout = worker_state
         .budget
         .iterations_for(point_count)
-        .min(worker_state.cpu.iterations_per_bout);
+        .min(512)
+        .max(64);
+    let upload_orbit = worker_state
+        .gpu
+        .as_ref()
+        .map(|g| g.last_orbit_id != Some(orbit_key))
+        .unwrap_or(true);
+    let needs_upload = !can_reuse
+        || worker_state
+            .gpu
+            .as_ref()
+            .map(|g| g.resident_points != point_count)
+            .unwrap_or(true);
     let started = std::time::Instant::now();
     {
         let gpu = worker_state.gpu.as_mut().expect("checked");
-        let upload_orbit = gpu.last_orbit_id != Some(orbit_key);
-        // Always upload points from CPU for now: seats change every workshift.
-        // Residence still helps when the same buffer is re-dispatched mid-batch.
         if let Some(limbs) = stacked_limbs {
-            gpu.run_stacked_bout(
+            gpu.run_stacked_bout_compute_multi(
                 limbs,
-                &mut gpu_points,
+                &gpu_points,
                 &orbit_f32,
                 bailout,
                 bout,
-                true,
+                COMPUTE_ROUNDS,
+                needs_upload,
                 upload_orbit,
             );
         } else {
-            gpu.run_bout(
-                &mut gpu_points,
+            gpu.run_bout_compute_multi(
+                &gpu_points,
                 &orbit_f32,
                 bailout,
                 bout,
-                true,
+                COMPUTE_ROUNDS,
+                needs_upload,
                 upload_orbit,
             );
         }
         gpu.last_orbit_id = Some(orbit_key);
     }
-    worker_state
-        .budget
-        .observe(point_count, bout, started.elapsed());
+    let compute_elapsed = started.elapsed();
+    worker_state.budget.observe(
+        point_count,
+        bout.saturating_mul(COMPUTE_ROUNDS),
+        compute_elapsed,
+    );
+    let t_harvest = std::time::Instant::now();
+    worker_state.gpu.as_mut().expect("checked").harvest_points(&mut gpu_points);
+    // #region agent log
+    {
+        let n = crate::assemblies::workgroup::debug_session::gpu_tick();
+        if n <= 24 || n % 16 == 0 {
+            crate::assemblies::workgroup::debug_session::log(
+                "H-GPU-HARVEST",
+                "perturbation_gpu_worker.rs:try_gpu",
+                "compute_vs_harvest",
+                &format!(
+                    "{{\"n\":{n},\"points\":{point_count},\"bout\":{bout},\"compute_ms\":{:.3},\"harvest_ms\":{:.3}}}",
+                    compute_elapsed.as_secs_f64() * 1000.0,
+                    t_harvest.elapsed().as_secs_f64() * 1000.0
+                ),
+            );
+        }
+    }
+    // #endregion
+    worker_state.iterations_advanced = worker_state.iterations_advanced.saturating_add(
+        u64::from(bout) * u64::from(COMPUTE_ROUNDS) * u64::from(point_count),
+    );
+
+    let mut any_terminal = false;
     for (gi, &bi) in map_idx.iter().enumerate() {
         let gp = gpu_points[gi];
         let Some((_, point)) = active_batch.points[bi].as_mut() else {
             continue;
         };
         if gp.flags & FLAG_GLITCH != 0 {
-            // Shader normally rebinds in-place; if a glitch still escapes the
-            // bout finished, finish on CPU against the zero orbit.
             let epsilon = 1e-12f64.max(point.c.0.abs().max(point.c.1.abs()) * 1e-6);
             iterate_perturbation_bout(&mut worker_state.cpu, point, epsilon);
             continue;
@@ -858,8 +1376,6 @@ fn try_gpu_workshift<const N: usize>(
             point.min_magnitude_time = gp.min_magnitude_time as u64;
             point.finished = true;
             point.escaped = false;
-            // Detected period is certain (shader search); host period resolve
-            // can still refine later for non-zero-orbit seats.
             continue;
         }
         point.c = (gp.dc_re as f64, gp.dc_im as f64);
@@ -878,11 +1394,35 @@ fn try_gpu_workshift<const N: usize>(
             point.finished = true;
         }
     }
+
+    // Keep unfinished rows resident for the next workshift (same seats).
+    let mut next_map = Vec::new();
+    let mut next_pts = Vec::new();
+    for (gi, &bi) in map_idx.iter().enumerate() {
+        let Some((_, point)) = active_batch.points[bi].as_ref() else {
+            continue;
+        };
+        if point.finished {
+            continue;
+        }
+        next_map.push(bi);
+        next_pts.push(gpu_points[gi]);
+    }
+    worker_state.resident_map_idx = next_map;
+    worker_state.resident_gpu_points = next_pts;
+    worker_state.resident_orbit_key = Some(orbit_key);
+    worker_state.resident_limbs = limbs_key;
+    // Compacted host mirror is not yet in GPU buffer order — force re-upload next.
+    if let Some(gpu) = worker_state.gpu.as_mut() {
+        if gpu.resident_points as usize != worker_state.resident_gpu_points.len() {
+            gpu.resident_points = 0;
+        }
+    }
     true
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
 
     // r[verify cz.perf.min-30b-ips-gpu+1]
@@ -909,6 +1449,10 @@ mod tests {
             crate::gpu_context::GpuContext::shared().is_some(),
             "GPU adapter required"
         );
+    }
+
+    pub fn measure_gpu_zero_orbit_ips_for_fullstack(point_count: usize, bout: u32, rounds: u32) -> f64 {
+        measure_gpu_zero_orbit_ips(point_count, bout, rounds)
     }
 
     fn measure_gpu_zero_orbit_ips(point_count: usize, bout: u32, rounds: u32) -> f64 {

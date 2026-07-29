@@ -12,7 +12,7 @@ use std::cmp::*;
 
 use rug::*;
 use transforms::transform;
-use crate::assemblies::workgroup::work_controller::*;
+use crate::assemblies::workgroup::tile_scheduler_actor::*;
 
 use crate::settings::*;
 use crate::utils::*; use crate::intexp::*;
@@ -84,7 +84,6 @@ pub struct WindowState {
     , pub startup_goto_applied: bool
     , pub nav_target: Option<(IntExp, IntExp, i32)>
     , pub gpu_atlas_size: (u32, u32)
-    , pub gpu_atlas_clear: bool
     , pub coord_input: String
     , pub atlas_location: Option<ObjectivePosAndZoom>
     , pub shift_was_down: bool
@@ -92,6 +91,8 @@ pub struct WindowState {
     , pub key_zoom_in_debt: f32
     // Accumulator for Space hold zoom (~5 bumps/s).
     , pub key_zoom_out_debt: f32
+    // EWMA of signed zoom bumps/sec (D-SCH-2); shipped on PointStencil.
+    , pub mag_velocity_ewma: f64
     // Headgroup completed-tile TPS (standards HUD).
     , pub tps_counter: crate::assemblies::headgroup::window::rolling::TpsCounter
 }
@@ -100,7 +101,8 @@ pub struct WindowState {
 pub async fn run(
     actor: SteadyActorShadow
     , pixels_in: SteadyRx<GpuTileHandle>
-    , stencil_out: SteadyTx<(PointStencil)>
+    // Slot 0 → tile scheduler; slot 1 → reference worker (whole-screen stencil).
+    , stencil_out: SteadyTxBundle<PointStencil, 2>
     , settings_out: SteadyTxBundle<Settings,2>
     , attention_out: SteadyTx<(i32, i32)>
     , memory_bump_in: SteadyRx<crate::assemblies::workgroup::tile_publisher::MemoryBump>
@@ -109,7 +111,7 @@ pub async fn run(
     internal_behavior(
         actor.into_spotlight(
             [&pixels_in, &memory_bump_in]
-            , [&stencil_out, &settings_out[0], &settings_out[1], &attention_out]
+            , [&stencil_out[0], &stencil_out[1], &settings_out[0], &settings_out[1], &attention_out]
         )
         , pixels_in
         , stencil_out
@@ -124,7 +126,7 @@ pub async fn run(
 async fn internal_behavior<A: SteadyActor>(
     actor: A
     , pixels_in: SteadyRx<GpuTileHandle>
-    , stencil_out: SteadyTx<(PointStencil)>
+    , stencil_out: SteadyTxBundle<PointStencil, 2>
     , settings_out: SteadyTxBundle<Settings, 2>
     , attention_out: SteadyTx<(i32, i32)>
     , memory_bump_in: SteadyRx<crate::assemblies::workgroup::tile_publisher::MemoryBump>
@@ -160,6 +162,7 @@ async fn internal_behavior<A: SteadyActor>(
         , shift_was_down: false
         , key_zoom_in_debt: 0.0
         , key_zoom_out_debt: 0.0
+        , mag_velocity_ewma: 0.0
         , tps_counter: crate::assemblies::headgroup::window::rolling::TpsCounter::new()
         , settings_window_context: Arc::new(Mutex::new(DEFAULT_SETTINGS_WINDOW_CONTEXT))
         , settings_window_open: false
@@ -172,7 +175,6 @@ async fn internal_behavior<A: SteadyActor>(
         , startup_goto_applied: false
         , nav_target: None
         , gpu_atlas_size: (DEFAULT_WINDOW_RES.0, DEFAULT_WINDOW_RES.1)
-        , gpu_atlas_clear: true
         , coord_input: String::new()
     }).await;
 
@@ -268,7 +270,8 @@ async fn internal_behavior<A: SteadyActor>(
 
 
     let mut actor = portable_actor.lock().unwrap();
-    let sampler_out = stencil_out.try_lock().unwrap();
+    let _sampler_out = stencil_out[0].try_lock().unwrap();
+    let _reference_out = stencil_out[1].try_lock().unwrap();
     let pixels_in = pixels_in.try_lock().unwrap();
     let state = portable_state.lock().unwrap();
 
@@ -294,7 +297,7 @@ async fn internal_behavior<A: SteadyActor>(
 struct EguiWindowPassthrough<'a, A> {
     portable_actor: Arc<Mutex<A>>
     , pixels_in: SteadyRx<GpuTileHandle>
-    , stencil_out: SteadyTx<(PointStencil)>
+    , stencil_out: SteadyTxBundle<PointStencil, 2>
     , settings_out: SteadyTxBundle<Settings, 2>
     , attention_out: SteadyTx<(i32, i32)>
     , memory_bump_in: SteadyRx<crate::assemblies::workgroup::tile_publisher::MemoryBump>
@@ -312,7 +315,8 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
         // init hybrid actor
         let mut actor = self.portable_actor.lock().unwrap();
         let mut pixels_in = self.pixels_in.try_lock().unwrap();
-        let mut stencil_out = self.stencil_out.try_lock().unwrap();
+        let mut stencil_to_scheduler = self.stencil_out[0].try_lock().unwrap();
+        let mut stencil_to_reference = self.stencil_out[1].try_lock().unwrap();
         let settings_out = [
             self.settings_out[0].try_lock().unwrap()
             ,self.settings_out[1].try_lock().unwrap()
@@ -376,28 +380,13 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             while actor.avail_units(&mut pixels_in) > 0 {
                 match actor.try_take(&mut pixels_in) {
                     Some(tile) => {
-                        state.sampling_context.ingest_gpu_handle(tile);
-                        state.tps_counter.record(1, Instant::now());
+                        // Standards TPS: only new *completed whole* tiles, not WIP emits.
+                        if state.sampling_context.ingest_gpu_handle(tile) {
+                            state.tps_counter.record(1, Instant::now());
+                        }
                     }
                     None => { break; }
                 }
-            }
-
-            if state.sampling_context.updated
-            {
-                actor.try_send(&mut stencil_out, PointStencil{
-                    homothety: (state.sampling_context.location.pos.0.clone()
-                                , IntExp::ZERO-state.sampling_context.location.pos.1.clone()
-                                , state.sampling_context.location.zoom_pot.clone()
-                    )
-                    , resolution: (state.size.x as usize, state.size.y as usize)
-                    , serial_number: state.stencil_serial_number_counter
-                    , focus: None
-                    , hover: None,
-            mag_velocity: 0.0
-                });
-                state.stencil_serial_number_counter +=1;
-                state.sampling_context.updated = false;
             }
 
             // sample
@@ -430,7 +419,6 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 let _ = std::fs::remove_file("/tmp/cz_ctl.goto");
                 if let Some(cmds) = commands_from_goto_line(&line) {
                     command_package.extend(cmds);
-                    state.sampling_context.clear_tiles();
                     state.nav_target = None;
                 }
             }
@@ -457,6 +445,31 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             state.sampling_context.screen_size = (size.0 as u32, size.1 as u32);
 
             transform(command_package, &mut state.sampling_context);
+
+            // Always ship stencil so mag_velocity EWMA decays to the workgroup even
+            // when the viewport is stationary. Fan out: scheduler + reference worker
+            // (auth: reference receives whole-screen stencils from the headgroup).
+            {
+                let loc_changed = state.sampling_context.updated;
+                let stencil = PointStencil{
+                    homothety: (state.sampling_context.location.pos.0.clone()
+                                , IntExp::ZERO-state.sampling_context.location.pos.1.clone()
+                                , state.sampling_context.location.zoom_pot.clone()
+                    )
+                    , resolution: (state.size.x as usize, state.size.y as usize)
+                    , serial_number: state.stencil_serial_number_counter
+                    , focus: None
+                    , hover: None
+                    , mag_velocity: state.mag_velocity_ewma
+                };
+                actor.try_send(&mut stencil_to_scheduler, stencil.clone());
+                actor.try_send(&mut stencil_to_reference, stencil);
+                if loc_changed {
+                    state.stencil_serial_number_counter =
+                        state.stencil_serial_number_counter.wrapping_add(1);
+                    state.sampling_context.updated = false;
+                }
+            }
 
             state.atlas_location = Some(state.sampling_context.location.clone());
             let mut settings_for_shade = state.settings_window_context.try_lock()
@@ -757,10 +770,8 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                 , HOME_POSITION.2
                                 , screen
                             );
-                            state.sampling_context.clear_tiles();
                             state.sampling_context.mouse_drag_start = None;
                             state.atlas_location = None;
-                            state.gpu_atlas_clear = true;
                             state.nav_target = None;
                             state.sampling_context.updated = true;
                         }

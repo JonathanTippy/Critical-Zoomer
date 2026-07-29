@@ -2,6 +2,7 @@ use crate::assemblies::workgroup::structs::mandelbrotable::*;
 use crate::assemblies::workgroup::workcore::mandelbrot::*;
 use crate::constants::PERIOD_CONFIRMATION_ITERATIONS;
 
+#[derive(Clone, Debug)]
 pub struct StandardPeriodicityDetector<T: Mandelbrotable> {
     pub(crate) checkpoint_z: (T, T)
     , pub(crate) steps_since_checkpoint: u64
@@ -133,7 +134,7 @@ fn component_near<T: Mandelbrotable>(a: T, b: T, epsilon: T) -> bool {
     d < epsilon
 }
 
-fn advance_orbit_step<T: Mandelbrotable>(
+pub(crate) fn advance_orbit_step<T: Mandelbrotable>(
     z: &mut (T, T)
     , derivative: &mut (T, T)
     , c: (T, T)

@@ -1,0 +1,2 @@
+coverage: cpuset=3-8 target=/home/jonathan/git/therealcriticalzoomer/target/llvm-cov-target
+error: --summary-only may not be used together with --html

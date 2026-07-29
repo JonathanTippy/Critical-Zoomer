@@ -2,48 +2,50 @@
 
 No authoritative unit file. Non-authoritative. Capacities are behavior under Steady State (backpressure = bug).
 
-## Assemblies (UD-ACT-1) — inferred
+## Assemblies (UD-ACT-1) — live
 
-- **Headgroup:** single actor (auth): UI + sample + shade + stencil out + tile ingest.
-- **Workgroup:** tile scheduler, tile worker, intratile scheduler, reference worker, gpu uploader, tile publisher (+ shared tile-manager fn).
+- **Headgroup:** single actor `window` (auth): UI + sample + shade + stencil out + tile ingest.
+- **Workgroup (SteadyState names in `main.rs`):** tile scheduler, tile worker, intratile scheduler, reference worker, gpu uploader, tile publisher (+ shared tile-manager fn).
 
-Code may still have legacy `workgroup` / `shadergroup` paths — **code-diverge**; target graph is architecture + auth workgroup.
+Legacy `work controller` / `screen worker` hosts removed. TileSession remains the sync workshift engine inside the tile worker; mutating outfill ops on the live path shuttle through the intratile actor (sync RPC + SS edge).
 
-## Channels (UD-ACT-2) — inferred flows
+## Channels (UD-ACT-2) — live flows
 
 | From → To | Payload | Nominal rate |
 |-----------|---------|--------------|
-| Headgroup → Workgroup (scheduler) | Stencil | 0–60/s |
-| Tile scheduler → Tile worker | Tile address | bursty |
-| Tile worker ⇄ Intratile scheduler | Seats / phase jobs / veto | internal |
-| Reference worker → Tile worker | Reference orbit | on mag change |
-| Tile worker → GPU uploader | CPU tile (if not GPU-native) | 0–1000/s |
+| Headgroup → tile scheduler | Stencil (bundle slot 0) | 0–60/s |
+| Headgroup → reference worker | Stencil (bundle slot 1; whole screen, never tiles) | 0–60/s |
+| Headgroup → tile scheduler | attention | pointer |
+| Headgroup → tile publisher | memory Settings | rare |
+| Tile scheduler → tile worker | Retarget / SetAttention | coalesced |
+| Reference worker → tile worker | ReferenceDelivery (UL-corner orbit; mag-change only) | on mag |
+| Tile worker ⇄ intratile scheduler | IntratileRequest / Reply (SS + sync RPC) | workshift |
+| Tile worker → GPU uploader | AnswerTilePublish | 0–1000/s |
 | GPU uploader → Tile publisher | GPU tile | 0–1000/s |
 | Tile publisher → Headgroup | GPUTile answers | ≤1000/s flat (D-PUB-1) |
-| Tile manager (via publisher) → Headgroup | Memory bump | rare |
+| Tile worker → publisher → Headgroup | Memory bump | rare |
 
-Bypass: GPU-native worker output skips uploader, still hits publisher.
+Glitch path (tile worker only): fallback to const zero orbit — no reference rebase. Zero orbit has Z=0 every iteration so the glitch test cannot fire.
 
-## Capacities (UD-ACT-3) — assumed
+Bypass: GPU-native worker output still hits publisher after uploader placement.
 
-Sized so sustained product rates never block under correct scheduling:
+## Capacities (UD-ACT-3) — live starting sizes
 
-| Channel | Assumed capacity |
-|---------|------------------|
-| Stencil | 2 (latest-wins coalescing preferred) |
-| Tile address | 64 |
-| Upload queue | 16 |
-| Publish → headgroup | 32 |
-| Memory bump | 4 |
+| Channel | Live capacity |
+|---------|---------------|
+| Stencil / attention / scheduler cmds | 64 |
+| Upload / publish | 512 |
+| Intratile SS | 64 |
+| Memory bump / reference delivery | 8 |
 
-Replace if profiling shows structural backup (that is a bug, not a reason to inflate).
+Tighten toward assumed Steady State sizes once headed profiling is green.
 
 ## Wake rates (UD-ACT-4) — inferred
 
 - Headgroup: frame-driven ≤60Hz.
 - Publisher: event + pace to respect 1000/s ceiling (no min floor).
 - Uploader: event or minimum wake to drain.
-- Reference: event on mag change.
+- Reference: event on stencil mag change.
 - Schedulers/worker: steady-state workshift cadence; pause off-screen WIP.
 
 ## Shutdown (UD-ACT-5) — assumed

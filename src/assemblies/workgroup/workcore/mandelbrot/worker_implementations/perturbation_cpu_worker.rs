@@ -16,6 +16,9 @@ pub struct PerturbationCpuWorkerState {
     , pub seat_orbit_ids: Vec<OrbitId>
     , pub screen_width: usize
     , pub gear: crate::gear::Gear
+    , pub iterations_advanced: u64
+    // Counts AdaptiveRug FloatExp bouts (observability for gear dispatch tests).
+    , pub floatexp_bouts: u64
 }
 
 impl Default for PerturbationCpuWorkerState {
@@ -28,6 +31,8 @@ impl Default for PerturbationCpuWorkerState {
             , seat_orbit_ids: Vec::new()
             , screen_width: 0
             , gear: crate::gear::Gear::F64
+            , iterations_advanced: 0
+            , floatexp_bouts: 0
         }
     }
 }
@@ -63,6 +68,10 @@ impl Worker<f64, CpuPeriodicityDetector> for PerturbationCpuWorker {
         };
         let mut points: [Option<((usize, usize), ActivePoint<f64, CpuPeriodicityDetector>)>; N] =
             [const { None }; N];
+        // Cache orbit + δc generator across seats that share a reference (common at home).
+        let mut cached_orbit_id: Option<OrbitId> = None;
+        let mut cached_orbit: Option<&ReferenceOrbit> = None;
+        let mut cached_rel_gen = None;
         for i in 0..N {
             let Some(local) = seats[i] else { continue };
             let seat = active_tile.screen_seat(local);
@@ -78,10 +87,20 @@ impl Worker<f64, CpuPeriodicityDetector> for PerturbationCpuWorker {
                 &worker_state.seat_orbit_ids
                 , seat_linear
             );
-            let Some(orbit) = worker_state.references.get(orbit_id) else {
-                continue;
-            };
-            let Some(delta_c) = delta_c_for_seat(stencil, orbit, seat_u16) else {
+            if cached_orbit_id != Some(orbit_id) {
+                let Some(orbit) = worker_state.references.get(orbit_id) else {
+                    continue;
+                };
+                cached_orbit_id = Some(orbit_id);
+                cached_orbit = Some(orbit);
+                cached_rel_gen = stencil.get_relative_c_generator::<f64>(&orbit.big_c);
+            }
+            let Some(orbit) = cached_orbit else { continue };
+            let Some(delta_c) = cached_rel_gen
+                .as_ref()
+                .map(|g| g.get_c(seat_u16))
+                .or_else(|| delta_c_for_seat(stencil, orbit, seat_u16))
+            else {
                 continue;
             };
             let (delta_z, iteration_count) = series_skip(orbit, delta_c);
@@ -128,29 +147,16 @@ impl Worker<f64, CpuPeriodicityDetector> for PerturbationCpuWorker {
         , active_batch: &mut PointBatch<f64, CpuPeriodicityDetector, N>
     ) -> bool {
         // Gear is authoritative for numeric path (selection already refreshed).
-        let _gear = worker_state.gear;
+        // Dispatch outside the bout loop; each arm monomorphizes Mandelbrotable math.
+        let gear = worker_state.gear;
         let mut any_incomplete = false;
         for slot in active_batch.points.iter_mut() {
             if let Some((_, point)) = slot {
                 if point.finished { continue; }
                 any_incomplete = true;
                 let c_abs = point.c.0.abs().max(point.c.1.abs());
-                let epsilon = match _gear {
-                    crate::gear::Gear::F32 => 1e-6f64.max(c_abs * 1e-5),
-                    _ => 1e-12f64.max(c_abs * 1e-6),
-                };
-                match _gear {
-                    crate::gear::Gear::F32 => {
-                        iterate_perturbation_bout_f32(worker_state, point, epsilon as f32);
-                    }
-                    crate::gear::Gear::F64
-                    | crate::gear::Gear::StackedI32 { .. }
-                    | crate::gear::Gear::AdaptiveRug => {
-                        // StackedI32 prefers GPU (`PerturbationGpuWorker`). AdaptiveRug
-                        // stays CPU FloatExp-fitness / f64 bout until typed ActivePoint.
-                        iterate_perturbation_bout(worker_state, point, epsilon);
-                    }
-                }
+                let epsilon = gear_period_epsilon(gear, c_abs);
+                dispatch_perturbation_bout(worker_state, point, gear, epsilon);
             }
         }
         any_incomplete
@@ -166,6 +172,9 @@ impl Worker<f64, CpuPeriodicityDetector> for PerturbationCpuWorker {
             if let Some((seat, point)) = &active_batch.points[i] {
                 if point.finished {
                     out[i] = Some((*seat, point_to_calibrated_answer(point)));
+                } else {
+                    // Progressive Agnostic WIP: ranges from ActivePoint progress.
+                    out[i] = Some((*seat, point_to_calibrated_wip(point)));
                 }
             }
         }
@@ -228,188 +237,345 @@ fn derivative_after_series(
 ) -> (f64, f64) {
     let mut d = (0.0f64, 0.0f64);
     let mut dz = (0.0f64, 0.0f64);
+    let two = 2.0f64;
     for n in 0..iteration_count {
         let z_ref = orbit.f64[n];
         let z_full = (z_ref.0 + dz.0, z_ref.1 + dz.1);
         let new_d = (
-            2.0 * (z_full.0 * d.0 - z_full.1 * d.1)
-            , 2.0 * (z_full.0 * d.1 + z_full.1 * d.0)
+            two * (z_full.0 * d.0 - z_full.1 * d.1)
+            , two * (z_full.0 * d.1 + z_full.1 * d.0)
         );
         d = new_d;
         let dz2 = (
             dz.0 * dz.0 - dz.1 * dz.1
-            , 2.0 * dz.0 * dz.1
+            , two * dz.0 * dz.1
         );
         dz = (
-            2.0 * (z_ref.0 * dz.0 - z_ref.1 * dz.1) + dz2.0 + delta_c.0
-            , 2.0 * (z_ref.0 * dz.1 + z_ref.1 * dz.0) + dz2.1 + delta_c.1
+            two * (z_ref.0 * dz.0 - z_ref.1 * dz.1) + dz2.0 + delta_c.0
+            , two * (z_ref.0 * dz.1 + z_ref.1 * dz.0) + dz2.1 + delta_c.1
         );
     }
     d
 }
 
-
-/// F32 gear: same perturbation algorithm with f32-truncated state each step
-/// so F32 gear is observably distinct from F64 (ulp / early escape differences).
-/// Uses the one shared bout (zero orbit is `ReferenceOrbit::zero()`, not a fork).
-fn iterate_perturbation_bout_f32(
-    worker_state: &mut PerturbationCpuWorkerState
-    , point: &mut ActivePoint<f64, CpuPeriodicityDetector>
-    , epsilon: f32
-) {
-    iterate_perturbation_bout(worker_state, point, epsilon as f64);
-    // Truncate host state so F32 gear remains observably coarser than F64.
-    point.z = ((point.z.0 as f32) as f64, (point.z.1 as f32) as f64);
-    point.derivative = (
-        (point.derivative.0 as f32) as f64
-        , (point.derivative.1 as f32) as f64
-    );
-    point.real_squared = point.z.0 * point.z.0;
-    point.imag_squared = point.z.1 * point.z.1;
-    point.real_imag = point.z.0 * point.z.1;
-    point.min_magnitude = (point.min_magnitude as f32) as f64;
+fn pair_from_f64<T: Mandelbrotable>(p: (f64, f64)) -> (T, T) {
+    (T::from_f64(p.0), T::from_f64(p.1))
 }
 
+fn pair_to_f64<T: Mandelbrotable>(p: (T, T)) -> (f64, f64) {
+    (p.0.to_f64(), p.1.to_f64())
+}
+
+fn bridge_host_to_typed<T: Mandelbrotable>(
+    point: &ActivePoint<f64, CpuPeriodicityDetector>
+) -> ActivePoint<T, StandardPeriodicityDetector<T>> {
+    let z = pair_from_f64(point.z);
+    let derivative = pair_from_f64(point.derivative);
+    let mut periodicity_detector = StandardPeriodicityDetector::init(
+        point.iteration_count
+        , z
+        , derivative
+    );
+    periodicity_detector.checkpoint_z = pair_from_f64(point.periodicity_detector.checkpoint_z);
+    periodicity_detector.steps_since_checkpoint = point.periodicity_detector.steps_since_checkpoint;
+    periodicity_detector.next_checkpoint_iteration =
+        point.periodicity_detector.next_checkpoint_iteration;
+    periodicity_detector.detected_period = point.periodicity_detector.detected_period;
+    ActivePoint {
+        c: pair_from_f64(point.c)
+        , z
+        , derivative
+        , real_squared: T::from_f64(point.real_squared)
+        , imag_squared: T::from_f64(point.imag_squared)
+        , real_imag: T::from_f64(point.real_imag)
+        , iteration_count: point.iteration_count
+        , min_magnitude: T::from_f64(point.min_magnitude)
+        , min_magnitude_time: point.min_magnitude_time
+        , periodicity_detector
+        , escaped: point.escaped
+        , finished: point.finished
+        , orbit_id: point.orbit_id
+        , seat_linear: point.seat_linear
+    }
+}
+
+fn bridge_typed_to_host<T: Mandelbrotable>(
+    host: &mut ActivePoint<f64, CpuPeriodicityDetector>
+    , typed: &ActivePoint<T, StandardPeriodicityDetector<T>>
+) {
+    host.c = pair_to_f64(typed.c);
+    host.z = pair_to_f64(typed.z);
+    host.derivative = pair_to_f64(typed.derivative);
+    host.real_squared = typed.real_squared.to_f64();
+    host.imag_squared = typed.imag_squared.to_f64();
+    host.real_imag = typed.real_imag.to_f64();
+    host.iteration_count = typed.iteration_count;
+    host.min_magnitude = typed.min_magnitude.to_f64();
+    host.min_magnitude_time = typed.min_magnitude_time;
+    host.escaped = typed.escaped;
+    host.finished = typed.finished;
+    host.orbit_id = typed.orbit_id;
+    host.seat_linear = typed.seat_linear;
+    host.periodicity_detector.checkpoint_z = pair_to_f64(typed.periodicity_detector.checkpoint_z);
+    host.periodicity_detector.steps_since_checkpoint =
+        typed.periodicity_detector.steps_since_checkpoint;
+    host.periodicity_detector.next_checkpoint_iteration =
+        typed.periodicity_detector.next_checkpoint_iteration;
+    host.periodicity_detector.detected_period = typed.periodicity_detector.detected_period;
+}
+
+fn dispatch_perturbation_bout(
+    worker_state: &mut PerturbationCpuWorkerState
+    , point: &mut ActivePoint<f64, CpuPeriodicityDetector>
+    , gear: crate::gear::Gear
+    , epsilon_f64: f64
+) {
+    match gear {
+        crate::gear::Gear::F64 => {
+            iterate_perturbation_bout_typed::<f64, CpuPeriodicityDetector>(
+                worker_state
+                , point
+                , epsilon_f64
+            );
+        }
+        crate::gear::Gear::F32 => {
+            let mut typed = bridge_host_to_typed::<f32>(point);
+            let eps = f32::from_f64(epsilon_f64);
+            iterate_perturbation_bout_typed::<f32, StandardPeriodicityDetector<f32>>(
+                worker_state
+                , &mut typed
+                , eps
+            );
+            bridge_typed_to_host(point, &typed);
+        }
+        crate::gear::Gear::AdaptiveRug => {
+            use crate::floatexp::FloatExp;
+            worker_state.floatexp_bouts = worker_state.floatexp_bouts.saturating_add(1);
+            let mut typed = bridge_host_to_typed::<FloatExp>(point);
+            let eps = FloatExp::from_f64(epsilon_f64);
+            iterate_perturbation_bout_typed::<FloatExp, StandardPeriodicityDetector<FloatExp>>(
+                worker_state
+                , &mut typed
+                , eps
+            );
+            bridge_typed_to_host(point, &typed);
+        }
+        crate::gear::Gear::StackedI32 { limbs } => {
+            dispatch_stacked_bout(worker_state, point, limbs, epsilon_f64);
+        }
+    }
+}
+
+fn dispatch_stacked_bout(
+    worker_state: &mut PerturbationCpuWorkerState
+    , point: &mut ActivePoint<f64, CpuPeriodicityDetector>
+    , limbs: u8
+    , epsilon_f64: f64
+) {
+    use crate::stacked_intexp::StackedIntExp;
+    macro_rules! stacked_arm {
+        ($n:expr) => {{
+            let mut typed = bridge_host_to_typed::<StackedIntExp<$n>>(point);
+            let eps = StackedIntExp::<$n>::from_f64(epsilon_f64);
+            iterate_perturbation_bout_typed::<
+                StackedIntExp<$n>
+                , StandardPeriodicityDetector<StackedIntExp<$n>>
+            >(worker_state, &mut typed, eps);
+            bridge_typed_to_host(point, &typed);
+        }};
+    }
+    match limbs {
+        1 => stacked_arm!(1),
+        2 => stacked_arm!(2),
+        3 => stacked_arm!(3),
+        4 => stacked_arm!(4),
+        5 => stacked_arm!(5),
+        6 => stacked_arm!(6),
+        7 => stacked_arm!(7),
+        _ => stacked_arm!(8),
+    }
+}
+
+/// Host f64 entry used by benches / oracle / GPU CPU-fallback.
 pub fn iterate_perturbation_bout(
     worker_state: &mut PerturbationCpuWorkerState
     , point: &mut ActivePoint<f64, CpuPeriodicityDetector>
     , epsilon: f64
 ) {
-    let bailout = worker_state.bailout_radius_squared;
+    iterate_perturbation_bout_typed::<f64, CpuPeriodicityDetector>(
+        worker_state
+        , point
+        , epsilon
+    );
+}
+
+/// Trait-generic perturbation bout (standards: Mandelbrotable for all CPU math).
+pub fn iterate_perturbation_bout_typed<T, P>(
+    worker_state: &mut PerturbationCpuWorkerState
+    , point: &mut ActivePoint<T, P>
+    , epsilon: T
+)
+where
+    T: Mandelbrotable
+    , P: PeriodicityDetector<T>
+{
+    let bailout = T::from_f64(worker_state.bailout_radius_squared);
     let bout = worker_state.iterations_per_bout;
-    // Tenacity: no max-iteration cutoff. Period resolve is a later phase (D-PER-1 /
-    // B-PER-2); regular iterate must not force-finish on iteration count.
+    let glitch_thresh = T::from_f64(GLITCH_THRESHOLD);
+    let tiny = T::from_f64(1e-30);
     let mut steps = 0u32;
     while steps < bout {
         if point.finished {
-            return;
+            break;
         }
         if worker_state.references.get(point.orbit_id).is_none() {
-            rebind_to_zero_orbit(worker_state, point);
+            rebind_to_zero_orbit_typed(worker_state, point);
             continue;
         }
-        let cref = {
-            let orbit = worker_state.references.get(point.orbit_id).unwrap();
-            (
-                orbit.big_c.0.clone().to_f64()
-                , orbit.big_c.1.clone().to_f64()
-            )
-        };
+        let orbit = worker_state.references.get(point.orbit_id).unwrap();
+        let cref = pair_from_f64::<T>((
+            orbit.big_c.0.clone().to_f64()
+            , orbit.big_c.1.clone().to_f64()
+        ));
+        let c_full = (cref.0 + point.c.0, cref.1 + point.c.1);
         let mut glitched = false;
         {
-            // One path for all orbits (including immortal Z=0): index via PeriodicOrbit.
             let orbit = worker_state.references.get(point.orbit_id).unwrap();
+            // Phase 2 will use native mirrors; for now project f64 samples.
+            let mut z_ref = pair_from_f64::<T>(orbit.f64.z_at(point.iteration_count));
             while steps < bout {
                 if point.finished {
-                    return;
+                    break;
                 }
-                let n = point.iteration_count;
-                let z_ref = orbit.f64.z_at(n);
-                let mut dz_re = point.z.0;
-                let mut dz_im = point.z.1;
-                let z_full_re = z_ref.0 + dz_re;
-                let z_full_im = z_ref.1 + dz_im;
+                let mut dz = point.z;
+                let z_full = (z_ref.0 + dz.0, z_ref.1 + dz.1);
                 let z_ref_mag2 = z_ref.0 * z_ref.0 + z_ref.1 * z_ref.1;
-                let z_full_mag2 = z_full_re * z_full_re + z_full_im * z_full_im;
-                if z_ref_mag2 > 1e-30
-                    && z_full_mag2 < GLITCH_THRESHOLD * z_ref_mag2
-                {
+                let z_full_mag2 = z_full.0 * z_full.0 + z_full.1 * z_full.1;
+                if z_ref_mag2 > tiny && z_full_mag2 < glitch_thresh * z_ref_mag2 {
                     glitched = true;
                     break;
                 }
-                let mut d_re = point.derivative.0;
-                let mut d_im = point.derivative.1;
-                let new_d_re = 2.0 * (z_full_re * d_re - z_full_im * d_im);
-                let new_d_im = 2.0 * (z_full_re * d_im + z_full_im * d_re);
-                d_re = new_d_re;
-                d_im = new_d_im;
-                let dz2_re = dz_re * dz_re - dz_im * dz_im;
-                let dz2_im = 2.0 * dz_re * dz_im;
-                let new_dz_re = 2.0 * (z_ref.0 * dz_re - z_ref.1 * dz_im) + dz2_re + point.c.0;
-                let new_dz_im = 2.0 * (z_ref.0 * dz_im + z_ref.1 * dz_re) + dz2_im + point.c.1;
-                dz_re = new_dz_re;
-                dz_im = new_dz_im;
+                let d = point.derivative;
+                let new_d = (
+                    T::TWO * (z_full.0 * d.0 - z_full.1 * d.1)
+                    , T::TWO * (z_full.0 * d.1 + z_full.1 * d.0)
+                );
+                let dz2 = (
+                    dz.0 * dz.0 - dz.1 * dz.1
+                    , T::TWO * dz.0 * dz.1
+                );
+                dz = (
+                    T::TWO * (z_ref.0 * dz.0 - z_ref.1 * dz.1) + dz2.0 + point.c.0
+                    , T::TWO * (z_ref.0 * dz.1 + z_ref.1 * dz.0) + dz2.1 + point.c.1
+                );
                 point.iteration_count += 1;
                 steps += 1;
-                let z_ref_next = orbit.f64.z_at(point.iteration_count);
-                let z_full_re = z_ref_next.0 + dz_re;
-                let z_full_im = z_ref_next.1 + dz_im;
-                point.z = (dz_re, dz_im);
-                point.derivative = (d_re, d_im);
-                point.real_squared = dz_re * dz_re;
-                point.imag_squared = dz_im * dz_im;
-                point.real_imag = dz_re * dz_im;
-                let rad = z_full_re * z_full_re + z_full_im * z_full_im;
+                z_ref = pair_from_f64::<T>(orbit.f64.z_at(point.iteration_count));
+                let z_full = (z_ref.0 + dz.0, z_ref.1 + dz.1);
+                point.z = dz;
+                point.derivative = new_d;
+                point.real_squared = dz.0 * dz.0;
+                point.imag_squared = dz.1 * dz.1;
+                point.real_imag = dz.0 * dz.1;
+                let rad = z_full.0 * z_full.0 + z_full.1 * z_full.1;
                 if rad < point.min_magnitude {
                     point.min_magnitude = rad;
                     point.min_magnitude_time = point.iteration_count;
                 }
                 if rad > bailout {
-                    point.z = (z_full_re, z_full_im);
+                    point.z = z_full;
                     point.escaped = true;
                     point.finished = true;
-                    return;
+                    break;
                 }
-                let c_full = (cref.0 + point.c.0, cref.1 + point.c.1);
-                if point.periodicity_detector.check_periodicity(
-                    c_full
-                    , (z_full_re, z_full_im)
-                    , (d_re, d_im)
-                    , point.iteration_count
-                    , epsilon
-                ).is_some() {
-                    point.z = (z_full_re, z_full_im);
+                if point
+                    .periodicity_detector
+                    .check_periodicity(
+                        c_full
+                        , z_full
+                        , new_d
+                        , point.iteration_count
+                        , epsilon
+                    )
+                    .is_some()
+                {
+                    point.z = z_full;
                     point.finished = true;
-                    return;
+                    break;
                 }
             }
         }
         if glitched {
-            rebind_to_zero_orbit(worker_state, point);
+            rebind_to_zero_orbit_typed(worker_state, point);
             continue;
         }
         break;
     }
+    worker_state.iterations_advanced = worker_state
+        .iterations_advanced
+        .saturating_add(steps as u64);
 }
 
-fn rebind_to_zero_orbit(
+fn rebind_to_zero_orbit_typed<T, P>(
     worker_state: &mut PerturbationCpuWorkerState
-    , point: &mut ActivePoint<f64, CpuPeriodicityDetector>
-) {
+    , point: &mut ActivePoint<T, P>
+)
+where
+    T: Mandelbrotable
+    , P: PeriodicityDetector<T>
+{
     let cref = worker_state
         .references
         .get(point.orbit_id)
         .map(|o| {
-            (
+            pair_from_f64::<T>((
                 o.big_c.0.clone().to_f64()
                 , o.big_c.1.clone().to_f64()
-            )
+            ))
         })
-        .unwrap_or((0.0, 0.0));
+        .unwrap_or((T::ZERO, T::ZERO));
     let c_pixel = (cref.0 + point.c.0, cref.1 + point.c.1);
     ReferenceCollection::bind_seat(
         &mut worker_state.seat_orbit_ids
         , point.seat_linear
         , ZERO_ORBIT_ID
     );
-    let z = (f64::ZERO, f64::ZERO);
-    let derivative = (f64::ONE, f64::ZERO);
+    let z = (T::ZERO, T::ZERO);
+    let derivative = (T::ONE, T::ZERO);
     point.orbit_id = ZERO_ORBIT_ID;
     point.c = c_pixel;
     point.z = z;
     point.derivative = derivative;
-    point.real_squared = f64::ZERO;
-    point.imag_squared = f64::ZERO;
-    point.real_imag = f64::ZERO;
+    point.real_squared = T::ZERO;
+    point.imag_squared = T::ZERO;
+    point.real_imag = T::ZERO;
     point.iteration_count = 0;
-    point.min_magnitude = f64::MAX;
+    point.min_magnitude = T::max_value();
     point.min_magnitude_time = 0;
-    point.periodicity_detector = CpuPeriodicityDetector::init(0, z, derivative);
+    point.periodicity_detector = P::init(0, z, derivative);
     point.escaped = false;
     point.finished = false;
 }
 
+fn rebind_to_zero_orbit(
+    worker_state: &mut PerturbationCpuWorkerState
+    , point: &mut ActivePoint<f64, CpuPeriodicityDetector>
+) {
+    rebind_to_zero_orbit_typed(worker_state, point);
+}
+
+
+fn derivative_magnitude_angle(d: (f64, f64)) -> u8 {
+    // Map atan2(im, re) of derivative to 0..=255 (D-SCH-3 stored angle).
+    let a = d.1.atan2(d.0);
+    let turns = a / (2.0 * std::f64::consts::PI);
+    let u = (turns.rem_euclid(1.0) * 256.0).floor() as i32;
+    (u.clamp(0, 255)) as u8
+}
+
 pub fn point_to_answer(point: &ActivePoint<f64, CpuPeriodicityDetector>) -> Answer {
+    let escape_time_angle = derivative_magnitude_angle(point.derivative);
+    let min_magnitude_angle = escape_time_angle;
     if point.escaped {
         Answer {
             result: MandelbrotResult::Outside {
@@ -418,6 +584,8 @@ pub fn point_to_answer(point: &ActivePoint<f64, CpuPeriodicityDetector>) -> Answ
             }
             , min_magnitude_time: point.min_magnitude_time
             , min_magnitude: point.min_magnitude
+            , escape_time_angle
+            , min_magnitude_angle
         }
     } else {
         Answer {
@@ -426,6 +594,8 @@ pub fn point_to_answer(point: &ActivePoint<f64, CpuPeriodicityDetector>) -> Answ
             }
             , min_magnitude_time: point.min_magnitude_time
             , min_magnitude: point.min_magnitude
+            , escape_time_angle
+            , min_magnitude_angle
         }
     }
 }
@@ -451,6 +621,8 @@ fn point_to_calibrated_answer(point: &ActivePoint<f64, CpuPeriodicityDetector>) 
                     , small_time_edge: exact_range(false)
                     , node: exact_range(false)
                 }
+                , escape_time_angle: answer.escape_time_angle
+                , min_magnitude_angle: answer.min_magnitude_angle
             }
         }
         , MandelbrotResult::Inside { period } => {
@@ -466,8 +638,54 @@ fn point_to_calibrated_answer(point: &ActivePoint<f64, CpuPeriodicityDetector>) 
                     , small_time_edge: exact_range(false)
                     , node: exact_range(false)
                 }
+                , escape_time_angle: answer.escape_time_angle
+                , min_magnitude_angle: answer.min_magnitude_angle
             }
         }
+    }
+}
+
+/// Progressive WIP ranges (workgroup.md): escape-time lower bound, min-magnitude
+/// upper bound, escape_z in the r∈[2,√6] ring, period still unknown.
+fn point_to_calibrated_wip(point: &ActivePoint<f64, CpuPeriodicityDetector>) -> CalibratedAnswer {
+    let angle = derivative_magnitude_angle(point.derivative);
+    let ring = 6.0f32; // outer of bailout ring r=2 .. r=√6≈2.45, padded for ranges
+    let min_mag_upper = if point.min_magnitude.is_finite() {
+        point.min_magnitude
+    } else {
+        f64::MAX
+    };
+    CalibratedAnswer {
+        result: CalibratedMandelbrotResult::Agnostic {
+            period: crate::range::Range {
+                lower_bound: 0
+                , upper_bound: u64::MAX
+            }
+            , escape_time_r2: crate::range::Range {
+                lower_bound: point.iteration_count
+                , upper_bound: u64::MAX
+            }
+            , escape_z: (
+                crate::range::Range { lower_bound: -ring, upper_bound: ring }
+                , crate::range::Range { lower_bound: -ring, upper_bound: ring }
+            )
+        }
+        , min_magnitude_time: crate::range::Range {
+            lower_bound: point.min_magnitude_time
+            , upper_bound: point.iteration_count.max(point.min_magnitude_time)
+        }
+        , min_magnitude: crate::range::Range {
+            lower_bound: 0.0
+            , upper_bound: min_mag_upper
+        }
+        , highlights: CalibratedHighlights {
+            in_filament: exact_range(false)
+            , out_filament: exact_range(false)
+            , small_time_edge: exact_range(false)
+            , node: exact_range(false)
+        }
+        , escape_time_angle: angle
+        , min_magnitude_angle: angle
     }
 }
 
@@ -930,6 +1148,8 @@ mod phase4_tests {
             , seat_orbit_ids: vec![ZERO_ORBIT_ID; res.0 * res.1]
             , screen_width: res.0
             , gear: crate::gear::Gear::F64
+            , iterations_advanced: 0
+            , floatexp_bouts: 0
         };
         let tile = Tile::new((0, 0), 0);
         let seats: [Option<(usize, usize)>; 4] = [
@@ -966,6 +1186,8 @@ mod phase4_tests {
                         }
                         , min_magnitude_time: calib.min_magnitude_time.lower_bound
                         , min_magnitude: calib.min_magnitude.lower_bound
+                        , escape_time_angle: 0
+                        , min_magnitude_angle: 0
                     }
                 }
                 , CalibratedMandelbrotResult::Inside { period } => {
@@ -975,6 +1197,8 @@ mod phase4_tests {
                         }
                         , min_magnitude_time: calib.min_magnitude_time.lower_bound
                         , min_magnitude: calib.min_magnitude.lower_bound
+                        , escape_time_angle: 0
+                        , min_magnitude_angle: 0
                     }
                 }
                 , CalibratedMandelbrotResult::Agnostic { period, .. } => {
@@ -984,6 +1208,8 @@ mod phase4_tests {
                         }
                         , min_magnitude_time: calib.min_magnitude_time.lower_bound
                         , min_magnitude: calib.min_magnitude.lower_bound
+                        , escape_time_angle: 0
+                        , min_magnitude_angle: 0
                     }
                 }
             };
@@ -992,6 +1218,43 @@ mod phase4_tests {
                 , "stencil seat {local:?} mismatch"
             );
         }
+    }
+
+    // D-SERIES-1: series_skip absorption
+    #[test]
+    fn series_skip_short_series_returns_zero() {
+        let orbit = ReferenceOrbit::zero();
+        let (dz, n) = series_skip(&orbit, (1e-9, 0.0));
+        // Zero orbit series is populated; still require n==0 when delta is huge.
+        let (dz_big, n_big) = series_skip(&orbit, (10.0, 10.0));
+        assert_eq!(n_big, 0);
+        assert_eq!(dz_big, (0.0, 0.0));
+        let _ = (dz, n);
+    }
+
+    #[test]
+    fn series_skip_absorbs_tiny_delta_c() {
+        let mut collection = ReferenceCollection::new();
+        let id = collection.try_add_nucleus_at_f64((-0.75, 0.0));
+        assert_ne!(id, ZERO_ORBIT_ID);
+        let orbit = collection.get(id).expect("orbit");
+        assert!(orbit.f64.series.len() >= 2);
+        let (_dz, n) = series_skip(orbit, (1e-18, 0.0));
+        assert!(n >= 1, "tiny delta_c must absorb at least the linear term, got n={n}");
+    }
+
+    #[test]
+    fn series_skip_stops_when_delta_escapes_absorb() {
+        let mut collection = ReferenceCollection::new();
+        let id = collection.try_add_nucleus_at_f64((-0.75, 0.0));
+        let orbit = collection.get(id).expect("orbit");
+        let (_dz_small, n_small) = series_skip(orbit, (1e-16, 0.0));
+        let (_dz_large, n_large) = series_skip(orbit, (1e-2, 0.0));
+        assert!(
+            n_small >= n_large
+            , "larger delta_c must not absorb more terms (small={n_small} large={n_large})"
+        );
+        assert!(n_large < orbit.f64.series.len() as u64);
     }
 }
 
@@ -1041,5 +1304,83 @@ mod gear_dispatch_tests {
         assert!(!Gear::F64.runs_on_gpu());
         assert!(Gear::F32.runs_on_gpu());
         assert!(!Gear::AdaptiveRug.runs_on_gpu());
+    }
+
+    #[test]
+    fn adaptive_rug_workshift_uses_floatexp_bout() {
+        let mut state = PerturbationCpuWorkerState::default();
+        state.gear = Gear::AdaptiveRug;
+        state.iterations_per_bout = 64;
+        state.seat_orbit_ids = vec![ZERO_ORBIT_ID];
+        let z = (0.0, 0.0);
+        let derivative = (1.0, 0.0);
+        let mut batch: PointBatch<f64, CpuPeriodicityDetector, 1> = PointBatch {
+            points: [Some((
+                (0, 0)
+                , ActivePoint {
+                    c: (2.0, 0.0)
+                    , z
+                    , derivative
+                    , real_squared: 0.0
+                    , imag_squared: 0.0
+                    , real_imag: 0.0
+                    , iteration_count: 0
+                    , min_magnitude: f64::MAX
+                    , min_magnitude_time: 0
+                    , periodicity_detector: CpuPeriodicityDetector::init(0, z, derivative)
+                    , escaped: false
+                    , finished: false
+                    , orbit_id: ZERO_ORBIT_ID
+                    , seat_linear: 0
+                }
+            ))]
+        };
+        assert_eq!(state.floatexp_bouts, 0);
+        let _ = PerturbationCpuWorker::workshift_on_batch(&mut state, &mut batch);
+        assert!(
+            state.floatexp_bouts >= 1
+            , "AdaptiveRug must take the FloatExp bout path, floatexp_bouts={}", state.floatexp_bouts
+        );
+    }
+
+    #[test]
+    fn peek_emits_agnostic_wip_for_unfinished() {
+        let z = (0.0, 0.0);
+        let derivative = (1.0, 0.0);
+        let batch: PointBatch<f64, CpuPeriodicityDetector, 1> = PointBatch {
+            points: [Some((
+                (1, 2)
+                , ActivePoint {
+                    c: (0.1, 0.1)
+                    , z
+                    , derivative
+                    , real_squared: 0.0
+                    , imag_squared: 0.0
+                    , real_imag: 0.0
+                    , iteration_count: 17
+                    , min_magnitude: 0.5
+                    , min_magnitude_time: 3
+                    , periodicity_detector: CpuPeriodicityDetector::init(0, z, derivative)
+                    , escaped: false
+                    , finished: false
+                    , orbit_id: ZERO_ORBIT_ID
+                    , seat_linear: 0
+                }
+            ))]
+        };
+        let tile = Tile::new((0, 0), 0);
+        let peeked = PerturbationCpuWorker::peek_batch(&batch, &tile);
+        let Some((_, calib)) = peeked[0] else {
+            panic!("expected WIP peek");
+        };
+        match calib.result {
+            CalibratedMandelbrotResult::Agnostic { escape_time_r2, .. } => {
+                assert_eq!(escape_time_r2.lower_bound, 17);
+                assert_eq!(escape_time_r2.upper_bound, u64::MAX);
+            }
+            other => panic!("expected Agnostic WIP, got {other:?}"),
+        }
+        assert_eq!(calib.min_magnitude.upper_bound, 0.5);
+        assert_eq!(calib.min_magnitude_time.lower_bound, 3);
     }
 }

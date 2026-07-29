@@ -311,12 +311,66 @@ impl<const STACKS: usize> Mandelbrotable for StackedIntExp<STACKS> {
         Self::from_i32(value as i32)
     }
 
+    fn from_f64(value: f64) -> Self {
+        if value == 0.0 || !value.is_finite() {
+            return Self::ZERO;
+        }
+        // Same packing as f64_to_intexp → StackedIntExp (avoid UI-layer import).
+        let sign = if value < 0.0 { -1 } else { 1 };
+        let mut av = value.abs();
+        let mut exp = 0i32;
+        while av < 1.0 {
+            av *= 2.0;
+            exp -= 1;
+        }
+        while av >= 2.0 {
+            av /= 2.0;
+            exp += 1;
+        }
+        let mantissa = (av * (1u64 << 52) as f64).round() as i64;
+        let ie = IntExp {
+            val: Integer::from(sign) * Integer::from(mantissa)
+            , exp: exp - 52
+        };
+        Self::from(ie)
+    }
+
     fn to_f32(self) -> f32 {
         IntExp::from(self).to_f64() as f32
     }
 
     fn to_f64(self) -> f64 {
         IntExp::from(self).to_f64()
+    }
+
+    fn abs(self) -> Self {
+        let (limbs, _) = Self::abs_limbs(self.limbs);
+        Self {
+            limbs
+            , exp: self.exp
+        }
+    }
+
+    fn neg(self) -> Self {
+        Self {
+            limbs: Self::neg_limbs(self.limbs)
+            , exp: self.exp
+        }
+    }
+
+    fn max_value() -> Self {
+        // Saturating large positive: high limb nearly full, high exponent.
+        let mut limbs = [0i32; STACKS];
+        if STACKS > 0 {
+            limbs[STACKS - 1] = i32::MAX;
+            for i in 0..STACKS - 1 {
+                limbs[i] = -1; // all bits set in lower limbs
+            }
+        }
+        Self {
+            limbs
+            , exp: 1_000_000
+        }
     }
 }
 

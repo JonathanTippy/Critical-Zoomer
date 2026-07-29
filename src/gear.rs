@@ -16,6 +16,9 @@ pub enum Gear {
     StackedI32 { limbs: u8 },
     /// Adaptive rug float — heap, least preferred, CPU only.
     AdaptiveRug,
+    // DESIGN HOLE (auth `[i32;N]+exp` CPU-only array gear): blocked until the
+    // developer specifies N and reconciles the auth "12 stack" count vs the
+    // enumerated 11-type list. Do not invent N here.
 }
 
 impl Gear {

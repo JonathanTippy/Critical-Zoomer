@@ -114,13 +114,35 @@ impl PublisherGpu {
         })
     }
 
-    /// Dispatch publish for one tile; returns packed answers (CPU readback for now).
+    /// Dispatch publish for one tile (GPU-native; leaves packed answers in `out_buf`).
+    /// Atlas bind from `out_buf` → production sheet is the remaining hole (D-PUB-GPU).
     pub fn publish_tile(
         &self
         , calibrated: &[GPUCalibratedAnswer]
         , bias: &[GpuPackedAnswer]
         , bias_valid: &[u32]
+    ) -> Option<()> {
+        self.dispatch_publish(calibrated, bias, bias_valid)
+    }
+
+    /// Interim CPU bridge: GPU publish + map/readback for callers that still need
+    /// `Tile<Answer>` on the host. Prefer `publish_tile` + atlas handoff when wired.
+    pub fn publish_tile_cpu_bridge(
+        &self
+        , calibrated: &[GPUCalibratedAnswer]
+        , bias: &[GpuPackedAnswer]
+        , bias_valid: &[u32]
     ) -> Option<Vec<GpuPackedAnswer>> {
+        self.dispatch_publish(calibrated, bias, bias_valid)?;
+        self.readback_packed()
+    }
+
+    fn dispatch_publish(
+        &self
+        , calibrated: &[GPUCalibratedAnswer]
+        , bias: &[GpuPackedAnswer]
+        , bias_valid: &[u32]
+    ) -> Option<()> {
         let shared = GpuContext::shared()?;
         let n = self.seat_count as usize;
         if calibrated.len() != n || bias.len() != n || bias_valid.len() != n {
@@ -151,7 +173,18 @@ impl PublisherGpu {
             pass.set_bind_group(0, &bind_group, &[]);
             pass.dispatch_workgroups(8, 8, 1);
         }
+        shared.queue.submit(Some(enc.finish()));
+        let _ = shared.device.poll(wgpu::PollType::Wait);
+        Some(())
+    }
+
+    fn readback_packed(&self) -> Option<Vec<GpuPackedAnswer>> {
+        let shared = GpuContext::shared()?;
+        let n = self.seat_count as usize;
         let ans_bytes = n as u64 * std::mem::size_of::<GpuPackedAnswer>() as u64;
+        let mut enc = shared.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("publisher_readback_enc"),
+        });
         enc.copy_buffer_to_buffer(&self.out_buf, 0, &self.staging, 0, ans_bytes);
         shared.queue.submit(Some(enc.finish()));
         let slice = self.staging.slice(..);
@@ -206,7 +239,7 @@ mod tests {
         cal[0].kind = GPU_CAL_KIND_AGNOSTIC;
         let bias = vec![GpuPackedAnswer::zeroed(); n];
         let valid = vec![0u32; n];
-        let out = gpu.publish_tile(&cal, &bias, &valid).expect("dispatch");
+        let out = gpu.publish_tile_cpu_bridge(&cal, &bias, &valid).expect("dispatch");
         assert_eq!(out[0].kind, 1, "NORES is Outside");
         assert_eq!(out[0].escape_or_period, 1);
     }
@@ -249,7 +282,7 @@ mod tests {
         };
         let mut valid = vec![0u32; n];
         valid[0] = 1;
-        let out = gpu.publish_tile(&cal, &bias, &valid).expect("dispatch");
+        let out = gpu.publish_tile_cpu_bridge(&cal, &bias, &valid).expect("dispatch");
         assert_eq!(out[0].escape_or_period, 20);
         assert_eq!(out[0].zx, 2.0);
     }

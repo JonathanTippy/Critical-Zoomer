@@ -68,6 +68,9 @@ pub struct Answer {
     pub result: MandelbrotResult
     , pub min_magnitude_time: u64
     , pub min_magnitude: f64
+    // Derivative-magnitude slope angle (D-SCH-3); 0..=255, 0 when unknown.
+    , pub escape_time_angle: u8
+    , pub min_magnitude_angle: u8
 }
 
 impl Answer {
@@ -78,7 +81,8 @@ impl Answer {
         }
         , min_magnitude_time: 0
         , min_magnitude: 0.0
-
+        , escape_time_angle: 0
+        , min_magnitude_angle: 0
     };
 }
 

@@ -46,6 +46,7 @@ coordinates:
   'apply' must not be grey out whenever its already equal in location to the viewport location.
   When applied, the viewport (considered to be located at its center) must be moved to the location in the field. 
   The field must not be cleared.
+- The coordinates entry and display must also include a magnification level, always. a coordinate is not sufficient to define a view.
 
 settings:
 - secondary window with widgets on it. Opened via a gear button floating in the top right corner.

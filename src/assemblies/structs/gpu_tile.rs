@@ -28,6 +28,8 @@ impl From<GPUAnswer> for Answer {
             result: answer.result
             , min_magnitude_time: answer.min_magnitude_time
             , min_magnitude: answer.min_magnitude
+            , escape_time_angle: 0
+            , min_magnitude_angle: 0
         }
     }
 }
@@ -219,6 +221,8 @@ impl GPUCalibratedAnswer {
             , min_magnitude_time
             , min_magnitude
             , highlights
+            , escape_time_angle: 0
+            , min_magnitude_angle: 0
         })
     }
 }
@@ -394,7 +398,9 @@ mod gpu_tile_upload_tests {
             },
             min_magnitude_time: 2,
             min_magnitude: 0.5,
-        };
+            escape_time_angle: 0,
+            min_magnitude_angle: 0
+};
         let mut tile = Tile::new((64, 0), 3);
         tile.set((1, 2), answer);
         let gpu = GPUTile::from_answer_tile(&tile, (128, 128), loc());
@@ -461,6 +467,8 @@ mod gpu_tile_upload_tests {
                 , small_time_edge: Range { lower_bound: false, upper_bound: false }
                 , node: Range { lower_bound: false, upper_bound: false }
             }
+            , escape_time_angle: 0
+            , min_magnitude_angle: 0
         };
         let gpu = GPUCalibratedAnswer::from_calibrated(cal);
         let back = gpu.to_calibrated().expect("outside");

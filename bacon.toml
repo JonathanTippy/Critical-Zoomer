@@ -1,0 +1,31 @@
+# Local lightning feedback (V2V DeliveryPipeline).
+default_job = "check"
+
+[jobs.check]
+command = [
+  "bash", "-lc",
+  "NPROC=$(nproc); START=$((NPROC/4)); END=$((NPROC*3/4-1)); taskset -c ${START}-${END} cargo check --lib"
+]
+need_stdout = true
+
+[jobs.test-lib]
+command = [
+  "bash", "-lc",
+  "NPROC=$(nproc); START=$((NPROC/4)); END=$((NPROC*3/4-1)); taskset -c ${START}-${END} cargo test --lib -- --test-threads=1 --skip home_800x480 --skip gpu_ips --skip standards_perf::"
+]
+need_stdout = true
+
+[jobs.coverage]
+command = ["bash", "-lc", "./scripts/coverage.sh"]
+need_stdout = true
+
+[jobs.mutants-core]
+command = ["bash", "-lc", "./scripts/mutants_core.sh"]
+need_stdout = true
+
+[jobs.tracey]
+command = [
+  "bash", "-lc",
+  "if command -v tracey >/dev/null; then tracey validate; else echo 'tracey binary not installed; see docs/tracey/'; exit 0; fi"
+]
+need_stdout = true

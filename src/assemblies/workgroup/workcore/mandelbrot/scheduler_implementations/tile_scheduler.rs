@@ -481,6 +481,42 @@ impl TileScheduler {
         state.tiles[tile_index].extent
     }
 
+    /// After a same-mag pan remap, mark tiles whose screen seats are all done.
+    pub fn seed_completed_tiles(
+        state: &mut TileSchedulerState
+        , screen_done: &[bool]
+        , screen_res: (usize, usize)
+    ) {
+        let w = screen_res.0;
+        let h = screen_res.1;
+        let tile_count = state.tiles.len();
+        for tile_index in 0..tile_count {
+            let origin = state.tiles[tile_index].origin;
+            let extent = state.tiles[tile_index].extent;
+            if extent.0 == 0 || extent.1 == 0 {
+                continue;
+            }
+            let mut all_done = true;
+            'seats: for ly in 0..extent.1 {
+                for lx in 0..extent.0 {
+                    let sx = origin.0 + lx;
+                    let sy = origin.1 + ly;
+                    if sx >= w || sy >= h {
+                        continue;
+                    }
+                    if !screen_done.get(sy * w + sx).copied().unwrap_or(false) {
+                        all_done = false;
+                        break 'seats;
+                    }
+                }
+            }
+            if all_done {
+                state.tiles[tile_index].begun = true;
+                Self::note_tile_finished(state, tile_index);
+            }
+        }
+    }
+
     pub fn tile_edge_category(
         state: &TileSchedulerState
         , tile_index: usize

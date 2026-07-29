@@ -1,5 +1,8 @@
 // Stacked-i32 bout tail (appended by gears::stacked_bout_wgsl).
-// Same bind layout as perturbation_gpu_bout.wgsl; zero-orbit seats iterate in Stacked.
+// Same bind layout as perturbation_gpu_bout.wgsl.
+// δz / derivative iterate in stacked limbs for both zero and non-zero orbits.
+// Non-zero Z_ref is projected from the f32 orbit mirror via sie_from_f32
+// (CPU parity uses the same projection until native stacked orbit buffers land).
 
 struct Uniforms {
     bailout_radius_squared: f32,
@@ -42,7 +45,6 @@ const FLAG_GLITCH: u32 = 8u;
 const FLAG_PERIODIC: u32 = 16u;
 
 fn sie_from_f32(v: f32) -> Stacked {
-    // Scale into fixed significand: treat value as v * 2^0 with coarse limb fill.
     if (abs(v) < 1e-30) {
         return sie_zero();
     }
@@ -50,7 +52,6 @@ fn sie_from_f32(v: f32) -> Stacked {
     let sign = (bits >> 31u) != 0u;
     var exp_bits = i32((bits >> 23u) & 0xffu) - 127;
     var mant = (bits & 0x7fffffu) | 0x800000u;
-    // Place 24-bit mantissa in high limb region.
     var out = sie_zero();
     out.limbs[0] = i32(mant);
     out.exp = exp_bits - 23;
@@ -66,7 +67,6 @@ fn sie_to_f32(a: Stacked) -> f32 {
     }
     var x = sie_abs(a);
     var v = f32(x.limbs[0]);
-    // Fold remaining limbs at 2^(32*k).
     for (var i = 1u; i < LIMBS; i = i + 1u) {
         v = v + f32(x.limbs[i]) * exp2(32.0 * f32(i));
     }
@@ -94,6 +94,11 @@ fn orbit_at(n: u32) -> vec2<f32> {
     return orbit[loop_start + offset];
 }
 
+fn orbit_at_stacked(n: u32) -> StackedC {
+    let z = orbit_at(n);
+    return StackedC(sie_from_f32(z.x), sie_from_f32(z.y));
+}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let i = gid.x;
@@ -104,96 +109,64 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (p.flags & FLAG_ACTIVE) == 0u || (p.flags & FLAG_FINISHED) != 0u {
         return;
     }
-    let zero_orbit = uniforms.orbit_len <= 1u;
-    // Non-zero reference: fall back to f32 perturbation (stacked orbit upload is follow-up).
-    if (!zero_orbit) {
-        let c_re = p.dc_re;
-        let c_im = p.dc_im;
-        for (var step = 0u; step < uniforms.bout_iterations; step = step + 1u) {
-            if (p.flags & FLAG_FINISHED) != 0u {
-                break;
-            }
-            if (p.flags & FLAG_GLITCH) != 0u {
-                p.dz_re = 0.0;
-                p.dz_im = 0.0;
-                p.flags = (p.flags | FLAG_ACTIVE) & (~FLAG_GLITCH) & (~FLAG_FINISHED);
-            }
-            let n = p.iteration_count;
-            let z_ref = orbit_at(n);
-            var dz = vec2<f32>(p.dz_re, p.dz_im);
-            let z_full = z_ref + dz;
-            let z_ref_mag2 = dot(z_ref, z_ref);
-            let z_full_mag2 = dot(z_full, z_full);
-            if z_ref_mag2 > 1e-30 && z_full_mag2 < uniforms.glitch_threshold * z_ref_mag2 {
-                p.flags = p.flags | FLAG_GLITCH;
-                continue;
-            }
-            var d = vec2<f32>(p.d_re, p.d_im);
-            d = vec2<f32>(
-                2.0 * (z_full.x * d.x - z_full.y * d.y),
-                2.0 * (z_full.x * d.y + z_full.y * d.x)
-            );
-            let dz2 = vec2<f32>(dz.x * dz.x - dz.y * dz.y, 2.0 * dz.x * dz.y);
-            dz = vec2<f32>(
-                2.0 * (z_ref.x * dz.x - z_ref.y * dz.y) + dz2.x + c_re,
-                2.0 * (z_ref.x * dz.y + z_ref.y * dz.x) + dz2.y + c_im
-            );
-            p.iteration_count = p.iteration_count + 1u;
-            let z_ref_next = orbit_at(p.iteration_count);
-            let z_full_next = z_ref_next + dz;
-            p.dz_re = dz.x;
-            p.dz_im = dz.y;
-            p.d_re = d.x;
-            p.d_im = d.y;
-            let rad = dot(z_full_next, z_full_next);
-            if rad < p.min_magnitude {
-                p.min_magnitude = rad;
-                p.min_magnitude_time = p.iteration_count;
-            }
-            if rad > uniforms.bailout_radius_squared {
-                p.dz_re = z_full_next.x;
-                p.dz_im = z_full_next.y;
-                p.flags = p.flags | FLAG_ESCAPED | FLAG_FINISHED;
-                break;
-            }
-        }
-        points[i] = p;
-        return;
-    }
 
-    // Zero-orbit absolute iterate in stacked precision.
-    var z = StackedC(sie_from_f32(p.dz_re), sie_from_f32(p.dz_im));
+    var dz = StackedC(sie_from_f32(p.dz_re), sie_from_f32(p.dz_im));
     var d = StackedC(sie_from_f32(p.d_re), sie_from_f32(p.d_im));
-    let c = StackedC(sie_from_f32(p.dc_re), sie_from_f32(p.dc_im));
+    let dc = StackedC(sie_from_f32(p.dc_re), sie_from_f32(p.dc_im));
     let bail = sie_from_f32(uniforms.bailout_radius_squared);
+    let glitch = sie_from_f32(uniforms.glitch_threshold);
+    let tiny = sie_from_f32(1e-30);
+
     for (var step = 0u; step < uniforms.bout_iterations; step = step + 1u) {
         if (p.flags & FLAG_FINISHED) != 0u {
             break;
         }
-        // z := z^2 + c ; d := 2 z d
-        let z2 = sie_c_mul(z, z);
-        let two_zd = sie_c_mul(sie_c_scale2(z), d);
-        z = sie_c_add(z2, c);
-        d = two_zd;
+        if (p.flags & FLAG_GLITCH) != 0u {
+            dz = StackedC(sie_zero(), sie_zero());
+            p.flags = (p.flags | FLAG_ACTIVE) & (~FLAG_GLITCH) & (~FLAG_FINISHED);
+        }
+
+        let z_ref = orbit_at_stacked(p.iteration_count);
+        let z_full = sie_c_add(z_ref, dz);
+        let z_ref_mag2 = sie_norm2(z_ref);
+        let z_full_mag2 = sie_norm2(z_full);
+        // Glitch: |Z+z| << |Z| (skip when Z≈0, i.e. zero orbit).
+        if sie_cmp(z_ref_mag2, tiny) > 0
+            && sie_cmp(z_full_mag2, sie_mul(glitch, z_ref_mag2)) < 0
+        {
+            p.flags = p.flags | FLAG_GLITCH;
+            continue;
+        }
+
+        // d := 2 (Z+z) d ; dz := 2 Z dz + dz^2 + dc
+        let new_d = sie_c_mul(sie_c_scale2(z_full), d);
+        let dz2 = sie_c_mul(dz, dz);
+        let two_z_dz = sie_c_mul(sie_c_scale2(z_ref), dz);
+        dz = sie_c_add(sie_c_add(two_z_dz, dz2), dc);
+        d = new_d;
         p.iteration_count = p.iteration_count + 1u;
-        let rad = sie_norm2(z);
+
+        let z_ref_next = orbit_at_stacked(p.iteration_count);
+        let z_full_next = sie_c_add(z_ref_next, dz);
+        let rad = sie_norm2(z_full_next);
         let rad_f = sie_to_f32(rad);
         if rad_f < p.min_magnitude {
             p.min_magnitude = rad_f;
             p.min_magnitude_time = p.iteration_count;
         }
         if sie_cmp(rad, bail) > 0 {
-            p.dz_re = sie_to_f32(z.re);
-            p.dz_im = sie_to_f32(z.im);
+            p.dz_re = sie_to_f32(z_full_next.re);
+            p.dz_im = sie_to_f32(z_full_next.im);
             p.d_re = sie_to_f32(d.re);
             p.d_im = sie_to_f32(d.im);
             p.flags = p.flags | FLAG_ESCAPED | FLAG_FINISHED;
             break;
         }
     }
+
     if (p.flags & FLAG_FINISHED) == 0u {
-        p.dz_re = sie_to_f32(z.re);
-        p.dz_im = sie_to_f32(z.im);
+        p.dz_re = sie_to_f32(dz.re);
+        p.dz_im = sie_to_f32(dz.im);
         p.d_re = sie_to_f32(d.re);
         p.d_im = sie_to_f32(d.im);
     }

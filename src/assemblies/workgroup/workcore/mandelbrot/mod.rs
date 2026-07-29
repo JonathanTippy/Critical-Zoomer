@@ -150,6 +150,11 @@ pub struct ReferenceOrbit {
     , pub length: usize
     , pub f32: PeriodicOrbit<f32>
     , pub f64: PeriodicOrbit<f64>
+    // Packed stacked mirrors for limbs 1..=8 (index = limbs - 1).
+    // Each sample: `limbs` re limbs, `limbs` im limbs, re_exp, im_exp.
+    , pub stacked: [Vec<i32>; 8]
+    // Packed stacked SA coefficients (same layout), empty when SA unsupported.
+    , pub stacked_series: [Vec<i32>; 8]
 }
 
 impl ReferenceOrbit {
@@ -160,10 +165,14 @@ impl ReferenceOrbit {
         assert_eq!(self.length, self.f64.big_z_orbit.len());
     }
 
-    /// Pack the f64 orbit into stacked-i32 limbs for a GPU gear (1..=8).
-    /// Each sample is `limbs` re limbs, then `limbs` im limbs, then re_exp, im_exp.
+    /// Pack the f64 orbit into stacked-i32 limbs for a GPU/CPU gear (1..=8).
+    /// Prefers the stored mirror when present; otherwise builds on the fly.
     pub fn stacked_orbit_mirror(&self, limbs: u8) -> Vec<i32> {
         assert!((1..=8).contains(&limbs));
+        let stored = &self.stacked[(limbs - 1) as usize];
+        if !stored.is_empty() {
+            return stored.clone();
+        }
         let n = limbs as usize;
         let mut out = Vec::with_capacity(self.f64.big_z_orbit.len() * (2 * n + 2));
         for &(re, im) in &self.f64.big_z_orbit {
@@ -171,6 +180,42 @@ impl ReferenceOrbit {
             pack_f64_as_stacked(&mut out, im, n);
         }
         out
+    }
+
+    pub fn stacked_series_mirror(&self, limbs: u8) -> Vec<i32> {
+        assert!((1..=8).contains(&limbs));
+        let stored = &self.stacked_series[(limbs - 1) as usize];
+        if !stored.is_empty() {
+            return stored.clone();
+        }
+        let n = limbs as usize;
+        let mut out = Vec::with_capacity(self.f64.series.len() * (2 * n + 2));
+        for &(re, im) in &self.f64.series {
+            pack_f64_as_stacked(&mut out, re, n);
+            pack_f64_as_stacked(&mut out, im, n);
+        }
+        out
+    }
+
+    fn fill_stacked_mirrors_from_f64(f64_orbit: &PeriodicOrbit<f64>) -> ([Vec<i32>; 8], [Vec<i32>; 8]) {
+        let mut stacked: [Vec<i32>; 8] = Default::default();
+        let mut stacked_series: [Vec<i32>; 8] = Default::default();
+        for limbs in 1u8..=8 {
+            let n = limbs as usize;
+            let mut orbit_pack = Vec::with_capacity(f64_orbit.big_z_orbit.len() * (2 * n + 2));
+            for &(re, im) in &f64_orbit.big_z_orbit {
+                pack_f64_as_stacked(&mut orbit_pack, re, n);
+                pack_f64_as_stacked(&mut orbit_pack, im, n);
+            }
+            stacked[(limbs - 1) as usize] = orbit_pack;
+            let mut series_pack = Vec::with_capacity(f64_orbit.series.len() * (2 * n + 2));
+            for &(re, im) in &f64_orbit.series {
+                pack_f64_as_stacked(&mut series_pack, re, n);
+                pack_f64_as_stacked(&mut series_pack, im, n);
+            }
+            stacked_series[(limbs - 1) as usize] = series_pack;
+        }
+        (stacked, stacked_series)
     }
 
     pub fn zero() -> Self {
@@ -184,12 +229,15 @@ impl ReferenceOrbit {
             , big_z_orbit: vec![(0.0f64, 0.0f64)]
             , series: Vec::new()
         };
+        let (stacked, stacked_series) = Self::fill_stacked_mirrors_from_f64(&f64);
         ReferenceOrbit {
             big_c: (IntExp::ZERO, IntExp::ZERO)
             , period: 1
             , length: 1
             , f32
             , f64
+            , stacked
+            , stacked_series
         }
     }
 
@@ -199,9 +247,13 @@ impl ReferenceOrbit {
                 std::mem::size_of::<(f32, f32)>()
                 + std::mem::size_of::<(f64, f64)>()
             );
+        let stacked_bytes: usize = self.stacked.iter().map(|v: &Vec<i32>| v.len() * 4).sum();
+        let stacked_series_bytes: usize = self.stacked_series.iter().map(|v: &Vec<i32>| v.len() * 4).sum();
         point_bytes
             + self.f32.series.len() * std::mem::size_of::<(f32, f32)>()
             + self.f64.series.len() * std::mem::size_of::<(f64, f64)>()
+            + stacked_bytes
+            + stacked_series_bytes
             + std::mem::size_of::<ReferenceOrbit>()
     }
 }
@@ -376,20 +428,24 @@ fn build_reference_orbit_f64(
         .iter()
         .map(|&(re, im)| (re as f32, im as f32))
         .collect();
+    let f64_orbit = PeriodicOrbit {
+        period
+        , big_z_orbit: orbit_f64
+        , series: series_f64
+    };
+    let (stacked, stacked_series) = ReferenceOrbit::fill_stacked_mirrors_from_f64(&f64_orbit);
     let orbit = ReferenceOrbit {
         big_c
         , period
-        , length: orbit_f64.len()
+        , length: f64_orbit.big_z_orbit.len()
         , f32: PeriodicOrbit {
             period
             , big_z_orbit: orbit_f32
             , series: series_f32
         }
-        , f64: PeriodicOrbit {
-            period
-            , big_z_orbit: orbit_f64
-            , series: series_f64
-        }
+        , f64: f64_orbit
+        , stacked
+        , stacked_series
     };
     orbit.assert_validity();
     Some(orbit)
@@ -421,6 +477,26 @@ mod reference_collection_tests {
             let packed = zero.stacked_orbit_mirror(limbs);
             // one sample: re limbs+exp + im limbs+exp
             assert_eq!(packed.len(), 2 * (limbs as usize + 1));
+            assert!(
+                !zero.stacked[(limbs - 1) as usize].is_empty()
+                , "stored stacked mirror must be filled for limbs={limbs}"
+            );
+        }
+    }
+
+    #[test]
+    fn build_reference_fills_all_stacked_mirrors() {
+        let orbit = build_reference_orbit_f64(
+            (IntExp::from(-1), IntExp::ZERO)
+            , (-1.0, 0.0)
+            , 2
+        )
+        .expect("period-2 nucleus orbit");
+        for limbs in 1u8..=8 {
+            assert_eq!(
+                orbit.stacked[(limbs - 1) as usize].len()
+                , orbit.length * 2 * (limbs as usize + 1)
+            );
         }
     }
 

@@ -85,6 +85,7 @@ e2e_assert_rmse_lt \
   "zoomout nearer home than zoomin"
 
 # --- Scroll bumps (hover at center after focus) ---
+# r[verify cz.ctrl.scroll-up-zooms-in+1] (headed): button 4 = scroll-up = zoom in.
 e2e_send "home"
 sleep 0.3
 e2e_send "settle home2.png 5 2000 1200" || true
@@ -97,6 +98,7 @@ e2e_send "scroll 10"
 end_ms=$(date +%s%3N)
 elapsed=$((end_ms - start_ms))
 echo "scroll10_elapsed_ms=$elapsed"
+sleep 1.0
 e2e_send "capture post_scroll.png"
 e2e_wait_file "$E2E_OUT/post_scroll.png" 20 || { e2e_fail_msg "missing $E2E_OUT/post_scroll.png"; e2e_exit; }
 e2e_assert_rmse_nonzero "$E2E_OUT/pre_scroll.png" "$E2E_OUT/post_scroll.png" "scroll10"
@@ -106,6 +108,15 @@ if [ "$elapsed" -le 2000 ]; then
 else
   e2e_fail_msg "scroll10 dispatch too slow ${elapsed}ms"
 fi
+# Polarity: scroll-up (positive count) must deepen like Shift — farther from home than after equal scroll-down.
+e2e_send "scroll -10"
+sleep 1.0
+e2e_send "capture post_scroll_out.png"
+e2e_wait_file "$E2E_OUT/post_scroll_out.png" 20 || { e2e_fail_msg "missing $E2E_OUT/post_scroll_out.png"; e2e_exit; }
+e2e_assert_rmse_lt \
+  "$E2E_OUT/pre_scroll.png" "$E2E_OUT/post_scroll_out.png" \
+  "$E2E_OUT/pre_scroll.png" "$E2E_OUT/post_scroll.png" \
+  "scroll-up deeper than scroll-down return"
 
 # --- Pan: arrow key ---
 e2e_send "capture pre_pan.png"

@@ -42,21 +42,28 @@ impl PointStencil {
         } else { None }
     }
     fn type_contains_all_points<T: Mandelbrotable>(&self) -> bool {
-        T::from(self.homothety.0.clone() + self.space()) != T::from(self.homothety.0.clone())
-            && T::from(self.homothety.1.clone() + self.space()) != T::from(self.homothety.1.clone())
-            && T::from(self.homothety.0.clone() + self.space() * (self.resolution.0 - 1).into() - self.homothety.0.clone())
-            != T::from(self.homothety.0.clone() + self.space() * (self.resolution.0 - 1).into())
-            && T::from(self.homothety.1.clone() + self.space() * (self.resolution.1 - 1).into() - self.homothety.1.clone())
-            != T::from(self.homothety.1.clone() + self.space() * (self.resolution.1 - 1).into())
+        let space = self.space();
+        let re0 = self.homothety.0.clone();
+        let im0 = self.homothety.1.clone();
+        let re_last = re0.clone() + space.clone() * (self.resolution.0.saturating_sub(1)).into();
+        let im_last = im0.clone() + space.clone() * (self.resolution.1.saturating_sub(1)).into();
+        // Neighbor seats distinct in T, and the stencil span is representable.
+        // (Do not use `p - origin != p` — that is always false when origin is 0.)
+        T::from(re0.clone() + space.clone()) != T::from(re0.clone())
+            && T::from(im0.clone() + space.clone()) != T::from(im0.clone())
+            && T::from(re_last) != T::from(re0)
+            && T::from(im_last) != T::from(im0)
     }
     fn type_contains_all_points_relative<T: Mandelbrotable>(&self, origin: &(IntExp, IntExp)) -> bool {
-        let location = (self.homothety.0.clone() - origin.0.clone(), self.homothety.1.clone() - origin.1.clone());
-        T::from(location.0.clone() + self.space()) != T::from(location.0.clone())
-            && T::from(location.1.clone() + self.space()) != T::from(location.1.clone())
-            && T::from(location.0.clone() + self.space() * (self.resolution.0 - 1).into() - location.0.clone())
-            != T::from(location.0.clone() + self.space() * (self.resolution.0 - 1).into())
-            && T::from(location.1.clone() + self.space() * (self.resolution.1 - 1).into() - location.1.clone())
-            != T::from(location.1.clone() + self.space() * (self.resolution.1 - 1).into())
+        let space = self.space();
+        let re0 = self.homothety.0.clone() - origin.0.clone();
+        let im0 = self.homothety.1.clone() - origin.1.clone();
+        let re_last = re0.clone() + space.clone() * (self.resolution.0.saturating_sub(1)).into();
+        let im_last = im0.clone() + space.clone() * (self.resolution.1.saturating_sub(1)).into();
+        T::from(re0.clone() + space.clone()) != T::from(re0.clone())
+            && T::from(im0.clone() + space.clone()) != T::from(im0.clone())
+            && T::from(re_last) != T::from(re0)
+            && T::from(im_last) != T::from(im0)
     }
     pub fn space(&self) -> IntExp {
         let one = IntExp::from(1);

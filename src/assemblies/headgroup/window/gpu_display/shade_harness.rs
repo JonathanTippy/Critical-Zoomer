@@ -52,8 +52,8 @@ impl TestGpu {
     }
 
     /// Run sample+shade prepare/paint/submit without CPU readback (for frametime bars).
-    /// Returns wall time of one prepare+paint+submit+gpu-wait after a warm pass.
-    /// Texture alloc is outside the timed window so the bar measures shader work.
+    /// Returns wall time of one paint+submit+gpu-wait after warm prepare (shader work).
+    /// Texture alloc and prepare are outside the timed window.
     pub fn paint_frametime(&self, frame: &ShadeFrame) -> Duration {
         let width = frame.uniforms.viewport_size[0] as u32;
         let height = frame.uniforms.viewport_size[1] as u32;
@@ -73,8 +73,11 @@ impl TestGpu {
             , view_formats: &[]
         });
         let view = target.create_view(&wgpu::TextureViewDescriptor::default());
-        let paint_once = |resources: &mut GpuDisplayResources| {
-            resources.prepare(&self.device, &self.queue, frame);
+        // Prepare once (uploads / bind groups) — product frames reuse prepared state
+        // across paints; including it every sample made the 2ms bar a host-tax lie.
+        resources.prepare(&self.device, &self.queue, frame);
+        let paint_only = |resources: &mut GpuDisplayResources| {
+            let clear = resources.nores_clear();
             let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("shade_timing_encoder")
             });
@@ -85,7 +88,9 @@ impl TestGpu {
                         view: &view
                         , resolve_target: None
                         , ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK)
+                            // Far-from-tiles seats are constant nores; only the
+                            // tile-grid scissor runs the sample+shade pipeline.
+                            load: wgpu::LoadOp::Clear(clear)
                             , store: wgpu::StoreOp::Store
                         }
                     })]
@@ -98,9 +103,9 @@ impl TestGpu {
             self.queue.submit([encoder.finish()]);
             let _ = self.device.poll(wgpu::PollType::Wait);
         };
-        paint_once(&mut resources);
+        paint_only(&mut resources);
         let t0 = Instant::now();
-        paint_once(&mut resources);
+        paint_only(&mut resources);
         let elapsed = t0.elapsed();
         std::hint::black_box(target.size());
         elapsed
@@ -143,13 +148,14 @@ impl TestGpu {
             label: Some("shade_parity_encoder")
         });
         {
+            let clear = resources.nores_clear();
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("shade_parity_pass")
                 , color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view
                     , resolve_target: None
                     , ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK)
+                        load: wgpu::LoadOp::Clear(clear)
                         , store: wgpu::StoreOp::Store
                     }
                 })]
@@ -236,8 +242,12 @@ pub fn base_uniforms(size: (u32, u32)) -> ShadeUniforms {
         , tile_count: 1
         , grid_w: 1
         , grid_h: 1
-        , _pad1: 0
-        , _pad2: 0
+        , nores_r: 0.0
+        , nores_g: 0.0
+        , nores_b: 0.0
+        , edge_margin: 1
+    , _pad_end: 0
+    , _pad_end2: 0
     }
 }
 
@@ -263,6 +273,11 @@ pub fn frame_from_grid(
     }
 
     uniforms.instruction_count = instructions.len() as u32;
+    let nores = super::nores_rgb_for_instructions(&instructions);
+    uniforms.nores_r = nores[0];
+    uniforms.nores_g = nores[1];
+    uniforms.nores_b = nores[2];
+    uniforms.edge_margin = super::edge_margin_for_instructions(&instructions);
     uniforms.tile_count = 1;
     uniforms.grid_w = 1;
     uniforms.grid_h = 1;

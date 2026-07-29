@@ -37,6 +37,8 @@ pub const NORES_ANSWER:Answer = Answer{
     }
     , min_magnitude_time: 0
     , min_magnitude: f64::INFINITY
+    , escape_time_angle: 0
+    , min_magnitude_angle: 0
 };
 
 #[cfg(test)]

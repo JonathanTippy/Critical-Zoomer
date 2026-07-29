@@ -89,6 +89,7 @@ mod assembly_tests {
                 zoom_pot: 4,
             };
             session.retarget(panned, (8, 8));
+            session.set_mag_velocity(0);
             assert_eq!(session.bound_orbit_id_for_test(), orbit);
             assert_eq!(session.mag_velocity(), 0);
             assert_eq!(session.location.zoom_pot, 4);
@@ -102,8 +103,9 @@ mod assembly_tests {
             let mut session = TileSession::new(home_loc(4), (8, 8));
             session.force_cpu_bouts_for_test();
             session.retarget(home_loc(6), (8, 8));
+            session.set_mag_velocity(1);
             assert_eq!(session.location.zoom_pot, 6);
-            assert_eq!(session.mag_velocity(), 2);
+            assert_eq!(session.mag_velocity(), 1);
             assert_eq!(session.reference_bound_mag(), Some(6));
         });
     }

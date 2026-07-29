@@ -16,13 +16,6 @@ r[cz.math.intexp-mul-associative+1]
 **Acceptance criteria.**
 - [x] For arbitrary finite `a`, `b`, `c` within test bounds, `(a * b) * c == a * (b * c)`.
 
-r[cz.math.homothety-zoom-fill-associative+1]
-
-**Normative summary.** Dyadic fill under successive equal zoom-ins is associative (4x equals two 2x fills).
-
-**Acceptance criteria.**
-- [x] Covered by `View::fill_from` associativity property.
-
 r[cz.math.mandelbrot-real-axis-symmetry+1]
 
 **Normative summary.** Mandelbrot membership / escape classification is symmetric across the real axis for conjugate `c`.

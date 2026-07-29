@@ -25,4 +25,8 @@ Drop a reference when:
 
 ## Delivery (UD-REF-5) — inferred
 
-References are delivered to the tile worker. Glitch handling stays inside the tile worker and does **not** notify the reference worker (auth tile_worker).
+References are delivered to the tile worker. Glitch handling stays inside the tile worker and does **not** notify the reference worker (auth tile_worker). No reference rebase: fall back to the const zero orbit (Z=0 every iteration) while running the same per-point code.
+
+## Input (UD-REF-6) — architecture addendum
+
+Stencil source is the **headgroup**, not the tile scheduler. Reference worker considers the whole screen only — never tiles.

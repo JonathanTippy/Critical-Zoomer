@@ -22,6 +22,6 @@ If no tile covers the pixel, emit **nores** (infinity-through-the-system), not b
 
 Authoritative notes call half-offset unproven / moot for static-tile sampling. Do **not** apply a half-pixel bias in the sampling shader unless a later authoritative edit requires it.
 
-## Associativity (UD-DYAD-4) — inferred
+## Sampling stability (UD-DYAD-4) — inferred
 
-Authoritative: associativity moot because tiles are not repeatedly remapped. Tests should target single-sample nearest/up-left stability under 2× zoom vs pan equivalence where exact pixels exist, not multi-hop fill_from chains.
+Tiles stay fixed at their addresses; each frame samples them onto the stencil once (nearest, up-left on ties). Do not rewrite tile data under pan/zoom. Tests: same exact pixels under 2× zoom vs equivalent pan after a single sample pass — not multi-hop remap chains. Zoom-fill / `View::fill_from` is a dead design idea.

@@ -77,16 +77,6 @@ pub fn floor_div_tile(v: i32) -> i32 {
 }
 
 impl SamplingContext {
-    pub fn clear_tiles(&mut self) {
-        self.tiles.clear();
-        self.tile_gpu_ids.clear();
-        self.handle_filled.clear();
-        self.pending_tile_uploads.clear();
-        self.reset_gpu_tile_slots = true;
-        self.proximate_answers = true;
-        self.unsent_answers = true;
-    }
-
     // r[impl cz.int.memory-bump+1]
     pub fn prune_distant_tiles(&mut self) {
         use crate::assemblies::workgroup::tile_manager::{
@@ -147,7 +137,10 @@ impl SamplingContext {
     // r[impl cz.int.hoard-ingest-sample+1]
     // r[impl cz.hoarding.one-answer-per-point+1]
     /// Live path: ingest a handle whose answers already live in the production atlas.
-    pub fn ingest_gpu_handle(&mut self, mut handle: GpuTileHandle) {
+    ///
+    /// Returns `true` only when this ingest newly completes a **whole** tile
+    /// (standards HUD TPS: new completed tiles, not WIP update rate).
+    pub fn ingest_gpu_handle(&mut self, mut handle: GpuTileHandle) -> bool {
         let key = handle.absolute_key();
         let existing_filled = self.handle_filled.get(&key).copied().or_else(|| {
             self.tiles.get(&key).and_then(|versions| {
@@ -164,9 +157,15 @@ impl SamplingContext {
                         }
                     }
                 }
-                return;
+                return false;
             }
         }
+
+        let was_complete = existing_filled
+            .map(|f| f >= TILE_SEAT_COUNT as u32)
+            .unwrap_or(false);
+        let now_complete = handle.filled_seats >= TILE_SEAT_COUNT as u32;
+        let newly_completed_whole = now_complete && !was_complete;
 
         let gpu_id = self.tile_gpu_ids.get(&key).and_then(|ids| ids.first().copied()).unwrap_or_else(|| {
             let id = self.next_tile_gpu_id;
@@ -197,12 +196,30 @@ impl SamplingContext {
             self.pending_tile_uploads.push(upload);
         }
         self.unsent_answers = true;
+        // #region agent log
+        if newly_completed_whole || handle.filled_seats > 0 {
+            crate::assemblies::workgroup::debug_session::log(
+                "H-TPS-COUNT",
+                "sampling.rs:ingest_gpu_handle",
+                "ingest_tps_gate",
+                &format!(
+                    "{{\"filled\":{},\"complete\":{},\"newly_completed_whole\":{},\"was_complete\":{}}}",
+                    handle.filled_seats,
+                    now_complete,
+                    newly_completed_whole,
+                    was_complete
+                ),
+            );
+        }
+        // #endregion
+        newly_completed_whole
     }
 
     // r[impl cz.int.hoard-ingest-sample+1]
     // r[impl cz.hoarding.one-answer-per-point+1]
-    pub fn ingest_gpu_tile(&mut self, tile: GPUTile) {
-        self.ingest_gpu_handle(GpuTileHandle::from_gpu_tile(tile, None));
+    /// Returns whether this ingest newly completed a whole tile (HUD TPS).
+    pub fn ingest_gpu_tile(&mut self, tile: GPUTile) -> bool {
+        self.ingest_gpu_handle(GpuTileHandle::from_gpu_tile(tile, None))
     }
 
     pub fn lookup_answer_viewport(&self, seat: (usize, usize)) -> Answer {
@@ -361,8 +378,8 @@ impl SamplingContext {
 #[cfg(test)]
 mod hoard_tests {
     use super::*;
-    use crate::assemblies::structs::{GPUTile, MandelbrotResult, Tile};
-    use crate::constants::{NORES_ANSWER, TILE_EDGE_LENGTH};
+    use crate::assemblies::structs::{Answer, GPUTile, MandelbrotResult, Tile};
+    use crate::constants::{NORES_ANSWER, TILE_EDGE_LENGTH, TILE_SEAT_COUNT};
     use crate::intexp::IntExp;
     use std::collections::HashMap;
 
@@ -402,6 +419,68 @@ mod hoard_tests {
         ctx.ingest_gpu_tile(GPUTile::from_answer_tile(&a, (64, 64), loc));
         assert_eq!(ctx.tiles.len(), 1);
         assert_eq!(ctx.tiles.values().next().unwrap().len(), 1);
+    }
+
+    fn full_answer_tile(origin: (usize, usize), zoom: i32) -> Tile<Answer> {
+        let mut tile = Tile::new(origin, zoom);
+        for y in 0..TILE_EDGE_LENGTH {
+            for x in 0..TILE_EDGE_LENGTH {
+                tile.set((x, y), NORES_ANSWER);
+            }
+        }
+        tile
+    }
+
+    fn partial_answer_tile(origin: (usize, usize), zoom: i32, n: usize) -> Tile<Answer> {
+        let mut tile = Tile::new(origin, zoom);
+        for i in 0..n {
+            tile.set((i % TILE_EDGE_LENGTH, i / TILE_EDGE_LENGTH), NORES_ANSWER);
+        }
+        tile
+    }
+
+    // Standards HUD TPS: only *new completed whole* tiles — not WIP emits.
+    // r[verify cz.perf.home-100tps+1]
+    #[test]
+    fn ingest_tps_ignores_wip_and_republish() {
+        let mut ctx = empty_ctx(0);
+        let loc = ObjectivePosAndZoom {
+            pos: (IntExp::ZERO, IntExp::ZERO),
+            zoom_pot: 0,
+        };
+        let wip = partial_answer_tile((0, 0), 0, 100);
+        assert!(
+            !ctx.ingest_gpu_tile(GPUTile::from_answer_tile(&wip, (64, 64), loc.clone())),
+            "partial WIP must not count as completed TPS"
+        );
+        let wip2 = partial_answer_tile((0, 0), 0, 2000);
+        assert!(
+            !ctx.ingest_gpu_tile(GPUTile::from_answer_tile(&wip2, (64, 64), loc.clone())),
+            "fuller WIP still incomplete — not TPS"
+        );
+        let done = full_answer_tile((0, 0), 0);
+        assert!(
+            ctx.ingest_gpu_tile(GPUTile::from_answer_tile(&done, (64, 64), loc.clone())),
+            "first whole-tile completion must count"
+        );
+        assert!(
+            !ctx.ingest_gpu_tile(GPUTile::from_answer_tile(&done, (64, 64), loc)),
+            "republish of already-complete tile must not count again"
+        );
+    }
+
+    // r[verify cz.perf.home-100tps+1]
+    #[test]
+    fn ingest_tps_counts_each_new_complete_key_once() {
+        let mut ctx = empty_ctx(0);
+        let loc = ObjectivePosAndZoom {
+            pos: (IntExp::ZERO, IntExp::ZERO),
+            zoom_pot: 0,
+        };
+        let a = full_answer_tile((0, 0), 0);
+        let b = full_answer_tile((TILE_EDGE_LENGTH, 0), 0);
+        assert!(ctx.ingest_gpu_tile(GPUTile::from_answer_tile(&a, (128, 64), loc.clone())));
+        assert!(ctx.ingest_gpu_tile(GPUTile::from_answer_tile(&b, (128, 64), loc)));
     }
 
     // r[verify cz.hoarding.one-answer-per-point+1]
@@ -451,7 +530,9 @@ mod hoard_tests {
             },
             min_magnitude_time: 0,
             min_magnitude: 4.0,
-        }
+            escape_time_angle: 0,
+            min_magnitude_angle: 0
+}
     }
 
     // Overlapping same / coarser / finer: finer must win when same is absent.
@@ -544,6 +625,78 @@ mod hoard_tests {
         assert!(
             ctx.tiles.contains_key(&(0, 0, 0))
             , "current stencil must survive the prune"
+        );
+    }
+
+    #[test]
+    fn zoom_location_change_does_not_wipe_hoard() {
+        let mut ctx = empty_ctx(0);
+        let mut tile = Tile::new((0, 0), 0);
+        tile.set((0, 0), NORES_ANSWER);
+        let loc = ObjectivePosAndZoom {
+            pos: (IntExp::ZERO, IntExp::ZERO),
+            zoom_pot: 0,
+        };
+        ctx.ingest_gpu_tile(GPUTile::from_answer_tile(&tile, (64, 64), loc));
+        let before = ctx.tiles.len();
+        assert!(before > 0);
+        ctx.location.zoom_pot = 1;
+        ctx.updated = true;
+        // Product path no longer has clear_tiles; location change alone must keep tiles.
+        assert_eq!(ctx.tiles.len(), before);
+    }
+
+    #[test]
+    fn build_shade_frame_emits_entry_per_live_tile_version() {
+        use crate::assemblies::headgroup::window::gpu_display::build_shade_frame;
+        use crate::settings::Settings;
+        let mut ctx = empty_ctx(0);
+        let mut tile = Tile::new((0, 0), 0);
+        tile.set((0, 0), NORES_ANSWER);
+        let loc = ObjectivePosAndZoom {
+            pos: (IntExp::ZERO, IntExp::ZERO),
+            zoom_pot: 0,
+        };
+        ctx.ingest_gpu_tile(GPUTile::from_answer_tile(&tile, (64, 64), loc.clone()));
+        let mut coarse = Tile::new((0, 0), -1);
+        coarse.set((0, 0), NORES_ANSWER);
+        let loc_coarse = ObjectivePosAndZoom {
+            pos: (IntExp::ZERO, IntExp::ZERO),
+            zoom_pot: -1,
+        };
+        ctx.ingest_gpu_tile(GPUTile::from_answer_tile(&coarse, (64, 64), loc_coarse));
+        let live_versions: usize = ctx.tiles.values().map(|v| v.len()).sum();
+        let mut settings = Settings::DEFAULT;
+        let frame = build_shade_frame(&mut ctx, &mut settings);
+        assert_eq!(
+            frame.entry_ids.len()
+            , live_versions
+            , "every live tile version must become a sample entry"
+        );
+    }
+
+    #[test]
+    fn zoom_keeps_lesser_sample_entry() {
+        use crate::assemblies::headgroup::window::gpu_display::build_shade_frame;
+        use crate::settings::Settings;
+        let mut ctx = empty_ctx(0);
+        let mut tile = Tile::new((0, 0), 0);
+        tile.set((0, 0), NORES_ANSWER);
+        let loc = ObjectivePosAndZoom {
+            pos: (IntExp::ZERO, IntExp::ZERO),
+            zoom_pot: 0,
+        };
+        ctx.ingest_gpu_tile(GPUTile::from_answer_tile(&tile, (64, 64), loc));
+        ctx.location.zoom_pot = 1;
+        let mut settings = Settings::DEFAULT;
+        let frame = build_shade_frame(&mut ctx, &mut settings);
+        assert!(
+            !frame.entry_ids.is_empty()
+            , "after zoom-in, prior tiles must still sample as lesser"
+        );
+        assert!(
+            frame.tile_entries.iter().any(|e| e.zoom_delta > 0)
+            , "expected a lesser (positive zoom_delta) entry"
         );
     }
 }

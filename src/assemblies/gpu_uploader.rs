@@ -1,7 +1,7 @@
 use steady_state::*;
 use crate::assemblies::structs::*;
 use crate::assemblies::headgroup::window::gpu_display::pack_tile_upload;
-use crate::assemblies::workgroup::screen_worker::AnswerTilePublish;
+use crate::assemblies::workgroup::tile_worker::AnswerTilePublish;
 use crate::assemblies::workgroup::production_atlas::ProductionAtlas;
 
 pub struct GpuUploaderState {
@@ -37,7 +37,8 @@ async fn internal_behavior<A: SteadyActor>(
         , production: ProductionAtlas::shared()
     }).await;
 
-    let max_sleep = Duration::from_millis(2);
+    // Always re-check inputs at a quick pace; fully drain below.
+    let max_sleep = Duration::from_millis(1);
 
     while actor.is_running(
         || i!(tiles_out.mark_closed())
@@ -91,7 +92,7 @@ async fn internal_behavior<A: SteadyActor>(
     Ok(())
 }
 
-fn place_on_production_atlas(
+pub(crate) fn place_on_production_atlas(
     production: &crate::assemblies::workgroup::production_atlas::SharedProductionAtlas
     , gpu_tile: GPUTile
 ) -> GpuTileHandle {

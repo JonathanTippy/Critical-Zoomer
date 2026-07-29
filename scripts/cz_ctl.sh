@@ -62,10 +62,10 @@ cz_ctl_daemon() {
         export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json
         echo "cz_ctl: Mesa EGL for DISPLAY=$DISPLAY" >&2
       fi
-      # Sync GPU bout readback under Xvfb starves home fill; CPU bouts keep pace.
-      if [ -z "${CZ_FORCE_CPU_BOUTS:-}" ]; then
-        export CZ_FORCE_CPU_BOUTS=1
-        echo "cz_ctl: CZ_FORCE_CPU_BOUTS=1 for DISPLAY=$DISPLAY" >&2
+      # Product default is GPU-preferred (resident bouts). Keep
+      # CZ_FORCE_CPU_BOUTS=1 as an explicit escape hatch for starved Xvfb hosts.
+      if [ "${CZ_FORCE_CPU_BOUTS:-}" = "1" ]; then
+        echo "cz_ctl: CZ_FORCE_CPU_BOUTS=1 (explicit) for DISPLAY=$DISPLAY" >&2
       fi
       ;;
   esac

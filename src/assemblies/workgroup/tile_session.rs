@@ -7,6 +7,7 @@ use crate::assemblies::workgroup::structs::mandelbrotable::*;
 use crate::assemblies::workgroup::workcore::mandelbrot::*;
 use crate::assemblies::workgroup::workcore::mandelbrot::scheduler_implementations::outfill_infill_scheduler::*;
 use crate::assemblies::workgroup::workcore::mandelbrot::scheduler_implementations::tile_scheduler::*;
+use crate::assemblies::workgroup::workcore::mandelbrot::worker_implementations::active_gear_work::ActiveGearWork;
 use crate::assemblies::workgroup::workcore::mandelbrot::worker_implementations::perturbation_gpu_worker::*;
 use crate::assemblies::workgroup::workcore::mandelbrot::worker_implementations::periodicity_detector::*;
 use crate::assemblies::workgroup::workcore::mandelbrot::worker_implementations::reference_worker::ReferenceWorker;
@@ -34,13 +35,13 @@ struct ActiveTileWork {
     tile_index: usize
     , tile: Tile<()>
     , scheduler: OutfillInfillSchedulerState
-    , batch: Option<PointBatch<f64, CpuPeriodicityDetector, BATCH_N>>
+    , batch: Option<ActiveGearWork<BATCH_N>>
 }
 
 struct ScredgeWork {
     seats: [Option<(usize, usize)>; BATCH_N]
     , tile: Tile<()>
-    , batch: Option<PointBatch<f64, CpuPeriodicityDetector, BATCH_N>>
+    , batch: Option<ActiveGearWork<BATCH_N>>
 }
 
 struct LookaheadWork {
@@ -48,7 +49,7 @@ struct LookaheadWork {
     , tile: Tile<()>
     , answer_tile: Box<Tile<Answer>>
     , scheduler: OutfillInfillSchedulerState
-    , batch: Option<PointBatch<f64, CpuPeriodicityDetector, BATCH_N>>
+    , batch: Option<ActiveGearWork<BATCH_N>>
     , saved_stencil: Option<PointStencil>
     , saved_seat_orbit_ids: Vec<OrbitId>
     , saved_screen_width: usize
@@ -79,6 +80,9 @@ pub struct TileSession {
     , screen_work_ns: u128
     // Nanoseconds spent on lookahead work.
     , lookahead_work_ns: u128
+    // After retarget/gesture: prefer screen + republish until something is visible
+    // again (standards 100ms play bar).
+    , play_need_visible: bool
 }
 
 impl TileSession {
@@ -106,6 +110,19 @@ impl TileSession {
         } else {
             PerturbationGpuWorkerState::prefer_available_gpu()
         };
+        // #region agent log
+        crate::assemblies::workgroup::debug_session::log(
+            "H-GPU-PATH",
+            "tile_session.rs:new",
+            "worker_path_at_session_start",
+            &format!(
+                "{{\"path\":\"{:?}\",\"gpu_desired\":{},\"force_cpu_env\":{}}}",
+                worker_state.path,
+                worker_state.is_gpu_preferred(),
+                std::env::var("CZ_FORCE_CPU_BOUTS").is_ok()
+            ),
+        );
+        // #endregion
         worker_state.stencil = Some(stencil.clone());
         worker_state.screen_width = res.0;
         // r[impl cz.seamless.reference-background+1]
@@ -144,6 +161,7 @@ impl TileSession {
             , lookahead_unsent: Vec::new()
             , screen_work_ns: 0
             , lookahead_work_ns: 0
+            , play_need_visible: true
         }
     }
 
@@ -154,6 +172,21 @@ impl TileSession {
 
     pub fn set_mag_velocity(&mut self, mag_velocity: i32) {
         TileScheduler::set_mag_velocity(&mut self.tile_scheduler, mag_velocity);
+        // Mag-mode changes often arrive as a Retarget with unchanged location;
+        // still demand a visible refresh within the play bar.
+        self.touch_play_visible();
+    }
+
+    /// Mark that a gesture/retarget requires something publishable soon.
+    /// Re-queues existing answer tiles so play is not starved by lookahead.
+    fn touch_play_visible(&mut self) {
+        self.play_need_visible = true;
+        for origin in self.answer_tiles.keys().copied() {
+            self.unsent_origins.insert(origin);
+        }
+        if self.has_unsent_publish() {
+            self.play_need_visible = false;
+        }
     }
 
     pub fn mag_velocity(&self) -> i32 {
@@ -164,8 +197,151 @@ impl TileSession {
         self.worker_state.use_cpu_bouts_only();
     }
 
+    pub fn set_iterations_per_bout_for_test(&mut self, bout: u32) {
+        self.worker_state.cpu.iterations_per_bout = bout.max(1);
+    }
+
+    /// Full wipe of screen progress (no pan remap). Used by full-stack IPS bars so
+    /// scheduling stays live for the whole timed window.
+    pub fn work_once_for_ips_test(&mut self) -> bool { self.work_once() }
+    pub fn seats_done_for_test(&self) -> usize { self.seats_done }
+    pub fn seats_total_for_test(&self) -> usize { self.seats_total }
+    pub fn has_active_tile_for_test(&self) -> bool { self.active_tile.is_some() }
+    pub fn active_batch_open_count_for_test(&self) -> usize {
+        let Some(work) = self.active_tile.as_ref() else { return 0 };
+        let Some(batch) = work.batch.as_ref() else { return 0 };
+        let host = batch.to_host_batch();
+        host.points.iter().filter(|s| s.as_ref().map(|(_,p)| !p.finished).unwrap_or(false)).count()
+    }
+    pub fn active_batch_slot_count_for_test(&self) -> usize {
+        let Some(work) = self.active_tile.as_ref() else { return 0 };
+        let Some(batch) = work.batch.as_ref() else { return 0 };
+        let host = batch.to_host_batch();
+        host.points.iter().filter(|s| s.is_some()).count()
+    }
+    pub fn bound_orbit_for_test(&self) -> u32 { self.reference_worker.bound_orbit_id() }
+
+
+    /// IPS bar helper: pack via the normal scheduler, then spend the budget in
+    /// tight host/GPU bouts on the open batch (still the live worker path).
+
+    /// Rebind open batch points to a fixed delta-c on the zero orbit (IPS fixtures).
+    pub fn rebind_open_batch_c_for_ips_test(&mut self, c: (f64, f64)) {
+        let rebind = |batch: &mut ActiveGearWork<BATCH_N>| {
+            batch.with_host_mut(|host| {
+                for slot in host.points.iter_mut() {
+                    let Some((_, point)) = slot else { continue };
+                    if point.finished { continue; }
+                    point.orbit_id = ZERO_ORBIT_ID;
+                    point.c = c;
+                    point.z = (0.0, 0.0);
+                    point.derivative = (1.0, 0.0);
+                    point.real_squared = 0.0;
+                    point.imag_squared = 0.0;
+                    point.real_imag = 0.0;
+                    point.iteration_count = 0;
+                    point.min_magnitude = f64::MAX;
+                    point.min_magnitude_time = 0;
+                    point.periodicity_detector = CpuPeriodicityDetector::init(0, point.z, point.derivative);
+                    point.escaped = false;
+                    point.finished = false;
+                }
+            });
+        };
+        if let Some(work) = self.active_tile.as_mut() {
+            if let Some(batch) = work.batch.as_mut() {
+                rebind(batch);
+            }
+        }
+        if let Some(work) = self.scredge_work.as_mut() {
+            if let Some(batch) = work.batch.as_mut() {
+                rebind(batch);
+            }
+        }
+    }
+
+    pub fn workshift_ips_burst_for_test(&mut self, budget_ms: u128) {
+        let started = Instant::now();
+        // Pack until we have an open batch or the screen is done.
+        while started.elapsed().as_millis() < budget_ms {
+            if self.seats_done >= self.seats_total {
+                self.wipe_screen_progress_for_ips_test();
+            }
+            let has_batch = self
+                .active_tile
+                .as_ref()
+                .map(|w| w.batch.is_some())
+                .unwrap_or(false)
+                || self
+                    .scredge_work
+                    .as_ref()
+                    .map(|w| w.batch.is_some())
+                    .unwrap_or(false);
+            if has_batch {
+                break;
+            }
+            if !self.work_once() {
+                break;
+            }
+        }
+        // Bout-heavy stretch on the live worker.
+        while started.elapsed().as_millis() < budget_ms {
+            let progressed = if let Some(work) = self.active_tile.as_mut() {
+                if let Some(batch) = work.batch.as_mut() {
+                    self.worker_state.workshift_active_gear(batch)
+                } else {
+                    false
+                }
+            } else if let Some(work) = self.scredge_work.as_mut() {
+                if let Some(batch) = work.batch.as_mut() {
+                    self.worker_state.workshift_active_gear(batch)
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if !progressed {
+                // Harvest / repack through the normal path.
+                if !self.work_once() {
+                    if self.percent_completed() >= 95.0 {
+                        self.wipe_screen_progress_for_ips_test();
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+        self.workshifts = self.workshifts.wrapping_add(1);
+    }
+
+    pub fn wipe_screen_progress_for_ips_test(&mut self) {
+        let res = self.screen_res;
+        self.screen_done.fill(false);
+        self.screen_kind.fill(None);
+        self.screen_answer.fill(None);
+        self.seats_done = 0;
+        self.tile_scheduler = TileScheduler::init(res);
+        TileScheduler::set_base_mag(&mut self.tile_scheduler, self.location.zoom_pot);
+        TileScheduler::set_attention(&mut self.tile_scheduler, self.attention);
+        let mag_velocity = self.mag_velocity();
+        TileScheduler::set_mag_velocity(&mut self.tile_scheduler, mag_velocity);
+        self.active_tile = None;
+        self.scredge_work = None;
+        self.lookahead_work = None;
+        self.answer_tiles.clear();
+        self.unsent_origins.clear();
+        self.lookahead_unsent.clear();
+        self.stencil.serial_number = self.stencil.serial_number.wrapping_add(1);
+        self.worker_state.stencil = Some(self.stencil.clone());
+    }
+
     pub fn worker_is_gpu_preferred(&self) -> bool {
         self.worker_state.is_gpu_preferred()
+    }
+
+    pub fn worker_gpu_device_held(&self) -> bool {
+        self.worker_state.gpu_device_held()
     }
 
     /// Calibrated GPU point-iteration IPS from the submission budget, if any.
@@ -188,6 +364,12 @@ impl TileSession {
 
     fn prefer_screen_half(&self) -> bool {
         // r[impl cz.perf.foveation-half-time+1]
+        // r[impl cz.perf.play-8bump-100ms+1]
+        // Play: until *some* current-stencil work exists, do not spend the
+        // quantum on lookahead setup — first paint must land inside 100ms.
+        if self.play_need_visible || self.seats_done == 0 {
+            return true;
+        }
         // Balance wall time only when both halves can accept work; otherwise
         // stay on the current stencil (stationary / zoom-out).
         if !self.lookahead_half_eligible() {
@@ -230,9 +412,15 @@ impl TileSession {
         }
         // Under zoom-in, screen half may begin tiles even while the lookahead
         // column would otherwise monopolize TileScheduler::next.
-        if self.tile_scheduler.mag_velocity > 0 {
+        if self.tile_scheduler.mag_velocity >= 0 {
             if let Some(tile_index) = TileScheduler::claim_next_screen_tile(&mut self.tile_scheduler) {
                 self.begin_tile(tile_index);
+                // Play: chain arming seats in the same step — setup-only returns
+                // are pure play and miss the 100ms first-paint bar.
+                let _ = self.try_active_tile_step();
+                if self.seats_done == 0 {
+                    let _ = self.advance_open_batch();
+                }
                 return true;
             }
         }
@@ -297,12 +485,11 @@ impl TileSession {
     // r[impl cz.int.session-pipeline+1]
     pub fn retarget(&mut self, location: ObjectivePosAndZoom, screen_res: (u32, u32)) {
         let new_res = (screen_res.0 as usize, screen_res.1 as usize);
-        let mag_vel = location.zoom_pot - self.location.zoom_pot;
         if new_res != self.screen_res {
             let attention = self.attention;
             *self = Self::new(location, screen_res);
             self.set_attention(attention);
-            self.set_mag_velocity(mag_vel);
+            // Caller sets mag_velocity from EWMA mode after retarget.
             return;
         }
         if location.zoom_pot != self.location.zoom_pot {
@@ -370,14 +557,25 @@ impl TileSession {
                 , lookahead_unsent: Vec::new()
                 , screen_work_ns: 0
                 , lookahead_work_ns: 0
+                , play_need_visible: true
             });
             *self = *rebuilt;
-            self.set_mag_velocity(mag_vel);
+            // Caller sets mag_velocity from EWMA mode after retarget.
             return;
         }
         if self.location == location {
+            // No geometry change (often mag-mode-only Retarget) — still demand a
+            // visible refresh so lookahead cannot starve the play bar.
+            self.touch_play_visible();
             return;
         }
+        // Same-mag pan: remap screen-relative progress instead of wiping the hoard buffer.
+        if let Some((dx, dy)) = same_mag_seat_delta(&self.location, &location) {
+            self.remap_same_mag_pan(location, dx, dy);
+            self.touch_play_visible();
+            return;
+        }
+        // Non-integer seat delta — rebuild screen desire; headgroup absolute tiles stay.
         self.location = location.clone();
         let res = self.screen_res;
         self.stencil = PointStencil {
@@ -394,7 +592,11 @@ impl TileSession {
         }.correct_precision();
         self.worker_state.stencil = Some(self.stencil.clone());
         self.worker_state.screen_width = res.0;
-        self.worker_state.refresh_selected_gear();
+        if self.worker_state.refresh_selected_gear() {
+            self.active_tile = None;
+            self.scredge_work = None;
+            self.lookahead_work = None;
+        }
         self.screen_done.fill(false);
         self.screen_kind.fill(None);
         self.screen_answer.fill(None);
@@ -402,14 +604,120 @@ impl TileSession {
         self.tile_scheduler = TileScheduler::init(res);
         TileScheduler::set_base_mag(&mut self.tile_scheduler, location.zoom_pot);
         TileScheduler::set_attention(&mut self.tile_scheduler, self.attention);
-        // Architecture: immediately cease WIP no longer in the viewport.
         self.active_tile = None;
         self.scredge_work = None;
         self.lookahead_work = None;
         self.answer_tiles.clear();
         self.unsent_origins.clear();
         self.lookahead_unsent.clear();
-        self.set_mag_velocity(0);
+        self.play_need_visible = true;
+        // Caller sets mag_velocity from EWMA mode after retarget.
+    }
+
+    /// Integer seat delta of `new` relative to `old` at the same magnification.
+    fn remap_same_mag_pan(&mut self, location: ObjectivePosAndZoom, dx: i32, dy: i32) {
+        let w = self.screen_res.0;
+        let h = self.screen_res.1;
+        let n = w * h;
+        let mut new_done = vec![false; n];
+        let mut new_kind = vec![None; n];
+        let mut new_answer = vec![None; n];
+        let mut seats_done = 0usize;
+        let wi = w as i32;
+        let hi = h as i32;
+        for y in 0..hi {
+            for x in 0..wi {
+                let ox = x + dx;
+                let oy = y + dy;
+                if ox < 0 || oy < 0 || ox >= wi || oy >= hi {
+                    continue;
+                }
+                let old_i = (oy as usize) * w + (ox as usize);
+                let new_i = (y as usize) * w + (x as usize);
+                new_done[new_i] = self.screen_done[old_i];
+                new_kind[new_i] = self.screen_kind[old_i];
+                new_answer[new_i] = self.screen_answer[old_i];
+                if new_done[new_i] {
+                    seats_done += 1;
+                }
+            }
+        }
+        let mut new_tiles = HashMap::new();
+        let mut new_unsent = HashSet::new();
+        let old_unsent = std::mem::take(&mut self.unsent_origins);
+        for ((ox, oy), mut tile) in std::mem::take(&mut self.answer_tiles) {
+            let nx = ox as i32 - dx;
+            let ny = oy as i32 - dy;
+            if nx + (TILE_EDGE_LENGTH as i32) <= 0 || ny + (TILE_EDGE_LENGTH as i32) <= 0 {
+                continue;
+            }
+            if nx >= wi || ny >= hi {
+                continue;
+            }
+            if nx < 0 || ny < 0 {
+                // Origin left the screen; drop screen-relative key (headgroup keeps absolute).
+                continue;
+            }
+            let new_origin = (nx as usize, ny as usize);
+            tile.origin_seat = new_origin;
+            if old_unsent.contains(&(ox, oy)) {
+                new_unsent.insert(new_origin);
+            }
+            new_tiles.insert(new_origin, tile);
+        }
+        self.location = location.clone();
+        self.stencil = PointStencil {
+            homothety: (
+                location.pos.0.clone()
+                , IntExp::ZERO - location.pos.1.clone()
+                , location.zoom_pot
+            )
+            , resolution: (w, h)
+            , serial_number: self.stencil.serial_number.wrapping_add(1)
+            , focus: None
+            , hover: None
+            , mag_velocity: 0.0
+        }.correct_precision();
+        self.worker_state.stencil = Some(self.stencil.clone());
+        self.worker_state.screen_width = w;
+        if self.worker_state.refresh_selected_gear() {
+            // Gear identity changed with the new reference/stencil — drop typed batches.
+            self.active_tile = None;
+            self.scredge_work = None;
+            self.lookahead_work = None;
+        }
+        self.screen_done = new_done;
+        self.screen_kind = new_kind;
+        self.screen_answer = new_answer;
+        self.seats_done = seats_done;
+        self.answer_tiles = new_tiles;
+        self.unsent_origins = new_unsent;
+        self.active_tile = None;
+        self.scredge_work = None;
+        self.lookahead_work = None;
+        self.lookahead_unsent.clear();
+        self.tile_scheduler = TileScheduler::init((w, h));
+        TileScheduler::set_base_mag(&mut self.tile_scheduler, location.zoom_pot);
+        TileScheduler::set_attention(&mut self.tile_scheduler, self.attention);
+        for y in 0..h {
+            for x in 0..w {
+                let i = y * w + x;
+                if !self.screen_done[i] {
+                    continue;
+                }
+                let kind = match self.screen_kind[i] {
+                    Some(SeatKind::Outside) => TileSeatKind::Outside
+                    , Some(SeatKind::Inside { .. }) => TileSeatKind::Inside
+                    , None => TileSeatKind::Outside
+                };
+                TileScheduler::note_finished(&mut self.tile_scheduler, (x, y), kind);
+            }
+        }
+        TileScheduler::seed_completed_tiles(
+            &mut self.tile_scheduler
+            , &self.screen_done
+            , (w, h)
+        );
     }
 
     pub fn percent_completed(&self) -> f64 {
@@ -419,24 +727,116 @@ impl TileSession {
         (self.seats_done as f64) * 100.0 / (self.seats_total as f64)
     }
 
+    /// Point-iterations advanced (CPU + GPU counters) for full-stack IPS bars.
+    pub fn iterations_advanced(&self) -> u64 {
+        self.worker_state
+            .iterations_advanced
+            .max(self.worker_state.cpu.iterations_advanced)
+    }
+
     pub fn workshift(&mut self) {
-        let started = Instant::now();
-        // Spend more budget while the screen is still sparse so headed home fill
-        // can finish within the <5s product bar (10ms/frame was starving Xvfb).
-        let budget_ms: u128 = if self.percent_completed() < 95.0 {
-            80
+        // Play: short quanta when seats_done==0 or zooming. Stationary fill:
+        // long quanta so home view can hit ≥100 completed-whole TPS (standards).
+        let budget_ms: u128 = if self.tile_scheduler.mag_velocity != 0 {
+            if self.seats_done == 0 {
+                8
+            } else {
+                16
+            }
+        } else if self.seats_done == 0 {
+            8
+        } else if self.percent_completed() < 95.0 {
+            48
         } else {
-            12
+            16
         };
-        while started.elapsed().as_millis() < budget_ms {
+        self.workshift_budget_ms(budget_ms);
+    }
+
+    /// Bounded work quantum so a hosting actor can re-check inputs ≈1000Hz.
+    pub fn workshift_budget_ms(&mut self, budget_ms: u128) {
+        let started = Instant::now();
+        // Play (≤2ms): one step so Retarget is re-checked immediately.
+        // Throughput: allow roughly one step per ms of budget (cap 64).
+        let max_steps: u32 = if budget_ms <= 2 {
+            1
+        } else {
+            // Stationary fill: more steps per quantum — each step is cheap after
+            // pop_matching removal; the old 64 cap left idle budget on the table.
+            let cap = if self.tile_scheduler.mag_velocity == 0 { 256 } else { 64 };
+            (budget_ms as u32).saturating_mul(4).clamp(1, cap)
+        };
+        // #region agent log
+        let mut steps = 0u32;
+        // #endregion
+        while started.elapsed().as_millis() < budget_ms && steps < max_steps {
             if self.seats_done >= self.seats_total {
                 break;
             }
-            let progressed = self.work_once();
+            // Play: once a batch is armed and nothing is finished yet, spend the
+            // rest of the quantum finishing seats — not beginning more tiles.
+            let has_batch = self
+                .active_tile
+                .as_ref()
+                .map(|w| w.batch.is_some())
+                .unwrap_or(false)
+                || self
+                    .scredge_work
+                    .as_ref()
+                    .map(|w| w.batch.is_some())
+                    .unwrap_or(false);
+            let progressed = if self.seats_done == 0 && has_batch {
+                self.advance_open_batch()
+            } else {
+                self.work_once()
+            };
             if !progressed {
-                break;
+                if self.seats_done == 0 && has_batch {
+                    // Batch not finishing — fall through to normal work_once.
+                    if !self.work_once() {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+            // #region agent log
+            steps += 1;
+            // #endregion
+        }
+        // #region agent log
+        {
+            let n = crate::assemblies::workgroup::debug_session::pub_tick();
+            // Throughput debug: denser samples while screen still filling.
+            let sample = n <= 24 || n % 8 == 0 || self.percent_completed() < 96.0 && n % 4 == 0;
+            if sample {
+                let ms = started.elapsed().as_secs_f64() * 1000.0;
+                let whole = self
+                    .answer_tiles
+                    .values()
+                    .filter(|t| {
+                        t.data.iter().filter(|c| c.is_some()).count() == TILE_SEAT_COUNT
+                    })
+                    .count();
+                let (scr_ns, look_ns) = (self.screen_work_ns, self.lookahead_work_ns);
+                crate::assemblies::workgroup::debug_session::log(
+                    "H-FILL-TPS",
+                    "tile_session.rs:workshift",
+                    "workshift_quantum",
+                    &format!(
+                        "{{\"n\":{n},\"budget_ms\":{budget_ms},\"elapsed_ms\":{ms:.3},\"steps\":{steps},\"pct\":{:.2},\"seats_done\":{},\"whole\":{whole},\"scr_ms\":{:.2},\"look_ms\":{:.2},\"iters\":{},\"mag_v\":{},\"path_cpu\":{}}}",
+                        self.percent_completed(),
+                        self.seats_done,
+                        scr_ns as f64 / 1e6,
+                        look_ns as f64 / 1e6,
+                        self.worker_state.cpu.iterations_advanced,
+                        self.tile_scheduler.mag_velocity,
+                        !self.worker_state.is_gpu_preferred()
+                    ),
+                );
             }
         }
+        // #endregion
         self.workshifts = self.workshifts.wrapping_add(1);
         if std::env::var("CZ_DEBUG_FILL")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
@@ -640,6 +1040,22 @@ impl TileSession {
                 } else {
                     self.screen_work_ns = self.screen_work_ns.saturating_add(ns);
                 }
+                // Stationary fill: immediately arm the next batch so one work_once
+                // covers finish→arm (was two steps) and home whole-TPS can climb.
+                if self.tile_scheduler.mag_velocity == 0
+                    && self
+                        .active_tile
+                        .as_ref()
+                        .map(|w| w.batch.is_none())
+                        .unwrap_or(false)
+                {
+                    let t_arm = Instant::now();
+                    if self.try_active_tile_step() {
+                        self.screen_work_ns = self
+                            .screen_work_ns
+                            .saturating_add(t_arm.elapsed().as_nanos().max(1));
+                    }
+                }
                 return true;
             }
         }
@@ -682,6 +1098,8 @@ impl TileSession {
                 let mut locals: [Option<(usize, usize)>; BATCH_N] = [const { None }; BATCH_N];
                 screen_seats[0] = Some(seat);
                 locals[0] = Some(tile.local_seat(seat).unwrap_or((0, 0)));
+                // GPU path must keep ≥1024-wide parallelism (GPU_WORKER_BATCH_N).
+                let mut packed = 1usize;
                 for i in 1..BATCH_N {
                     let Some(next_seat) = TileScheduler::take_scredge_for_origin(
                         &mut self.tile_scheduler
@@ -692,9 +1110,26 @@ impl TileSession {
                     };
                     screen_seats[i] = Some(next_seat);
                     locals[i] = Some(tile.local_seat(next_seat).unwrap_or((0, 0)));
+                    packed += 1;
                 }
-                let batch = PerturbationGpuWorker::initialize_batch(
-                    &self.worker_state
+                // #region agent log
+                {
+                    let n = crate::assemblies::workgroup::debug_session::rpc_tick();
+                    if crate::assemblies::workgroup::debug_session::should_sample(n) {
+                        crate::assemblies::workgroup::debug_session::log(
+                            "H-GPU-WIDTH",
+                            "tile_session.rs:scredge",
+                            "scredge_pack",
+                            &format!(
+                                "{{\"n\":{n},\"packed\":{packed},\"batch_n\":{BATCH_N}}}"
+                            ),
+                        );
+                    }
+                }
+                // #endregion
+                let batch = ActiveGearWork::initialize(
+                    self.worker_state.cpu.gear
+                    , &self.worker_state
                     , &tile
                     , locals
                 );
@@ -745,11 +1180,46 @@ impl TileSession {
         }
         let seats = {
             let work = self.active_tile.as_mut().unwrap();
-            OutfillInfillScheduler::get_next_n_seats::<BATCH_N>(
+            // #region agent log
+            let t_get = Instant::now();
+            // #endregion
+            let seats = OutfillInfillScheduler::get_next_n_seats::<BATCH_N>(
                 &mut work.scheduler
                 , &mut work.tile
-            )
+            );
+            // #region agent log
+            {
+                let n = crate::assemblies::workgroup::debug_session::rpc_tick();
+                if n <= 24 || n % 32 == 0 {
+                    let armed = seats.iter().filter(|s| s.is_some()).count();
+                    crate::assemblies::workgroup::debug_session::log(
+                        "H-GET-NEXT",
+                        "tile_session.rs:active",
+                        "get_next_n_seats",
+                        &format!(
+                            "{{\"n\":{n},\"armed\":{armed},\"get_ms\":{:.3}}}",
+                            t_get.elapsed().as_secs_f64() * 1000.0
+                        ),
+                    );
+                }
+            }
+            // #endregion
+            seats
         };
+        // #region agent log
+        {
+            let n = crate::assemblies::workgroup::debug_session::rpc_tick();
+            if crate::assemblies::workgroup::debug_session::should_sample(n) {
+                let armed = seats.iter().filter(|s| s.is_some()).count();
+                crate::assemblies::workgroup::debug_session::log(
+                    "H-GPU-WIDTH",
+                    "tile_session.rs:active",
+                    "active_pack",
+                    &format!("{{\"n\":{n},\"armed\":{armed},\"batch_n\":{BATCH_N}}}"),
+                );
+            }
+        }
+        // #endregion
         if seats.iter().all(|s| s.is_none()) {
             let (still_has_work, batch_open) = {
                 let work = self.active_tile.as_ref().unwrap();
@@ -786,10 +1256,24 @@ impl TileSession {
                     if seats.iter().any(|s| s.is_some()) {
                         return self.apply_active_seats(seats);
                     }
-                    // Period resolve is has_work but not get_next — yield to try_resolve.
+                    // Period resolve is has_work but not get_next — resolve now and
+                    // re-seed queues so get_next can proceed (do not spin empty).
                     if OutfillInfillScheduler::needs_period_resolve(
                         &self.active_tile.as_ref().unwrap().scheduler
                     ) {
+                        if self.try_resolve_periods() {
+                            let seats = {
+                                let work = self.active_tile.as_mut().unwrap();
+                                OutfillInfillScheduler::get_next_n_seats::<BATCH_N>(
+                                    &mut work.scheduler
+                                    , &mut work.tile
+                                )
+                            };
+                            if seats.iter().any(|s| s.is_some()) {
+                                return self.apply_active_seats(seats);
+                            }
+                            return true;
+                        }
                         return false;
                     }
                     // Scheduler still claims work but offers no seats: finish for
@@ -827,45 +1311,71 @@ impl TileSession {
         , seats: [Option<((usize, usize), Option<CalibratedAnswer>)>; BATCH_N]
     ) -> bool {
         let mut need_work: [Option<(usize, usize)>; BATCH_N] = [const { None }; BATCH_N];
+        let mut hint_updates: [Option<((usize, usize), CalibratedAnswer)>; BATCH_N] =
+            [const { None }; BATCH_N];
         let mut any = false;
+        let mut any_outside = false;
+        let mut tile_index = 0usize;
         for i in 0..BATCH_N {
             let Some((local, hint)) = seats[i] else { continue };
             any = true;
             if let Some(hint_answer) = hint {
                 let screen = self.active_tile.as_ref().unwrap().tile.screen_seat(local);
-                let tile_index = self.active_tile.as_ref().unwrap().tile_index;
+                tile_index = self.active_tile.as_ref().unwrap().tile_index;
                 self.finish_screen_seat(screen, hint_answer);
-                let updates: [Option<((usize, usize), CalibratedAnswer)>; BATCH_N] = {
-                    let mut u = [const { None }; BATCH_N];
-                    u[0] = Some((local, hint_answer));
-                    u
-                };
-                let work = self.active_tile.as_mut().unwrap();
-                OutfillInfillScheduler::update(
-                    &mut work.scheduler
-                    , &mut work.tile
-                    , &updates
-                );
+                hint_updates[i] = Some((local, hint_answer));
                 if matches!(
                     seat_kind_from_calibrated(&hint_answer)
                     , SeatKind::Outside
                 ) {
-                    TileScheduler::note_tile_has_outside(
-                        &mut self.tile_scheduler
-                        , tile_index
-                    );
+                    any_outside = true;
                 }
             } else {
                 need_work[i] = Some(local);
             }
         }
-        if need_work.iter().any(|s| s.is_some()) {
+        if hint_updates.iter().any(|u| u.is_some()) {
             let work = self.active_tile.as_mut().unwrap();
-            let batch = PerturbationGpuWorker::initialize_batch(
-                &self.worker_state
+            OutfillInfillScheduler::update(
+                &mut work.scheduler
+                , &mut work.tile
+                , &hint_updates
+            );
+            if any_outside {
+                TileScheduler::note_tile_has_outside(
+                    &mut self.tile_scheduler
+                    , tile_index
+                );
+            }
+        }
+        if need_work.iter().any(|s| s.is_some()) {
+            // #region agent log
+            let t_init = Instant::now();
+            let armed = need_work.iter().filter(|s| s.is_some()).count();
+            // #endregion
+            let work = self.active_tile.as_mut().unwrap();
+            let batch = ActiveGearWork::initialize(
+                self.worker_state.cpu.gear
+                , &self.worker_state
                 , &work.tile
                 , need_work
             );
+            // #region agent log
+            {
+                let n = crate::assemblies::workgroup::debug_session::rpc_tick();
+                if n <= 24 || n % 32 == 0 {
+                    crate::assemblies::workgroup::debug_session::log(
+                        "H-INIT-BATCH",
+                        "tile_session.rs:apply_active",
+                        "initialize_batch",
+                        &format!(
+                            "{{\"n\":{n},\"armed\":{armed},\"init_ms\":{:.3}}}",
+                            t_init.elapsed().as_secs_f64() * 1000.0
+                        ),
+                    );
+                }
+            }
+            // #endregion
             work.batch = Some(batch);
             return true;
         }
@@ -883,11 +1393,8 @@ impl TileSession {
                     (Vec::new(), true)
                 } else {
                     let batch = work.batch.as_mut().unwrap();
-                    let still_working = PerturbationGpuWorker::workshift_on_batch(
-                        &mut self.worker_state
-                        , batch
-                    );
-                    let peeked = PerturbationGpuWorker::peek_batch(batch, &work.tile);
+                    let still_working = self.worker_state.workshift_active_gear(batch);
+                    let peeked = batch.peek(&work.tile);
                     let mut finishes = Vec::new();
                     let mut any_finished = false;
                     for i in 0..BATCH_N {
@@ -896,7 +1403,7 @@ impl TileSession {
                         any_finished = true;
                         finishes.push((seat, answer));
                         work.seats[i] = None;
-                        batch.points[i] = None;
+                        batch.clear_slot(i);
                     }
                     if !any_finished && still_working {
                         (Vec::new(), false)
@@ -937,6 +1444,7 @@ impl TileSession {
             , any_outside
             , tile_index
             , progressed
+            , wip_updates
         ) = {
             let Some(work) = self.active_tile.as_mut() else {
                 return false;
@@ -944,18 +1452,25 @@ impl TileSession {
             let Some(batch) = work.batch.as_mut() else {
                 return false;
             };
-            let still_working = PerturbationGpuWorker::workshift_on_batch(
-                &mut self.worker_state
-                , batch
-            );
-            let peeked = PerturbationGpuWorker::peek_batch(batch, &work.tile);
+            let still_working = self.worker_state.workshift_active_gear(batch);
+            // #region agent log
+            let t_after_bout = Instant::now();
+            // #endregion
+            let peeked = batch.peek(&work.tile);
             let mut updates: [Option<((usize, usize), CalibratedAnswer)>; BATCH_N] =
                 [const { None }; BATCH_N];
             let mut finishes = Vec::new();
+            let mut wip_updates = Vec::new();
             let mut any_outside = false;
             let mut any_finished = false;
             for i in 0..BATCH_N {
                 let Some((local, answer)) = peeked[i] else { continue };
+                // Progressive Agnostic WIP must not clear the open seat.
+                if matches!(answer.result, CalibratedMandelbrotResult::Agnostic { .. }) {
+                    let screen = work.tile.screen_seat(local);
+                    wip_updates.push((screen, answer));
+                    continue;
+                }
                 any_finished = true;
                 updates[i] = Some((local, answer));
                 let screen = work.tile.screen_seat(local);
@@ -963,35 +1478,112 @@ impl TileSession {
                     any_outside = true;
                 }
                 finishes.push((screen, answer));
-                batch.points[i] = None;
+                batch.clear_slot(i);
             }
+            // #region agent log
+            let t_after_peek = Instant::now();
+            // #endregion
             if !any_finished {
                 if !still_working {
                     // Empty batch or all slots None: seats may still sit in `active`.
                     OutfillInfillScheduler::reclaim_orphaned_active(&mut work.scheduler);
                     work.batch = None;
                 }
-                // Only report progress while the batch still has incomplete points.
-                return still_working;
-            }
+                (Vec::new(), false, work.tile_index, still_working, wip_updates)
+            } else {
             OutfillInfillScheduler::update(
                 &mut work.scheduler
                 , &mut work.tile
                 , &updates
             );
+            // #region agent log
+            let update_ms = t_after_peek.elapsed().as_secs_f64() * 1000.0;
+            let n = crate::assemblies::workgroup::debug_session::rpc_tick();
+            if n <= 24 || n % 16 == 0 {
+                let fin_n = finishes.len();
+                crate::assemblies::workgroup::debug_session::log(
+                    "H-SCHED-COST",
+                    "tile_session.rs:advance_open",
+                    "post_bout_costs",
+                    &format!(
+                        "{{\"n\":{n},\"fin\":{fin_n},\"peek_ms\":{:.3},\"update_ms\":{update_ms:.3}}}",
+                        (t_after_peek - t_after_bout).as_secs_f64() * 1000.0
+                    ),
+                );
+            }
+            // #endregion
             if !still_working {
                 // Seats that failed initialize_batch stay in `active` with no point.
                 OutfillInfillScheduler::reclaim_orphaned_active(&mut work.scheduler);
                 work.batch = None;
             }
-            (finishes, any_outside, work.tile_index, true)
+            (finishes, any_outside, work.tile_index, true, wip_updates)
+            }
         };
         if any_outside {
             TileScheduler::note_tile_has_outside(&mut self.tile_scheduler, tile_index);
         }
-        for (screen, answer) in finishes {
-            self.finish_screen_seat(screen, answer);
+        for (screen, answer) in wip_updates {
+            if screen.0 < self.screen_res.0 && screen.1 < self.screen_res.1 {
+                let idx = linear_index(screen, self.screen_res.0);
+                self.screen_answer[idx] = Some(answer);
+            }
         }
+        // #region agent log
+        let t_finish = Instant::now();
+        let fin_n = finishes.len();
+        // #endregion
+        if !finishes.is_empty() {
+            // Same active tile ⇒ one origin: avoid 1024× HashMap entry lookups.
+            let origin = tile_origin_for_seat(finishes[0].0, self.screen_res);
+            let mag = self.location.zoom_pot;
+            let tile = self.answer_tiles.entry(origin).or_insert_with(|| {
+                Tile::new(origin, mag)
+            });
+            self.unsent_origins.insert(origin);
+            for (seat, answer) in finishes {
+                if seat.0 >= self.screen_res.0 || seat.1 >= self.screen_res.1 {
+                    continue;
+                }
+                let index = linear_index(seat, self.screen_res.0);
+                let local = (seat.0 - origin.0, seat.1 - origin.1);
+                let proximate = tile.get(local);
+                let plain = crate::assemblies::workgroup::tile_publisher::publish_seat(
+                    answer
+                    , proximate
+                );
+                let kind = match plain.result {
+                    MandelbrotResult::Outside { .. } => SeatKind::Outside
+                    , MandelbrotResult::Inside { period } => SeatKind::Inside {
+                        period: period.min(u32::MAX as u64) as u32
+                    }
+                };
+                let newly = !self.screen_done[index];
+                self.screen_done[index] = true;
+                self.screen_kind[index] = Some(kind);
+                self.screen_answer[index] = Some(answer);
+                if newly {
+                    self.seats_done += 1;
+                }
+                tile.set(local, plain);
+            }
+        }
+        // #region agent log
+        if fin_n > 0 {
+            let n = crate::assemblies::workgroup::debug_session::rpc_tick();
+            if n <= 24 || n % 32 == 0 {
+                crate::assemblies::workgroup::debug_session::log(
+                    "H-FINISH-SEAT",
+                    "tile_session.rs:advance_open",
+                    "finish_screen_loop",
+                    &format!(
+                        "{{\"n\":{n},\"fin\":{fin_n},\"finish_ms\":{:.3}}}",
+                        t_finish.elapsed().as_secs_f64() * 1000.0
+                    ),
+                );
+            }
+        }
+        // #endregion
         progressed
     }
 
@@ -1008,12 +1600,14 @@ impl TileSession {
         let locals = OutfillInfillScheduler::take_period_resolve_locals(&work.scheduler);
         if locals.is_empty() {
             OutfillInfillScheduler::mark_period_resolve_done(&mut work.scheduler);
+            OutfillInfillScheduler::force_progress(&mut work.scheduler);
             return true;
         }
         let Some(generator) = self.worker_state.stencil.as_ref().and_then(|s| {
             s.get_c_generator::<f64>()
         }) else {
             OutfillInfillScheduler::mark_period_resolve_done(&mut work.scheduler);
+            OutfillInfillScheduler::force_progress(&mut work.scheduler);
             return true;
         };
         let started = Instant::now();
@@ -1050,6 +1644,8 @@ impl TileSession {
             }
         }
         OutfillInfillScheduler::mark_period_resolve_done(&mut work.scheduler);
+        // Period unlock: seed flood/in queues so get_next is not empty next step.
+        OutfillInfillScheduler::force_progress(&mut work.scheduler);
         for (screen, answer) in updates {
             self.finish_screen_seat(screen, answer);
         }
@@ -1060,7 +1656,11 @@ impl TileSession {
         let origin = TileScheduler::tile_origin(&self.tile_scheduler, tile_index);
         let extent = TileScheduler::tile_extent(&self.tile_scheduler, tile_index);
         let tile = Tile::new(origin, self.location.zoom_pot);
-        let mut scheduler = OutfillInfillScheduler::init_for_tile_extent(extent);
+        let touches = origin.0 == 0
+            || origin.1 == 0
+            || origin.0 + extent.0 >= self.screen_res.0
+            || origin.1 + extent.1 >= self.screen_res.1;
+        let mut scheduler = OutfillInfillScheduler::init_for_tile_extent_screen(extent, touches);
         for local_y in 0..extent.1 {
             for local_x in 0..extent.0 {
                 let local = (local_x, local_y);
@@ -1193,8 +1793,9 @@ impl TileSession {
         }
         if need_work.iter().any(|s| s.is_some()) {
             let work = self.lookahead_work.as_mut().unwrap();
-            let batch = PerturbationGpuWorker::initialize_batch(
-                &self.worker_state
+            let batch = ActiveGearWork::initialize(
+                self.worker_state.cpu.gear
+                , &self.worker_state
                 , &work.tile
                 , need_work
             );
@@ -1203,11 +1804,8 @@ impl TileSession {
         }
         if let Some(work) = self.lookahead_work.as_mut() {
             if let Some(batch) = work.batch.as_mut() {
-                let still = PerturbationGpuWorker::workshift_on_batch(
-                    &mut self.worker_state
-                    , batch
-                );
-                let peeked = PerturbationGpuWorker::peek_batch(batch, &work.tile);
+                let still = self.worker_state.workshift_active_gear(batch);
+                let peeked = batch.peek(&work.tile);
                 let mut updates: [Option<((usize, usize), CalibratedAnswer)>; BATCH_N] =
                     [const { None }; BATCH_N];
                 let mut any_finished = false;
@@ -1223,7 +1821,7 @@ impl TileSession {
                             , proximate
                         )
                     );
-                    batch.points[i] = None;
+                    batch.clear_slot(i);
                 }
                 if any_finished {
                     OutfillInfillScheduler::update(
@@ -1301,6 +1899,13 @@ fn intexp_seat_i32(v: IntExp) -> Option<i32> {
     v.val.shift(v.exp).to_i32()
 }
 
+fn same_mag_seat_delta(
+    old: &ObjectivePosAndZoom
+    , new: &ObjectivePosAndZoom
+) -> Option<(i32, i32)> {
+    crate::assemblies::headgroup::window::gpu_display::seat_delta_pixels(old, new)
+}
+
 /// Absolute dyadic tile under attention at `zoom_pot`, as a location whose UL is
 /// that tile's UL (origin_seat (0,0) in the published tile).
 fn attention_tile_location(
@@ -1369,6 +1974,8 @@ fn calibrated_to_answer(answer: CalibratedAnswer) -> Answer {
                 }
                 , min_magnitude_time: answer.min_magnitude_time.lower_bound
                 , min_magnitude: answer.min_magnitude.lower_bound
+                , escape_time_angle: 0
+                , min_magnitude_angle: 0
             }
         }
         , CalibratedMandelbrotResult::Inside { period } => {
@@ -1378,6 +1985,8 @@ fn calibrated_to_answer(answer: CalibratedAnswer) -> Answer {
                 }
                 , min_magnitude_time: answer.min_magnitude_time.lower_bound
                 , min_magnitude: answer.min_magnitude.lower_bound
+                , escape_time_angle: 0
+                , min_magnitude_angle: 0
             }
         }
         , CalibratedMandelbrotResult::Agnostic { .. } => {
@@ -1388,476 +1997,5 @@ fn calibrated_to_answer(answer: CalibratedAnswer) -> Answer {
 }
 
 #[cfg(test)]
-mod perturbation_always_on_tests {
-    use super::*;
-    use crate::assemblies::workgroup::workcore::mandelbrot::worker_implementations::naive_cpu_worker::{
-        iterate_point_bout
-        , point_to_answer as naive_point_to_answer
-    };
-    use proptest::prelude::*;
-
-    fn naive_finish(c: (f64, f64), max_iters: u32) -> Answer {
-        let z = (0.0, 0.0);
-        let derivative = (1.0, 0.0);
-        let mut point = ActivePoint {
-            c
-            , z
-            , derivative
-            , real_squared: 0.0
-            , imag_squared: 0.0
-            , real_imag: 0.0
-            , iteration_count: 0
-            , min_magnitude: f64::MAX
-            , min_magnitude_time: 0
-            , periodicity_detector: CpuPeriodicityDetector::init(0, z, derivative)
-            , escaped: false
-            , finished: false
-            , orbit_id: ZERO_ORBIT_ID
-            , seat_linear: 0
-        };
-        let epsilon = 1e-12f64.max(c.0.abs().max(c.1.abs()) * 1e-6);
-        let mut left = max_iters;
-        while !point.finished && left > 0 {
-            let bout = left.min(1000);
-            iterate_point_bout(&mut point, 4.0, epsilon, bout);
-            left = left.saturating_sub(bout);
-        }
-        naive_point_to_answer(&point)
-    }
-
-    fn same_membership(a: &Answer, b: &Answer) -> bool {
-        match (&a.result, &b.result) {
-            (
-                MandelbrotResult::Outside { escape_time_r2: ea, .. }
-                , MandelbrotResult::Outside { escape_time_r2: eb, .. }
-            ) => ea == eb
-            , (MandelbrotResult::Inside { .. }, MandelbrotResult::Inside { .. }) => true
-            , _ => false
-        }
-    }
-
-    // r[verify cz.seamless.perturbation-always-on+1]
-    // r[verify cz.seamless.reference-background+1]
-    #[test]
-    fn new_session_seeds_nonzero_reference_orbit_at_period_two_corner() {
-        let location = ObjectivePosAndZoom {
-            pos: (IntExp::from(-1), IntExp::ZERO)
-            , zoom_pot: 4
-        };
-        let session = TileSession::new(location, (8, 8));
-        assert!(
-            session.worker_state.references.len() > 1
-            , "expected a nonzero reference orbit seeded from the period-2 nucleus at the stencil corner"
-        );
-        let orbit_id = session.worker_state.seat_orbit_ids[0];
-        assert_ne!(orbit_id, ZERO_ORBIT_ID);
-        assert!(
-            session.worker_state.seat_orbit_ids.iter().all(|&id| id == orbit_id)
-            , "every seat must start bound to the same seeded reference orbit: \
-               perturbation is always-on for the whole screen, not opt-in per seat"
-        );
-    }
-
-    // r[verify cz.seamless.perturbation-always-on+1]
-    #[test]
-    fn new_session_falls_back_to_zero_orbit_when_corner_has_no_nucleus() {
-        let location = ObjectivePosAndZoom {
-            pos: (IntExp::from(3), IntExp::ZERO)
-            , zoom_pot: 0
-        };
-        let session = TileSession::new(location, (4, 4));
-        assert_eq!(session.worker_state.references.len(), 1);
-        assert!(
-            session.worker_state.seat_orbit_ids.iter().all(|&id| id == ZERO_ORBIT_ID)
-            , "with no nucleus at the corner, every seat still goes through the \
-               perturbation worker, just bound to the immortal zero orbit"
-        );
-    }
-
-    // r[verify cz.seamless.perturbation-always-on+1]
-    #[test]
-    fn live_workshift_perturbation_matches_naive_near_period_two_nucleus() {
-        // TileSession embeds a full GPU_WORKER_BATCH_N-sized PointBatch directly
-        // (not boxed) whenever a tile or scredge batch is open, matching the
-        // real actor's stack budget (main.rs sizes actor stacks at 100MiB via
-        // with_default_actor_stack_size). Run this on a thread with a comparable
-        // stack instead of the default ~2MiB test-thread stack.
-        let handle = std::thread::Builder::new()
-            .stack_size(64 * 1024 * 1024)
-            .spawn(live_workshift_matches_naive_body)
-            .expect("spawn test thread");
-        handle.join().expect("live workshift parity test thread panicked");
-    }
-
-    fn live_workshift_matches_naive_body() {
-        // Corner chosen with a nonzero (but tiny) imaginary part on purpose:
-        // PointStencil's own f64-availability check (type_contains_all_points)
-        // degenerates whenever a homothety coordinate is exactly zero (adding
-        // then subtracting zero trivially "loses no precision"), which is a
-        // pre-existing quirk of docs/design geometry unrelated to perturbation.
-        // Keeping the offset tiny (but at/above this stencil's own pixel
-        // precision, so it survives PointStencil::correct_precision instead
-        // of rounding back to zero) still lands essentially on the period-2
-        // nucleus at c=-1, so period detection converges in a handful of
-        // iterations instead of the slow brute-force search that happens
-        // well inside (but off-center of) a hyperbolic component.
-        let im = IntExp::from(1).shift(-8);
-        let location = ObjectivePosAndZoom {
-            pos: (IntExp::from(-1), IntExp::ZERO - im)
-            , zoom_pot: 2
-        };
-        let res: (usize, usize) = (6, 6);
-        let mut session = TileSession::new(location, (res.0 as u32, res.1 as u32));
-        // Periodicity for this fixture is CPU-side; skip GPU bout round-trips so
-        // the parity check stays interactive. Preference still selected at new().
-        session.worker_state.use_cpu_bouts_only();
-        assert_ne!(
-            session.worker_state.seat_orbit_ids[0]
-            , ZERO_ORBIT_ID
-            , "fixture must exercise a real (nonzero) reference orbit, not the zero-orbit fallback"
-        );
-        let mut guard = 0;
-        while session.percent_completed() < 100.0 {
-            session.workshift();
-            guard += 1;
-            assert!(guard < 500, "live session did not complete work in time");
-        }
-        let generator = session.stencil.get_c_generator::<f64>().expect("f64 c generator");
-        for y in 0..res.1 {
-            for x in 0..res.0 {
-                let idx = y * res.0 + x;
-                let calibrated = session.screen_answer[idx]
-                    .expect("every seat must be finished once the session reports 100%");
-                let live_answer = calibrated_to_answer(calibrated);
-                let c = generator.get_c((x as u16, y as u16));
-                let naive_answer = naive_finish(c, 100_000);
-                assert!(
-                    same_membership(&live_answer, &naive_answer)
-                    , "live perturbation path disagrees with naive iteration at seat ({x},{y}) c={c:?}: \
-                       live={live_answer:?} naive={naive_answer:?}"
-                );
-            }
-        }
-    }
-
-    /// Home-sized screen must fill most seats under stationary mag_velocity (no headed UI).
-    #[test]
-    fn home_screen_session_fills_majority_of_seats() {
-        let handle = std::thread::Builder::new()
-            .stack_size(64 * 1024 * 1024)
-            .spawn(|| {
-                let location = ObjectivePosAndZoom {
-                    pos: (IntExp::from(HOME_POSITION.0), IntExp::from(HOME_POSITION.1))
-                    , zoom_pot: HOME_POSITION.2
-                };
-                let mut session = TileSession::new(location, (128, 96));
-                session.worker_state.use_cpu_bouts_only();
-                session.set_mag_velocity(0);
-                let mut guard = 0u32;
-                let mut last = -1.0;
-                let mut stall = 0u32;
-                while session.percent_completed() < 95.0 && guard < 5_000 {
-                    session.workshift();
-                    guard += 1;
-                    let p = session.percent_completed();
-                    if (p - last).abs() < 1e-9 {
-                        stall += 1;
-                        if stall > 200 {
-                            panic!(
-                                "home session stalled at {p}% after {guard} workshifts \
-                                 (active={} lookahead={})"
-                                , session.active_tile.is_some()
-                                , session.lookahead_work.is_some()
-                            );
-                        }
-                    } else {
-                        stall = 0;
-                        last = p;
-                    }
-                }
-                assert!(
-                    session.percent_completed() >= 95.0
-                    , "home fill only reached {}% in {guard} workshifts"
-                    , session.percent_completed()
-                );
-            })
-            .expect("spawn");
-        handle.join().expect("home fill thread panicked");
-    }
-
-    /// Full window home fill must reach 95% within the product &lt;5s bar (CPU bouts).
-    /// Release-only: the bar is a product timing gate (debug is too slow).
-    // r[verify cz.perf.home-100tps+1]
-    // r[verify cz.e2e.perf-home-fill+1]
-    #[cfg(not(debug_assertions))]
-    #[test]
-    fn home_800x480_fills_within_five_seconds_cpu() {
-        let handle = std::thread::Builder::new()
-            .stack_size(128 * 1024 * 1024)
-            .spawn(|| {
-                let location = ObjectivePosAndZoom {
-                    pos: (IntExp::from(HOME_POSITION.0), IntExp::from(HOME_POSITION.1))
-                    , zoom_pot: HOME_POSITION.2
-                };
-                let mut session = TileSession::new(location, (800, 480));
-                session.worker_state.use_cpu_bouts_only();
-                session.set_mag_velocity(0);
-                let t0 = Instant::now();
-                let mut guard = 0u32;
-                while session.percent_completed() < 95.0 && t0.elapsed().as_millis() < 8_000 {
-                    session.workshift();
-                    guard += 1;
-                }
-                let ms = t0.elapsed().as_millis();
-                eprintln!(
-                    "home_800x480 fill {}% in {ms}ms ({guard} workshifts)"
-                    , session.percent_completed()
-                );
-                assert!(
-                    session.percent_completed() >= 95.0
-                    , "only reached {}% in {ms}ms"
-                    , session.percent_completed()
-                );
-                assert!(
-                    ms <= 5000
-                    , "home 800x480 fill took {ms}ms (>5000); need faster CPU fill path"
-                );
-                // ~100 TPS class: 800x480 / 64² ≈ 94–104 tiles; ≤5s ⇒ ≥ tiles/5 TPS.
-                let tiles = session.answer_tiles.len() as f64;
-                let secs = (ms as f64 / 1000.0).max(1e-3);
-                let tps = tiles / secs;
-                eprintln!("home_fill_tps≈{tps:.1} tiles={tiles} ms={ms}");
-                let floor = tiles / 5.0;
-                assert!(
-                    tps >= floor
-                    , "home fill TPS {tps:.1} below tiles/5s floor {floor:.1} (ms={ms})"
-                );
-                // Continue to completion and report answer-tile quality by x-band.
-                while session.percent_completed() < 100.0 && t0.elapsed().as_millis() < 20_000 {
-                    session.workshift();
-                }
-                let mut nores_by_band = [0u32; 8];
-                let mut out_by_band = [0u32; 8];
-                let mut none_by_band = [0u32; 8];
-                let mut inside_by_band = [0u32; 8];
-                for y in 0..480usize {
-                    for x in 0..800usize {
-                        let band = (x * 8 / 800).min(7);
-                        let origin = tile_origin_for_seat((x, y), (800, 480));
-                        let local = (x - origin.0, y - origin.1);
-                        let Some(tile) = session.answer_tiles.get(&origin) else {
-                            none_by_band[band] += 1;
-                            continue;
-                        };
-                        let Some(a) = tile.get(local) else {
-                            none_by_band[band] += 1;
-                            continue;
-                        };
-                        match a.result {
-                            MandelbrotResult::Inside { .. } => inside_by_band[band] += 1,
-                            MandelbrotResult::Outside { escape_time_r2, .. } => {
-                                if escape_time_r2 == 1 && a.min_magnitude.is_infinite() {
-                                    nores_by_band[band] += 1;
-                                } else {
-                                    out_by_band[band] += 1;
-                                }
-                            }
-                        }
-                    }
-                }
-                eprintln!(
-                    "answer_tiles={} seats={}%"
-                    , session.answer_tiles.len()
-                    , session.percent_completed()
-                );
-                for b in 0..8 {
-                    eprintln!(
-                        "band{b}: nores={} out={} inside={} none={}"
-                        , nores_by_band[b]
-                        , out_by_band[b]
-                        , inside_by_band[b]
-                        , none_by_band[b]
-                    );
-                }
-            })
-            .expect("spawn");
-        handle.join().expect("800x480 home fill panicked");
-    }
-
-    /// Debug probe: preferred GPU path must stay near CPU fill pace (not ~10× slower).
-    #[cfg_attr(coverage, ignore = "llvm-cov overhead; run without coverage")]
-    #[cfg_attr(debug_assertions, ignore = "product fill bar requires --release")]
-    #[test]
-    fn home_800x480_fills_gpu_path_probe() {
-        let handle = std::thread::Builder::new()
-            .stack_size(128 * 1024 * 1024)
-            .spawn(|| {
-                let location = ObjectivePosAndZoom {
-                    pos: (IntExp::from(HOME_POSITION.0), IntExp::from(HOME_POSITION.1))
-                    , zoom_pot: HOME_POSITION.2
-                };
-                let mut session = TileSession::new(location, (800, 480));
-                // Prefer live GPU path (do not force CPU).
-                session.set_mag_velocity(0);
-                let t0 = Instant::now();
-                let mut guard = 0u32;
-                while session.percent_completed() < 95.0 && t0.elapsed().as_millis() < 30_000 {
-                    session.workshift();
-                    guard += 1;
-                }
-                let ms = t0.elapsed().as_millis();
-                eprintln!(
-                    "home_800x480 GPU-path fill {}% in {ms}ms ({guard} workshifts) gpu_preferred={} gpu_held={}"
-                    , session.percent_completed()
-                    , session.worker_state.is_gpu_preferred()
-                    , session.worker_state.gpu_device_held()
-                );
-                assert!(
-                    session.percent_completed() >= 95.0
-                    , "GPU path only reached {}% in {ms}ms"
-                    , session.percent_completed()
-                );
-                assert!(
-                    ms <= 8000
-                    , "GPU path home fill {ms}ms (>8000); sticky CPU followup / sync bout fix failed"
-                );
-            })
-            .expect("spawn");
-        handle.join().expect("800x480 GPU home fill panicked");
-    }
-
-    // r[verify cz.seamless.foveated-mag-velocity+1]
-    #[test]
-    fn workshift_starts_lookahead_at_deeper_mag() {
-        // LookaheadWork embeds large outfill state; use a fat stack like the
-        // live workshift parity test.
-        let handle = std::thread::Builder::new()
-            .stack_size(64 * 1024 * 1024)
-            .spawn(|| {
-                let location = ObjectivePosAndZoom {
-                    pos: (IntExp::from(-1), IntExp::ZERO)
-                    , zoom_pot: 2
-                };
-                let mut session = TileSession::new(location, (64, 64));
-                session.set_mag_velocity(1);
-                session.workshift();
-                assert!(
-                    session.lookahead_work.is_some()
-                    , "zoom-in should begin the DFS lookahead column under attention"
-                );
-                let zoom = session.lookahead_work.as_ref().unwrap().publish_location.zoom_pot;
-                assert_eq!(zoom, 3, "first column bump is base_mag+1");
-            })
-            .expect("spawn");
-        handle.join().expect("lookahead start test panicked");
-    }
-
-    // r[verify cz.seamless.foveated-mag-velocity+1]
-    #[test]
-    fn attention_tile_location_contains_attention_seat() {
-        let location = ObjectivePosAndZoom {
-            pos: (IntExp::ZERO, IntExp::ZERO)
-            , zoom_pot: 3
-        };
-        let attention = (40, 20);
-        let deeper = attention_tile_location(&location, attention, 5).expect("loc");
-        assert_eq!(deeper.zoom_pot, 5);
-        let att = (
-            location.pos.0.clone()
-                + IntExp::from(attention.0).shift(-(location.zoom_pot + PIXELS_PER_UNIT_POT))
-            , location.pos.1.clone()
-                + IntExp::from(attention.1).shift(-(location.zoom_pot + PIXELS_PER_UNIT_POT))
-        );
-        let wx = intexp_seat_i32(att.0.shift(5).shift(PIXELS_PER_UNIT_POT)).unwrap();
-        let wy = intexp_seat_i32(att.1.shift(5).shift(PIXELS_PER_UNIT_POT)).unwrap();
-        let edge = TILE_EDGE_LENGTH as i32;
-        let ox = floor_div_tile_i32(wx) * edge;
-        let oy = floor_div_tile_i32(wy) * edge;
-        let ulx = intexp_seat_i32(
-            deeper.pos.0.clone().shift(5).shift(PIXELS_PER_UNIT_POT)
-        ).unwrap();
-        let uly = intexp_seat_i32(
-            deeper.pos.1.clone().shift(5).shift(PIXELS_PER_UNIT_POT)
-        ).unwrap();
-        assert_eq!((ulx, uly), (ox, oy));
-        assert!(wx >= ox && wx < ox + edge);
-        assert!(wy >= oy && wy < oy + edge);
-    }
-
-    // r[verify cz.seamless.foveated-mag-velocity+1]
-    proptest! {
-        #![proptest_config(ProptestConfig::with_cases(32))]
-        #[test]
-        fn lookahead_publish_location_zoom_matches_requested_mag(
-            base_zoom in -4i32..8,
-            bump in 1i32..8,
-            att_x in 0i32..64,
-            att_y in 0i32..64,
-        ) {
-            let location = ObjectivePosAndZoom {
-                pos: (IntExp::ZERO, IntExp::ZERO)
-                , zoom_pot: base_zoom
-            };
-            let target = base_zoom + bump;
-            let Some(pub_loc) = attention_tile_location(&location, (att_x, att_y), target) else {
-                return Ok(());
-            };
-            prop_assert_eq!(pub_loc.zoom_pot, target);
-        }
-    }
-
-    // r[verify cz.seamless.reference-background+1]
-    #[test]
-    fn retarget_pan_keeps_bound_reference_orbit() {
-        let location = ObjectivePosAndZoom {
-            pos: (IntExp::from(-1), IntExp::ZERO)
-            , zoom_pot: 4
-        };
-        let mut session = TileSession::new(location.clone(), (8, 8));
-        let orbit_before = session.worker_state.seat_orbit_ids[0];
-        let refs_before = session.worker_state.references.len();
-        assert_ne!(orbit_before, ZERO_ORBIT_ID);
-        let panned = ObjectivePosAndZoom {
-            pos: (
-                location.pos.0.clone() + IntExp::from(1).shift(-(4 + PIXELS_PER_UNIT_POT))
-                , location.pos.1.clone()
-            )
-            , zoom_pot: 4
-        };
-        session.retarget(panned, (8, 8));
-        assert_eq!(session.worker_state.seat_orbit_ids[0], orbit_before);
-        assert_eq!(session.worker_state.references.len(), refs_before);
-        assert_eq!(session.seats_done, 0);
-    }
-
-    // r[verify cz.seamless.reference-background+1]
-    #[test]
-    fn retarget_zoom_rebuilds_session() {
-        let handle = std::thread::Builder::new()
-            .stack_size(64 * 1024 * 1024)
-            .spawn(|| {
-                let location = ObjectivePosAndZoom {
-                    pos: (IntExp::from(-1), IntExp::ZERO)
-                    , zoom_pot: 4
-                };
-                let mut session = TileSession::new(location, (8, 8));
-                session.seats_done = 3;
-                let refs_before = session.worker_state.references.len();
-                session.retarget(
-                    ObjectivePosAndZoom {
-                        pos: (IntExp::from(-1), IntExp::ZERO)
-                        , zoom_pot: 5
-                    }
-                    , (8, 8)
-                );
-                assert_eq!(session.location.zoom_pot, 5);
-                assert_eq!(session.seats_done, 0);
-                assert_eq!(session.tile_scheduler.mag_velocity, 1);
-                assert_eq!(session.reference_worker.bound_mag(), Some(5));
-                // Mag-change path keeps the prior collection (old orbit retained).
-                assert!(session.worker_state.references.len() >= refs_before);
-            })
-            .expect("spawn");
-        handle.join().expect("retarget zoom test panicked");
-    }
-}
+#[path = "tile_session_tests.rs"]
+mod tile_session_tests;

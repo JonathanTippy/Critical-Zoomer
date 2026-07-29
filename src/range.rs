@@ -208,4 +208,25 @@ mod tests {
         };
         assert!(r.is_agnostic());
     }
+
+    #[test]
+    fn min_propagates_nan_ignorance() {
+        let n = super::min(f64::NAN, 1.0);
+        assert!(n.is_nan(), "min must return NaN when first arg is NaN");
+        let n2 = super::min(1.0, f64::NAN);
+        assert!(n2.is_nan(), "min must return NaN when second arg is NaN");
+    }
+
+    #[test]
+    fn min_returns_lesser_finite() {
+        assert_eq!(super::min(2.0, 5.0), 2.0);
+        assert_eq!(super::min(5.0, 2.0), 2.0);
+    }
+
+    #[test]
+    fn max_propagates_nan_ignorance() {
+        assert!(super::max(f64::NAN, 1.0).is_nan());
+        assert!(super::max(1.0, f64::NAN).is_nan());
+        assert_eq!(super::max(2.0, 5.0), 5.0);
+    }
 }

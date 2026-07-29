@@ -113,6 +113,8 @@ pub struct OutfillInfillSchedulerState {
     , flood_in_queue: VecDeque<((i32, i32), u32)>
     , in_queue: VecDeque<((i32, i32), u32)>
     , tile_edge_remaining: usize
+    // When false, tile is interior to the session screen — skip perimeter scredge gate.
+    , touches_screen_border: bool
     , active: HashSet<(usize, usize)>
     , extent: (usize, usize)
     , hint_queue: VecDeque<((usize, usize), CalibratedAnswer)>
@@ -138,6 +140,8 @@ fn inside_calibrated(period: u64) -> CalibratedAnswer {
             , small_time_edge: exact_range(false)
             , node: exact_range(false)
         }
+        , escape_time_angle: 0
+        , min_magnitude_angle: 0
     }
 }
 
@@ -183,6 +187,23 @@ impl OutfillInfillScheduler {
         , active_tile: &mut Tile<()>
     ) -> [Option<((usize, usize), Option<CalibratedAnswer>)>; N] {
         let _ = active_tile;
+        // Auth (workgroup.md / tile_worker.md): worker owns default spiral-in;
+        // intratile only adds guidance. Hot-path seat picks stay local — never
+        // sync-RPC the full OutfillInfillSchedulerState (that bind pegged ITS).
+        let queued_len = scheduler_state.out_queue.len()
+            + scheduler_state.edge_queue.len()
+            + scheduler_state.scredge.len()
+            + scheduler_state.period_edge_queue.len()
+            + scheduler_state.flood_in_queue.len()
+            + scheduler_state.in_queue.len()
+            + scheduler_state.in_filament_edge_queue.len()
+            + scheduler_state.out_filament_edge_queue.len()
+            + scheduler_state.small_time_edge_queue.len();
+        // Without per-finish pop_matching, neighbor pushes accumulate duplicates.
+        // Compact occasionally so get_next does not walk thousands of stale heads.
+        if queued_len > TILE_SEAT_COUNT {
+            scheduler_state.compact_stale_queues();
+        }
         let mut out: [Option<((usize, usize), Option<CalibratedAnswer>)>; N] = [const { None }; N];
         for i in 0..N {
             if let Some((local, hint)) = scheduler_state.hint_queue.pop_front() {
@@ -256,13 +277,62 @@ impl OutfillInfillScheduler {
         let _ = active_tile;
         for item in updates.iter() {
             let Some((local, answer)) = item else { continue };
-            scheduler_state.pop_matching(*local);
+            // Do not scan every work queue here: retain-per-finish was ~3–11ms per
+            // 1024-seat bout and capped home fill at ~30 whole-TPS. get_next already
+            // skips done[] seats and pops stale heads via pop_step.
             scheduler_state.apply_finished(*local, *answer);
         }
     }
 }
 
 impl OutfillInfillSchedulerState {
+    fn compact_stale_queues(&mut self) {
+        let done = self.done;
+        let extent = self.extent;
+        let keep_undone = |pos: (i32, i32)| -> bool {
+            if pos.0 < 0
+                || pos.1 < 0
+                || (pos.0 as usize) >= extent.0
+                || (pos.1 as usize) >= extent.1
+            {
+                return false;
+            }
+            !done[local_index((pos.0 as usize, pos.1 as usize))]
+        };
+        self.scredge.retain(|p| keep_undone(*p));
+        self.edge_queue.retain(|(p, _)| keep_undone(*p));
+        self.in_filament_edge_queue.retain(|(p, _)| keep_undone(*p));
+        self.out_filament_edge_queue.retain(|(p, _)| keep_undone(*p));
+        self.small_time_edge_queue.retain(|(p, _)| keep_undone(*p));
+        self.out_queue.retain(|(p, _)| keep_undone(*p));
+        self.period_edge_queue.retain(|(p, _)| keep_undone(*p));
+        self.flood_in_queue.retain(|(p, _)| keep_undone(*p));
+        self.in_queue.retain(|(p, _)| keep_undone(*p));
+        // Drop duplicate unfinished seats (neighbor pushes without pop_matching).
+        // Prefer higher-priority queues (same order as pick_step).
+        let mut seen = [false; TILE_SEAT_COUNT];
+        let mut dedupe = |pos: (i32, i32)| -> bool {
+            if !keep_undone(pos) {
+                return false;
+            }
+            let idx = local_index((pos.0 as usize, pos.1 as usize));
+            if seen[idx] {
+                return false;
+            }
+            seen[idx] = true;
+            true
+        };
+        self.out_queue.retain(|(p, _)| dedupe(*p));
+        self.edge_queue.retain(|(p, _)| dedupe(*p));
+        self.in_filament_edge_queue.retain(|(p, _)| dedupe(*p));
+        self.out_filament_edge_queue.retain(|(p, _)| dedupe(*p));
+        self.scredge.retain(|p| dedupe(*p));
+        self.period_edge_queue.retain(|(p, _)| dedupe(*p));
+        self.flood_in_queue.retain(|(p, _)| dedupe(*p));
+        self.in_queue.retain(|(p, _)| dedupe(*p));
+        self.small_time_edge_queue.retain(|(p, _)| dedupe(*p));
+    }
+
     fn in_bounds(&self, pos: (i32, i32)) -> bool {
         pos.0 >= 0
             && pos.1 >= 0
@@ -279,6 +349,9 @@ impl OutfillInfillSchedulerState {
 
     fn seed_scredge(&mut self) {
         self.scredge.clear();
+        if !self.touches_screen_border {
+            return;
+        }
         for pos in tile_perimeter_local(self.extent) {
             let local = (pos.0 as usize, pos.1 as usize);
             let index = local_index(local);
@@ -289,6 +362,10 @@ impl OutfillInfillSchedulerState {
     }
 
     fn recount_tile_edge_remaining(&mut self) {
+        if !self.touches_screen_border {
+            self.tile_edge_remaining = 0;
+            return;
+        }
         let mut remaining = 0usize;
         for pos in tile_perimeter_local(self.extent) {
             let index = local_index((pos.0 as usize, pos.1 as usize));
@@ -300,7 +377,7 @@ impl OutfillInfillSchedulerState {
     }
 
     fn screen_edge_complete(&self) -> bool {
-        self.tile_edge_remaining == 0
+        !self.touches_screen_border || self.tile_edge_remaining == 0
     }
 
     fn pick_step(&mut self) -> Option<((i32, i32), Step)> {
@@ -732,6 +809,7 @@ impl OutfillInfillScheduler {
             , flood_in_queue: VecDeque::new()
             , in_queue: VecDeque::new()
             , tile_edge_remaining: 0
+            , touches_screen_border: true
             , active: HashSet::new()
             , extent
             , hint_queue: VecDeque::new()
@@ -749,6 +827,24 @@ impl OutfillInfillScheduler {
         }
         state.seed_scredge();
         state.recount_tile_edge_remaining();
+        state
+    }
+
+    /// Like `init_for_tile_extent`, but interior tiles (not on the session screen
+    /// border) skip the tile-perimeter scredge gate (D-SCH-1).
+    pub fn init_for_tile_extent_screen(
+        extent: (usize, usize)
+        , touches_screen_border: bool
+    ) -> OutfillInfillSchedulerState {
+        let mut state = Self::init_for_tile_extent(extent);
+        state.touches_screen_border = touches_screen_border;
+        if !touches_screen_border {
+            state.scredge.clear();
+            state.tile_edge_remaining = 0;
+        } else {
+            state.seed_scredge();
+            state.recount_tile_edge_remaining();
+        }
         state
     }
 

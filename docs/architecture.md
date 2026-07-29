@@ -26,7 +26,8 @@ Tiles must have a CPU variant and a GPU variant. The workgroup deals with tiles 
 Also, the workgroup may sometimes do work on the GPU instead and must prefer to when possible, but it depends what types are available what is doable and not.
 
 Correct tile usage:
-Tile hoard is never cleared, and tile hoard is correctly and completely sampled every single frame.
+- Tile hoard is never cleared, and tile hoard is correctly and completely sampled every single frame.
+- zoom-fill is a dead design idea. no data is ever filled in the new design: tiles are static, and the shader samples the static data directly every frame.
 
 #### Tile Manager
 
@@ -145,3 +146,8 @@ Tenacious: Workgroup
 Hoarding: Workgroup & Headgroup
 Calibrated: Workgroup
 Fast: All
+
+## Actor Wiring addendum
+
+Reference worker must recieve stencils from the headgroup. reference worker considers the whole screen, not any tiles, ever. there is no rebase, only fallback to the const zero orbit (while running the exact same per-point code), which has a smallness of exactly zero on every iteration, preventing glitches.
+

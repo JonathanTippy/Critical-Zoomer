@@ -47,8 +47,14 @@ pub struct ShadeUniforms {
     , pub tile_count: u32
     , pub grid_w: u32
     , pub grid_h: u32
-    , pub _pad1: u32
-    , pub _pad2: u32
+    // Precomputed nores (missing-seat) shade color in 0..1.
+    , pub nores_r: f32
+    , pub nores_g: f32
+    , pub nores_b: f32
+    // Pixels outside the tile-grid AABB expanded by this margin use nores_rgb.
+    , pub edge_margin: u32
+    , pub _pad_end: u32
+    , pub _pad_end2: u32
 }
 
 #[repr(C)]
@@ -66,6 +72,95 @@ pub struct GpuInstruction {
     , pub color_r: f32
     , pub color_g: f32
     , pub color_b: f32
+}
+
+/// Shade color for a missing seat (immediate outside escape) with edge layers inert.
+/// Matches the GPU far-from-tiles early-out.
+pub fn nores_rgb_for_instructions(instructions: &[GpuInstruction]) -> [f32; 3] {
+    let mut rgb = [0.0f32, 0.0, 0.0];
+    for inst in instructions {
+        let base = [inst.color_r, inst.color_g, inst.color_b];
+        match inst.opcode {
+            0 if inst.opacity_outside > 0.0 => {
+                // escape time 1.0, outside
+                let n = normalize_host(1.0, inst.normalizing);
+                let brightness = shade_value_host(n, inst.period, inst.phase, inst.shading);
+                rgb = paint_host(rgb, base, brightness, inst.range, inst.opacity_outside);
+            }
+            1 if inst.opacity_outside > 0.0 => {
+                let n = normalize_host(0.0, inst.normalizing);
+                let brightness = shade_value_host(n, inst.period, inst.phase, inst.shading);
+                rgb = paint_host(rgb, base, brightness, inst.range, inst.opacity_outside);
+            }
+            2 if inst.opacity_outside > 0.0 => {
+                let n = normalize_host(1.0e30, inst.normalizing);
+                let brightness = shade_value_host(n, inst.period, inst.phase, inst.shading);
+                rgb = paint_host(rgb, base, brightness, inst.range, inst.opacity_outside);
+            }
+            // 3..=6 edge ops: nores far path never lights them
+            _ => {}
+        }
+    }
+    [rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0]
+}
+
+pub fn edge_margin_for_instructions(instructions: &[GpuInstruction]) -> u32 {
+    let mut margin = 1u32;
+    for inst in instructions {
+        if inst.opcode == 5 {
+            margin = margin.max(inst.thickness.max(1));
+        }
+    }
+    margin
+}
+
+fn normalize_host(n: f32, method: u32) -> f32 {
+    match method {
+        1 => n.max(1.0).ln(),
+        2 => n.max(std::f32::consts::E).ln().ln(),
+        3 => 1.0 / n.max(1.0e-6),
+        4 => 1.0 / n.max(1.0).ln().max(1.0e-6),
+        _ => n,
+    }
+}
+
+fn shade_value_host(n: f32, period: f32, phase: f32, shading: u32) -> f32 {
+    let period_recip = 1.0 / period.max(1.0e-6);
+    if shading == 1 {
+        (1.0 - ((n + phase) * std::f32::consts::TAU * period_recip).cos()) * 0.5
+    } else {
+        ((n + phase) * period_recip).fract()
+    }
+}
+
+fn paint_host(
+    bottom: [f32; 3],
+    base: [f32; 3],
+    brightness: f32,
+    range: f32,
+    opacity: f32,
+) -> [f32; 3] {
+    let mut delta = ((brightness * 255.0) - 127.0) * range;
+    let cmax = base[0].max(base[1]).max(base[2]);
+    let cmin = base[0].min(base[1]).min(base[2]);
+    if cmin + delta < 0.0 {
+        delta = -cmin;
+    }
+    if cmax + delta > 255.0 {
+        delta = 255.0 - cmax;
+    }
+    let top = [
+        (base[0] + delta).clamp(0.0, 255.0),
+        (base[1] + delta).clamp(0.0, 255.0),
+        (base[2] + delta).clamp(0.0, 255.0),
+    ];
+    let top_share = opacity;
+    let bottom_share = 255.0 - top_share;
+    [
+        ((bottom[0] * bottom_share + top[0] * top_share) / 256.0).floor(),
+        ((bottom[1] * bottom_share + top[1] * top_share) / 256.0).floor(),
+        ((bottom[2] * bottom_share + top[2] * top_share) / 256.0).floor(),
+    ]
 }
 
 #[repr(C)]
@@ -128,6 +223,9 @@ pub struct GpuDisplayResources {
     // Slots the last prepare could not place. Non-zero means the hoard wants
     // more VRAM than the atlas can currently give, which is a memory bump.
     , slots_denied: u32
+    // Shade only the tile-grid AABB (+ edge margin); the rest is cleared to nores.
+    , shade_scissor: (u32, u32)
+    , nores_clear: wgpu::Color
 }
 
 pub struct GpuDisplayCallback {
@@ -673,6 +771,8 @@ pub fn build_shade_frame(
         live_ids.extend(ids.iter().copied());
     }
 
+    let nores = nores_rgb_for_instructions(&instructions);
+    let edge_margin = edge_margin_for_instructions(&instructions);
     ShadeFrame {
         uniforms: ShadeUniforms {
             viewport_size: [viewport.0 as f32, viewport.1 as f32]
@@ -687,8 +787,12 @@ pub fn build_shade_frame(
             , tile_count: entries.len() as u32
             , grid_w
             , grid_h
-            , _pad1: 0
-            , _pad2: 0
+            , nores_r: nores[0]
+            , nores_g: nores[1]
+            , nores_b: nores[2]
+            , edge_margin
+        , _pad_end: 0
+        , _pad_end2: 0
         }
         , instructions
         , tile_entries: entries
@@ -886,7 +990,14 @@ impl GpuDisplayResources {
             , slot_capacity
             , slot_ceiling
             , slots_denied: 0
+            , shade_scissor: (u32::MAX, u32::MAX)
+            , nores_clear: wgpu::Color::BLACK
         }
+    }
+
+    /// Clear color for seats outside the tile grid (matches shader nores early-out).
+    pub fn nores_clear(&self) -> wgpu::Color {
+        self.nores_clear
     }
 
     /// Slots the atlas currently holds.
@@ -1075,6 +1186,31 @@ impl GpuDisplayResources {
             self.reset_slots();
         }
         self.reclaim_dead_slots(&frame.live_ids);
+        {
+            let u = &frame.uniforms;
+            let margin = u.edge_margin;
+            let vw = u.viewport_size[0].max(1.0) as u32;
+            let vh = u.viewport_size[1].max(1.0) as u32;
+            let cover_w = u
+                .grid_w
+                .saturating_mul(TILE_EDGE_LENGTH as u32)
+                .saturating_add(margin)
+                .max(1)
+                .min(vw);
+            let cover_h = u
+                .grid_h
+                .saturating_mul(TILE_EDGE_LENGTH as u32)
+                .saturating_add(margin)
+                .max(1)
+                .min(vh);
+            self.shade_scissor = (cover_w, cover_h);
+            self.nores_clear = wgpu::Color {
+                r: u.nores_r as f64
+                , g: u.nores_g as f64
+                , b: u.nores_b as f64
+                , a: 1.0
+            };
+        }
 
         // Size the atlas to the whole live hoard up front, so growth happens in
         // one reallocation per frame instead of once per tile that overflows.
@@ -1181,6 +1317,8 @@ impl GpuDisplayResources {
     }
 
     fn paint(&self, render_pass: &mut wgpu::RenderPass<'static>) {
+        let (w, h) = self.shade_scissor;
+        render_pass.set_scissor_rect(0, 0, w.max(1), h.max(1));
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &self.bind_group, &[]);
         render_pass.draw(0..3, 0..1);
@@ -1297,8 +1435,12 @@ mod atlas_tests {
                 , tile_count: 0
                 , grid_w: 1
                 , grid_h: 1
-                , _pad1: 0
-                , _pad2: 0
+                , nores_r: 0.0
+                , nores_g: 0.0
+                , nores_b: 0.0
+                , edge_margin: 1
+            , _pad_end: 0
+            , _pad_end2: 0
             }
             , instructions: Vec::new()
             , tile_entries: Vec::new()
@@ -1390,8 +1532,12 @@ mod atlas_tests {
                 , tile_count: 0
                 , grid_w: 1
                 , grid_h: 1
-                , _pad1: 0
-                , _pad2: 0
+                , nores_r: 0.0
+                , nores_g: 0.0
+                , nores_b: 0.0
+                , edge_margin: 1
+            , _pad_end: 0
+            , _pad_end2: 0
             }
             , instructions: Vec::new()
             , tile_entries: Vec::new()

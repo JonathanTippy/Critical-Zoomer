@@ -87,7 +87,7 @@ fn try_publish_tile_gpu(
             }
         }
     }
-    let packed = gpu.publish_tile(&cal, &bias, &valid)?;
+    let packed = gpu.publish_tile_cpu_bridge(&cal, &bias, &valid)?;
     let mut out = Tile::new(calibrated.origin_seat, calibrated.magnification_pot);
     for y in 0..TILE_EDGE_LENGTH {
         for x in 0..TILE_EDGE_LENGTH {
@@ -156,7 +156,9 @@ fn packed_to_answer(
             },
             min_magnitude_time: packed.min_mag_time as u64,
             min_magnitude: min_mag,
-        }
+            escape_time_angle: 0,
+            min_magnitude_angle: 0
+}
     } else {
         Answer {
             result: MandelbrotResult::Outside {
@@ -165,7 +167,9 @@ fn packed_to_answer(
             },
             min_magnitude_time: packed.min_mag_time as u64,
             min_magnitude: min_mag,
-        }
+            escape_time_angle: 0,
+            min_magnitude_angle: 0
+}
     }
 }
 
@@ -181,14 +185,18 @@ fn collapse_exact(answer: CalibratedAnswer) -> Answer {
             },
             min_magnitude_time: answer.min_magnitude_time.lower_bound,
             min_magnitude: answer.min_magnitude.lower_bound,
-        },
+            escape_time_angle: 0,
+            min_magnitude_angle: 0
+},
         CalibratedMandelbrotResult::Inside { period } => Answer {
             result: MandelbrotResult::Inside {
                 period: period.lower_bound,
             },
             min_magnitude_time: answer.min_magnitude_time.lower_bound,
             min_magnitude: answer.min_magnitude.lower_bound,
-        },
+            escape_time_angle: 0,
+            min_magnitude_angle: 0
+},
         CalibratedMandelbrotResult::Agnostic { period, .. } => {
             // Should not reach here; Agnostic handled by publish_seat.
             Answer {
@@ -197,7 +205,9 @@ fn collapse_exact(answer: CalibratedAnswer) -> Answer {
                 },
                 min_magnitude_time: answer.min_magnitude_time.lower_bound,
                 min_magnitude: answer.min_magnitude.lower_bound,
-            }
+                escape_time_angle: 0,
+                min_magnitude_angle: 0
+}
         }
     }
 }
@@ -214,7 +224,6 @@ pub struct MemoryBump {
 }
 
 /// Thin live-path owner of publish cadence (+ optional bump send helper).
-/// Full publisher actor extract is follow-up; screen_worker hosts this for now.
 #[derive(Debug)]
 pub struct LivePublisher {
     pub cadence: PublishCadence,
@@ -372,6 +381,8 @@ pub fn exact_outside(escape_time: u64) -> CalibratedAnswer {
                 upper_bound: false,
             },
         },
+        escape_time_angle: 0,
+        min_magnitude_angle: 0,
     }
 }
 
@@ -423,6 +434,8 @@ pub fn agnostic_wide() -> CalibratedAnswer {
                 upper_bound: true,
             },
         },
+        escape_time_angle: 0,
+        min_magnitude_angle: 0,
     }
 }
 
@@ -453,7 +466,9 @@ mod tests {
             },
             min_magnitude_time: 10,
             min_magnitude: 1.0,
-        };
+            escape_time_angle: 0,
+            min_magnitude_angle: 0
+};
         let out = publish_seat(agnostic_wide(), Some(bias));
         match out.result {
             MandelbrotResult::Outside { escape_time_r2, .. } => {
@@ -492,6 +507,8 @@ mod tests {
                 upper_bound: 4.0,
             },
             highlights: exact_outside(1).highlights,
+            escape_time_angle: 0,
+            min_magnitude_angle: 0,
         };
         let bias = Answer {
             result: MandelbrotResult::Outside {
@@ -500,7 +517,9 @@ mod tests {
             },
             min_magnitude_time: 0,
             min_magnitude: 4.0,
-        };
+            escape_time_angle: 0,
+            min_magnitude_angle: 0
+};
         let out = publish_seat(cal, Some(bias));
         match out.result {
             MandelbrotResult::Outside { escape_time_r2, .. } => {
@@ -592,18 +611,25 @@ pub struct PublisherActorState {
 pub async fn run_actor(
     actor: steady_state::SteadyActorShadow
     , tiles_in: steady_state::SteadyRx<crate::assemblies::structs::GpuTileHandle>
+    , bypass_in: steady_state::SteadyRx<crate::assemblies::structs::GpuTileHandle>
     , tiles_out: steady_state::SteadyTx<crate::assemblies::structs::GpuTileHandle>
     , bump_in: steady_state::SteadyRx<MemoryBump>
     , bump_out: steady_state::SteadyTx<MemoryBump>
+    , settings_in: steady_state::SteadyRx<crate::settings::Settings>
     , state: steady_state::SteadyState<PublisherActorState>
 ) -> Result<(), Box<dyn std::error::Error>> {
     use steady_state::*;
     internal_actor(
-        actor.into_spotlight([&tiles_in, &bump_in], [&tiles_out, &bump_out])
+        actor.into_spotlight(
+            [&tiles_in, &bypass_in, &bump_in, &settings_in],
+            [&tiles_out, &bump_out],
+        )
         , tiles_in
+        , bypass_in
         , tiles_out
         , bump_in
         , bump_out
+        , settings_in
         , state
     ).await
 }
@@ -611,36 +637,51 @@ pub async fn run_actor(
 async fn internal_actor<A: steady_state::SteadyActor>(
     mut actor: A
     , tiles_in: steady_state::SteadyRx<crate::assemblies::structs::GpuTileHandle>
+    , bypass_in: steady_state::SteadyRx<crate::assemblies::structs::GpuTileHandle>
     , tiles_out: steady_state::SteadyTx<crate::assemblies::structs::GpuTileHandle>
     , bump_in: steady_state::SteadyRx<MemoryBump>
     , bump_out: steady_state::SteadyTx<MemoryBump>
+    , settings_in: steady_state::SteadyRx<crate::settings::Settings>
     , state: steady_state::SteadyState<PublisherActorState>
 ) -> Result<(), Box<dyn std::error::Error>> {
     use steady_state::*;
     use crate::assemblies::structs::GpuTileHandle;
     let mut tiles_in = tiles_in.lock().await;
+    let mut bypass_in = bypass_in.lock().await;
     let mut tiles_out = tiles_out.lock().await;
     let mut bump_in = bump_in.lock().await;
     let mut bump_out = bump_out.lock().await;
+    let mut settings_in = settings_in.lock().await;
     let mut state = state.lock(|| PublisherActorState {
         unsent: None
         , unsent_bump: None
         , live: LivePublisher::new(true)
     }).await;
 
-    let max_sleep = Duration::from_millis(2);
+    // Always re-check inputs at a quick pace; drain loops below.
+    let max_sleep = Duration::from_millis(1);
 
     while actor.is_running(|| i!(tiles_out.mark_closed() && bump_out.mark_closed())) {
         if actor.avail_units(&mut tiles_in) == 0
+            && actor.avail_units(&mut bypass_in) == 0
             && actor.avail_units(&mut bump_in) == 0
+            && actor.avail_units(&mut settings_in) == 0
             && state.unsent.is_none()
             && state.unsent_bump.is_none()
         {
             await_for_any!(
                 actor.wait_periodic(max_sleep)
                 , actor.wait_avail(&mut tiles_in, 1)
+                , actor.wait_avail(&mut bypass_in, 1)
                 , actor.wait_avail(&mut bump_in, 1)
+                , actor.wait_avail(&mut settings_in, 1)
             );
+        }
+
+        while actor.avail_units(&mut settings_in) > 0 {
+            if let Some(settings) = actor.try_take(&mut settings_in) {
+                state.live.memory_limit_bytes = settings.memory_limit_bytes;
+            }
         }
 
         if let Some(bump) = state.unsent_bump.take() {
@@ -684,25 +725,62 @@ async fn internal_actor<A: steady_state::SteadyActor>(
             }
         }
 
-        while state.unsent.is_none() && actor.avail_units(&mut tiles_in) > 0 {
-            let Some(handle) = actor.try_take(&mut tiles_in) else { break };
-            // Handles arriving here are already collapsed to Answer for the
-            // headgroup; the publisher shader will take over this step later.
-            let _: &GpuTileHandle = &handle;
-            match actor.try_send(&mut tiles_out, handle) {
-                SendOutcome::Success => {
-                    state.live.record_publish(Instant::now());
-                }
-                SendOutcome::Blocked(t)
-                | SendOutcome::Timeout(t)
-                | SendOutcome::Closed(t) => {
-                    state.unsent = Some(t);
-                    break;
-                }
-            }
+        // Prefer GPU-native bypass (worker → publisher) over uploader path.
+        if drain_tile_rx(
+            &mut actor,
+            &mut bypass_in,
+            &mut tiles_out,
+            &mut state,
+        ) {
+            continue;
         }
+        let _ = drain_tile_rx(
+            &mut actor,
+            &mut tiles_in,
+            &mut tiles_out,
+            &mut state,
+        );
     }
 
     info!("Tile publisher shutting down.");
     Ok(())
+}
+
+fn drain_tile_rx<A: steady_state::SteadyActor>(
+    actor: &mut A,
+    tiles_rx: &mut steady_state::Rx<crate::assemblies::structs::GpuTileHandle>,
+    tiles_out: &mut steady_state::Tx<crate::assemblies::structs::GpuTileHandle>,
+    state: &mut PublisherActorState,
+) -> bool {
+    use steady_state::*;
+    use crate::assemblies::structs::GpuTileHandle;
+    while state.unsent.is_none() && actor.avail_units(tiles_rx) > 0 {
+        let Some(handle) = actor.try_take(tiles_rx) else { break };
+        let now = Instant::now();
+        let has_work = true;
+        if !state.live.should_publish(now, has_work) {
+            state.unsent = Some(handle);
+            while actor.avail_units(tiles_rx) > 0 {
+                if let Some(newer) = actor.try_take(tiles_rx) {
+                    state.unsent = Some(newer);
+                } else {
+                    break;
+                }
+            }
+            return true;
+        }
+        let _: &GpuTileHandle = &handle;
+        match actor.try_send(tiles_out, handle) {
+            SendOutcome::Success => {
+                state.live.record_publish(now);
+            }
+            SendOutcome::Blocked(t)
+            | SendOutcome::Timeout(t)
+            | SendOutcome::Closed(t) => {
+                state.unsent = Some(t);
+                return true;
+            }
+        }
+    }
+    false
 }
