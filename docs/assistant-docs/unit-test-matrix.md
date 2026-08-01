@@ -11,12 +11,17 @@ Status: `green` | `in-progress` | `blocked-impl`
 | cz.math.intexp-add-commutative+1 | prop + examples in `intexp.rs` | add commutative | intexp.rs | green |
 | cz.math.intexp-mul-associative+1 | prop + examples in `intexp.rs` | mul associative | intexp.rs | green |
 | cz.math.mandelbrot-real-axis-symmetry+1 | naive_cpu + e2e_oracle | conjugate symmetry | naive_cpu / e2e_oracle | green |
+| cz.math.perturbation-naive-oracle+1 | perturb_cpu naive parity (≥3 loci) | exact Answer vs doubling naive | perturbation_cpu_worker | green |
 | cz.range.guess-biased-nearest+1 | range.rs + calibrated + gpu_tile | stays in bounds | range.rs | green |
 | cz.display.window-default-800x480+1 | constants.rs (≥3) | n/a | constants.rs | green |
 | cz.display.offscreen-r2-circle+1 | offscreen.rs (≥3) | n/a | offscreen.rs | green |
+| cz.display.offscreen-arrows+1 | offscreen classifier + window arrows impl | n/a | offscreen.rs | green |
 | cz.display.nores-when-no-proximate+1 | sampling + gpu_tile + shade | n/a | multi | green |
 | cz.tenacious.nores-not-flat-black+1 | b_ten_1 + shade | n/a | multi | green |
+| cz.tenacious.no-max-iter+1 | tenacity + IPP origin (≥3) | finish without max-iter | perturb_cpu / standards_perf | green |
 | cz.hoarding.one-answer-per-point+1 | sampling hoard_tests (≥3) | n/a | sampling.rs | green |
+| cz.hoarding.no-compute-settings+1 | D-BAIL-1 recolor-only (≥3) | n/a | shade_tests | green |
+| cz.calib.lowres-synthesis+1 | calibrated bias + publisher (≥3) | clamp/synth | multi | green |
 | cz.fast.natural-zoom-2x+1 | inputs + transforms (≥3) | n/a | inputs.rs | green |
 | cz.seamless.perturbation-always-on+1 | phase4 + session (≥3) | n/a | multi | green |
 | cz.seamless.gpu-preferred+1 | gpu_context + perturb_gpu + uploader | n/a | multi | green |
@@ -38,13 +43,30 @@ Status: `green` | `in-progress` | `blocked-impl`
 | cz.shade.layers-in-script-order+1 | shade_tests (≥3) | GPU↔oracle | shade_tests.rs | green |
 | cz.perf.foveation-half-time+1 | tile_session (≥3) | 50/50 time | tile_session / standards_perf | green |
 | cz.perf.home-100tps+1 | home fill release (≥3) | ≤5s | tile_session | green |
-| cz.perf.min-300m-ips-cpu+1 | standards_perf fullstack (≥3; outside r=2 + inside) + microbench | ≥300M | standards_perf | green |
+| cz.perf.home-10000tps-gpu+1 | GPU home TPS ≥10000 | ≥10k | standards_perf / e2e | blocked-impl |
+| cz.perf.min-300m-ips-cpu+2 | standards_perf fullstack (≥3; outside r=2 + inside) + microbench | ≥300M | standards_perf | green |
 | cz.perf.min-30b-ips-gpu+1 | standards_perf fullstack (≥3; outside r=2 + inside) + gpu microbench | ≥30B | standards_perf / perturb_gpu | green |
 | cz.perf.optimal-ipp+1 | standards_perf (≥3) | escape IPP | standards_perf | green |
+| cz.perf.play-minimize+1 | standards_perf play_* (≥3) | continuous delivery | standards_perf | green |
+| cz.perf.play-8bump-100ms+1 | standards_perf play_eight_* (≥3) | ≤100ms | standards_perf | green |
 | cz.perf.headgroup-shaders-2ms+1 | standards_perf (≥3) | ≤2ms | standards_perf | green |
 | cz.perf.headgroup-vsync+1 | standards_perf (≥3) | Fifo | window / standards_perf | green |
+| cz.perf.headgroup-stable-path+1 | sample+shade one path (≥3) | pan vs idle | standards_perf | green |
+| cz.play.actor-poll+1 | PLAY_INPUT_POLL_MS + actor loops (≥3) | n/a | tile_worker | green |
+| cz.play.actor-drain+1 | coalesce full-burst drain (≥3) | n/a | tile_worker | green |
+| cz.play.latest-wins+1 | coalesce latest attention/retarget (≥3) | n/a | tile_worker | green |
+| cz.ref.zero-orbit-same-path+1 | zero orbit + same path (≥3) | n/a | reference_actor / perturb | green |
+| cz.pub.gpu-native-work+1 | gpu_tile handoff (≥3) | no CPU round-trip | gpu_tile.rs | green |
 | cz.ctrl.zoom-in-homothety+1 | transforms (≥3) | pointer-fixed | transforms.rs | green |
 | cz.ctrl.scroll-up-zooms-in+1 | inputs (≥3) | polarity | inputs.rs | green |
+| cz.ctrl.hover-zoom-origin+1 | transforms pointer-fixed (≥3) | hover origin | transforms.rs | green |
+| cz.ctrl.drag-anchor+1 | transforms drag bookmark (≥3) | zoom-back | transforms.rs | green |
+| cz.ui.coords-parse+1 | coords.rs (≥3 parse forms + reject) | n/a | coords.rs | green |
+| cz.ui.coords-apply+1 | apply enable + D-UI-1 (≥3) | n/a | coords.rs | green |
+| cz.ui.location-readout+1 | viewport_center / ul_for_center (≥3) | mag+center | coords.rs | green |
+| cz.ui.viewport-fill+1 | DEFAULT_WINDOW_RES + 1:1 resize (≥3) | n/a | constants / window | green |
+| cz.cosmetic.layer-model+1 | settings layer model (≥3) | n/a | settings.rs | green |
+| cz.cosmetic.defaults+1 | D-COLOR-1 exact three layers (≥3) | n/a | settings.rs | green |
 | cz.fast.settings-100ms+1 | standards_perf (≥3) | ≤100ms | standards_perf | green |
 | cz.fast.cosmetic-17ms-1080p+1 | standards_perf (≥3) | ≤17ms | standards_perf | green |
 | cz.fast.scroll-10-in-300ms+1 | inputs (≥3) | debt | inputs.rs | green |
@@ -54,20 +76,23 @@ Status: `green` | `in-progress` | `blocked-impl`
 | cz.system.memory-default-1gb+1 | standards_perf (≥3) | 1e9 | settings | green |
 | cz.cosmetic.bailout-range-2-255+1 | standards_perf (≥3) | [2,255] | settings | green |
 | cz.deep.min-zoom-pot-capacity+1 | standards_perf (≥3) | pot | gear / intexp | green |
+| cz.deep.snappy-at-depth+1 | deep pot + poll cadence (≥3) | snappy | standards_perf | green |
 
-## B — Untagged requirement slices
+## B — Promoted from former REQ-* (now Tracey-linked)
 
-| Id | Tests | Property | Status |
-|----|-------|----------|--------|
-| REQ-CTRL-PARSE | coords.rs (≥3 parse forms + reject) | n/a | green |
-| REQ-CTRL-APPLY | apply enable + D-UI-1 (≥3) | n/a | green |
-| REQ-CTRL-ZOOM | inputs/transforms (≥3) | n/a | green |
-| REQ-COSMETIC-LAYER | settings layer model (≥3) | n/a | green |
-| REQ-COSMETIC-DEFAULT | D-COLOR-1 exact three layers (≥3) | n/a | green |
-| REQ-BAILOUT | D-BAIL-1 (≥3) | n/a | green |
-| REQ-SYS-MEM | D-MEM-* (≥3) | keep-set det. | green |
-| REQ-CALIBRATED | calibrated bias (≥3) | clamp | green |
-| REQ-DEEP-GEAR | C gen fail-closed + D-GEAR-1 (≥3) | n/a | green |
+Former untagged slices now carry `cz.*` ids in section A:
+
+| Former | Tracey id |
+|--------|-----------|
+| REQ-CTRL-PARSE | `cz.ui.coords-parse+1` |
+| REQ-CTRL-APPLY | `cz.ui.coords-apply+1` |
+| REQ-CTRL-ZOOM | `cz.ctrl.hover-zoom-origin+1` / natural-zoom / scroll-up |
+| REQ-COSMETIC-LAYER | `cz.cosmetic.layer-model+1` |
+| REQ-COSMETIC-DEFAULT | `cz.cosmetic.defaults+1` |
+| REQ-BAILOUT | `cz.cosmetic.bailout-range-2-255+1` + D-BAIL-1 |
+| REQ-SYS-MEM | `cz.system.memory-default-1gb+1` + tile-manager protect |
+| REQ-CALIBRATED | `cz.calib.lowres-synthesis+1` |
+| REQ-DEEP-GEAR | `cz.deep.min-zoom-pot-capacity+1` + D-GEAR-1 |
 
 ## C — Decisions `D-*`
 
@@ -130,4 +155,5 @@ Developer cadence rule: flat **1000/s** ceiling (D-PUB-1). Auth `tile_publisher.
 - Rebased onto origin `fast` (7ff5ef5): keep origin production budgets / GPU publisher path; retain unit-test matrix greens from `all green?` where still valid.
 - D-REF-1: `reference_precision_bits` / `discrimination_bits_for_mag` locked; f64 orbit builder remains for interactive path.
 - Period: D-PER-1 green at N=20 (`PERIOD_CONFIRMATION_ITERATIONS`).
+- Tracey linking pass: standards.md in styx; shade-rules.md; product/standards gaps annotated; new ids honest `in-progress` / `blocked-impl` until ≥3 dedicated verifies land.
 - Next phase after unit/integration verify on this tip: end-to-end testing.

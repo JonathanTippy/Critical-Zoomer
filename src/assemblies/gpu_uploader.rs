@@ -38,6 +38,8 @@ async fn internal_behavior<A: SteadyActor>(
     }).await;
 
     // Always re-check inputs at a quick pace; fully drain below.
+    // r[impl cz.play.actor-poll+1]
+    // r[impl cz.play.actor-drain+1]
     let max_sleep = Duration::from_millis(1);
 
     while actor.is_running(

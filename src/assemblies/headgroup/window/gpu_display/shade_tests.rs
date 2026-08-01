@@ -3,6 +3,12 @@
 //! Every test builds a small patch of raw answers, renders it with the real wgsl, and holds
 //! the result against `shade_oracle`. Where a test only needs the oracle's own rule, it says
 //! so and skips the gpu.
+// r[impl cz.shade.escape-continues-to-bailout+1]
+// r[impl cz.shade.in-filament-slope-inversion+1]
+// r[impl cz.shade.out-filament-period-step+1]
+// r[impl cz.shade.node-smallness-minimum+1]
+// r[impl cz.shade.small-time-edge-nonzero+1]
+// r[impl cz.shade.layers-in-script-order+1]
 
 use super::shade_harness::base_uniforms;
 use super::shade_harness::frame_from_grid;
@@ -121,6 +127,10 @@ fn escape_continues_from_r2_up_to_the_bailout_radius() {
 }
 
 // D-BAIL-1: bailout recolors from escape_z; membership (inside/outside) stays put.
+// r[impl cz.hoarding.no-compute-settings+1]
+// r[impl cz.calib.lowres-synthesis+1]
+// r[verify cz.hoarding.no-compute-settings+1]
+// r[verify cz.calib.lowres-synthesis+1]
 #[test]
 fn bailout_radius_does_not_flip_inside_membership() {
     let mut uniforms = base_uniforms((4, 4));

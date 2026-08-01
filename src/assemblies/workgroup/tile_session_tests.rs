@@ -370,8 +370,14 @@ mod perturbation_always_on_tests {
                     , zoom_pot: 2
                 };
                 let mut session = TileSession::new(location, (64, 64));
+                session.force_cpu_bouts_for_test();
                 session.set_mag_velocity(1);
-                session.workshift();
+                for _ in 0..128 {
+                    session.workshift_budget_ms(32);
+                    if session.lookahead_work.is_some() {
+                        break;
+                    }
+                }
                 assert!(
                     session.lookahead_work.is_some()
                     , "zoom-in should begin the DFS lookahead column under attention"

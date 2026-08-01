@@ -57,7 +57,10 @@ async fn internal_behavior<A: SteadyActor>(
         .await;
 
     // Always re-check inputs at a quick pace; fully drain + latest-wins below.
-    let max_sleep = Duration::from_millis(1);
+    // r[impl cz.play.actor-poll+1]
+    // r[impl cz.play.actor-drain+1]
+    // r[impl cz.play.latest-wins+1]
+    let max_sleep = Duration::from_millis(crate::assemblies::workgroup::tile_worker::PLAY_INPUT_POLL_MS);
 
     while actor.is_running(|| i!(to_worker.mark_closed())) {
         await_for_any!(

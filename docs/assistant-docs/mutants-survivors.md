@@ -3,10 +3,17 @@
 **Do not kill or restart** the live scoped campaign unless the developer asks.
 Artifacts live in `mutants.out/`; lock in `mutants.out/lock.json`.
 
-## Live campaign (left running for later revisit)
+## Completed: `range.rs` only (2026-08-01)
+
+- **Command:** `scripts/mutants_core.sh src/range.rs` (log: `/tmp/cz_mutants_range.log`)
+- **Result:** 178 mutants in ~31m — **109 caught**, **43 missed**, **26 unviable** (~72% kill on viable)
+- **MISSED clusters:** `min`/`max` boundaries; `is_agnostic`; `can_eq`/`must_eq`/`can_ne`/`must_ne`/`can_lt`/`must_lt`/`can_gt`/`must_gt`; `guess_biased`; `get_uuid`
+- **Next:** triage MISSED (justify or add tests); then run `src/intexp.rs` scoped pass
+
+## Prior live campaign (superseded for range.rs)
 
 - **Process:** `cargo-mutants` scoped to `src/range.rs` + `src/intexp.rs` (~430 mutants)
-- **Tmux:** socket `/tmp/tmux-1000/default`, window `0` — leave this pane alone
+- **Tmux:** socket `/tmp/tmux-1000/default`, window `0` — leave this pane alone if still attached
 - **Command shape:** `scripts/mutants_core.sh src/range.rs src/intexp.rs`
 - **Excludes:** `src/main.rs`, `window/mod.rs`, `settings.rs`
 - **Test filter:** `--lib` with skips for `home_800x480`, `gpu_ips`, `standards_perf::`, `foveation_balance`
@@ -31,9 +38,13 @@ NaN `min`/`max` survivors addressed by:
 - `range::tests::min_returns_lesser_finite`
 - `range::tests::max_propagates_nan_ignorance`
 
-## Early MISSED (do not triage mid-run)
+## MISSED to triage (`range.rs` run)
 
-- `src/range.rs:25:10: replace < with <= in min` — revisit after campaign completes; likely needs an equal-finite case that distinguishes strict `<` from `<=`.
+- `min`/`max` boundary ops (`<` vs `<=`, `>` vs `>=`, `==` vs `!=`) — likely need equal-finite and NaN-edge cases
+- `is_agnostic` → always `true`
+- `can_*` / `must_*` comparison helpers — broad survivor surface; many `&&`↔`||` and forced bool returns
+- `guess_biased` — `>`/`>=` and `<`/`<=` on bounds
+- `get_uuid` → `0`
 
 ## Review policy when results land
 

@@ -143,3 +143,118 @@ r[cz.system.max-homotheties+1]
 **Acceptance criteria.**
 - [x] Prune plan reduces unprotected mags when more than 8 are present
   (`tile_manager.rs` + live `SamplingContext::prune_distant_tiles` wires the shared manager).
+
+r[cz.ui.coords-parse+1]
+
+**Normative summary.** Coordinate field accepts likely forms (space/comma/plus-i, parens,
+brackets, imag-leading) and rejects invalid input without user confusion.
+
+**Acceptance criteria.**
+- [x] ≥3 parse forms + reject path (`coords.rs` parse_* / REQ-CTRL-PARSE)
+
+r[cz.ui.coords-apply+1]
+
+**Normative summary.** Apply is enabled whenever the field is valid (including when
+already at that location); applying moves viewport center; field is not cleared.
+
+**Acceptance criteria.**
+- [x] Apply enable D-UI-1 / REQ-CTRL-APPLY (`coords.rs` apply_button_enabled)
+
+r[cz.ui.location-readout+1]
+
+**Normative summary.** Read-only location field shows viewport center with copy;
+coordinates entry/display always includes magnification.
+
+**Acceptance criteria.**
+- [x] Center readout helpers (`viewport_center` / `ul_for_center` verifies)
+- [ ] Copy button / mag-in-field UI headed verify when present
+
+r[cz.ui.viewport-fill+1]
+
+**Normative summary.** One viewport covers the entire window and resizes with it.
+
+**Acceptance criteria.**
+- [x] Default window res + viewport covers window class (`DEFAULT_WINDOW_RES` /
+  window layout verifies)
+- [ ] Dynamic resize headed verify when measurable
+
+r[cz.cosmetic.layer-model+1]
+
+**Normative summary.** Coloring supports normalize scales (log/reciprocal), colorize
+functions (sin/modulo), ordered layers with per-layer color/opacity, and optional
+highlights (in-filaments, out-filaments, nodes) in the script list.
+
+**Acceptance criteria.**
+- [x] Layer/highlight script model + D-COLOR-2/3/4 (`settings.rs` REQ-COSMETIC-LAYER)
+
+r[cz.cosmetic.defaults+1]
+
+**Normative summary.** Default cosmetics allow browsing: escape time, in-filaments
+black, out-filaments as outside ∞-escape; may show other features subtly.
+
+**Acceptance criteria.**
+- [x] D-COLOR-1 / REQ-COSMETIC-DEFAULT exact three-layer default (`settings.rs`)
+
+r[cz.ctrl.drag-anchor+1]
+
+**Normative summary.** User can zoom back to a particular point after starting a
+mouse drag there (drag-anchor preserved across zoom-out then zoom-in).
+
+**Acceptance criteria.**
+- [x] Drag-anchor / IntExp location storage path (≥3 transforms or window verifies)
+- [ ] Headed corroboration optional
+
+r[cz.ctrl.hover-zoom-origin+1]
+
+**Normative summary.** Except Shift/Space (center origin), zoom origin is mouse hover;
+point under cursor stays fixed.
+
+**Acceptance criteria.**
+- [x] Hover-origin scroll zoom complex-under-pointer invariant (≥3; overlaps
+  `cz.ctrl.zoom-in-homothety+1` / inputs)
+- [x] Cross-linked with `cz.e2e.controls-bindings+1`
+
+r[cz.display.offscreen-arrows+1]
+
+**Normative summary.** Red arrows appear when the set is mostly/fully off-screen or
+almost/fully too small; zooming out / going off-screen is not disallowed.
+
+**Acceptance criteria.**
+- [x] Classifier states from `cz.display.offscreen-r2-circle+1`
+- [ ] Arrow UI presentation verify (≥3 when present)
+
+r[cz.tenacious.no-max-iter+1]
+
+**Normative summary.** No max-iteration-count setting; points are iterated to
+completion while still visible.
+
+**Acceptance criteria.**
+- [x] Settings surface has no max-iter control; work path iterates to completion class
+  (≥3 session/settings verifies)
+
+r[cz.hoarding.no-compute-settings+1]
+
+**Normative summary.** No computation settings that force recompute of inside/outside
+membership; cosmetics recolor from hoard only.
+
+**Acceptance criteria.**
+- [x] No compute knobs on settings; recolor-from-hoard path (`settings` / bailout
+  recolor-only membership D-BAIL-1)
+
+r[cz.deep.snappy-at-depth+1]
+
+**Normative summary.** At depth target, headgroup stays at full framerate; pan/zoom
+execute at framerate while browsing the answer hoard.
+
+**Acceptance criteria.**
+- [ ] Capacity path does not block headgroup framerate class (≥3 when measurable)
+- [ ] Cross-linked with `cz.deep.min-zoom-pot-capacity+1` and headgroup vsync/path rules
+
+r[cz.calib.lowres-synthesis+1]
+
+**Normative summary.** Interpolate/output low-res where appropriate; when older work
+is disproven by newer, synthesize without discarding either.
+
+**Acceptance criteria.**
+- [x] Calibrated bias / publisher proximate synthesis (≥3; REQ-CALIBRATED /
+  `cz.int.publisher-nores-bias+1` / `cz.range.guess-biased-nearest+1`)

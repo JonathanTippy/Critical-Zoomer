@@ -699,6 +699,7 @@ mod phase4_tests {
     use crate::intexp::*;
 
     fn naive_finish(c: (f64, f64), max_iters: u32) -> Answer {
+        // r[impl cz.math.perturbation-naive-oracle+1]
         let z = (0.0, 0.0);
         let derivative = (1.0, 0.0);
         let mut point = ActivePoint {
@@ -773,6 +774,8 @@ mod phase4_tests {
     }
 
     #[test]
+    // r[verify cz.math.perturbation-naive-oracle+1]
+    // r[verify cz.ref.zero-orbit-same-path+1]
     fn shallow_naive_matches_perturb_zero_orbit_cardioid_and_exterior() {
         let samples = [
             cardioid_c_from_mu((0.0, 0.0))
@@ -986,6 +989,7 @@ mod phase4_tests {
         }
     }
 
+    // r[verify cz.math.perturbation-naive-oracle+1]
     #[test]
     fn seahorse_valley_fixture_matches_naive_on_zero_orbit() {
         let c = (
@@ -1000,7 +1004,21 @@ mod phase4_tests {
         );
     }
 
+    // r[verify cz.math.perturbation-naive-oracle+1]
+    #[test]
+    fn neck_minus_three_quarters_matches_naive_on_zero_orbit() {
+        let c = (-0.75, 0.0);
+        let naive = naive_finish(c, 100_000);
+        let perturb = perturb_finish_zero(c, 100_000);
+        assert!(
+            same_membership(&naive, &perturb),
+            "neck fixture mismatch"
+        );
+    }
+
     // Tenacity: no max-iteration cutoff (removed MAX_PERTURB_ITERS).
+    // r[impl cz.tenacious.no-max-iter+1]
+    // r[verify cz.tenacious.no-max-iter+1]
     #[test]
     fn tenacity_no_cap_origin_finishes_via_periodicity() {
         let c = (0.0, 0.0);

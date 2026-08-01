@@ -38,6 +38,7 @@ pub fn transform(
 
                 context.location.zoom_pot += *pot; // r[impl cz.fast.natural-zoom-2x+1]
                 // r[impl cz.ctrl.zoom-in-homothety+1]
+                // r[impl cz.ctrl.hover-zoom-origin+1]
 
                 let pixel_width = IntExp { val: Integer::from(1), exp: -context.location.zoom_pot }.shift(-PIXELS_PER_UNIT_POT);
 
@@ -69,6 +70,7 @@ pub fn transform(
 
                 // Keep objective drag bookmark; resync screenspace so zoom-back works.
                 // Screen Y matches seat Y (top-left origin); do not imag-flip.
+                // r[impl cz.ctrl.drag-anchor+1]
                 if let Some((objective, _)) = context.mouse_drag_start.clone() {
                     context.mouse_drag_start = Some((
                         objective
@@ -177,6 +179,7 @@ mod zoom_tests {
     }
 
     // r[verify cz.ctrl.zoom-in-homothety+1]
+    // r[verify cz.ctrl.hover-zoom-origin+1]
     #[test]
     fn zoom_in_keeps_pointer_complex_fixed() {
         // Pointer-fixed: zoom in then out at the same screenspace point restores UL.
@@ -250,5 +253,84 @@ mod zoom_tests {
             &mut ctx,
         );
         assert_eq!(ctx.location.zoom_pot, 2);
+    }
+
+    // r[verify cz.ctrl.drag-anchor+1]
+    #[test]
+    fn drag_bookmark_objective_survives_zoom_out() {
+        let mut ctx = ctx_at(2);
+        let bookmark = ObjectivePosAndZoom {
+            pos: (IntExp::from(3), IntExp::from(-5)),
+            zoom_pot: 2,
+        };
+        ctx.mouse_drag_start = Some((bookmark.clone(), egui::Pos2::new(10.0, 20.0)));
+        transform(
+            vec![ZoomerCommand::Zoom {
+                pot: -1,
+                center_screenspace_pos: (100, 50),
+            }],
+            &mut ctx,
+        );
+        let (obj, _) = ctx.mouse_drag_start.expect("bookmark kept");
+        assert_eq!(obj.pos.0, bookmark.pos.0);
+        assert_eq!(obj.pos.1, bookmark.pos.1);
+        assert_eq!(obj.zoom_pot, bookmark.zoom_pot);
+    }
+
+    // r[verify cz.ctrl.drag-anchor+1]
+    #[test]
+    fn drag_bookmark_screenspace_resyncs_to_zoom_center() {
+        let mut ctx = ctx_at(1);
+        ctx.mouse_drag_start = Some((
+            ObjectivePosAndZoom {
+                pos: (IntExp::ZERO, IntExp::ZERO),
+                zoom_pot: 1,
+            },
+            egui::Pos2::new(10.0, 20.0),
+        ));
+        let zoom_center = (333, 111);
+        transform(
+            vec![ZoomerCommand::Zoom {
+                pot: 1,
+                center_screenspace_pos: zoom_center,
+            }],
+            &mut ctx,
+        );
+        let (_, screen) = ctx.mouse_drag_start.expect("bookmark kept");
+        assert_eq!(screen.x as i32, zoom_center.0);
+        assert_eq!(screen.y as i32, zoom_center.1);
+    }
+
+    // r[verify cz.ctrl.drag-anchor+1]
+    #[test]
+    fn drag_bookmark_survives_zoom_out_then_in_at_pointer() {
+        // Zoom-out then zoom-in at the same screenspace pointer must keep the
+        // objective drag origin so the user can zoom back to the grab point.
+        let mut ctx = ctx_at(3);
+        let bookmark = ObjectivePosAndZoom {
+            pos: (IntExp::from(7), IntExp::from(11)),
+            zoom_pot: 3,
+        };
+        let pointer = (200, 100);
+        ctx.mouse_drag_start = Some((bookmark.clone(), egui::Pos2::new(1.0, 2.0)));
+        transform(
+            vec![
+                ZoomerCommand::Zoom {
+                    pot: -1,
+                    center_screenspace_pos: pointer,
+                },
+                ZoomerCommand::Zoom {
+                    pot: 1,
+                    center_screenspace_pos: pointer,
+                },
+            ],
+            &mut ctx,
+        );
+        let (obj, screen) = ctx.mouse_drag_start.expect("bookmark kept");
+        assert_eq!(obj.pos.0, bookmark.pos.0);
+        assert_eq!(obj.pos.1, bookmark.pos.1);
+        assert_eq!(obj.zoom_pot, bookmark.zoom_pot);
+        assert_eq!(screen.x as i32, pointer.0);
+        assert_eq!(screen.y as i32, pointer.1);
     }
 }

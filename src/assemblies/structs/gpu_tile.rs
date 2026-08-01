@@ -256,6 +256,7 @@ pub struct GpuTileHandle {
 
 impl GpuTileHandle {
     pub fn from_gpu_tile(tile: GPUTile, production_slot: Option<u32>) -> Self {
+        // r[impl cz.pub.gpu-native-work+1]
         let filled_seats = tile.data.iter().filter(|c| c.is_some()).count() as u32;
         let keep_cpu = production_slot.is_none();
         GpuTileHandle {
@@ -429,7 +430,9 @@ mod gpu_tile_upload_tests {
         assert!(gpu.get((63, 63)).is_none());
     }
 
+    // r[impl cz.pub.gpu-native-work+1]
     // r[verify cz.seamless.gpu-preferred+1]
+    // r[verify cz.pub.gpu-native-work+1]
     #[test]
     fn a_handle_with_a_production_slot_does_not_carry_cpu_answers() {
         let tile = GPUTile::from_answer_tile(&Tile::new((0, 0), 0), (64, 64), loc());
@@ -441,11 +444,27 @@ mod gpu_tile_upload_tests {
         );
     }
 
+    // r[verify cz.pub.gpu-native-work+1]
     #[test]
     fn a_handle_without_a_slot_keeps_cpu_answers_for_fallback() {
         let tile = GPUTile::from_answer_tile(&Tile::new((0, 0), 0), (64, 64), loc());
         let handle = GpuTileHandle::from_gpu_tile(tile, None);
         assert!(handle.cpu_fallback.is_some());
+    }
+
+    // r[verify cz.pub.gpu-native-work+1]
+    #[test]
+    fn production_slot_clears_cpu_fallback_for_gpu_native_path() {
+        let with_slot = GpuTileHandle::from_gpu_tile(
+            GPUTile::from_answer_tile(&Tile::new((1, 1), 0), (64, 64), loc()),
+            Some(0),
+        );
+        let without = GpuTileHandle::from_gpu_tile(
+            GPUTile::from_answer_tile(&Tile::new((1, 1), 0), (64, 64), loc()),
+            None,
+        );
+        assert!(with_slot.cpu_fallback.is_none());
+        assert!(without.cpu_fallback.is_some());
     }
 
     // r[verify cz.range.guess-biased-nearest+1]

@@ -997,6 +997,11 @@ impl TileSession {
     }
 
     fn work_once(&mut self) -> bool {
+        // Play bar: starve lookahead only until *some* current-stencil progress
+        // exists. Clearing here restores foveation half/half once seats move.
+        if self.play_need_visible && (self.seats_done > 0 || self.has_unsent_publish()) {
+            self.play_need_visible = false;
+        }
         if self.seats_done >= self.seats_total {
             // Screen seats finished — drop leftover active/scredge so we do not
             // spin on a begun-but-scheduler-finished tile forever under headed pacing.

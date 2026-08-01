@@ -4,6 +4,8 @@
 //! Chooses the UL corner, builds on mag change, delivers bound orbit ids to the
 //! tile worker. Glitch handling stays in the tile worker: fallback to the const
 //! zero orbit (same per-point code; Z=0 every iteration → no glitch trigger).
+//!
+//! r[impl cz.ref.zero-orbit-same-path+1]
 
 use steady_state::*;
 
@@ -127,6 +129,7 @@ mod tests {
     use crate::assemblies::workgroup::workcore::mandelbrot::{ReferenceOrbit, ZERO_ORBIT_ID};
     use crate::intexp::IntExp;
 
+    // r[verify cz.ref.zero-orbit-same-path+1]
     #[test]
     fn zero_orbit_is_const_z_zero() {
         let z = ReferenceOrbit::zero();
@@ -136,6 +139,7 @@ mod tests {
         assert_eq!(ZERO_ORBIT_ID, 0);
     }
 
+    // r[verify cz.ref.zero-orbit-same-path+1]
     #[test]
     fn seed_uses_stencil_ul_not_tile_origin() {
         // Period-2 nucleus at UL so seed succeeds (non-nucleus → zero orbit).

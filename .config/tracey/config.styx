@@ -3,13 +3,14 @@ specs (
     name critical-zoomer
     include (
       docs/requirements.md
+      docs/standards.md
       docs/design/*.md
     )
     impls (
       {
         name rust
-        include (src/**/*.rs src/**/*.wgsl scripts/**/*.sh)
-        exclude (target/**)
+        include (src/**/*.rs scripts/**/*.sh)
+        exclude (target/** **/*.wgsl)
         test_include (src/**/*.rs scripts/**/*.sh)
       }
     )

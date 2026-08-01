@@ -35,6 +35,8 @@ pub struct CoalescedWorkerCommands {
 }
 
 /// Fully drain a command sequence, keeping only the newest attention and retarget.
+// r[impl cz.play.actor-drain+1]
+// r[impl cz.play.latest-wins+1]
 pub fn coalesce_scheduler_commands(
     msgs: impl IntoIterator<Item = SchedulerToWorker>,
 ) -> CoalescedWorkerCommands {
@@ -51,6 +53,10 @@ pub fn coalesce_scheduler_commands(
     }
     out
 }
+
+/// Actors re-check inboxes at this cadence (start-of-loop poll).
+// r[impl cz.play.actor-poll+1]
+pub const PLAY_INPUT_POLL_MS: u64 = 1;
 
 pub async fn run(
     actor: SteadyActorShadow,
@@ -115,7 +121,8 @@ async fn internal_behavior<A: SteadyActor>(
 
     // Play / responsiveness: always re-enter the loop ≈1000Hz so input is
     // drained before more work on a stale retarget.
-    let input_pace = Duration::from_millis(1);
+    // r[impl cz.play.actor-poll+1]
+    let input_pace = Duration::from_millis(PLAY_INPUT_POLL_MS);
 
     while actor.is_running(|| {
         i!(tiles_out.mark_closed());
@@ -403,32 +410,28 @@ mod tests {
     use super::*;
     use crate::intexp::IntExp;
 
-    // r[verify cz.perf.play-8bump-100ms+1]
+    fn retarget(zoom: i32, res: (u32, u32), vel: f64) -> SchedulerToWorker {
+        SchedulerToWorker::Retarget {
+            frame_info: (
+                ObjectivePosAndZoom {
+                    pos: (IntExp::from(zoom), IntExp::ZERO),
+                    zoom_pot: zoom,
+                },
+                res,
+                vel,
+            ),
+        }
+    }
+
+    // r[verify cz.play.latest-wins+1]
+    // r[verify cz.play.actor-drain+1]
     #[test]
     fn coalesce_keeps_only_latest_retarget_and_attention() {
         let msgs = vec![
             SchedulerToWorker::SetAttention(1, 1),
-            SchedulerToWorker::Retarget {
-                frame_info: (
-                    ObjectivePosAndZoom {
-                        pos: (IntExp::from(0), IntExp::ZERO),
-                        zoom_pot: 0,
-                    },
-                    (64, 64),
-                    1.0,
-                ),
-            },
+            retarget(0, (64, 64), 1.0),
             SchedulerToWorker::SetAttention(9, 9),
-            SchedulerToWorker::Retarget {
-                frame_info: (
-                    ObjectivePosAndZoom {
-                        pos: (IntExp::from(1), IntExp::ZERO),
-                        zoom_pot: 8,
-                    },
-                    (800, 480),
-                    2.0,
-                ),
-            },
+            retarget(8, (800, 480), 2.0),
         ];
         let c = coalesce_scheduler_commands(msgs);
         assert_eq!(c.attention, Some((9, 9)));
@@ -438,11 +441,62 @@ mod tests {
         assert_eq!(vel, 2.0);
     }
 
-    // r[verify cz.perf.play-minimize+1]
+    // r[verify cz.play.actor-drain+1]
     #[test]
     fn coalesce_empty_is_noop() {
         let c = coalesce_scheduler_commands(Vec::<SchedulerToWorker>::new());
         assert!(c.attention.is_none());
         assert!(c.retarget.is_none());
+    }
+
+    // r[verify cz.play.actor-drain+1]
+    #[test]
+    fn coalesce_drains_full_burst_before_coalesce() {
+        // All five attentions are consumed; only the last remains.
+        let msgs = (0..5).map(|i| SchedulerToWorker::SetAttention(i, i));
+        let c = coalesce_scheduler_commands(msgs);
+        assert_eq!(c.attention, Some((4, 4)));
+        assert!(c.retarget.is_none());
+    }
+
+    // r[verify cz.play.latest-wins+1]
+    #[test]
+    fn coalesce_latest_attention_overwrites_earlier() {
+        let msgs = vec![
+            SchedulerToWorker::SetAttention(0, 0),
+            SchedulerToWorker::SetAttention(3, 7),
+        ];
+        let c = coalesce_scheduler_commands(msgs);
+        assert_eq!(c.attention, Some((3, 7)));
+    }
+
+    // r[verify cz.play.latest-wins+1]
+    #[test]
+    fn coalesce_latest_retarget_overwrites_earlier() {
+        let msgs = vec![retarget(1, (64, 64), 0.0), retarget(12, (128, 128), 9.0)];
+        let c = coalesce_scheduler_commands(msgs);
+        let (loc, res, vel) = c.retarget.expect("retarget");
+        assert_eq!(loc.zoom_pot, 12);
+        assert_eq!(res, (128, 128));
+        assert_eq!(vel, 9.0);
+    }
+
+    // r[verify cz.play.actor-poll+1]
+    #[test]
+    fn play_input_poll_is_one_millisecond() {
+        assert_eq!(PLAY_INPUT_POLL_MS, 1);
+    }
+
+    // r[verify cz.play.actor-poll+1]
+    #[test]
+    fn play_input_poll_is_faster_than_frame_budget() {
+        // Must re-check inputs well under a 17ms frame so backlog cannot grow.
+        assert!(PLAY_INPUT_POLL_MS < 17);
+    }
+
+    // r[verify cz.play.actor-poll+1]
+    #[test]
+    fn play_input_poll_is_non_zero() {
+        assert!(PLAY_INPUT_POLL_MS >= 1);
     }
 }

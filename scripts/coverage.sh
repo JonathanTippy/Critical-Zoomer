@@ -19,10 +19,10 @@ SUMMARY="${ROOT}/docs/assistant-docs/coverage-baseline.txt"
 # Dedicated target-dir avoids fighting a live mutants campaign on mutants.out/.
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${ROOT}/target/llvm-cov-target}"
 echo "coverage: cpuset=${CZ_CPUSET} target=${CARGO_TARGET_DIR}" | tee "$SUMMARY"
+# --html already prints a text summary; --summary-only may not combine with --html.
 taskset -c "${CZ_CPUSET}" cargo llvm-cov --lib \
   --html --output-dir "$OUT_DIR" \
   --ignore-filename-regex="$IGNORE" \
-  --summary-only \
   -- \
   --test-threads=1 \
   --skip home_800x480_fills_within_five_seconds_cpu \

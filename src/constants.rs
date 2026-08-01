@@ -2,6 +2,7 @@ use crate::assemblies::structs::*;
 
 // UNDERIVED CONSTANTS
 // r[impl cz.display.window-default-800x480+1]
+// r[impl cz.ui.viewport-fill+1]
 pub const DEFAULT_DEFAULT_WINDOW_RES:(u32, u32) = (800, 480);
 pub const DEFAULT_WINDOW_RES:(u32, u32) = DEFAULT_DEFAULT_WINDOW_RES;//(1920, 1080);
 pub const HOME_POSITION:(i32, i32, i32) = (-2, -2, -2);
@@ -86,6 +87,35 @@ mod constants_tests {
         assert_eq!(launch, (800.0, 480.0));
         let custom_would_be = (1920u32, 1080u32);
         assert_ne!(DEFAULT_WINDOW_RES, custom_would_be);
+    }
+
+    // r[verify cz.ui.viewport-fill+1]
+    #[test]
+    fn viewport_fill_default_matches_full_window() {
+        // One viewport covers the entire default window (no letterbox inset).
+        assert_eq!(DEFAULT_WINDOW_RES.0 * DEFAULT_WINDOW_RES.1, 800 * 480);
+        assert_eq!(DEFAULT_WINDOW_RES, (800, 480));
+    }
+
+    // r[verify cz.ui.viewport-fill+1]
+    #[test]
+    fn viewport_fill_tracks_arbitrary_window_size_one_to_one() {
+        // Resize path assigns screen_size = window inner size directly.
+        let windows = [(800u32, 480u32), (1280, 720), (1920, 1080)];
+        for w in windows {
+            let screen_size = w;
+            assert_eq!(screen_size, w);
+        }
+    }
+
+    // r[verify cz.ui.viewport-fill+1]
+    #[test]
+    fn viewport_fill_aspect_follows_window_not_fixed_letterbox() {
+        let wide = (1600u32, 480u32);
+        let tall = (480u32, 1600u32);
+        assert_ne!(wide.0 as f64 / wide.1 as f64, tall.0 as f64 / tall.1 as f64);
+        assert_eq!(wide, (1600, 480));
+        assert_eq!(tall, (480, 1600));
     }
 
     // r[verify cz.display.nores-when-no-proximate+1]

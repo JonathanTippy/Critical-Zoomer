@@ -49,7 +49,7 @@ There is literally no case in which all tiles should be cleared.
 #### IO
 
 Input: GPUTile<GPUAnswer>
-flow per second (incomplete): 1000
+flow per second (incomplete): [20, 100000] (20Hz refresh rate, max 100k TPS. 20Hz floor for when TPS falls below 20.)
 flow per second (complete): 0 
 Input: memory bump
 flow per second: N/A
@@ -82,7 +82,7 @@ flow per second (still): 0
 
 Output: GPUTile<GPUAnswer> 
 
-flow per second (incomplete): 1000
+flow per second (incomplete): [20, 100000] (20Hz refresh rate, max 100k TPS.)
 flow per second (complete): 0
 
 Output: memory bump

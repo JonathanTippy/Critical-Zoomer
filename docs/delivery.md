@@ -76,4 +76,5 @@ This IS an exception allowing the assistant to edit files which say not to edit 
 2. Where tests / who own?
 Tests are generally to be written and managed by the assistant but must still consider the voice requirements and prefer elegant properties to inelegant input/output tests.
 
+# Always review dat-2026-08-01.md from first V2V pass to educate your behavior.
 

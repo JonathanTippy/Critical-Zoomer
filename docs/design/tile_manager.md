@@ -1,6 +1,6 @@
 Order of preference of tiles when deciding which to prune:
 
-r[cz.system.tile-manager-protect-current-lookahead+1]
+r[depends cz.system.tile-manager-protect-current-lookahead+1]
 
 1. current stencil members (any part is a member? -> member)
 2. lookahead tiles (deeper? -> less preferred)

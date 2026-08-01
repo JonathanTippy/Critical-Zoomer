@@ -2,7 +2,7 @@
 //! Release-gated timing uses `cfg(not(debug_assertions))` — not `#[ignore]`.
 // r[impl cz.perf.play-8bump-100ms+1]
 // r[impl cz.perf.play-minimize+1]
-// r[impl cz.perf.min-300m-ips-cpu+1]
+// r[impl cz.perf.min-300m-ips-cpu+2]
 // r[impl cz.perf.min-30b-ips-gpu+1]
 // r[impl cz.perf.optimal-ipp+1]
 // r[impl cz.perf.home-100tps+1]
@@ -11,6 +11,7 @@
 // r[impl cz.fast.cosmetic-17ms-1080p+1]
 // r[impl cz.fast.input-next-frame-17ms+1]
 // r[impl cz.deep.min-zoom-pot-capacity+1]
+// r[impl cz.deep.snappy-at-depth+1]
 
 #[cfg(test)]
 mod standards_hard_bar_tests {
@@ -98,7 +99,7 @@ mod standards_hard_bar_tests {
         iters as f64 / elapsed.as_secs_f64().max(1e-12)
     }
 
-    // r[verify cz.perf.min-300m-ips-cpu+1]
+    // r[verify cz.perf.min-300m-ips-cpu+2]
     #[cfg(not(debug_assertions))]
     #[test]
     fn cpu_ips_exterior_cusp_meets_300m() {
@@ -109,7 +110,7 @@ mod standards_hard_bar_tests {
         assert!(ips >= CPU_IPS_MIN, "CPU IPS {ips} < {CPU_IPS_MIN}");
     }
 
-    // r[verify cz.perf.min-300m-ips-cpu+1]
+    // r[verify cz.perf.min-300m-ips-cpu+2]
     #[cfg(not(debug_assertions))]
     #[test]
     fn cpu_ips_exterior_neck_meets_300m() {
@@ -120,7 +121,7 @@ mod standards_hard_bar_tests {
         assert!(ips >= CPU_IPS_MIN, "CPU IPS {ips} < {CPU_IPS_MIN}");
     }
 
-    // r[verify cz.perf.min-300m-ips-cpu+1]
+    // r[verify cz.perf.min-300m-ips-cpu+2]
     #[cfg(not(debug_assertions))]
     #[test]
     fn cpu_ips_deep_exterior_meets_300m() {
@@ -210,6 +211,7 @@ mod standards_hard_bar_tests {
     }
 
     // r[verify cz.perf.optimal-ipp+1]
+    // r[verify cz.tenacious.no-max-iter+1]
     #[test]
     fn ipp_period1_cardioid_center_not_capped() {
         // Origin is period-1 Inside. Periodicity should finish well under the
@@ -301,9 +303,31 @@ mod standards_hard_bar_tests {
     }
 
     // r[verify cz.deep.min-zoom-pot-capacity+1]
+    // r[impl cz.deep.snappy-at-depth+1]
+    // r[verify cz.deep.snappy-at-depth+1]
     #[test]
     fn stacked_ladder_reaches_adaptive_for_deep() {
         assert_eq!(Gear::select(3_600_000, false), Gear::AdaptiveRug);
+    }
+
+    // r[verify cz.deep.snappy-at-depth+1]
+    #[test]
+    fn deep_pot_does_not_force_a_slower_input_poll() {
+        // Snappy at depth: headgroup/play poll cadence is independent of zoom pot.
+        assert_eq!(
+            crate::assemblies::workgroup::tile_worker::PLAY_INPUT_POLL_MS,
+            1
+        );
+    }
+
+    // r[verify cz.deep.snappy-at-depth+1]
+    #[test]
+    fn deep_pot_preserves_intexp_shift_exactness() {
+        let pot: i32 = 3_600_000;
+        let a = IntExp::from(1).shift(-pot);
+        let b = IntExp::from(1).shift(-pot);
+        assert_eq!(a.exp, b.exp);
+        assert_eq!(a.val, b.val);
     }
 
     // r[verify cz.perf.foveation-half-time+1]
@@ -867,7 +891,9 @@ mod standards_hard_bar_tests {
 
     
 
+// r[impl cz.perf.headgroup-stable-path+1]
 // r[verify cz.perf.headgroup-shaders-2ms+1]
+// r[verify cz.perf.headgroup-stable-path+1]
     #[cfg(not(debug_assertions))]
     #[test]
     fn shader_sample_shade_1080p_under_2ms() {
@@ -889,6 +915,7 @@ mod standards_hard_bar_tests {
     }
 
     // r[verify cz.perf.headgroup-shaders-2ms+1]
+    // r[verify cz.perf.headgroup-stable-path+1]
     #[cfg(not(debug_assertions))]
     #[test]
     fn shader_sample_shade_800x480_under_2ms() {
@@ -909,6 +936,7 @@ mod standards_hard_bar_tests {
     }
 
     // r[verify cz.perf.headgroup-shaders-2ms+1]
+    // r[verify cz.perf.headgroup-stable-path+1]
     #[cfg(not(debug_assertions))]
     #[test]
     fn shader_sample_shade_bailout_1080p_under_2ms() {
@@ -997,7 +1025,7 @@ mod standards_hard_bar_tests {
     }
 
 
-    // r[verify cz.perf.min-300m-ips-cpu+1]
+    // r[verify cz.perf.min-300m-ips-cpu+2]
     #[cfg(not(debug_assertions))]
     #[test]
     fn fullstack_ips_easy_outside_r2_meets_300m() {
@@ -1010,7 +1038,7 @@ mod standards_hard_bar_tests {
         assert!(ips >= CPU_IPS_MIN, "full-stack outside IPS {ips} < {CPU_IPS_MIN}");
     }
 
-    // r[verify cz.perf.min-300m-ips-cpu+1]
+    // r[verify cz.perf.min-300m-ips-cpu+2]
     #[cfg(not(debug_assertions))]
     #[test]
     fn fullstack_ips_inside_set_meets_300m() {
@@ -1023,7 +1051,7 @@ mod standards_hard_bar_tests {
         assert!(ips >= CPU_IPS_MIN, "full-stack cusp IPS {ips} < {CPU_IPS_MIN}");
     }
 
-    // r[verify cz.perf.min-300m-ips-cpu+1]
+    // r[verify cz.perf.min-300m-ips-cpu+2]
     #[cfg(not(debug_assertions))]
     #[test]
     fn fullstack_ips_neck_outside_meets_300m() {

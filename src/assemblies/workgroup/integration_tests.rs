@@ -106,8 +106,11 @@ mod assembly_tests {
             session.force_cpu_bouts_for_test();
             session.retarget(home_loc(6), (8, 8));
             assert_eq!(session.location.zoom_pot, 6);
-            assert_eq!(session.mag_velocity(), 2);
             assert_eq!(session.reference_bound_mag(), Some(6));
+            // Mag-velocity mode is caller-owned after retarget (EWMA → mode).
+            assert_eq!(session.mag_velocity(), 0);
+            session.set_mag_velocity(1);
+            assert_eq!(session.mag_velocity(), 1);
         });
     }
 
@@ -130,8 +133,18 @@ mod assembly_tests {
             let mut session = TileSession::new(home_loc(2), (64, 64));
             session.force_cpu_bouts_for_test();
             session.set_mag_velocity(1);
-            session.workshift();
-            assert!(session.has_open_lookahead());
+            // Play prefers the current stencil until some seats finish; allow
+            // enough quanta for that gate then for BeginLookahead.
+            for _ in 0..128 {
+                session.workshift_budget_ms(32);
+                if session.has_open_lookahead() {
+                    break;
+                }
+            }
+            assert!(
+                session.has_open_lookahead(),
+                "zoom-in should open a lookahead column after screen progress"
+            );
             assert_eq!(session.open_lookahead_zoom(), Some(3));
         });
     }

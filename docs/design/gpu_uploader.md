@@ -5,9 +5,11 @@ bypass when GPU native, don't pass through noop work.
 ### GPU Uploader
 
 Input: Tile<CalibratedAnswer>
-flow per second: [0, 1000]
+flow per second: [0, 100000] (20Hz refresh rate, max 100k TPS.)
 Output: GPUTile<GPUCalibratedAnswer>
-flow per second: [0, 1000]
+flow per second: [0, 100000] (20Hz refresh rate, max 100k TPS.)
+
+0 rate because may be bypassed.
 
 uploads tiles to the GPU.
 May be bypassed if the worker did the tile natively on GPU.

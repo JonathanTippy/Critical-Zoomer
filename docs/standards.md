@@ -8,7 +8,7 @@ IPP: iterations per point. Used to evaluate algorithm efficiency. must be contro
 IPS: iterations per second. Used to evaluate workgroup performance. For most honest benchmarking of other overhead, pick areas where points take few iterations. For most honest benchmarking of iteration code, pick slower points.
 
 heads up display:
-TPS: new completed tiles added to the headgroup collection per second. Show to user in HUD. Not workgroup emission rate which should be flat 1000hz.
+TPS: new completed tiles added to the headgroup collection per second. Show to user in HUD. Not workgroup emission rate.
 FPS: frames per second (duh) only refers to the unified headgroup hybrid window actor framerate.
 
 
@@ -28,29 +28,33 @@ Work Management:
 - aggressively leverage boundary tracing + infill
 - aggressively restless & greedy scheduling
 - must get around to everything eventually (make the hoard recontinuable)
+
+r[cz.perf.foveation-half-time+1]
 - foveated (Dedicate half of available working time to filling the current stencil, and half to lookahead.)
-  r[cz.perf.foveation-half-time+1]
+
+r[cz.perf.play-minimize+1]
 - aggressively minimize play: no or very small initialization phases. continuous delivery of work so far.
-  r[cz.perf.play-minimize+1]
 
 
 Workgroup performance requirements;
 
 - on home view, must average 100TPS (~5s to complete the home view)
-  r[cz.perf.home-100tps+1]
 
-- Always, must hit minimally 300M IPS (CPU) and 30B IPS (GPU) even when using perturbation (a few extra features is NO excuse for 10X slower. See first performance north star.)
-  r[cz.perf.min-300m-ips-cpu+1]
-  r[cz.perf.min-30b-ips-gpu+1]
+r[cz.perf.min-300m-ips-cpu+2]
+
+r[cz.perf.min-30b-ips-gpu+1]
+- Always, must hit minimally 300M IPS (single core CPU) and 30B IPS (GPU) even when using perturbation (a few extra features is NO excuse for 10X slower. See first performance north star.)
   obviously the 11th gear (largest non-stack) might be a bit slower, but not 10X slower. See first performance north star.
 
+r[cz.perf.optimal-ipp+1]
 - IPP must be optimal always
-  r[cz.perf.optimal-ipp+1]
 
+r[cz.perf.play-8bump-100ms+1]
 - When the user has zoomed in 8 bumps at a time, *some* new work must be visible within 100ms of the last bump of the gesture. See north star on play.
-  r[cz.perf.play-8bump-100ms+1]
 
 # References addednudm
+
+r[cz.ref.zero-orbit-same-path+1]
 
 The reference datastructure must correctly handle looping points.
 There must be a const reference orbit starting at big Z of zero
@@ -58,6 +62,8 @@ when a better reference is not available, this const reference must be used.
 The path of code used must not be different.
 
 # Publisher Addendum
+
+r[cz.pub.gpu-native-work+1]
 
 Work remaining native n the GPU is of pivotal importance 
 because otherwise there is not enough throughput to complete a full screen of work quiclly in easy cases.
@@ -71,35 +77,64 @@ Microbenches should also be made as its useful to know whether an issue is the m
 
 # Play addendum
 
-- Each actor must always check its input channel at a quick pace at the start of its loop (1000hz is the standard but lower is fine)
+r[cz.play.actor-poll+1]
+
+- Each actor must always check its input channel at a quick pace at the start of its loop
+
+r[cz.play.actor-drain+1]
+
 - Each actor must fully drain its channel when anything is there
-- each actor must immediately prioritize the most recent work over previous work
+
+r[cz.play.latest-wins+1]
+
+- each actor must immediately prioritize the most recent work over previous work (exception: the headgroup must ingest all unique new tiles. Neither dropping tiles nor getting behind are acceptable.)
 
 # TPS addendum
 
+r[cz.perf.home-100tps+1]
+
+r[cz.perf.home-10000tps-gpu+1]
 For the home view at default res, Even when on CPU, tps must >= 100. When on GPU, tps must >= 10000.
 
+# Oracle addendum
+
+r[cz.math.perturbation-naive-oracle+1]
+
+To check perturbation implementation is correct, exact answer parity is required with a trusted naive implementation at home view and several well known sites of interest.
+
+The trusted naive implementation oracle goes suchly:
+- compute point answer at N bits precision
+- compute point answer at 2N bits precision
+- same? -> done. differ? -> double again.
+
+Note that the entire answer is compared. not merely the result.
+
+# Boundary tracing/Infill addendum
+
+To check infill / boundary tracing speed and period detection in a hard case, zoom into the neck at -0.75 + 0i.
 # Headgroup
 
 Perforamnce north star:
+
+r[cz.perf.headgroup-stable-path+1]
 - One path: shader does the same things every frame. there must be no frametime change when panning vs stationary.
 
-Headgroup shaders together must hit 2ms frametime at all times even at 1080p. See north star.
 r[cz.perf.headgroup-shaders-2ms+1]
+Headgroup shaders together must hit 2ms frametime at all times even at 1080p. See north star.
 
-Headgroup hybrid window actor rate must have vsync enabled to prevent using all the GPU. do Not do some janky manipulation to force the framerate, simply enable vsync and let egui handle it.
 r[cz.perf.headgroup-vsync+1]
+Headgroup hybrid window actor rate must have vsync enabled to prevent using all the GPU. do Not do some janky manipulation to force the framerate, simply enable vsync and let egui handle it.
 
+r[cz.ctrl.zoom-in-homothety+1]
 Zoom in must result in the point stencil homothery following this exact transformation:
 magnification += 1
 locations: subtract pointer location, divide by two, add pointer location
-r[cz.ctrl.zoom-in-homothety+1]
 
 The sampling shader must always take the same path: see north star.
 
 Scroll *up* must correspond to zoom *in* which is an *increase* of magnification pot by one.
 (In egui, scroll up is a positive scroll delta.)
-r[cz.ctrl.scroll-up-zooms-in+1]
+r[depends cz.ctrl.scroll-up-zooms-in+1]
 
 
 

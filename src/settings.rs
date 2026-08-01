@@ -25,6 +25,8 @@ const VSYNC:bool = true;
 pub const DEFAULT_SETTINGS_WINDOW_RES:(u32, u32) = (500, 800);
 
 // D-COLOR-1: escape time; in-filaments black; out-filaments as outside ∞-escape; nothing else.
+// r[impl cz.cosmetic.defaults+1]
+// r[impl cz.cosmetic.layer-model+1]
 pub const DEFAULT_COLORING_SCRIPT:[ColoringInstruction;3] = [
     ColoringInstruction::PaintEscapeTime{id: 0
         , inside_opacity:255, outside_opacity:255
@@ -563,12 +565,14 @@ mod animable_tests {
         assert!((super::MAX_FRAME_TIME - 0.05).abs() < 1e-12);
     }
 
+    // r[verify cz.cosmetic.defaults+1]
     // D-COLOR-1 / REQ-COSMETIC-DEFAULT
     #[test]
     fn default_script_has_exactly_three_layers() {
         assert_eq!(DEFAULT_COLORING_SCRIPT.len(), 3);
     }
 
+    // r[verify cz.cosmetic.defaults+1]
     #[test]
     fn default_script_is_escape_infil_outfil_only() {
         assert!(matches!(
@@ -585,6 +589,7 @@ mod animable_tests {
         ));
     }
 
+    // r[verify cz.cosmetic.defaults+1]
     #[test]
     fn default_script_excludes_subtle_extra_layers() {
         for inst in DEFAULT_COLORING_SCRIPT.iter() {
@@ -598,6 +603,7 @@ mod animable_tests {
         }
     }
 
+    // r[verify cz.cosmetic.layer-model+1]
     // D-COLOR-4 / REQ-COSMETIC-LAYER: highlights are ColoringInstruction variants in the list.
     #[test]
     fn highlights_are_script_layer_variants() {
@@ -631,6 +637,7 @@ mod animable_tests {
         ));
     }
 
+    // r[verify cz.cosmetic.layer-model+1]
     #[test]
     fn highlight_kinds_occupy_ordered_script_slots() {
         let script = vec![

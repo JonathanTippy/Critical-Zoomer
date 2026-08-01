@@ -220,9 +220,9 @@ cz_ctl_wait_settled() {
 }
 
 cz_ctl_send_home() {
-  # Prefer goto home stencil; icon click is geometry-relative fallback only.
+  # Keyword "home" → MoveTo HOME_POSITION UL + SetZoom (not SetPos center).
   cz_ctl_focus_window
-  cz_ctl_send_goto -2 -2 -2
+  cz_ctl_send_goto home
   sleep 0.25
 }
 

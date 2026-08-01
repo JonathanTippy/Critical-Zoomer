@@ -1,6 +1,7 @@
 //! Off-screen / too-small classification for the r=2 circle proxy.
 //! Design: docs/design/headgroup.md — red arrow guidance.
 // r[impl cz.display.offscreen-r2-circle+1]
+// r[impl cz.display.offscreen-arrows+1]
 
 use crate::assemblies::structs::PointStencil;
 use crate::constants::PIXELS_PER_UNIT_POT;
@@ -102,6 +103,7 @@ impl ViewportComplexRect {
         R2ScreenRelation::OnScreen
     }
 
+    // r[impl cz.display.offscreen-arrows+1]
     pub fn needs_red_arrows(&self) -> bool {
         matches!(
             self.classify_r2(),
@@ -130,6 +132,7 @@ mod tests {
     use super::*;
 
     // r[verify cz.display.offscreen-r2-circle+1]
+    // r[verify cz.display.offscreen-arrows+1]
     #[test]
     fn homeish_viewport_sees_r2_disk() {
         // Rough home: UL near (-2,-2) style region covering the set.
@@ -140,6 +143,7 @@ mod tests {
     }
 
     // r[verify cz.display.offscreen-r2-circle+1]
+    // r[verify cz.display.offscreen-arrows+1]
     #[test]
     fn far_pan_marks_off_screen() {
         let s = test_stencil(100, 100, 0, 200, 200);
@@ -149,6 +153,7 @@ mod tests {
     }
 
     // r[verify cz.display.offscreen-r2-circle+1]
+    // r[verify cz.display.offscreen-arrows+1]
     #[test]
     fn deep_zoom_out_marks_too_small() {
         // Very negative mag → huge spacing → tiny pixel diameter for r=2.
@@ -173,6 +178,7 @@ mod tests {
     }
 
     // r[verify cz.display.offscreen-r2-circle+1]
+    // r[verify cz.display.offscreen-arrows+1]
     #[test]
     fn mostly_off_when_disk_only_in_outer_margin() {
         // Tangent-ish viewport: r=2 disk clips the outer AABB at x=2 but misses
@@ -190,6 +196,7 @@ mod tests {
     }
 
     // r[verify cz.display.offscreen-r2-circle+1]
+    // r[verify cz.display.offscreen-arrows+1]
     #[test]
     fn mostly_too_small_when_diameter_under_ten_percent_of_min_side() {
         // Diameter in (1, 0.1*min_side): TooSmall is ≤1px; MostlyTooSmall is next.

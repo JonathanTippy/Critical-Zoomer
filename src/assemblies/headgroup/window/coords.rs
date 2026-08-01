@@ -33,6 +33,7 @@ pub fn decimal_str_to_intexp(s: &str) -> Option<IntExp> {
 
 /// UL location so viewport center is at (center_re, center_im) in math coords.
 /// Stored imag is negated (SetPos convention).
+// r[impl cz.ui.location-readout+1]
 pub fn ul_for_center(
     center_re: IntExp
     , center_im: IntExp
@@ -58,6 +59,7 @@ pub fn ul_for_center(
 }
 
 /// Viewport center in mathematical (re, im) from UL location.
+// r[impl cz.ui.location-readout+1]
 pub fn viewport_center(loc: &ObjectivePosAndZoom, screen: (u32, u32)) -> (IntExp, IntExp) {
     let half_w = IntExp {
         val: Integer::from(screen.0 / 2)
@@ -73,6 +75,7 @@ pub fn viewport_center(loc: &ObjectivePosAndZoom, screen: (u32, u32)) -> (IntExp
     (re, im)
 }
 
+// r[impl cz.ui.coords-parse+1]
 pub fn parse_complex(input: &str) -> Option<(IntExp, IntExp)> {
     let mut s = input.trim().to_string();
     for ch in ['(', ')', '[', ']', '{', '}'] {
@@ -200,6 +203,18 @@ pub fn commands_from_goto_line(line: &str) -> Option<Vec<ZoomerCommand>> {
     if line.is_empty() {
         return None;
     }
+    // Harness / ctl "home": restore startup HOME_POSITION framing (UL + zoom).
+    if line.eq_ignore_ascii_case("home") {
+        return Some(vec![
+            ZoomerCommand::MoveTo {
+                x: IntExp::from(crate::constants::HOME_POSITION.0),
+                y: IntExp::from(crate::constants::HOME_POSITION.1),
+            },
+            ZoomerCommand::SetZoom {
+                pot: crate::constants::HOME_POSITION.2,
+            },
+        ]);
+    }
     // requirements: space or comma separators both valid ("0, 0" / "0 0")
     let normalized = line.replace(',', " ");
     let parts: Vec<&str> = normalized.split_whitespace().collect();
@@ -224,6 +239,7 @@ pub fn goto_line_is_valid(line: &str) -> bool {
 
 /// D-UI-1 / REQ-CTRL-APPLY: Apply stays enabled whenever the field is valid,
 /// including when it already equals the current viewport location.
+// r[impl cz.ui.coords-apply+1]
 pub fn apply_button_enabled(line_valid: bool, _already_at_location: bool) -> bool {
     line_valid
 }
@@ -232,6 +248,7 @@ pub fn apply_button_enabled(line_valid: bool, _already_at_location: bool) -> boo
 mod tests {
     use super::*;
 
+    // r[verify cz.ui.coords-parse+1]
     #[test]
     fn parse_comma_pair() {
         let (re, im) = parse_complex("1.5, -2").unwrap();
@@ -239,6 +256,7 @@ mod tests {
         assert!((im.to_f64() + 2.0).abs() < 1e-9);
     }
 
+    // r[verify cz.ui.coords-parse+1]
     #[test]
     fn parse_plus_i_form() {
         let (re, im) = parse_complex("3+4i").unwrap();
@@ -246,6 +264,7 @@ mod tests {
         assert!((im.to_f64() - 4.0).abs() < 1e-9);
     }
 
+    // r[verify cz.ui.coords-parse+1]
     #[test]
     fn parse_imag_leading_parens() {
         // requirements: (5i + 6) = (6 + 5i)
@@ -284,6 +303,7 @@ mod tests {
         assert!(im1 > im0, "mouse-down grab must raise math imag; im0={im0} im1={im1}");
     }
 
+    // r[verify cz.ui.location-readout+1]
     #[test]
     fn ul_for_center_zero_centers_viewport() {
         let loc = ul_for_center(IntExp::ZERO, IntExp::ZERO, 0, (800, 480));
@@ -294,6 +314,26 @@ mod tests {
         assert!(im_f.abs() < 1e-6, "im={im_f}");
     }
 
+    // r[verify cz.ui.location-readout+1]
+    #[test]
+    fn location_readout_includes_magnification_pot() {
+        let loc = ul_for_center(IntExp::from(1), IntExp::from(-1), 5, (800, 480));
+        assert_eq!(loc.zoom_pot, 5);
+        let (re, im) = viewport_center(&loc, (800, 480));
+        assert!((re.to_f64() - 1.0).abs() < 1e-6);
+        assert!((im.to_f64() + 1.0).abs() < 1e-6);
+    }
+
+    // r[verify cz.ui.location-readout+1]
+    #[test]
+    fn location_readout_tracks_center_not_ul() {
+        let loc = ul_for_center(IntExp::from(2), IntExp::ZERO, 0, (800, 480));
+        // UL real is left of center; readout must report center=2, not UL.
+        assert!(loc.pos.0.clone().to_f64() < 2.0);
+        let (re, _) = viewport_center(&loc, (800, 480));
+        assert!((re.to_f64() - 2.0).abs() < 1e-6);
+    }
+
     #[test]
     fn empty_goto_invalid() {
         assert!(!goto_line_is_valid(""));
@@ -301,23 +341,27 @@ mod tests {
         assert!(goto_line_is_valid("0, 0"));
     }
 
+    // r[verify cz.ui.coords-apply+1]
     // REQ-CTRL-APPLY / D-UI-1
     #[test]
     fn apply_enabled_when_valid_even_if_already_there() {
         assert!(apply_button_enabled(true, true));
     }
 
+    // r[verify cz.ui.coords-apply+1]
     #[test]
     fn apply_enabled_when_valid_and_location_differs() {
         assert!(apply_button_enabled(true, false));
     }
 
+    // r[verify cz.ui.coords-apply+1]
     #[test]
     fn apply_disabled_when_line_invalid_regardless_of_location() {
         assert!(!apply_button_enabled(false, false));
         assert!(!apply_button_enabled(false, true));
     }
 
+    // r[verify cz.ui.coords-parse+1]
     // REQ-CTRL-PARSE
     #[test]
     fn parse_braces_and_extra_spaces() {
@@ -326,6 +370,7 @@ mod tests {
         assert!((im.to_f64() - 2.0).abs() < 1e-9);
     }
 
+    // r[verify cz.ui.coords-parse+1]
     #[test]
     fn parse_rejects_garbage() {
         assert!(parse_complex("not a coordinate").is_none());

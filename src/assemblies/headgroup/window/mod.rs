@@ -448,7 +448,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 }
             }
 
-            state.sampling_context.screen_size = (size.0 as u32, size.1 as u32);
+            state.sampling_context.screen_size = (size.0 as u32, size.1 as u32); // r[impl cz.ui.viewport-fill+1]
 
             transform(command_package, &mut state.sampling_context);
 
@@ -601,6 +601,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 );
 
                 // Red off-screen / too-small guidance arrows (requirements).
+                // r[impl cz.display.offscreen-arrows+1]
                 {
                     let screen_stencil = PointStencil {
                         homothety: (
@@ -757,7 +758,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     }
                 );
 
-                // Home → viewport center at (0+0i); keep framed startup zoom.
+                // Home → startup framing (HOME_POSITION UL + zoom), not 0+0i.
                 ui.put(
                     egui::Rect::from_min_size(
                         egui::pos2(ui.available_width() - 80.0, 0.0),
@@ -766,16 +767,13 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     |ui: &mut egui::Ui| {
                         let button_state = ui.button("🏠");
                         if button_state.clicked() {
-                            let screen = (
-                                state.size.x.max(1.0) as u32
-                                , state.size.y.max(1.0) as u32
-                            );
-                            state.sampling_context.location = ul_for_center(
-                                IntExp::ZERO
-                                , IntExp::ZERO
-                                , HOME_POSITION.2
-                                , screen
-                            );
+                            state.sampling_context.location = ObjectivePosAndZoom {
+                                pos: (
+                                    IntExp::from(HOME_POSITION.0),
+                                    IntExp::from(HOME_POSITION.1),
+                                ),
+                                zoom_pot: HOME_POSITION.2,
+                            };
                             state.sampling_context.mouse_drag_start = None;
                             state.atlas_location = None;
                             state.nav_target = None;

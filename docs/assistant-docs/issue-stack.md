@@ -4,6 +4,23 @@ Two lists: **true bugs** (incorrect behavior) vs **design gaps** (intended desig
 
 PO quotes: `he-said/`. This file tracks status, loci, and follow-through.
 
+## DAT failures (2026-08-01)
+
+Developer acceptance test failed. Items below are verbatim from DAT.
+
+- worker panics and never recovers
+- sampling bug (?), some tiles are the NORES values for no reason
+- thin towers of one tile going up / down (lookahead / hoard) are missing, resulting in extreme overuse of the nores value
+- when zooming, new work takes a good 1-2s to start (play, regression)
+- even though TPS is better than before, it is not near the target.
+- intexp values are not displayed properly
+- animated bailout is not running & configuable bailout not working
+- regression: coloring options from v0.0.9 are almost all removed
+- regression: normalization breaks period animation with NAN (see v0.0.9 for golden. Use it as an oracle, but shader must be on GPU.)
+- previous work is not re-emitted in WIP tiles; incomplete parts of new tiles are the NORES value.
+- precision wall at mag 20 (depth requirement fail)
+- magnificiation missing from current location display
+
 ## True bugs (open)
 
 ### B-DISP-1 — Phase 2 cutover display regressions (grey / ~15fps / no GPU escape)

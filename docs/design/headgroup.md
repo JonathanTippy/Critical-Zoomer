@@ -36,7 +36,7 @@ shaders: layer colors according to coloring script in the settings struct. shoul
 settigns screen:
 widgets for each setting, drag-n-drop area for layering of coloring layers, and can select each to configure.
 
-r[cz.display.offscreen-r2-circle+1]
+r[depends cz.display.offscreen-r2-circle+1]
 
 off screen = r=2 circle is off screen
 mostly off screen = r=2 circle is within 10% to being fully off screen
