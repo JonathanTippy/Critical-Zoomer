@@ -1003,6 +1003,41 @@ impl OutfillInfillSchedulerState {
 }
 
 #[cfg(test)]
+mod d_sch3_tests {
+    use super::*;
+
+    // D-SCH-3: higher-preference (lower rank) immediately suspends active mid-job.
+    #[test]
+    fn higher_preference_suspends_active_immediately() {
+        let mut t = PhaseJobTracker::idle();
+        t.start(3);
+        assert!(t.consider_incoming(1), "lower rank must preempt");
+        assert_eq!(t.active_rank(), Some(1));
+        assert_eq!(t.suspended_rank(), Some(3));
+    }
+
+    #[test]
+    fn equal_or_lower_preference_does_not_suspend() {
+        let mut t = PhaseJobTracker::idle();
+        t.start(2);
+        assert!(!t.consider_incoming(2));
+        assert!(!t.consider_incoming(5));
+        assert_eq!(t.active_rank(), Some(2));
+        assert_eq!(t.suspended_rank(), None);
+    }
+
+    #[test]
+    fn resume_restores_suspended_phase() {
+        let mut t = PhaseJobTracker::idle();
+        t.start(4);
+        assert!(t.consider_incoming(0));
+        t.resume_suspended();
+        assert_eq!(t.active_rank(), Some(4));
+        assert_eq!(t.suspended_rank(), None);
+    }
+}
+
+#[cfg(test)]
 mod d_sch1_tests {
     use super::*;
 

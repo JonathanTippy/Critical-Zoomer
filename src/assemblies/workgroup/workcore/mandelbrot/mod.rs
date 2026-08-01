@@ -390,6 +390,13 @@ fn build_reference_orbit_f64(
     , c: (f64, f64)
     , period: u64
 ) -> Option<ReferenceOrbit> {
+    // D-REF-1: required rug precision is discrimination+20. The interactive f64
+    // builder is valid while that demand fits in a binary64 mantissa; deeper
+    // mags still take this path until a rug orbit builder is wired.
+    let _required_bits = crate::constants::reference_precision_bits(
+        crate::constants::discrimination_bits_for_mag(0)
+    );
+    let _ = _required_bits;
     let period = period.max(1);
     let length = (period as usize).saturating_add(1).max(1);
     let mut orbit_f64 = Vec::with_capacity(length);

@@ -251,4 +251,42 @@ mod tests {
         let evict = worker.orbits_to_evict([old, worker.bound_orbit_id()]);
         assert!(!evict.contains(&old));
     }
+
+    // D-REF-1: discrimination + 20 bits.
+    #[test]
+    fn reference_precision_adds_twenty_bits() {
+        use crate::constants::{
+            reference_precision_bits, REFERENCE_EXTRA_PRECISION_BITS,
+        };
+        assert_eq!(REFERENCE_EXTRA_PRECISION_BITS, 20);
+        assert_eq!(reference_precision_bits(9), 29);
+        assert_eq!(reference_precision_bits(0), 20);
+    }
+
+    #[test]
+    fn discrimination_bits_grow_with_magnification() {
+        use crate::constants::{discrimination_bits_for_mag, PIXELS_PER_UNIT_POT};
+        assert_eq!(
+            discrimination_bits_for_mag(0),
+            PIXELS_PER_UNIT_POT as u32
+        );
+        assert_eq!(
+            discrimination_bits_for_mag(10),
+            PIXELS_PER_UNIT_POT as u32 + 10
+        );
+        assert_eq!(
+            discrimination_bits_for_mag(-3),
+            PIXELS_PER_UNIT_POT as u32
+        );
+    }
+
+    #[test]
+    fn deep_mag_reference_precision_exceeds_f64_mantissa() {
+        use crate::constants::{discrimination_bits_for_mag, reference_precision_bits};
+        let bits = reference_precision_bits(discrimination_bits_for_mag(40));
+        assert!(
+            bits > 53,
+            "deep refs must demand rug precision beyond f64 ({bits})"
+        );
+    }
 }

@@ -3,6 +3,15 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use crate::assemblies::structs::*;
 use crate::constants::*;
 
+/// D-SCH-2 assumed α = 1/8 per wake (tile_scheduler supplement).
+pub const MAG_VELOCITY_EWMA_ALPHA: f64 = 1.0 / 8.0;
+
+/// Update EWMA of magnification bumps/sec.
+pub fn ewma_mag_velocity(previous: f64, sample_bumps_per_sec: f64) -> f64 {
+    MAG_VELOCITY_EWMA_ALPHA * sample_bumps_per_sec
+        + (1.0 - MAG_VELOCITY_EWMA_ALPHA) * previous
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TileEdgeCategory {
     Unknown
@@ -925,5 +934,26 @@ mod tile_scheduler_tests {
             TileSchedulerNext::BeginLookahead { zoom_pot } => assert_eq!(zoom_pot, 1),
             other => panic!("reset column should restart at +1, got {other:?}"),
         }
+    }
+
+    // D-SCH-2: EWMA of bumps/sec with α=1/8.
+    #[test]
+    fn ewma_blends_sample_with_history() {
+        let v = ewma_mag_velocity(0.0, 8.0);
+        assert!((v - 1.0).abs() < 1e-12, "α*8 = 1, got {v}");
+    }
+
+    #[test]
+    fn ewma_converges_toward_constant_sample() {
+        let mut v = 0.0;
+        for _ in 0..64 {
+            v = ewma_mag_velocity(v, 4.0);
+        }
+        assert!((v - 4.0).abs() < 1e-3, "got {v}");
+    }
+
+    #[test]
+    fn ewma_alpha_is_one_eighth() {
+        assert!((MAG_VELOCITY_EWMA_ALPHA - 0.125).abs() < 1e-15);
     }
 }

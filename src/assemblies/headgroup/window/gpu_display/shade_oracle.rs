@@ -295,6 +295,7 @@ pub fn is_increased(v: f32, up: f32, down: f32, left: f32, right: f32) -> bool {
 }
 
 pub fn slope_sign_changed(v: f32, up: f32, down: f32, left: f32, right: f32) -> bool {
+    // D-SHADE-1 / A-SHADE-INFIL: discrete hard inversion (π/2-class) of escape-time slope.
     if v < 0.0 {
         return false;
     }
@@ -308,6 +309,7 @@ pub fn slope_sign_changed(v: f32, up: f32, down: f32, left: f32, right: f32) -> 
 }
 
 pub fn is_local_minimum(v: f32, up: f32, down: f32, left: f32, right: f32) -> bool {
+    // D-SHADE-2 / A-SHADE-NODE: local smallness minimum (node seed).
     v >= 0.0
         && up >= 0.0
         && down >= 0.0

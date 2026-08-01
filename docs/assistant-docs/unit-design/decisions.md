@@ -66,5 +66,5 @@ Recorded from the unit-design closing pass. These override assistant guesses in 
 |----|-------|-------|
 | A-SHADE-INFIL | Neighbor escape-time slope-angle delta > π/2 counts as hard inversion | Replace after visual experiment |
 | A-SHADE-NODE | `min_magnitude` below tile point-spacing (one pixel in complex space at that mag) counts as node seed | Replace after visual experiment |
-| A-PER-TWIN-N | 16 twin-test iterations | Replace after correctness experiment |
+| A-PER-TWIN-N | 20 twin-test iterations | Code constant `PERIOD_CONFIRMATION_ITERATIONS`; was listed 16 before experiment locked 20 |
 | A-REF-MAX-N | Max live references = 3 (current + up to 2 retained) | Replace if PO sets N |

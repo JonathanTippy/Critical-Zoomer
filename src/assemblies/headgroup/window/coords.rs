@@ -305,7 +305,15 @@ mod tests {
     #[test]
     fn apply_enabled_when_valid_even_if_already_there() {
         assert!(apply_button_enabled(true, true));
+    }
+
+    #[test]
+    fn apply_enabled_when_valid_and_location_differs() {
         assert!(apply_button_enabled(true, false));
+    }
+
+    #[test]
+    fn apply_disabled_when_line_invalid_regardless_of_location() {
         assert!(!apply_button_enabled(false, false));
         assert!(!apply_button_enabled(false, true));
     }

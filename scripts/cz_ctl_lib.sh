@@ -274,12 +274,16 @@ cz_ctl_send_scroll() {
 }
 
 cz_ctl_send_zoomin() {
+  # Hold Shift across ≥1 egui frame so modifiers.shift edge detection fires.
+  # A bare `xdotool key Shift_L` can press+release inside one frame and miss.
   local n="${1:-1}"
   local i=0
   cz_ctl_focus_window
   while [ "$i" -lt "$n" ]; do
-    xdotool key --clearmodifiers --window "$WIN" Shift_L
-    sleep 0.15
+    xdotool keydown --clearmodifiers --window "$WIN" Shift_L
+    sleep 0.08
+    xdotool keyup --window "$WIN" Shift_L
+    sleep 0.12
     i=$((i + 1))
   done
 }
@@ -289,8 +293,10 @@ cz_ctl_send_zoomout() {
   local i=0
   cz_ctl_focus_window
   while [ "$i" -lt "$n" ]; do
-    xdotool key --clearmodifiers --window "$WIN" space
-    sleep 0.15
+    xdotool keydown --clearmodifiers --window "$WIN" space
+    sleep 0.08
+    xdotool keyup --window "$WIN" space
+    sleep 0.12
     i=$((i + 1))
   done
 }

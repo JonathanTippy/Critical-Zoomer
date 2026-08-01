@@ -529,6 +529,94 @@ mod tests {
         }
     }
 
+    // D-PUB-2: clamp all numeric fields toward bias when disproven.
+    #[test]
+    fn disproven_low_escape_clamps_to_lower_bound() {
+        let cal = CalibratedAnswer {
+            result: CalibratedMandelbrotResult::Outside {
+                escape_time_r2: Range {
+                    lower_bound: 10,
+                    upper_bound: 20,
+                },
+                escape_z: (
+                    Range {
+                        lower_bound: 2.0,
+                        upper_bound: 2.0,
+                    },
+                    Range {
+                        lower_bound: 0.0,
+                        upper_bound: 0.0,
+                    },
+                ),
+            },
+            min_magnitude_time: Range {
+                lower_bound: 0,
+                upper_bound: 0,
+            },
+            min_magnitude: Range {
+                lower_bound: 4.0,
+                upper_bound: 4.0,
+            },
+            highlights: exact_outside(1).highlights,
+        };
+        let bias = Answer {
+            result: MandelbrotResult::Outside {
+                escape_time_r2: 1,
+                escape_z: (2.0, 0.0),
+            },
+            min_magnitude_time: 0,
+            min_magnitude: 4.0,
+        };
+        let out = publish_seat(cal, Some(bias));
+        match out.result {
+            MandelbrotResult::Outside { escape_time_r2, .. } => {
+                assert_eq!(escape_time_r2, 10, "disproven low bias clamps to lower");
+            }
+            MandelbrotResult::Inside { .. } => panic!("expected Outside"),
+        }
+    }
+
+    #[test]
+    fn disproven_min_magnitude_clamps_to_bound() {
+        let cal = CalibratedAnswer {
+            result: CalibratedMandelbrotResult::Outside {
+                escape_time_r2: Range {
+                    lower_bound: 5,
+                    upper_bound: 5,
+                },
+                escape_z: (
+                    Range {
+                        lower_bound: 2.0,
+                        upper_bound: 2.0,
+                    },
+                    Range {
+                        lower_bound: 0.0,
+                        upper_bound: 0.0,
+                    },
+                ),
+            },
+            min_magnitude_time: Range {
+                lower_bound: 0,
+                upper_bound: 0,
+            },
+            min_magnitude: Range {
+                lower_bound: 1.0,
+                upper_bound: 2.0,
+            },
+            highlights: exact_outside(1).highlights,
+        };
+        let bias = Answer {
+            result: MandelbrotResult::Outside {
+                escape_time_r2: 5,
+                escape_z: (2.0, 0.0),
+            },
+            min_magnitude_time: 0,
+            min_magnitude: 9.0,
+        };
+        let out = publish_seat(cal, Some(bias));
+        assert_eq!(out.min_magnitude, 2.0, "min_magnitude is numeric → clamp");
+    }
+
     // r[verify cz.int.publish-cadence+1]
     #[test]
     fn cadence_idle_when_complete() {

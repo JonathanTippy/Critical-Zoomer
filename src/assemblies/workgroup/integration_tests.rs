@@ -12,8 +12,11 @@ mod assembly_tests {
         apply_memory_bump, plan_prunes, required_limit_bump, ManagedTileMeta, TileKeepClass,
     };
     use crate::assemblies::workgroup::tile_publisher::{
-        agnostic_wide, publish_seat, PublishCadence,
+        agnostic_wide, exact_outside, publish_seat, PublishCadence,
     };
+    use crate::assemblies::workgroup::structs::CalibratedAnswer;
+    use crate::assemblies::workgroup::structs::CalibratedMandelbrotResult;
+    use crate::range::Range;
     use crate::assemblies::workgroup::tile_session::TileSession;
     use crate::assemblies::workgroup::workcore::mandelbrot::scheduler_implementations::tile_scheduler::{
         TileScheduler, TileSchedulerNext,
@@ -89,7 +92,6 @@ mod assembly_tests {
                 zoom_pot: 4,
             };
             session.retarget(panned, (8, 8));
-            session.set_mag_velocity(0);
             assert_eq!(session.bound_orbit_id_for_test(), orbit);
             assert_eq!(session.mag_velocity(), 0);
             assert_eq!(session.location.zoom_pot, 4);
@@ -103,9 +105,8 @@ mod assembly_tests {
             let mut session = TileSession::new(home_loc(4), (8, 8));
             session.force_cpu_bouts_for_test();
             session.retarget(home_loc(6), (8, 8));
-            session.set_mag_velocity(1);
             assert_eq!(session.location.zoom_pot, 6);
-            assert_eq!(session.mag_velocity(), 1);
+            assert_eq!(session.mag_velocity(), 2);
             assert_eq!(session.reference_bound_mag(), Some(6));
         });
     }
@@ -287,6 +288,135 @@ mod assembly_tests {
         let before = ctx.tiles.len();
         ctx.ingest_gpu_tile(GPUTile::from_answer_tile(&tile, (64, 64), loc1));
         assert!(ctx.tiles.len() >= before);
+    }
+
+    // r[verify cz.int.publish-cadence+1]
+    #[test]
+    fn incomplete_cadence_respects_max_hz_and_no_work_gate() {
+        let t0 = Instant::now();
+        let mut cadence = PublishCadence::new_at(true, t0);
+        assert!(cadence.allow_publish(t0));
+        cadence.record_publish(t0);
+        // Immediate re-publish blocked by max-Hz min gap (D-PUB-1: no min floor).
+        assert!(!cadence.allow_publish(t0));
+        assert!(!cadence.should_publish(t0, true));
+        assert!(!cadence.should_publish(t0 + std::time::Duration::from_millis(2), false));
+        assert!(PublishCadence::max_publishes_per_second() <= 1000);
+    }
+
+    // r[verify cz.int.publisher-nores-bias+1]
+    #[test]
+    fn assembly_publish_ingest_keeps_in_bounds_bias() {
+        let bias = Answer {
+            result: MandelbrotResult::Outside {
+                escape_time_r2: 50,
+                escape_z: (1.0, 0.0),
+            },
+            min_magnitude_time: 10,
+            min_magnitude: 1.0,
+        };
+        let published = publish_seat(agnostic_wide(), Some(bias));
+        let mut tile = Tile::new((0, 0), 0);
+        tile.set((0, 0), published);
+        let mut sink = empty_sampling(0);
+        let loc = ObjectivePosAndZoom {
+            pos: (IntExp::ZERO, IntExp::ZERO),
+            zoom_pot: 0,
+        };
+        sink.ingest_gpu_tile(GPUTile::from_answer_tile(&tile, (64, 64), loc));
+        let stored = sink.tiles.values().next().unwrap()[0].get((0, 0)).unwrap();
+        match Answer::from(stored).result {
+            MandelbrotResult::Outside { escape_time_r2, .. } => {
+                assert_eq!(escape_time_r2, 50);
+            }
+            MandelbrotResult::Inside { .. } => panic!("in-bounds bias must stay Outside"),
+        }
+    }
+
+    // r[verify cz.int.publisher-nores-bias+1]
+    #[test]
+    fn assembly_publish_ingest_clamps_disproven_proximate() {
+        let cal = CalibratedAnswer {
+            result: CalibratedMandelbrotResult::Outside {
+                escape_time_r2: Range {
+                    lower_bound: 10,
+                    upper_bound: 20,
+                },
+                escape_z: (
+                    Range {
+                        lower_bound: 2.0,
+                        upper_bound: 2.0,
+                    },
+                    Range {
+                        lower_bound: 0.0,
+                        upper_bound: 0.0,
+                    },
+                ),
+            },
+            min_magnitude_time: Range {
+                lower_bound: 0,
+                upper_bound: 0,
+            },
+            min_magnitude: Range {
+                lower_bound: 4.0,
+                upper_bound: 4.0,
+            },
+            highlights: exact_outside(1).highlights,
+        };
+        let bias = Answer {
+            result: MandelbrotResult::Outside {
+                escape_time_r2: 100,
+                escape_z: (2.0, 0.0),
+            },
+            min_magnitude_time: 0,
+            min_magnitude: 4.0,
+        };
+        let published = publish_seat(cal, Some(bias));
+        let mut tile = Tile::new((0, 0), 0);
+        tile.set((0, 0), published);
+        let mut sink = empty_sampling(0);
+        let loc = ObjectivePosAndZoom {
+            pos: (IntExp::ZERO, IntExp::ZERO),
+            zoom_pot: 0,
+        };
+        sink.ingest_gpu_tile(GPUTile::from_answer_tile(&tile, (64, 64), loc));
+        let stored = sink.tiles.values().next().unwrap()[0].get((0, 0)).unwrap();
+        match Answer::from(stored).result {
+            MandelbrotResult::Outside { escape_time_r2, .. } => {
+                assert_eq!(escape_time_r2, 20);
+            }
+            MandelbrotResult::Inside { .. } => panic!("clamped bias must stay Outside"),
+        }
+    }
+
+    // r[verify cz.int.publisher-nores-bias+1]
+    #[test]
+    fn assembly_publish_ingest_no_proximate_is_nores_outside() {
+        let published = publish_seat(agnostic_wide(), None);
+        match published.result {
+            MandelbrotResult::Outside { escape_time_r2, .. } => {
+                assert_eq!(escape_time_r2, 1);
+            }
+            MandelbrotResult::Inside { .. } => panic!("no proximate must publish Outside NORES"),
+        }
+        assert!(published.min_magnitude.is_infinite());
+        let mut tile = Tile::new((0, 0), 0);
+        tile.set((0, 0), published);
+        let mut sink = empty_sampling(0);
+        let loc = ObjectivePosAndZoom {
+            pos: (IntExp::ZERO, IntExp::ZERO),
+            zoom_pot: 0,
+        };
+        sink.ingest_gpu_tile(GPUTile::from_answer_tile(&tile, (64, 64), loc));
+        let stored = sink.tiles.values().next().unwrap()[0].get((0, 0)).unwrap();
+        match Answer::from(stored).result {
+            MandelbrotResult::Outside { escape_time_r2, .. } => {
+                assert_eq!(escape_time_r2, 1);
+            }
+            MandelbrotResult::Inside { .. } => {
+                panic!("NORES must never sample as set-Inside after publish+ingest")
+            }
+        }
     }
 
     // r[verify cz.int.publish-cadence+1]

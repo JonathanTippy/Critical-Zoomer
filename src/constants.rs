@@ -15,7 +15,23 @@ pub const TILE_SEAT_COUNT: usize = TILE_EDGE_LENGTH * TILE_EDGE_LENGTH;
 
 pub const GPU_WORKER_BATCH_N: usize = 1024;
 
-pub const PERIOD_CONFIRMATION_ITERATIONS: u32 = 20;
+pub const PERIOD_CONFIRMATION_ITERATIONS: u32 = 20; // A-PER-TWIN-N / D-PER-1
+
+/// D-REF-1: reference builds use discrimination precision plus this many bits.
+pub const REFERENCE_EXTRA_PRECISION_BITS: u32 = 20;
+
+/// Point-discrimination bit demand at a magnification (screen pixel spacing).
+pub fn discrimination_bits_for_mag(zoom_pot: i32) -> u32 {
+    let base = PIXELS_PER_UNIT_POT.max(0) as u32;
+    let mag = if zoom_pot > 0 { zoom_pot as u32 } else { 0 };
+    base.saturating_add(mag)
+}
+
+/// D-REF-1: rug/reference float precision = discrimination + 20 bits.
+pub fn reference_precision_bits(discrimination_bits: u32) -> u32 {
+    discrimination_bits.saturating_add(REFERENCE_EXTRA_PRECISION_BITS)
+}
+
 
 pub const REFERENCE_ORBIT_COLLECTION_BUDGET_BYTES: usize = 512 * 1024 * 1024;
 pub const REFERENCE_NUCLEUS_SEEK_ITERS_INTERACTIVE: u64 = 50_000;

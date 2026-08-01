@@ -415,15 +415,21 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 }
                 state.startup_goto_applied = true;
             }
-            if let Ok(line) = std::fs::read_to_string("/tmp/cz_ctl.goto") {
-                let _ = std::fs::remove_file("/tmp/cz_ctl.goto");
+            // Harness may isolate goto/nav under CZ_GOTOFILE / CZ_NAVFILE (session
+            // prefix). Fall back to legacy /tmp paths for ad-hoc ctl use.
+            let goto_path = std::env::var("CZ_GOTOFILE")
+                .unwrap_or_else(|_| "/tmp/cz_ctl.goto".to_string());
+            if let Ok(line) = std::fs::read_to_string(&goto_path) {
+                let _ = std::fs::remove_file(&goto_path);
                 if let Some(cmds) = commands_from_goto_line(&line) {
                     command_package.extend(cmds);
                     state.nav_target = None;
                 }
             }
-            if let Ok(line) = std::fs::read_to_string("/tmp/cz_ctl.navigate") {
-                let _ = std::fs::remove_file("/tmp/cz_ctl.navigate");
+            let nav_path = std::env::var("CZ_NAVFILE")
+                .unwrap_or_else(|_| "/tmp/cz_ctl.navigate".to_string());
+            if let Ok(line) = std::fs::read_to_string(&nav_path) {
+                let _ = std::fs::remove_file(&nav_path);
                 if let Some(cmds) = commands_from_navigate_line(&line) {
                     if let ZoomerCommand::NavigateTo { real, imag, pot } = &cmds[0] {
                         state.nav_target = Some((real.clone(), imag.clone(), *pot));

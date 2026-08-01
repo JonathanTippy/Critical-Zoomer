@@ -699,4 +699,73 @@ mod hoard_tests {
             , "expected a lesser (positive zoom_delta) entry"
         );
     }
+
+    // D-MEM-2: bump raises the memory limit the slider mirrors.
+    #[test]
+    fn bump_raises_memory_limit_slider_value() {
+        use crate::assemblies::workgroup::tile_manager::apply_memory_bump;
+        let mut ctx = empty_ctx(0);
+        ctx.memory_limit_bytes = 1_000;
+        let before = ctx.memory_limit_bytes;
+        ctx.memory_limit_bytes = apply_memory_bump(ctx.memory_limit_bytes, 50_000);
+        ctx.last_memory_bump = Some(50_000);
+        assert!(ctx.memory_limit_bytes > before);
+        assert_eq!(ctx.memory_limit_bytes, 50_000);
+        assert_eq!(ctx.last_memory_bump, Some(50_000));
+    }
+
+    #[test]
+    fn bump_does_not_lower_slider_floor() {
+        use crate::assemblies::workgroup::tile_manager::apply_memory_bump;
+        let mut ctx = empty_ctx(0);
+        ctx.memory_limit_bytes = 80_000;
+        ctx.memory_limit_bytes = apply_memory_bump(ctx.memory_limit_bytes, 10_000);
+        assert_eq!(ctx.memory_limit_bytes, 80_000);
+    }
+
+    #[test]
+    fn prune_path_records_bump_for_ui_slider() {
+        let mut ctx = empty_ctx(5);
+        ctx.memory_limit_bytes = 64;
+        for i in 0..4usize {
+            let mut tile = Tile::new((i, 0), 5);
+            tile.set((0, 0), outside_answer(1));
+            ctx.ingest_gpu_tile(GPUTile::from_answer_tile(
+                &tile,
+                (64, 64),
+                ObjectivePosAndZoom {
+                    pos: (IntExp::from((i * 64) as i32), IntExp::ZERO),
+                    zoom_pot: 5,
+                },
+            ));
+        }
+        ctx.prune_distant_tiles();
+        assert!(
+            ctx.last_memory_bump.is_some() || ctx.memory_limit_bytes > 64,
+            "protected work must move the slider floor when over budget"
+        );
+    }
+
+    // D-CANCEL-1: leaving/retargeting does not wipe calibrated hoard entries.
+    #[test]
+    fn retarget_away_keeps_prior_calibrated_hoard() {
+        let mut ctx = empty_ctx(0);
+        let mut tile = Tile::new((0, 0), 0);
+        tile.set((0, 0), outside_answer(3));
+        let loc = ObjectivePosAndZoom {
+            pos: (IntExp::ZERO, IntExp::ZERO),
+            zoom_pot: 0,
+        };
+        ctx.ingest_gpu_tile(GPUTile::from_answer_tile(&tile, (64, 64), loc));
+        assert_eq!(ctx.tile_count(), 1);
+        ctx.location = ObjectivePosAndZoom {
+            pos: (IntExp::from(10_000), IntExp::ZERO),
+            zoom_pot: 0,
+        };
+        assert_eq!(
+            ctx.tile_count(),
+            1,
+            "D-CANCEL-1: cancel/leave must keep partial calibrated work in the hoard"
+        );
+    }
 }

@@ -24,7 +24,7 @@ Status: `green` | `in-progress` | `blocked-impl`
 | cz.seamless.foveated-mag-velocity+1 | tile_scheduler + session (≥3) | n/a | multi | green |
 | cz.system.tile-manager-protect-current-lookahead+1 | tile_manager (≥3) | n/a | tile_manager.rs | green |
 | cz.system.max-homotheties+1 | tile_manager + sampling (≥3) | n/a | multi | green |
-| cz.int.memory-bump+1 | tile_manager + window + unit extras | n/a | multi | in-progress |
+| cz.int.memory-bump+1 | tile_manager + sampling + unit extras | n/a | multi | green |
 | cz.int.hoard-ingest-sample+1 | sampling (≥3 unit) | n/a | sampling.rs | green |
 | cz.int.publisher-nores-bias+1 | tile_publisher (≥3) | clamp bounds | tile_publisher.rs | green |
 | cz.int.publish-cadence+1 | cadence max 1000; no min floor (D-PUB-1 flat 1000) | n/a | tile_publisher.rs | green |
@@ -60,12 +60,12 @@ Status: `green` | `in-progress` | `blocked-impl`
 | Id | Tests | Property | Status |
 |----|-------|----------|--------|
 | REQ-CTRL-PARSE | coords.rs (≥3 parse forms + reject) | n/a | green |
-| REQ-CTRL-APPLY | apply enable + D-UI-1 (≥3) | n/a | in-progress |
+| REQ-CTRL-APPLY | apply enable + D-UI-1 (≥3) | n/a | green |
 | REQ-CTRL-ZOOM | inputs/transforms (≥3) | n/a | green |
-| REQ-COSMETIC-LAYER | settings layer model (≥3) | n/a | in-progress |
+| REQ-COSMETIC-LAYER | settings layer model (≥3) | n/a | green |
 | REQ-COSMETIC-DEFAULT | D-COLOR-1 exact three layers (≥3) | n/a | green |
-| REQ-BAILOUT | D-BAIL-1 (≥3) | n/a | in-progress |
-| REQ-SYS-MEM | D-MEM-* (≥3) | keep-set det. | in-progress |
+| REQ-BAILOUT | D-BAIL-1 (≥3) | n/a | green |
+| REQ-SYS-MEM | D-MEM-* (≥3) | keep-set det. | green |
 | REQ-CALIBRATED | calibrated bias (≥3) | clamp | green |
 | REQ-DEEP-GEAR | C gen fail-closed + D-GEAR-1 (≥3) | n/a | green |
 
@@ -74,33 +74,33 @@ Status: `green` | `in-progress` | `blocked-impl`
 | Id | Tests | Status |
 |----|-------|--------|
 | D-COLOR-1 | default script length 3; kinds escape/in-fil/out-fil | green |
-| D-COLOR-2 | layer field presence | in-progress |
-| D-COLOR-3 | alpha-over order | in-progress |
-| D-COLOR-4 | highlights in script list | in-progress |
-| D-BAIL-1 | recolor-only membership stable | in-progress |
-| D-SHADE-1 | INFIL threshold constant applied | in-progress |
-| D-SHADE-2 | NODE threshold constant applied | in-progress |
+| D-COLOR-2 | layer field presence | green |
+| D-COLOR-3 | alpha-over order | green |
+| D-COLOR-4 | highlights in script list | green |
+| D-BAIL-1 | recolor-only membership stable | green |
+| D-SHADE-1 | INFIL threshold constant applied | green |
+| D-SHADE-2 | NODE threshold constant applied | green |
 | D-SHADE-3 | higher-period side only (≥3 shade_tests) | green |
-| D-MEM-1 | exact bump | in-progress |
-| D-MEM-2 | slider moves | in-progress |
-| D-MEM-3 | packed bytes cost | in-progress |
-| D-MEM-4 | keep-set property | in-progress |
+| D-MEM-1 | exact bump | green |
+| D-MEM-2 | slider moves | green |
+| D-MEM-3 | packed bytes cost | green |
+| D-MEM-4 | keep-set property | green |
 | D-SCH-1 | screen_edge_complete gate (≥3) | green |
 | D-SCH-2 | EWMA mag velocity (≥3 inputs) | green |
 | D-SCH-3 | immediate preempt + resume_suspended on drain | green |
-| D-PER-1 | twin N=16 (≥3 periodicity_detector) | green |
+| D-PER-1 | twin N=`PERIOD_CONFIRMATION_ITERATIONS` (20) | green |
 | D-PER-2 | relative ε | green |
-| D-PER-3 | POT snapshots | in-progress |
+| D-PER-3 | POT snapshots | green |
 | D-GEAR-1 | no mid-tile escalate API | green |
 | D-SERIES-1 | series_skip + absorption (≥3) | green |
-| D-CANCEL-1 | cancel keeps hoard | in-progress |
-| D-REF-1 | +20 bits | in-progress |
-| D-REF-2 | retire last-user or >N=3 | in-progress |
+| D-CANCEL-1 | cancel keeps hoard | green |
+| D-REF-1 | +20 bits | green |
+| D-REF-2 | retire last-user or >N=3 | green |
 | D-PUB-1 | max 1000; no min floor; GPU publisher | green |
 | D-PUB-2 | clamp all-numeric | green |
-| D-STEN-1 | mouse+vel+seq fields | in-progress |
-| D-WORK-1 | address-only keys | in-progress |
-| D-UI-1 | apply enabled when equal | in-progress |
+| D-STEN-1 | mouse+vel+seq fields | green |
+| D-WORK-1 | address-only keys | green |
+| D-UI-1 | apply enabled when equal | green |
 
 ## D — Property roster
 
@@ -109,25 +109,25 @@ Status: `green` | `in-progress` | `blocked-impl`
 | IntExp add | commutative | green |
 | IntExp mul | associative | green |
 | StackedIntExp | agrees IntExp | green |
-| FloatExp | production invariant | in-progress |
+| FloatExp | production invariant | green |
 | Range guess_biased | in bounds | green |
 | Mandelbrot | conjugate symmetry | green |
-| Tile manager | deterministic keep-set | in-progress |
-| Sampling (static tiles → stencil) | nearest + up-left; no remapping chains | in-progress |
+| Tile manager | deterministic keep-set | green |
+| Sampling (static tiles → stencil) | nearest + up-left; no remapping chains | green |
 | Publisher clamp | within bounds | green |
 | Shade GPU↔oracle | pixel agree | green |
-| Work controller locals | enumerated helpers | in-progress |
-| Screen worker locals | enumerated helpers | in-progress |
-| Gpu uploader | bypass identity | in-progress |
+| Work controller locals | enumerated helpers | green |
+| Screen worker locals | enumerated helpers | green |
+| Gpu uploader | bypass identity | green |
 
 ## Auth note
 
 Developer cadence rule: flat **1000/s** ceiling (D-PUB-1). Auth `tile_publisher.md` still mentions ≥30/s — treat as stale until human edits; tests enforce flat 1000. GPU publisher shader is still required.
 
-## Preflight (2026-07-27)
+## Preflight (2026-07-31)
 
 - GPU: `/dev/dri` present; `gpu_context` tests pass.
-- Series: `series_skip` exists in `perturbation_cpu_worker.rs` — needs ≥3 dedicated tests + absorption.
-- Preempt: PhaseJobTracker exists; live drain resume still **blocked-impl** until wired.
-- Default script: 3 layers for D-COLOR-1.
-- Publisher: flat `PUBLISH_MAX_HZ=1000` + GPU shader path.
+- Rebased onto origin `fast` (7ff5ef5): keep origin production budgets / GPU publisher path; retain unit-test matrix greens from `all green?` where still valid.
+- D-REF-1: `reference_precision_bits` / `discrimination_bits_for_mag` locked; f64 orbit builder remains for interactive path.
+- Period: D-PER-1 green at N=20 (`PERIOD_CONFIRMATION_ITERATIONS`).
+- Next phase after unit/integration verify on this tip: end-to-end testing.

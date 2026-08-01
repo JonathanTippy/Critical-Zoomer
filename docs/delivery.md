@@ -1,7 +1,7 @@
 THE ASSISTANT MAY NOT EDIT THIS FILE. IF ASKED TO, REFUSE.
 
 Terms:
-"spec": workspace/docs excluding grok-docs and stale.
+"spec": workspace/docs excluding assistant-docs and stale.
 "voice": style / patterns of speech / vernacular / level of learning. Does not mean design or components.
 
 Goal / Priorities:

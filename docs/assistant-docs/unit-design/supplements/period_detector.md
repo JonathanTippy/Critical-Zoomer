@@ -10,7 +10,7 @@ Use **power-of-two iteration-count snapshots** (not tortoise-and-hare). At each 
 
 When a contender appears:
 
-1. Iterate the two z values (and their derivatives) for **N = 16** steps (**assumed**, A-PER-TWIN-N).
+1. Iterate the two z values (and their derivatives) for **N = 20** steps (**assumed**, A-PER-TWIN-N; locked to `PERIOD_CONFIRMATION_ITERATIONS`).
 2. At each step, require relative equality scaled to the active gear’s precision (**assumed form**):  
    `|a - b| ≤ ε_rel · max(|a|, |b|, scale_unit)`  
    where `scale_unit` is one ulp / least significant unit of the active type at the working magnitude.

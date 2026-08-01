@@ -120,6 +120,51 @@ fn escape_continues_from_r2_up_to_the_bailout_radius() {
     );
 }
 
+// D-BAIL-1: bailout recolors from escape_z; membership (inside/outside) stays put.
+#[test]
+fn bailout_radius_does_not_flip_inside_membership() {
+    let mut uniforms = base_uniforms((4, 4));
+    let raw = RawAnswer::inside(3.0, 5.0, 0.01);
+    for radius in [2.0f32, 16.0, 256.0] {
+        uniforms.bailout_radius = radius;
+        let finished = bailout_escape(raw, (1, 1), &uniforms);
+        assert!(
+            finished.is_inside()
+            , "Inside must stay Inside under bailout={radius}"
+        );
+    }
+}
+
+#[test]
+fn bailout_radius_does_not_flip_outside_membership() {
+    let mut uniforms = base_uniforms((4, 4));
+    let raw = RawAnswer::outside(9.0, 2.0, 0.2, (3.0, 0.0));
+    for radius in [2.0f32, 8.0, 64.0] {
+        uniforms.bailout_radius = radius;
+        let finished = bailout_escape(raw, (2, 2), &uniforms);
+        assert!(
+            finished.is_outside()
+            , "Outside must stay Outside under bailout={radius}"
+        );
+    }
+}
+
+#[test]
+fn larger_bailout_only_extends_escape_time_not_kind() {
+    let mut uniforms = base_uniforms((8, 8));
+    uniforms.bailout_max_extra = 40;
+    uniforms.origin_re = -0.5;
+    uniforms.origin_im = 0.0;
+    uniforms.space = 0.01;
+    let raw = RawAnswer::outside(5.0, 1.0, 0.2, (2.05, 0.0));
+    uniforms.bailout_radius = 2.0;
+    let small = bailout_escape(raw, (3, 3), &uniforms);
+    uniforms.bailout_radius = 64.0;
+    let large = bailout_escape(raw, (3, 3), &uniforms);
+    assert_eq!(small.is_outside(), large.is_outside());
+    assert!(large.big_time >= small.big_time);
+}
+
 #[test]
 fn escape_never_shortens_when_the_radius_grows() {
     let mut uniforms = base_uniforms((8, 8));
@@ -295,6 +340,17 @@ fn a_lower_period_neighbor_makes_an_out_filament() {
     assert!(
         !is_out_filament(&grid, &uniforms, (4, 4))
         , "a seat surrounded by its own period is not an edge"
+    );
+}
+
+// D-SHADE-3: paint only the higher-period side of a period edge.
+#[test]
+fn lower_period_side_is_not_an_out_filament() {
+    let grid = period_step();
+    let uniforms = base_uniforms((5, 5));
+    assert!(
+        !is_out_filament(&grid, &uniforms, (2, 1))
+        , "the shorter-period neighbor must not claim the out-filament"
     );
 }
 

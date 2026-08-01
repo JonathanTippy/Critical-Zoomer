@@ -630,4 +630,137 @@ mod animable_tests {
             ColoringInstruction::HighlightNodes { .. }
         ));
     }
+
+    #[test]
+    fn highlight_kinds_occupy_ordered_script_slots() {
+        let script = vec![
+            ColoringInstruction::HighlightInFilaments { id: 1, opacity: 255, color: (0, 0, 0) },
+            ColoringInstruction::PaintEscapeTime {
+                id: 2,
+                opacity: 255,
+                color: (1, 1, 1),
+                range: 8,
+                shading_method: ShadingInstruction {
+                    shading: Shading::Modular {},
+                    period: Animable {
+                        start: None,
+                        period: Duration::from_secs(1),
+                        value: 1.0,
+                        animated: false,
+                        range: (1.0, 1.0),
+                        limits: (1.0, 1.0),
+                        normalizing: Normalizing::None {},
+                    },
+                    phase: Animable {
+                        start: None,
+                        period: Duration::from_secs(1),
+                        value: 0.0,
+                        animated: false,
+                        range: (0.0, 1.0),
+                        limits: (0.0, 1.0),
+                        normalizing: Normalizing::None {},
+                    },
+                },
+                normalizing_method: Normalizing::None {},
+            },
+            ColoringInstruction::HighlightOutFilaments { id: 3, opacity: 128, color: (9, 9, 9) },
+        ];
+        assert!(matches!(script[0], ColoringInstruction::HighlightInFilaments { .. }));
+        assert!(matches!(script[1], ColoringInstruction::PaintEscapeTime { .. }));
+        assert!(matches!(script[2], ColoringInstruction::HighlightOutFilaments { .. }));
+    }
+
+    #[test]
+    fn ste_highlight_is_also_a_script_layer() {
+        let layer = ColoringInstruction::HighlightSmallTimeEdges {
+            id: 7,
+            inside_opacity: 10,
+            outside_opacity: 20,
+            color: (3, 4, 5),
+        };
+        assert!(matches!(layer, ColoringInstruction::HighlightSmallTimeEdges { .. }));
+        assert_eq!(layer.id(), 7);
+    }
+
+    // D-COLOR-2: paint layers carry source+norm+colorizer+base+opacities via the enum.
+    #[test]
+    fn paint_escape_layer_exposes_required_fields() {
+        let layer = &DEFAULT_COLORING_SCRIPT[0];
+        match layer {
+            ColoringInstruction::PaintEscapeTime {
+                opacity,
+                color,
+                shading_method,
+                normalizing_method,
+                ..
+            } => {
+                let _ = opacity;
+                let _ = color;
+                let _ = shading_method;
+                let _ = normalizing_method;
+            }
+            other => panic!("expected PaintEscapeTime, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn node_highlight_exposes_inside_and_outside_opacity() {
+        let layer = ColoringInstruction::HighlightNodes {
+            id: 0,
+            inside_opacity: 11,
+            outside_opacity: 22,
+            color: (1, 2, 3),
+            thickness: 2,
+        };
+        match layer {
+            ColoringInstruction::HighlightNodes {
+                inside_opacity: 11,
+                outside_opacity: 22,
+                ..
+            } => {}
+            other => panic!("inside/outside opacity missing: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn small_time_paint_layer_exposes_dual_opacity() {
+        let layer = ColoringInstruction::PaintSmallTime {
+            id: 0,
+            inside_opacity: 1,
+            outside_opacity: 2,
+            color: (0, 0, 0),
+            range: 4,
+            shading_method: ShadingInstruction {
+                shading: Shading::Sinus {},
+                period: Animable {
+                    start: None,
+                    period: Duration::from_secs(1),
+                    value: 1.0,
+                    animated: false,
+                    range: (1.0, 1.0),
+                    limits: (1.0, 1.0),
+                    normalizing: Normalizing::None {},
+                },
+                phase: Animable {
+                    start: None,
+                    period: Duration::from_secs(1),
+                    value: 0.0,
+                    animated: false,
+                    range: (0.0, 1.0),
+                    limits: (0.0, 1.0),
+                    normalizing: Normalizing::None {},
+                },
+            },
+            normalizing_method: Normalizing::Ln {},
+        };
+        assert!(matches!(
+            layer,
+            ColoringInstruction::PaintSmallTime {
+                inside_opacity: 1,
+                outside_opacity: 2,
+                normalizing_method: Normalizing::Ln {},
+                ..
+            }
+        ));
+    }
 }

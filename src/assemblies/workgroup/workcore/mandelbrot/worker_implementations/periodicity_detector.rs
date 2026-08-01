@@ -129,9 +129,14 @@ fn near<T: Mandelbrotable>(a: (T, T), b: (T, T), epsilon: T) -> bool {
     component_near(a.0, b.0, epsilon) && component_near(a.1, b.1, epsilon)
 }
 
+/// D-PER-2: |a-b| ≤ ε_rel · max(|a|, |b|, scale_unit) with scale_unit = 1 in the working type.
 fn component_near<T: Mandelbrotable>(a: T, b: T, epsilon: T) -> bool {
     let d = if a > b { a - b } else { b - a };
-    d < epsilon
+    let abs_a = if a < T::ZERO { T::ZERO - a } else { a };
+    let abs_b = if b < T::ZERO { T::ZERO - b } else { b };
+    let scale = if abs_a > abs_b { abs_a } else { abs_b };
+    let scale = if scale > T::ONE { scale } else { T::ONE };
+    d < epsilon * scale
 }
 
 pub(crate) fn advance_orbit_step<T: Mandelbrotable>(
@@ -572,5 +577,55 @@ mod twin_tests {
     #[test]
     fn twin_confirmation_uses_named_iteration_count() {
         assert_eq!(PERIOD_CONFIRMATION_ITERATIONS, 20);
+    }
+}
+
+#[cfg(test)]
+mod d_per_tests {
+    use super::*;
+
+    // D-PER-3: checkpoints advance on power-of-two iteration counts.
+    #[test]
+    fn pot_checkpoints_double_each_time() {
+        let mut det = StandardPeriodicityDetector::<f64>::init(0, (0.1, 0.0), (1.0, 0.0));
+        let c = (0.25, 0.0);
+        let eps = 1e-12;
+        // Drive to iteration 1 → first checkpoint taken, next at 2.
+        assert!(det.check_periodicity(c, (0.2, 0.0), (1.0, 0.0), 1, eps).is_none());
+        assert_eq!(det.next_checkpoint_iteration, 2);
+        assert!(det.check_periodicity(c, (0.3, 0.0), (1.0, 0.0), 2, eps).is_none());
+        assert_eq!(det.next_checkpoint_iteration, 4);
+        assert!(det.check_periodicity(c, (0.4, 0.0), (1.0, 0.0), 4, eps).is_none());
+        assert_eq!(det.next_checkpoint_iteration, 8);
+    }
+
+    #[test]
+    fn pot_does_not_checkpoint_on_non_power_iterations() {
+        let mut det = StandardPeriodicityDetector::<f64>::init(0, (0.0, 0.0), (1.0, 0.0));
+        let before = det.checkpoint_z;
+        let _ = det.check_periodicity((0.1, 0.0), (0.5, 0.0), (1.0, 0.0), 3, 1e-12);
+        assert_eq!(det.checkpoint_z, before);
+        assert_eq!(det.next_checkpoint_iteration, 1);
+    }
+
+    #[test]
+    fn pot_sequence_starts_at_one() {
+        let det = StandardPeriodicityDetector::<f64>::init(0, (0.0, 0.0), (1.0, 0.0));
+        assert_eq!(det.next_checkpoint_iteration, 1);
+    }
+
+    // D-PER-2: relative ε scales with magnitude.
+    #[test]
+    fn relative_near_accepts_scaled_difference() {
+        // |a-b|=0.05, scale=max(10,10.05,1)=10.05 → need ε > 0.05/10.05 ≈ 0.005
+        assert!(component_near(10.0f64, 10.05, 0.01));
+        assert!(!component_near(10.0f64, 10.05, 0.001));
+    }
+
+    #[test]
+    fn relative_near_uses_unit_floor_at_origin() {
+        // scale_unit floor = 1 → absolute-like near zero.
+        assert!(component_near(0.0f64, 0.5, 0.6));
+        assert!(!component_near(0.0f64, 0.5, 0.4));
     }
 }

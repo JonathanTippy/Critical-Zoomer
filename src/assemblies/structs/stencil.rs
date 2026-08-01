@@ -216,4 +216,49 @@ mod c_generator_tests {
         // when GPU gears are filtered. Absolute ladder: first fit is f32.
         assert_eq!(s.select_gear(None, false), crate::gear::Gear::F32);
     }
+
+    // D-STEN-1: mouse (hover) + mag_velocity + sequence on stencil.
+    #[test]
+    fn stencil_carries_hover_mag_velocity_and_serial() {
+        let mut s = stencil(0, 32, 32);
+        assert_eq!(s.serial_number, 0);
+        assert!(s.hover.is_none());
+        assert_eq!(s.mag_velocity, 0.0);
+        s.hover = Some((3, 4));
+        s.mag_velocity = 1.5;
+        s.serial_number = 9;
+        assert_eq!(s.hover, Some((3, 4)));
+        assert_eq!(s.mag_velocity, 1.5);
+        assert_eq!(s.serial_number, 9);
+    }
+
+    #[test]
+    fn retarget_bumps_serial_when_mouse_or_velocity_changes() {
+        let mut s = stencil(0, 32, 32);
+        let h = s.homothety.clone();
+        let r = s.resolution;
+        s.retarget_with_seq(h.clone(), r, Some((1, 1)), 0.0);
+        assert_eq!(s.serial_number, 1);
+        assert_eq!(s.hover, Some((1, 1)));
+        s.retarget_with_seq(h.clone(), r, Some((1, 1)), 2.0);
+        assert_eq!(s.serial_number, 2);
+        assert_eq!(s.mag_velocity, 2.0);
+        s.retarget_with_seq(h, r, Some((1, 1)), 2.0);
+        assert_eq!(s.serial_number, 2, "identical retarget must not bump seq");
+    }
+
+    #[test]
+    fn retarget_bumps_serial_on_homothety_change_even_if_vel_same() {
+        let mut s = stencil(0, 32, 32);
+        s.mag_velocity = 0.25;
+        let r = s.resolution;
+        s.retarget_with_seq(
+            (IntExp::from(-1), IntExp::from(1), 1),
+            r,
+            None,
+            0.25,
+        );
+        assert_eq!(s.serial_number, 1);
+        assert_eq!(s.homothety.2, 1);
+    }
 }

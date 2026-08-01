@@ -143,4 +143,35 @@ mod tests {
         let after = production.lock().unwrap().slots_in_use();
         assert_eq!(after, before + 1);
     }
+
+    #[test]
+    fn uploader_cpu_fallback_when_no_atlas() {
+        let tile = GPUTile::from_answer_tile(
+            &Tile::new((0, 0), 0)
+            , (64, 64)
+            , ObjectivePosAndZoom {
+                pos: (IntExp::ZERO, IntExp::ZERO)
+                , zoom_pot: 0
+            }
+        );
+        let handle = place_on_production_atlas(&None, tile);
+        assert!(handle.production_slot.is_none());
+        assert!(handle.cpu_fallback.is_some(), "no atlas ⇒ CPU identity fallback");
+    }
+
+    #[test]
+    fn cpu_fallback_preserves_tile_identity() {
+        let mut answers = Tile::new((3, 4), 2);
+        answers.set((0, 0), crate::constants::NORES_ANSWER);
+        let loc = ObjectivePosAndZoom {
+            pos: (IntExp::from(3 * 64), IntExp::from(4 * 64))
+            , zoom_pot: 2
+        };
+        let tile = GPUTile::from_answer_tile(&answers, (64, 64), loc);
+        let handle = place_on_production_atlas(&None, tile);
+        let fb = handle.cpu_fallback.expect("fallback");
+        assert_eq!(fb.location.zoom_pot, 2);
+        assert_eq!(fb.origin_seat, (3, 4));
+        assert_eq!(fb.magnification_pot, 2);
+    }
 }
