@@ -634,10 +634,16 @@ mod animable_tests {
     #[test]
     fn highlight_kinds_occupy_ordered_script_slots() {
         let script = vec![
-            ColoringInstruction::HighlightInFilaments { id: 1, opacity: 255, color: (0, 0, 0) },
+            ColoringInstruction::HighlightInFilaments {
+                id: 1,
+                inside_opacity: 255,
+                outside_opacity: 255,
+                color: (0, 0, 0),
+            },
             ColoringInstruction::PaintEscapeTime {
                 id: 2,
-                opacity: 255,
+                inside_opacity: 255,
+                outside_opacity: 255,
                 color: (1, 1, 1),
                 range: 8,
                 shading_method: ShadingInstruction {
@@ -663,7 +669,12 @@ mod animable_tests {
                 },
                 normalizing_method: Normalizing::None {},
             },
-            ColoringInstruction::HighlightOutFilaments { id: 3, opacity: 128, color: (9, 9, 9) },
+            ColoringInstruction::HighlightOutFilaments {
+                id: 3,
+                inside_opacity: 128,
+                outside_opacity: 128,
+                color: (9, 9, 9),
+            },
         ];
         assert!(matches!(script[0], ColoringInstruction::HighlightInFilaments { .. }));
         assert!(matches!(script[1], ColoringInstruction::PaintEscapeTime { .. }));
@@ -688,13 +699,15 @@ mod animable_tests {
         let layer = &DEFAULT_COLORING_SCRIPT[0];
         match layer {
             ColoringInstruction::PaintEscapeTime {
-                opacity,
+                inside_opacity,
+                outside_opacity,
                 color,
                 shading_method,
                 normalizing_method,
                 ..
             } => {
-                let _ = opacity;
+                let _ = inside_opacity;
+                let _ = outside_opacity;
                 let _ = color;
                 let _ = shading_method;
                 let _ = normalizing_method;

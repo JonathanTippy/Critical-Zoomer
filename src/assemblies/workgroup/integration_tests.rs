@@ -308,12 +308,15 @@ mod assembly_tests {
     #[test]
     fn assembly_publish_ingest_keeps_in_bounds_bias() {
         let bias = Answer {
+
             result: MandelbrotResult::Outside {
                 escape_time_r2: 50,
                 escape_z: (1.0, 0.0),
             },
             min_magnitude_time: 10,
             min_magnitude: 1.0,
+            escape_time_angle: 0,
+            min_magnitude_angle: 0,
         };
         let published = publish_seat(agnostic_wide(), Some(bias));
         let mut tile = Tile::new((0, 0), 0);
@@ -337,6 +340,7 @@ mod assembly_tests {
     #[test]
     fn assembly_publish_ingest_clamps_disproven_proximate() {
         let cal = CalibratedAnswer {
+
             result: CalibratedMandelbrotResult::Outside {
                 escape_time_r2: Range {
                     lower_bound: 10,
@@ -362,14 +366,19 @@ mod assembly_tests {
                 upper_bound: 4.0,
             },
             highlights: exact_outside(1).highlights,
+            escape_time_angle: 0,
+            min_magnitude_angle: 0,
         };
         let bias = Answer {
+
             result: MandelbrotResult::Outside {
                 escape_time_r2: 100,
                 escape_z: (2.0, 0.0),
             },
             min_magnitude_time: 0,
             min_magnitude: 4.0,
+            escape_time_angle: 0,
+            min_magnitude_angle: 0,
         };
         let published = publish_seat(cal, Some(bias));
         let mut tile = Tile::new((0, 0), 0);
