@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! Headless rig which runs the real sampling + shading wgsl and hands back the pixels.
 //!
 //! Tests build a small patch of raw answers, wrap it in a single tile, render it offscreen

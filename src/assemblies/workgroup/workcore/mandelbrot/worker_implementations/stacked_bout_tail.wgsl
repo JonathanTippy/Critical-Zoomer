@@ -11,8 +11,19 @@ struct Uniforms {
     point_count: u32,
     glitch_threshold: f32,
     confirm_iterations: u32,
-    _pad0: f32,
-    _pad1: f32,
+    tile_origin_x: u32,
+    tile_origin_y: u32,
+    tile_edge: u32,
+    use_c_generator: u32,
+    _pad0: u32,
+    _pad1: u32,
+}
+
+struct CGenerator {
+    origin_re: f32,
+    origin_im: f32,
+    space: f32,
+    half: f32,
 }
 
 struct GpuPertPoint {
@@ -37,6 +48,7 @@ struct GpuPertPoint {
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var<storage, read_write> points: array<GpuPertPoint>;
 @group(0) @binding(2) var<storage, read> orbit: array<vec2<f32>>;
+@group(0) @binding(3) var<uniform> cgen: CGenerator;
 
 const FLAG_ACTIVE: u32 = 1u;
 const FLAG_ESCAPED: u32 = 2u;

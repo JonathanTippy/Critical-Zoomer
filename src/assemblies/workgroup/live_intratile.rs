@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! Live-path bridge: mutating outfill ops run on the intratile actor thread via
 //! sync RPC when the tile-worker SoloAct has installed a client. Immutable
 //! queries stay local (state still lives in TileSession between RPCs).

@@ -1,3 +1,4 @@
+// read delivery.md for project context
 use crate::assemblies::structs::*;
 use crate::assemblies::workgroup::structs::*;
 use crate::assemblies::workgroup::structs::mandelbrotable::*;
@@ -1295,6 +1296,25 @@ mod gear_dispatch_tests {
         state.stencil = Some(stencil);
         state.refresh_gear(true);
         assert_eq!(state.gear, Gear::F32);
+    }
+
+    #[test]
+    fn refresh_gear_mag_twenty_selects_stacked_on_gpu() {
+        let mut state = PerturbationCpuWorkerState::default();
+        let stencil = PointStencil {
+            homothety: (IntExp::from(-1), IntExp::ZERO, 20),
+            resolution: (64, 64),
+            serial_number: 0,
+            focus: None,
+            hover: None,
+            mag_velocity: 0.0,
+        }
+        .correct_precision();
+        state.stencil = Some(stencil);
+        state.refresh_gear(true);
+        assert_eq!(state.gear, Gear::StackedI32 { limbs: 1 });
+        state.refresh_gear(false);
+        assert_eq!(state.gear, Gear::F64);
     }
 
     #[test]

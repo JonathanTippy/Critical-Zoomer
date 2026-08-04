@@ -13,11 +13,12 @@ r[cz.perf.foveation-half-time+1]
 
 r[cz.perf.home-100tps+1]
 
-**Normative summary.** Home view averages ~100 TPS (~5s to complete at default 800×480).
+**Normative summary.** Home view at default resolution on CPU must average
+TPS ≥ 150 (`docs/standards.md` TPS addendum).
 
 **Acceptance criteria.**
 - [x] Release hard-assert: ≥95% home fill within 5s
-- [x] Reported tile completion rate supports ~100 TPS class
+- [x] Reported tile completion rate supports ≥150 TPS class
 - [x] Cross-linked with `cz.e2e.perf-home-fill+1`
 
 r[cz.perf.min-300m-ips-cpu+2]
@@ -136,10 +137,10 @@ neither dropping tiles nor getting behind are acceptable.
 r[cz.perf.home-10000tps-gpu+1]
 
 **Normative summary.** Home view at default resolution on GPU must average
-TPS ≥ 10000.
+TPS ≥ 3000 (`docs/standards.md` TPS addendum; rule id retains historical name).
 
 **Acceptance criteria.**
-- [ ] Release hard-assert GPU home TPS ≥10000 (≥3)
+- [ ] Release hard-assert GPU home TPS ≥3000 (≥3)
 - [ ] No adapter ⇒ fail (same class as other GPU hard bars)
 - [ ] Cross-linked with `cz.perf.home-100tps+1` (CPU class)
 

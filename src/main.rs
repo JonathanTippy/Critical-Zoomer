@@ -1,3 +1,4 @@
+// read delivery.md for project context
 #![allow(warnings)]
 
 use steady_state::*;

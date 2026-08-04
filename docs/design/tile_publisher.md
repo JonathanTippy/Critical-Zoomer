@@ -15,3 +15,4 @@ Definition of nores: nores is not a special case. it is literally just what resu
 r[cz.int.publish-cadence+1]
 
 The publisher publishes at [20, 100000] Hz.
+Note that the rate of publish is not necessarily equal to TPS. TPS is new complete tiles per second. If TPS is less than 20, the publisher will publish what is available minimally at 20Hz. Publisher flow rate is not the same as TPS.

@@ -15,11 +15,12 @@ references; zoom rebuilds mag-sensitive state; attention and mag_velocity propag
 
 r[cz.int.publish-cadence+1]
 
-**Normative summary.** Incomplete work publishes tiles under a flat **1000/s** ceiling
-(D-PUB-1; no minimum floor); when the stencil is complete, publish cadence goes idle (0).
+**Normative summary.** Incomplete work publishes tiles in **[20, 100000] Hz**
+(D-PUB-1; 20 Hz refresh floor, max 100k; aligns with architecture + `tile_publisher.md`);
+when the stencil is complete, publish cadence goes idle (0).
 
 **Acceptance criteria.**
-- [ ] While incomplete, publishes are allowed under the max-Hz cap when work is ready; after complete, cadence idles
+- [ ] While incomplete, publishes stay within [20, 100000] Hz when work is ready; after complete, cadence idles
   (`tile_publisher::PublishCadence` + GPU publisher path + session assembly verifies).
 
 r[cz.int.publisher-nores-bias+1]

@@ -39,3 +39,16 @@ Spiral in from outer edge unless intratile scheduler supplies queues. Derivative
 ## CalibratedAnswer fields (UD-TW-7) — inferred from auth list
 
 As auth: escape time & z; period; in/out; small time; smallness; escape-time slope angle; smallness slope angle. Encoding: `new/tile_and_answer.md`.
+
+## GPU-native completion (UD-TW-8) — D-GPU-1…6
+
+Host scheduling may still prefer tenacious focus on a tile. On the GPU-native path, **multiple tiles may be in flight in parallel** (D-GPU-6) as long as the interface stays the same:
+
+1. **Complete** = every seat has **escaped or repeated** (D-GPU-1). Identical criterion to CPU.
+2. Final Answers stay in the GPU tile/atlas. **No full Answer/point-buffer readback** (D-GPU-2).
+3. Observe completion via an **on-device per-tile counter** bumped in the same finish path that commits the terminal **calibrated** seat (escaped/repeated) (D-GPU-3, D-GPU-4). Host may map/poll only that tiny counter for TPS / “tile done.”
+4. Host done-bitmaps are for **arming/scheduling only**, not for declaring completion (D-GPU-5).
+5. **Publisher** still receives the worker’s **calibrated tile** (GPU-resident on bypass) and biases with proximate — same as CPU (D-PUB-4). Publisher does **not** own completion (D-PUB-3); worker on-device counter does (D-GPU-*).
+6. **Multi-tile concurrency** uses separate atlas slots + per-tile counters; do not invent a screen-wide completion protocol (D-GPU-6).
+
+Edge tiles: counter target = valid seat count. Cancel because left screen: drop counter + production slot; do not count TPS (D-CANCEL-1 + D-GPU-4).

@@ -1,3 +1,4 @@
+// read delivery.md for project context
 pub mod mandelbrotable;
 
 use std::cmp::Ordering;

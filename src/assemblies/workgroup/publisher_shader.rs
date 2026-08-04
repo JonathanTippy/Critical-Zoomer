@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! GPU publisher compute: bounds disproof, biased-nearest clamp, NORES.
 //! docs/design/tile_publisher.md
 // r[impl cz.int.publisher-nores-bias+1]

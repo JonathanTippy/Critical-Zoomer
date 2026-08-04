@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! SteadyState + sync-RPC payloads for the authoritative workgroup actor graph.
 
 use crate::assemblies::workgroup::structs::CalibratedAnswer;

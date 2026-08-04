@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! How much GPU time a compute submission may take before it starts costing frames.
 //!
 //! One shared device means one queue, so compute dispatches and the window's

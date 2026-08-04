@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! Intratile scheduler SteadyState actor (auth workgroup sub-actor).
 //! Owns outfill/infill phase machines; talks to the tile worker via SS channels
 //! (graph) and a sync RPC inbox (hot path from TileSession on the worker thread).

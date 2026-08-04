@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! Shared tile collection manager (function, not actor).
 //! Design: docs/design/tile_manager.md / docs/architecture.md Tile Manager.
 // r[impl cz.system.tile-manager-protect-current-lookahead+1]

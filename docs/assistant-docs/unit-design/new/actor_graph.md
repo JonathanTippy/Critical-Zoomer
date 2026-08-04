@@ -20,14 +20,14 @@ Legacy `work controller` / `screen worker` hosts removed. TileSession remains th
 | Tile scheduler → tile worker | Retarget / SetAttention | coalesced |
 | Reference worker → tile worker | ReferenceDelivery (UL-corner orbit; mag-change only) | on mag |
 | Tile worker ⇄ intratile scheduler | IntratileRequest / Reply (SS + sync RPC) | workshift |
-| Tile worker → GPU uploader | AnswerTilePublish | 0–1000/s |
-| GPU uploader → Tile publisher | GPU tile | 0–1000/s |
-| Tile publisher → Headgroup | GPUTile answers | ≤1000/s flat (D-PUB-1) |
+| Tile worker → GPU uploader | AnswerTilePublish | 0–100000/s |
+| GPU uploader → Tile publisher | GPU tile | 0–100000/s |
+| Tile publisher → Headgroup | GPUTile answers | [20, 100000]/s incomplete; 0 complete (D-PUB-1) |
 | Tile worker → publisher → Headgroup | Memory bump | rare |
 
 Glitch path (tile worker only): fallback to const zero orbit — no reference rebase. Zero orbit has Z=0 every iteration so the glitch test cannot fire.
 
-Bypass: GPU-native worker output still hits publisher after uploader placement.
+Bypass (D-PUB-4): worker → **GPU-resident calibrated tile** → publisher (skip uploader copy). Publisher still biases with proximate hoard → Answer (same as CPU idea; continuity only, D-PUB-3). Tile completion / TPS from worker on-device counter (D-GPU-3), not from publish. GPU may keep **multiple tiles in flight** (D-GPU-6) via separate atlas slots; interface unchanged.
 
 ## Capacities (UD-ACT-3) — live starting sizes
 
@@ -43,8 +43,8 @@ Tighten toward assumed Steady State sizes once headed profiling is green.
 ## Wake rates (UD-ACT-4) — inferred
 
 - Headgroup: frame-driven ≤60Hz.
-- Publisher: event + pace to respect 1000/s ceiling (no min floor).
-- Uploader: event or minimum wake to drain.
+- Publisher: event + pace within [20, 100000] Hz while incomplete; idle when complete.
+- Uploader: event or minimum wake to drain ([0, 100000]; 0 when bypassed).
 - Reference: event on stencil mag change.
 - Schedulers/worker: steady-state workshift cadence; pause off-screen WIP.
 

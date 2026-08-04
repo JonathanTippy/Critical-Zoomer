@@ -1,3 +1,4 @@
+// read delivery.md for project context
 use rug::Integer;
 use crate::assemblies::headgroup::window::sampling::{SamplingContext, ZoomerCommand};
 use crate::constants::PIXELS_PER_UNIT_POT;

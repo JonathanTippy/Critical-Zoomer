@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! Parity between the shading shader and its cpu oracle.
 //!
 //! Every test builds a small patch of raw answers, renders it with the real wgsl, and holds
@@ -242,6 +243,56 @@ fn escape_phase_matches_the_shader() {
         , &grid
         , uniforms
         , vec![shaded(OP_ESCAPE_TIME, NORM_NONE, SHADE_MODULAR, 16.0, 0.0, 0.0)]
+        , 0
+    );
+}
+
+// r[verify cz.shade.escape-continues-to-bailout+1]
+// r[verify cz.cosmetic.bailout-range-2-255+1]
+#[test]
+fn configurable_bailout_radius_extends_escape_on_gpu_path() {
+    let mut grid = RawGrid::new((8, 8));
+    let raw = RawAnswer::outside(7.0, 2.0, 0.3, (2.1, 0.1));
+    for y in 0..8 {
+        for x in 0..8 {
+            grid.set((x, y), raw);
+        }
+    }
+    let instructions = vec![shaded(OP_ESCAPE_TIME, NORM_NONE, SHADE_MODULAR, 64.0, 0.0, 255.0)];
+    let mut small_uniforms = base_uniforms((8, 8));
+    small_uniforms.bailout_radius = 2.0;
+    small_uniforms.bailout_max_extra = 20;
+    small_uniforms.origin_re = -0.5;
+    small_uniforms.origin_im = 0.5;
+    small_uniforms.space = 0.01;
+
+    let large_uniforms = ShadeUniforms {
+        bailout_radius: 64.0
+        , ..small_uniforms
+    };
+
+    let seat = (3, 4);
+    let small_finished = finished_at(&grid, &small_uniforms, seat);
+    let large_finished = finished_at(&grid, &large_uniforms, seat);
+    assert!(
+        large_finished.big_time > small_finished.big_time
+        , "bailout radius must extend escape from hoarded z: {} vs {}"
+        , small_finished.big_time
+        , large_finished.big_time
+    );
+
+    assert_parity(
+        "configurable_bailout_small_radius"
+        , &grid
+        , small_uniforms
+        , instructions.clone()
+        , 0
+    );
+    assert_parity(
+        "configurable_bailout_large_radius"
+        , &grid
+        , large_uniforms
+        , instructions
         , 0
     );
 }
@@ -699,6 +750,63 @@ fn normalizers_stay_finite_at_the_edge_of_their_domain() {
                 n.is_finite()
                 , "normalizer {method} turned {input} into {n}"
             );
+        }
+    }
+}
+
+#[test]
+fn recip_ln_normalizer_is_log_of_reciprocal_not_reciprocal_of_log() {
+    let at_one = normalize_value(1.0, NORM_RECIP_LN);
+    assert!(
+        at_one.abs() < 1e-5
+        , "ln(1/1) must be zero on the gpu path, got {at_one}"
+    );
+    let at_ten = normalize_value(10.0, NORM_RECIP_LN);
+    let expected = (0.1f32).ln();
+    assert!(
+        (at_ten - expected).abs() < 1e-5
+        , "ln(1/10) mismatch: got {at_ten}, want {expected}"
+    );
+}
+
+#[test]
+fn animated_period_recip_ln_shades_without_nan_on_gpu() {
+    let grid = flat_outside_grid();
+    assert_parity(
+        "animated_period_recip_ln_shades_without_nan_on_gpu"
+        , &grid
+        , base_uniforms((4, 4))
+        , vec![shaded(OP_ESCAPE_TIME, NORM_RECIP_LN, SHADE_SINUS, 7.0, 0.0, 255.0)]
+        , 1
+    );
+}
+
+#[test]
+fn period_animation_normalizers_paint_finite_pixels_on_gpu() {
+    let mut grid = RawGrid::new((4, 4));
+    grid.fill(escaped_at(12.0));
+    for normalizing in [NORM_LN, NORM_LNLN, NORM_RECIP, NORM_RECIP_LN] {
+        let frame = frame_from_grid(
+            &grid
+            , base_uniforms((4, 4))
+            , vec![shaded(OP_ESCAPE_TIME, normalizing, SHADE_SINUS, 5.0, 0.25, 200.0)]
+        );
+        let expected = shade_frame(&frame.uniforms, &frame.instructions, &grid);
+        assert!(
+            !expected.is_empty()
+            , "oracle produced no pixels for normalizer {normalizing}"
+        );
+        let Some(gpu) = gpu_or_skip("period_animation_normalizers_paint_finite_pixels_on_gpu") else {
+            return;
+        };
+        let actual = gpu.render(&frame);
+        for (got, want) in actual.iter().zip(expected.iter()) {
+            for channel in 0..3 {
+                assert!(
+                    got[channel].abs_diff(want[channel]) <= 1
+                    , "normalizer {normalizing} channel {channel}: gpu {got:?} oracle {want:?}"
+                );
+            }
         }
     }
 }

@@ -43,7 +43,7 @@ Workgroup performance requirements;
 r[cz.perf.min-300m-ips-cpu+2]
 
 r[cz.perf.min-30b-ips-gpu+1]
-- Always, must hit minimally 300M IPS (single core CPU) and 30B IPS (GPU) even when using perturbation (a few extra features is NO excuse for 10X slower. See first performance north star.)
+- Always, must hit minimally 300M IPS (single core CPU) and 6B IPS (GPU) even when using perturbation (a few extra features is NO excuse for 10X slower. See first performance north star.)
   obviously the 11th gear (largest non-stack) might be a bit slower, but not 10X slower. See first performance north star.
 
 r[cz.perf.optimal-ipp+1]
@@ -94,7 +94,7 @@ r[cz.play.latest-wins+1]
 r[cz.perf.home-100tps+1]
 
 r[cz.perf.home-10000tps-gpu+1]
-For the home view at default res, Even when on CPU, tps must >= 100. When on GPU, tps must >= 10000.
+For the home view at default res, Even when on CPU, average tps must >= 150. When on GPU, tps must >= 3000.
 
 # Oracle addendum
 
@@ -112,6 +112,12 @@ Note that the entire answer is compared. not merely the result.
 # Boundary tracing/Infill addendum
 
 To check infill / boundary tracing speed and period detection in a hard case, zoom into the neck at -0.75 + 0i.
+
+# TPS addendum
+
+TPS for view is measured as the average TPS when filling the whole view.
+GPU TPS is required to follow FLOPS performace, eg 20X a single CPU core. On a different machine, this may differ.
+
 # Headgroup
 
 Perforamnce north star:

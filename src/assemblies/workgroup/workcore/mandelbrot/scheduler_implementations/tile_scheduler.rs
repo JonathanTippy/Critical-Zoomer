@@ -1,3 +1,4 @@
+// read delivery.md for project context
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::assemblies::structs::*;
@@ -240,6 +241,19 @@ impl TileScheduler {
             return TileSchedulerNext::Scredge(seat);
         }
         TileSchedulerNext::Idle
+    }
+
+    /// Take an unbegun tile without consuming scredge/lookahead (D-GPU-6 multi-tile).
+    pub fn try_take_unbegun_tile(state: &mut TileSchedulerState) -> Option<usize> {
+        if let Some(tile) = Self::take_unbegun_nearest(state, true) {
+            state.tiles[tile].begun = true;
+            return Some(tile);
+        }
+        if let Some(tile) = Self::take_unbegun_nearest(state, false) {
+            state.tiles[tile].begun = true;
+            return Some(tile);
+        }
+        None
     }
 
     /// Designed multi-mag lookahead column: depth-first bumps below `base_mag`.

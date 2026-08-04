@@ -1,3 +1,4 @@
+// read delivery.md for project context
 use crate::assemblies::workgroup::structs::mandelbrotable::*;
 use crate::assemblies::workgroup::workcore::mandelbrot::*;
 use crate::constants::PERIOD_CONFIRMATION_ITERATIONS;

@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! Stacked i32 significand with a shared exponent (docs/design/tile_worker.md).
 //!
 //! Limbs are native `i32` (not i64), and multiply is schoolbook — no rug in the

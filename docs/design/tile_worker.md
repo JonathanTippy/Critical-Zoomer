@@ -56,5 +56,7 @@ always use standard perturbation math. include derivative (for angle determinati
 Detect glitches using the standard test, that is, when |Z + z| << |Z|:
 fall back to a const 'big z = 0' orbit (correct 0 case). This should naturally result in the c generator yielding more precision requirements on little z, changing the gear to result in more precision being used for little z. glitch handling is done exclusively by the tile worker and it does not notify the reference worker.
 
-
 If the current tile has completely left the screen, it can be cancelled.
+
+To avoid the feeling of hanging, no single point may ever take longer than 50ms on the first pass. aka 1 workshift.
+Ensure the hoarded work can be interrogated for alignment to find out what points can be recontinued, and all incomplete hoarded work contains the latest z for recontinuation.

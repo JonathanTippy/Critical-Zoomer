@@ -103,6 +103,8 @@ The app must highlight features such as in filaments, out filaments, and minibro
 
 r[cz.cosmetic.bailout-range-2-255+1]
 The app must allow customizing the bailout radius to at least any value in: [2, 255].
+Bailout radius must be animable at full vsync rate via continuation from stored escape z with a limited iteration count.
+In almost all cases, even 50 iterations is plenty because values escape extremely quickly.
 
 All these cosmetic features must run quickly because they start from hoarded work.
 

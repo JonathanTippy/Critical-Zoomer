@@ -7,18 +7,19 @@ PO quotes: `he-said/`. This file tracks status, loci, and follow-through.
 ## DAT failures (2026-08-01)
 
 Developer acceptance test failed. Items below are verbatim from DAT.
+Landing notes (assistant): NORES fallthrough + WIP proximate gate + location mag readout + publish cadence [20,100k]; lookahead progressive WIP + mag-retarget flush (unit tests green; headed confirm still needed).
 
-- worker panics and never recovers
-- sampling bug (?), some tiles are the NORES values for no reason
-- thin towers of one tile going up / down (lookahead / hoard) are missing, resulting in extreme overuse of the nores value
-- when zooming, new work takes a good 1-2s to start (play, regression)
-- even though TPS is better than before, it is not near the target.
+- worker panics and never recovers — *partial: SessionRestore + GPU map demote; SteadyState already restarts; headed recheck*
+- sampling bug (?), some tiles are the NORES values for no reason — *partial: sampling skips NORES for lesser fallthrough; headed recheck*
+- thin towers of one tile going up / down (lookahead / hoard) are missing, resulting in extreme overuse of the nores value — *partial: progressive lookahead enqueue + retarget flush; headed recheck*
+- when zooming, new work takes a good 1-2s to start (play, regression) — *partial: 8ms post-retarget burst + play-need ignores stale lookahead; headed recheck*
+- even though TPS is better than before, it is not near the target. — *design closed (D-GPU-1…6, D-PUB-3/4). Fuse encode + GPU CGenerator + view-lifetime cgen buffer landed. Micro-batch parallelization landed: write-all-then-encode (distinct ring slots per tile, one CB per 8 tiles), deep ring (128) for screen-wide submit storm, Poll/Wait confirm drain without fail-poisoning seat_done. Probe fill ≥95%; whole-TPS noisy ~65–270 (often ~180–230) — still ~10–45× under 3000. Remaining wall: completion readback / Wait amortization and bout depth for interior tiles; headed NORES-grey (B-DISP) note-only. No homescreen cheat.*
 - intexp values are not displayed properly
-- animated bailout is not running & configuable bailout not working
-- regression: coloring options from v0.0.9 are almost all removed
-- regression: normalization breaks period animation with NAN (see v0.0.9 for golden. Use it as an oracle, but shader must be on GPU.)
+- animated bailout is not running & configuable bailout not working — *partial: bailout_max_extra wired; Animable determine + [2,255] default; headed recheck*
+- regression: coloring options from v0.0.9 are almost all removed — *open: defaults/subtle layers vs v0.0.9; layer model types present*
+- regression: normalization breaks period animation with NAN (see v0.0.9 for golden. Use it as an oracle, but shader must be on GPU.) — *fixed: RecipLn = ln(1/x); GPU shade tests green*
 - previous work is not re-emitted in WIP tiles; incomplete parts of new tiles are the NORES value.
-- precision wall at mag 20 (depth requirement fail)
+- precision wall at mag 20 (depth requirement fail) — *partial: gear floor on discrimination_bits; pot20 session completes in unit; rug ref beyond ~25 still open; headed recheck*
 - magnificiation missing from current location display
 
 ## True bugs (open)
@@ -26,7 +27,7 @@ Developer acceptance test failed. Items below are verbatim from DAT.
 ### B-DISP-1 — Phase 2 cutover display regressions (grey / ~15fps / no GPU escape)
 - **Symptom:** Immediate display grey; ~15fps; no escaper on GPU; settings open greys window; location UI misplaced / no input box.
 - **Mechanism (PO):** Headgroup must own a GPU tile collection and run sampler → escape → edge → shade shaders.
-- **Status:** landing — shared-device grey fixed; shade/oracle parity; vsync Fifo; CPU Color32 view path removed (GPU sample→shade only). **Still open:** headed fps re-measure; full coloring_script edge cases.
+- **Status:** landing — shared-device grey fixed; shade/oracle parity; vsync Fifo; CPU Color32 view path removed (GPU sample→shade only). **Still open:** headed fps re-measure; full coloring_script edge cases. **Also open (GPU-resident fill):** probe can show ≥95% fill while the window stays NORES-grey — session completes into HeadgroupTpsSink only; missing bridge to publisher bypass / `pixels_in` / `sampling_context.ingest_gpu_handle` (D-PUB-4 / D-GPU-5). Tracked under speed work as note-only until TPS gate closes.
 - **Locus:** `headgroup/window/{mod,sampling,gpu_display}.rs`.
 
 ### B-PER-2 — Period bands in deeper minibrots (regression / thought-fixed)
@@ -63,8 +64,8 @@ Developer acceptance test failed. Items below are verbatim from DAT.
 - **Locus:** `docs/design/tile_worker.md`; `src/gear.rs`
 
 ### D-PUB-GPU — GPU publisher required; CPU publish_seat is interim only
-- **Need:** GPU shader that combines hoarded tiles with new calibrated work (NORES / proximate bias). Cadence flat **1000/s** ceiling while incomplete (D-PUB-1).
-- **Status:** landing — fake 30 Hz publish floor removed; LivePublisher flat 1000 owned by tile publisher actor; settings (memory) wired to publisher. GPU `publisher_shader` preferred; host bridge until atlas bind is complete.
+- **Need:** GPU shader that combines hoarded tiles with new calibrated work (NORES / proximate bias). Cadence **[20, 100000] Hz** while incomplete; idle when complete (D-PUB-1; auth).
+- **Status:** landing — LivePublisher path owned by tile publisher actor; settings (memory) wired to publisher. GPU `publisher_shader` preferred; host bridge until atlas bind is complete. Cadence constants aligned to auth [20, 100000]; headed GPU home TPS bar ≥3000 still open.
 - **Locus:** `workgroup/tile_publisher.rs`, `workgroup/publisher_shader.rs`, `publisher.wgsl`.
 
 ### D-ACT-1 — Workgroup SteadyState actor layout vs auth

@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! Instantiates gears.wgsl for each stacked-i32 limb count.
 // r[impl cz.seamless.gpu-preferred+1]
 

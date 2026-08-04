@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! Tile worker SteadyState actor (auth workgroup sub-actor).
 //! Hosts TileSession workshifts; emits answer tiles to the GPU uploader.
 
@@ -58,6 +59,24 @@ pub fn coalesce_scheduler_commands(
 // r[impl cz.play.actor-poll+1]
 pub const PLAY_INPUT_POLL_MS: u64 = 1;
 
+/// Workshift budget for one tile-worker loop iteration (auth play-minimize).
+/// After retarget or while zooming with zero screen seats, burst long enough to
+/// finish first seats — 1ms×1-step quanta left headed GPU paths ~1–2s idle.
+pub fn workshift_budget_ms_for_session(
+    had_retarget: bool,
+    mag_velocity: i32,
+    seats_done: usize,
+) -> u128 {
+    let play_burst = had_retarget || (mag_velocity != 0 && seats_done == 0);
+    if play_burst {
+        8
+    } else if mag_velocity != 0 {
+        1
+    } else {
+        16
+    }
+}
+
 pub async fn run(
     actor: SteadyActorShadow,
     commands_in: SteadyRx<SchedulerToWorker>,
@@ -87,6 +106,35 @@ pub async fn run(
         state,
     )
     .await
+}
+
+/// Put `tile_session` back into `WorkerState` even when workshift panics, so
+/// SteadyState persistence does not save `tile_session: None` across regeneration.
+struct SessionRestore {
+    dest: *mut Option<TileSession>,
+    slot: Option<TileSession>,
+}
+
+impl SessionRestore {
+    fn new(state: &mut WorkerState) -> Self {
+        let slot = state.tile_session.take();
+        SessionRestore {
+            dest: &mut state.tile_session,
+            slot,
+        }
+    }
+}
+
+impl Drop for SessionRestore {
+    fn drop(&mut self) {
+        // SAFETY: `dest` points at `state.tile_session` for this stack frame only;
+        // we do not move `state` while the guard lives.
+        unsafe {
+            if (*self.dest).is_none() {
+                *self.dest = self.slot.take();
+            }
+        }
+    }
 }
 
 async fn internal_behavior<A: SteadyActor>(
@@ -172,6 +220,18 @@ async fn internal_behavior<A: SteadyActor>(
 
         if let Some(frame_info) = coalesced.retarget {
             // Immediately prioritize newest view — never workshift the old target.
+            let mut preempt_lookahead = Vec::new();
+            if let Some(session) = state.tile_session.as_mut() {
+                session.flush_pending_lookahead();
+                let screen_res = session.screen_res;
+                for (loc, tile) in session.drain_lookahead_publishes() {
+                    preempt_lookahead.push(AnswerTilePublish {
+                        tile: *tile,
+                        screen_res,
+                        location: loc,
+                    });
+                }
+            }
             state.unsent_tiles.clear();
             let (location, res, mag_velocity) = frame_info;
             let mode = crate::assemblies::headgroup::window::inputs::mag_velocity_mode(
@@ -188,6 +248,7 @@ async fn internal_behavior<A: SteadyActor>(
                     state.tile_session = Some(session);
                 }
             }
+            state.unsent_tiles.extend(preempt_lookahead);
             state.incomplete = true;
             state.full_republish_done = false;
         }
@@ -199,15 +260,15 @@ async fn internal_behavior<A: SteadyActor>(
 
         let need_full_republish = !state.full_republish_done;
         let workshifts = state.total_workshifts;
-        let mut session_slot = state.tile_session.take();
-        let published = if let Some(session) = session_slot.as_mut() {
-            // Play / retarget: 1ms so inputs stay ~1kHz. Stationary fill: longer quantum
-            // so home completed-whole TPS can rise without starving the drain loop.
-            let budget_ms = if had_retarget || session.mag_velocity() != 0 {
-                1
-            } else {
-                16
-            };
+        let mut session_restore = SessionRestore::new(&mut state);
+        let published = if let Some(session) = session_restore.slot.as_mut() {
+            // Play / retarget: burst while screen seats are empty so first publish
+            // lands inside the 100ms bar; steady zoom uses 1ms quanta between drains.
+            let budget_ms = workshift_budget_ms_for_session(
+                had_retarget,
+                session.mag_velocity(),
+                session.seats_done_for_test(),
+            );
             let t0 = std::time::Instant::now();
             session.workshift_budget_ms(budget_ms);
             let work_ms = t0.elapsed().as_secs_f64() * 1000.0;
@@ -279,7 +340,7 @@ async fn internal_behavior<A: SteadyActor>(
         } else {
             None
         };
-        state.tile_session = session_slot;
+        state.tile_session = session_restore.slot.take();
         if let Some((tiles, pct, do_full)) = published {
             state.total_workshifts += 1;
             if do_full {
@@ -498,5 +559,68 @@ mod tests {
     #[test]
     fn play_input_poll_is_non_zero() {
         assert!(PLAY_INPUT_POLL_MS >= 1);
+    }
+
+    // r[verify cz.perf.play-minimize+1]
+    // r[verify cz.perf.play-8bump-100ms+1]
+    #[test]
+    fn play_budget_bursts_while_screen_seats_empty() {
+        assert_eq!(workshift_budget_ms_for_session(true, 1, 0), 8);
+        assert_eq!(workshift_budget_ms_for_session(false, 1, 0), 8);
+        assert_eq!(workshift_budget_ms_for_session(false, 1, 12), 1);
+        assert_eq!(workshift_budget_ms_for_session(false, 0, 0), 16);
+    }
+
+    // r[verify cz.perf.play-minimize+1]
+    #[test]
+    fn play_budget_after_retarget_beats_one_ms_stall() {
+        assert!(
+            workshift_budget_ms_for_session(true, 1, 0) > 1,
+            "headed retarget must not stay on 1ms while seats_done==0"
+        );
+    }
+
+    fn dummy_worker_state(tile_session: Option<TileSession>) -> WorkerState {
+        WorkerState {
+            tile_session,
+            total_workshifts: 0,
+            unsent_tiles: Vec::new(),
+            full_republish_done: false,
+            incomplete: true,
+            memory_limit_bytes: 1_000_000_000,
+        }
+    }
+
+    // r[verify cz.play.actor-poll+1]
+    #[test]
+    fn session_restore_puts_back_session_after_panic() {
+        let loc = ObjectivePosAndZoom {
+            pos: (IntExp::ZERO, IntExp::ZERO),
+            zoom_pot: 0,
+        };
+        let session = TileSession::new(loc, (64, 64));
+        let mut state = dummy_worker_state(Some(session));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut restore = SessionRestore::new(&mut state);
+            assert!(state.tile_session.is_none());
+            let _session = restore.slot.as_mut().expect("session");
+            panic!("simulated workshift panic");
+        }));
+        assert!(result.is_err());
+        assert!(
+            state.tile_session.is_some(),
+            "SteadyState must not persist tile_session=None after actor regeneration"
+        );
+    }
+
+    // r[verify cz.play.actor-poll+1]
+    #[test]
+    fn session_restore_noop_when_slot_empty() {
+        let mut state = dummy_worker_state(None);
+        {
+            let _restore = SessionRestore::new(&mut state);
+            assert!(state.tile_session.is_none());
+        }
+        assert!(state.tile_session.is_none());
     }
 }

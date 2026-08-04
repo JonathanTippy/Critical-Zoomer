@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! The GPU layout both tile hoards agree on.
 //!
 //! The workgroup and headgroup keep their own hoards (architecture.md), but a

@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! Hard-assert verifies for standards.md / requirements.md numeric bars.
 //! Release-gated timing uses `cfg(not(debug_assertions))` — not `#[ignore]`.
 // r[impl cz.perf.play-8bump-100ms+1]
@@ -419,6 +420,11 @@ mod standards_hard_bar_tests {
         session.has_unsent_publish()
     }
 
+    /// Current-stencil publish (excludes deeper-mag lookahead towers).
+    fn play_saw_screen_work(session: &TileSession) -> bool {
+        session.has_unsent_screen_publish_for_test() || session.seats_done_for_test() > 0
+    }
+
     // r[verify cz.perf.play-8bump-100ms+1]
     // r[verify cz.perf.play-minimize+1]
     #[cfg(not(debug_assertions))]
@@ -676,6 +682,105 @@ mod standards_hard_bar_tests {
                     deadline
                 );
             }
+        });
+    }
+
+    /// Headed repro: stale lookahead_unsent after zoom made play_need_visible clear
+    /// and masked a ~1–2s screen-seat stall. Require current-stencil progress.
+    // r[verify cz.perf.play-8bump-100ms+1]
+    // r[verify cz.perf.play-minimize+1]
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn play_zoom_screen_progress_despite_stale_lookahead() {
+        use crate::assemblies::workgroup::tile_worker::workshift_budget_ms_for_session;
+
+        fat_stack(|| {
+            let res = (160, 96);
+            let mut loc = play_home_location();
+            let mut session = TileSession::new(loc.clone(), res);
+            session.force_cpu_bouts_for_test();
+            session.set_mag_velocity(1);
+            for _ in 0..48 {
+                session.workshift_budget_ms(16);
+                if !session.drain_lookahead_publishes().is_empty() {
+                    break;
+                }
+            }
+            loc.zoom_pot += 1;
+            session.retarget(loc.clone(), res);
+            session.set_mag_velocity(1);
+            assert!(
+                session.has_unsent_publish() && !session.has_unsent_screen_publish_for_test(),
+                "precondition: stale lookahead without screen unsent"
+            );
+            let t0 = Instant::now();
+            let deadline = Duration::from_millis(100);
+            let mut saw = false;
+            while t0.elapsed() < deadline {
+                let budget = workshift_budget_ms_for_session(
+                    false,
+                    session.mag_velocity(),
+                    session.seats_done_for_test(),
+                );
+                session.workshift_budget_ms(budget);
+                if play_saw_screen_work(&session) {
+                    saw = true;
+                    break;
+                }
+            }
+            assert!(
+                saw,
+                "play: zoom must advance current-stencil seats within 100ms despite stale lookahead (elapsed {:?}, seats={}/{})",
+                t0.elapsed(),
+                session.seats_done_for_test(),
+                session.seats_total_for_test()
+            );
+        });
+    }
+
+    /// One-ms-only actor quanta after retarget cannot arm enough steps for first
+    /// screen seats before the 100ms play bar (headed GPU path).
+    // r[verify cz.perf.play-8bump-100ms+1]
+    // r[verify cz.perf.play-minimize+1]
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn play_actor_budget_burst_finishes_screen_seat_within_100ms() {
+        use crate::assemblies::workgroup::tile_worker::workshift_budget_ms_for_session;
+
+        fat_stack(|| {
+            let res = DEFAULT_WINDOW_RES;
+            let mut loc = play_home_location();
+            let mut session = TileSession::new(loc.clone(), res);
+            session.set_mag_velocity(1);
+            for _ in 0..8 {
+                session.workshift_budget_ms(8);
+            }
+            let _ = session.drain_publish_tiles();
+            let _ = session.drain_lookahead_publishes();
+            let t0 = Instant::now();
+            let deadline = Duration::from_millis(100);
+            loc.zoom_pot += 1;
+            session.retarget(loc.clone(), res);
+            session.set_mag_velocity(1);
+            let mut saw = false;
+            while t0.elapsed() < deadline {
+                let budget = workshift_budget_ms_for_session(
+                    true,
+                    session.mag_velocity(),
+                    session.seats_done_for_test(),
+                );
+                session.workshift_budget_ms(budget);
+                if play_saw_screen_work(&session) {
+                    saw = true;
+                    break;
+                }
+            }
+            assert!(
+                saw,
+                "play burst budget: no screen progress within 100ms after retarget ({:?}, seats={})",
+                t0.elapsed(),
+                session.seats_done_for_test()
+            );
         });
     }
 

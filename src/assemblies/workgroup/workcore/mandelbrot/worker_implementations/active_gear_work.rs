@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! Global typed batch for the worker's active gear.
 //!
 //! Gear is chosen from stencil + reference and only changes when the stencil

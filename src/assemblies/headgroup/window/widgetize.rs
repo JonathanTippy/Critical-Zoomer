@@ -1,3 +1,4 @@
+// read delivery.md for project context
 use eframe::emath::Rect;
 use egui::{color_picker, Slider, Ui};
 use egui_dnd::dnd;

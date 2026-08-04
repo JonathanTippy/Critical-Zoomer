@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! Known-good cpu mirror of the shading shader, for tests only.
 //!
 //! This is what used to be the shadergroup: the escaper and the colorer, cleaned up and
@@ -153,7 +154,7 @@ pub fn normalize_value(n: f32, method: u32) -> f32 {
         NORM_LN => n.max(1.0).ln()
         , NORM_LNLN => n.max(E).ln().ln()
         , NORM_RECIP => 1.0 / n.max(1.0e-6)
-        , NORM_RECIP_LN => 1.0 / n.max(1.0).ln().max(1.0e-6)
+        , NORM_RECIP_LN => (1.0 / n.max(1.0e-6)).ln()
         , _ => n
     }
 }

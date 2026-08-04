@@ -1,3 +1,4 @@
+// read delivery.md for project context
 use rug::Integer;
 use crate::assemblies::headgroup::window::sampling::ZoomerCommand;
 use crate::constants::PIXELS_PER_UNIT_POT;
@@ -73,6 +74,42 @@ pub fn viewport_center(loc: &ObjectivePosAndZoom, screen: (u32, u32)) -> (IntExp
     // loc.pos.1 is negated UL imag → math imag of UL is -pos.1; center imag = UL_im - half_h
     let im = IntExp::ZERO - loc.pos.1.clone() - half_h;
     (re, im)
+}
+
+/// Compact decimal for the location HUD (avoid IntExp Display's "n...." truncation).
+// r[impl cz.ui.location-readout+1]
+pub fn format_intexp_readout(v: &IntExp) -> String {
+    let f = v.clone().to_f64();
+    if !f.is_finite() {
+        return "nan".to_string();
+    }
+    if f == 0.0 {
+        return "0".to_string();
+    }
+    let abs = f.abs();
+    if abs >= 1e6 || abs < 1e-4 {
+        format!("{f:.6e}")
+    } else {
+        let s = format!("{f:.12}");
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    }
+}
+
+/// Read-only location field: center re/im + magnification pot (requirements).
+// r[impl cz.ui.location-readout+1]
+pub fn format_location_readout(re: &IntExp, im: &IntExp, zoom_pot: i32) -> String {
+    let im_s = format_intexp_readout(im);
+    let im_part = if im_s.starts_with('-') {
+        format!("{im_s}i")
+    } else {
+        format!("+ {im_s}i")
+    };
+    format!(
+        "{} {}  mag 2^{}"
+        , format_intexp_readout(re)
+        , im_part
+        , zoom_pot
+    )
 }
 
 // r[impl cz.ui.coords-parse+1]
@@ -320,8 +357,13 @@ mod tests {
         let loc = ul_for_center(IntExp::from(1), IntExp::from(-1), 5, (800, 480));
         assert_eq!(loc.zoom_pot, 5);
         let (re, im) = viewport_center(&loc, (800, 480));
-        assert!((re.to_f64() - 1.0).abs() < 1e-6);
-        assert!((im.to_f64() + 1.0).abs() < 1e-6);
+        assert!((re.clone().to_f64() - 1.0).abs() < 1e-6);
+        assert!((im.clone().to_f64() + 1.0).abs() < 1e-6);
+        let text = format_location_readout(&re, &im, loc.zoom_pot);
+        assert!(
+            text.contains("mag 2^5"),
+            "HUD string must include magnification; got {text}"
+        );
     }
 
     // r[verify cz.ui.location-readout+1]
@@ -332,6 +374,26 @@ mod tests {
         assert!(loc.pos.0.clone().to_f64() < 2.0);
         let (re, _) = viewport_center(&loc, (800, 480));
         assert!((re.to_f64() - 2.0).abs() < 1e-6);
+    }
+
+    // r[verify cz.ui.location-readout+1]
+    #[test]
+    fn location_readout_string_has_center_and_mag() {
+        let loc = ul_for_center(IntExp::from(0), IntExp::from(0), 3, (800, 480));
+        let (re, im) = viewport_center(&loc, (800, 480));
+        let text = format_location_readout(&re, &im, loc.zoom_pot);
+        assert!(text.contains('0'), "got {text}");
+        assert!(text.contains("mag 2^3"), "got {text}");
+        assert!(!text.contains("..."), "must not use truncated IntExp Display; got {text}");
+    }
+
+    // r[verify cz.ui.location-readout+1]
+    #[test]
+    fn format_intexp_readout_avoids_ellipsis_truncation() {
+        let v = f64_to_intexp(0.5);
+        let s = format_intexp_readout(&v);
+        assert!(!s.contains("..."), "got {s}");
+        assert!(s.contains('5') || s.contains("0.5") || s.starts_with('5'), "got {s}");
     }
 
     #[test]

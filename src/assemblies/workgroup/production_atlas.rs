@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! Where the workgroup builds tiles, in GPU memory, before publishing them.
 //!
 //! The workgroup and headgroup keep separate hoards and do not synchronise them
@@ -22,6 +23,9 @@ use crate::gpu_context::GpuContext;
 /// work without a reallocation on the first fill.
 const INITIAL_SLOTS: u32 = 512;
 
+/// u32 words per tile for a 4096-seat done bitfield (D-GPU-4).
+pub const SEAT_DONE_WORDS_PER_SLOT: u32 = 128;
+
 /// GPU-resident slots for tiles the workgroup is still working on.
 pub struct ProductionAtlas {
     shared: Arc<GpuContext>
@@ -29,6 +33,10 @@ pub struct ProductionAtlas {
     , meta_view: wgpu::TextureView
     , z_texture: wgpu::Texture
     , z_view: wgpu::TextureView
+    // Per-slot completion counts (D-GPU-3). Host may map 4 bytes only.
+    , completion_counters: wgpu::Buffer
+    // Per-slot seat done bits — first 0→1 only bumps the counter (D-GPU-4).
+    , seat_done_bits: wgpu::Buffer
     , slot_capacity: u32
     , slot_ceiling: u32
     , free_slots: Vec<u32>
@@ -61,17 +69,138 @@ impl ProductionAtlas {
             tile_sheet::create_sheet(&shared.device, slot_capacity, "workgroup_meta_sheet");
         let (z_texture, z_view) =
             tile_sheet::create_sheet(&shared.device, slot_capacity, "workgroup_z_sheet");
+        let (completion_counters, seat_done_bits) =
+            Self::alloc_completion_buffers(&shared.device, slot_capacity);
         ProductionAtlas {
             shared
             , meta_texture
             , meta_view
             , z_texture
             , z_view
+            , completion_counters
+            , seat_done_bits
             , slot_capacity
             , slot_ceiling
             , free_slots: Vec::new()
             , next_slot: 0
         }
+    }
+
+    fn alloc_completion_buffers(
+        device: &wgpu::Device,
+        slot_capacity: u32,
+    ) -> (wgpu::Buffer, wgpu::Buffer) {
+        let completion_counters = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("production_atlas_completion_counters"),
+            size: u64::from(slot_capacity) * 4,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let seat_done_bits = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("production_atlas_seat_done_bits"),
+            size: u64::from(slot_capacity) * u64::from(SEAT_DONE_WORDS_PER_SLOT) * 4,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        (completion_counters, seat_done_bits)
+    }
+
+    pub fn completion_counters(&self) -> &wgpu::Buffer {
+        &self.completion_counters
+    }
+
+    pub fn seat_done_bits(&self) -> &wgpu::Buffer {
+        &self.seat_done_bits
+    }
+
+    /// Clear on-device completion state for a newly acquired slot (D-GPU-4).
+    pub fn clear_slot_completion(&self, slot: u32) {
+        if slot >= self.slot_capacity {
+            return;
+        }
+        self.shared
+            .queue
+            .write_buffer(&self.completion_counters, u64::from(slot) * 4, &[0u8; 4]);
+        let done_bytes = usize::try_from(SEAT_DONE_WORDS_PER_SLOT)
+            .unwrap_or(128)
+            .saturating_mul(4);
+        let zeros = vec![0u8; done_bytes];
+        self.shared.queue.write_buffer(
+            &self.seat_done_bits,
+            u64::from(slot) * u64::from(SEAT_DONE_WORDS_PER_SLOT) * 4,
+            &zeros,
+        );
+    }
+
+    /// Read several per-tile completion counters in one copy+map (D-GPU-2/3).
+    pub fn read_completion_counts(&self, slots: &[u32]) -> Option<Vec<u32>> {
+        if slots.is_empty() {
+            return Some(Vec::new());
+        }
+        let device = &self.shared.device;
+        let bytes = (slots.len() as u64) * 4;
+        let staging = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("production_atlas_completion_staging_bulk"),
+            size: bytes,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("production_atlas_completion_read_bulk"),
+        });
+        for (i, &slot) in slots.iter().enumerate() {
+            if slot >= self.slot_capacity {
+                return None;
+            }
+            encoder.copy_buffer_to_buffer(
+                &self.completion_counters,
+                u64::from(slot) * 4,
+                &staging,
+                (i as u64) * 4,
+                4,
+            );
+        }
+        self.shared.queue.submit(Some(encoder.finish()));
+        let slice = staging.slice(..bytes);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| {
+            let _ = tx.send(r);
+        });
+        let started = std::time::Instant::now();
+        loop {
+            let _ = device.poll(wgpu::PollType::Poll);
+            match rx.try_recv() {
+                Ok(Ok(())) => {
+                    let counts = {
+                        let data = slice.get_mapped_range();
+                        (0..slots.len())
+                            .map(|i| {
+                                let o = i * 4;
+                                u32::from_le_bytes([data[o], data[o + 1], data[o + 2], data[o + 3]])
+                            })
+                            .collect()
+                    };
+                    staging.unmap();
+                    return Some(counts);
+                }
+                Ok(Err(_)) => return None,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => return None,
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    if started.elapsed().as_millis() > 2_000 {
+                        return None;
+                    }
+                    std::thread::yield_now();
+                }
+            }
+        }
+    }
+
+    /// Read the per-tile completion counter (4-byte map only — D-GPU-2/3).
+    pub fn read_completion_count(&self, slot: u32) -> Option<u32> {
+        self.read_completion_counts(&[slot])
+            .and_then(|v| v.into_iter().next())
     }
 
     pub fn meta_view(&self) -> &wgpu::TextureView {
@@ -110,14 +239,17 @@ impl ProductionAtlas {
     /// Grows the sheets rather than refusing while the device allows it: a
     /// refused slot would mean a tile the worker cannot finish.
     pub fn acquire(&mut self) -> Option<u32> {
-        if let Some(slot) = self.free_slots.pop() {
-            return Some(slot);
-        }
-        if self.next_slot >= self.slot_capacity && !self.grow(self.next_slot + 1) {
-            return None;
-        }
-        let slot = self.next_slot;
-        self.next_slot += 1;
+        let slot = if let Some(slot) = self.free_slots.pop() {
+            slot
+        } else {
+            if self.next_slot >= self.slot_capacity && !self.grow(self.next_slot + 1) {
+                return None;
+            }
+            let slot = self.next_slot;
+            self.next_slot += 1;
+            slot
+        };
+        self.clear_slot_completion(slot);
         Some(slot)
     }
 
@@ -166,10 +298,15 @@ impl ProductionAtlas {
             tile_sheet::create_sheet(device, capacity, "workgroup_meta_sheet");
         let (z_texture, z_view) =
             tile_sheet::create_sheet(device, capacity, "workgroup_z_sheet");
+        let (completion_counters, seat_done_bits) =
+            Self::alloc_completion_buffers(device, capacity);
 
         // Slots keep their origins across growth, so the live prefix copies as
         // one block and in-flight tiles keep the slot they were handed.
         let old = tile_sheet::sheet_size_for(self.slot_capacity);
+        let old_counter_bytes = u64::from(self.slot_capacity) * 4;
+        let old_done_bytes =
+            u64::from(self.slot_capacity) * u64::from(SEAT_DONE_WORDS_PER_SLOT) * 4;
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("workgroup_atlas_grow")
         });
@@ -187,12 +324,28 @@ impl ProductionAtlas {
                 }
             );
         }
+        encoder.copy_buffer_to_buffer(
+            &self.completion_counters,
+            0,
+            &completion_counters,
+            0,
+            old_counter_bytes,
+        );
+        encoder.copy_buffer_to_buffer(
+            &self.seat_done_bits,
+            0,
+            &seat_done_bits,
+            0,
+            old_done_bytes,
+        );
         self.shared.queue.submit(Some(encoder.finish()));
 
         self.meta_texture = meta_texture;
         self.meta_view = meta_view;
         self.z_texture = z_texture;
         self.z_view = z_view;
+        self.completion_counters = completion_counters;
+        self.seat_done_bits = seat_done_bits;
         self.slot_capacity = capacity;
         true
     }

@@ -1,8 +1,8 @@
+// read delivery.md for project context
 use crate::intexp::*;
 use rug::Integer;
 use crate::constants::*;
 use std::cmp::*;
-pub mod views;
 pub mod stencil;
 pub mod tile;
 pub mod gpu_tile;
@@ -45,16 +45,7 @@ impl PointStencil {
 }
 
 
-#[derive(PartialEq, Clone, Debug)]
-pub struct View<T> {
-    pub stencil: PointStencil
-    , pub data: Vec<(T)>
-    , pub alignment: Vec<(u8)>
-    // 7: exact / original: aligned with original C value
-    // , 6: representative / proximate estimate: not aligned with original C value
-    // , 5: native: was computed at the stencil magnification
-    // , 4: done: all fields were completed at some magnification
-}
+
 
 pub const EXACT: u8 = 0b1000_0000;
 pub const PROX: u8 = 0b0100_0000;

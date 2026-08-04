@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! Reference worker SteadyState actor (auth workgroup sub-actor).
 //!
 //! Receives **whole-screen** `PointStencil`s from the headgroup (never tiles).

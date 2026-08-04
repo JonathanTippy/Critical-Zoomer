@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! Off-screen / too-small classification for the r=2 circle proxy.
 //! Design: docs/design/headgroup.md — red arrow guidance.
 // r[impl cz.display.offscreen-r2-circle+1]

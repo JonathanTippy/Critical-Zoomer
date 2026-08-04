@@ -1,3 +1,4 @@
+// read delivery.md for project context
 pub mod periodicity_detector;
 #[cfg(test)]
 pub mod naive_cpu_worker;

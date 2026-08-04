@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! Test-only naive (non-perturbation) Mandelbrot iterate.
 //!
 //! Live tile work always uses perturbation (+ zero-orbit fallback). This module

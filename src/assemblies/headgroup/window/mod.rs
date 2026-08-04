@@ -1,3 +1,4 @@
+// read delivery.md for project context
 use steady_state::*;
 use eframe::{egui, NativeOptions};
 //use eframe::Frame::raw_window_handle;
@@ -708,7 +709,11 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                     &state.sampling_context.location
                                     , screen
                                 );
-                                let center_text = format!("{} + {}i", cre, cim);
+                                let center_text = format_location_readout(
+                                    &cre
+                                    , &cim
+                                    , state.sampling_context.location.zoom_pot
+                                );
                                 ui.horizontal(|ui| {
                                     ui.label("location");
                                     let mut readonly = center_text.clone();

@@ -1,3 +1,4 @@
+// read delivery.md for project context
 use steady_state::*;
 use crate::assemblies::structs::*;
 use crate::assemblies::headgroup::window::gpu_display::pack_tile_upload;

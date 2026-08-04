@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! Tracey anchors for headed e2e contracts (scripts own the live verifies).
 //! Product behavior under test lives in headgroup/workgroup; these ids are the
 //! headed interaction layer itself.

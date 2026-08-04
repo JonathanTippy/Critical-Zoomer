@@ -5,8 +5,21 @@ struct Uniforms {
     point_count: u32,
     glitch_threshold: f32,
     confirm_iterations: u32,
-    _pad0: f32,
-    _pad1: f32,
+    // Per-tile seat→screen mapping (CGenerator is view-lifetime at binding 3).
+    tile_origin_x: u32,
+    tile_origin_y: u32,
+    tile_edge: u32,
+    use_c_generator: u32,
+    _pad0: u32,
+    _pad1: u32,
+}
+
+/// View-lifetime CGenerator (uploaded once per PointStencil).
+struct CGenerator {
+    origin_re: f32,
+    origin_im: f32,
+    space: f32,
+    half: f32,
 }
 
 struct GpuPertPoint {
@@ -31,6 +44,7 @@ struct GpuPertPoint {
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var<storage, read_write> points: array<GpuPertPoint>;
 @group(0) @binding(2) var<storage, read> orbit: array<vec2<f32>>;
+@group(0) @binding(3) var<uniform> cgen: CGenerator;
 
 const FLAG_ACTIVE: u32 = 1u;
 const FLAG_ESCAPED: u32 = 2u;
@@ -38,6 +52,47 @@ const FLAG_FINISHED: u32 = 4u;
 const FLAG_GLITCH: u32 = 8u;
 const FLAG_PERIODIC: u32 = 16u;
 const MAX_PERIOD_SEARCH: u32 = 64u;
+
+/// Dense identity seats: point index i == local seat (lx + ly * edge).
+fn dc_from_cgen(i: u32) -> vec2<f32> {
+    let edge = max(uniforms.tile_edge, 1u);
+    let lx = i % edge;
+    let ly = i / edge;
+    let sx = uniforms.tile_origin_x + lx;
+    let sy = uniforms.tile_origin_y + ly;
+    let dc_re = cgen.origin_re + cgen.space * f32(sx) + cgen.half;
+    let dc_im = cgen.origin_im - cgen.space * f32(sy) - cgen.half;
+    return vec2<f32>(dc_re, dc_im);
+}
+
+/// Init points from CGenerator (no host 4096 δc pack). Dense identity layout only.
+@compute @workgroup_size(64)
+fn init_from_cgen(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let i = gid.x;
+    if i >= uniforms.point_count {
+        return;
+    }
+    let dc = dc_from_cgen(i);
+    var p: GpuPertPoint;
+    p.dc_re = dc.x;
+    p.dc_im = dc.y;
+    p.dz_re = 0.0;
+    p.dz_im = 0.0;
+    p.d_re = 1.0;
+    p.d_im = 0.0;
+    p.iteration_count = 0u;
+    p.min_magnitude = 3.402823466e+38;
+    p.min_magnitude_time = 0u;
+    p.flags = FLAG_ACTIVE;
+    p.checkpoint_re = 0.0;
+    p.checkpoint_im = 0.0;
+    p.steps_since_checkpoint = 0u;
+    p.next_checkpoint_iteration = 1u;
+    p.detected_period = 0u;
+    let c_abs = max(abs(dc.x), abs(dc.y));
+    p.epsilon = max(1e-12, c_abs * 1e-6);
+    points[i] = p;
+}
 
 fn orbit_at(n: u32) -> vec2<f32> {
     let len = uniforms.orbit_len;

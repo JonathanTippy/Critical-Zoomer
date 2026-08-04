@@ -1,3 +1,4 @@
+// read delivery.md for project context
 pub mod headgroup;
 pub mod workgroup;
 pub mod structs;

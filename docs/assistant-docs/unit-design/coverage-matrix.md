@@ -73,7 +73,7 @@ Status key: **covered** (auth), **closed-here** (assistant), **hole** (explicit)
 | Item | Note |
 |------|------|
 | Form-factor packaging (Flatpak/deb) | Outside unit design |
-| GPU tile publisher restore | GPU shader required; cadence flat 1000 Hz (D-PUB-1); CPU `publish_seat` interim for single-seat until GPU tile path used |
+| GPU tile publisher restore | GPU shader required; cadence [20, 100000] Hz (D-PUB-1); CPU `publish_seat` interim for single-seat until GPU tile path used |
 | `shadergroup` assembly vs shaders-in-headgroup | **closed** — actor assembly removed; live shade is `gpu_display` wgsl |
 | Parallel `workgroup` vs `workgroup` | **closed** — live SteadyState names match auth: tile scheduler, tile worker, intratile scheduler, reference worker, gpu uploader, tile publisher |
 | Exact EWMA half-life / α for mag velocity | Assumed in tile_scheduler supplement |

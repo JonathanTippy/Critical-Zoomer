@@ -8,7 +8,7 @@ Evaluated 2026-08-01 against V2V skill 1.4. Evidence-only.
 Versioned `r[cz.*+N]` tags across `docs/requirements.md`, `docs/standards.md`, and `docs/design/*.md`. Tracey loads 77 rules. Auth chrome sometimes defers to requirements (“consult requirements”) rather than a full `docs/spec/` tree. No recorded formal red-team log.
 
 ### Tracey — 8.0 (A)
-`tracey query status`: **76/77 covered**, **0 untested**, **1 uncovered** (`cz.perf.home-10000tps-gpu`, soft-skip / blocked-impl). Stale: none. Bacon Tracey job uses `tracey query validate`. `ImplInTestFile` noise remains in validate output.
+`tracey query status`: **76/77 covered**, **0 untested**, **1 uncovered** (`cz.perf.home-10000tps-gpu`, impl debt; auth bar now ≥3000 — soft-skip forbidden). Stale: none. Bacon Tracey job uses `tracey query validate`. `ImplInTestFile` noise remains in validate output.
 
 ### Coverage — 6.8 (C+)
 Fresh `cargo llvm-cov` (ignore GUI shells; skip standards hard-bars): **region 71.39%** (938/1314), line 68.55%, function 68.43%. HTML at `target/llvm-cov/html/html/index.html`. Pipeline works after fixing `--summary-only`/`--html` clash. Far from S (≥98%).
@@ -29,7 +29,7 @@ Fuzz targets exist (`fuzz_coords_parse`, `fuzz_publisher_clamp`, `fuzz_range`, �
 `range.rs` scoped run finished (2026-08-01): **178** mutants — **109 caught**, **43 missed**, **26 unviable** (~72% kill on viable). Survivors cluster on `min`/`max`, `is_agnostic`, comparison helpers (`can_*` / `must_*`), `guess_biased`, `get_uuid`. See `docs/assistant-docs/mutants-survivors.md`.
 
 ### SystemsDesign — 7.4 (B)
-`docs/architecture.md` + design docs + SteadyState actor graph + perturbation/foveation story are coherent and performance-aware. Auth tile_publisher ≥30/s wording still stale vs D-PUB-1 (non-blocking).
+`docs/architecture.md` + design docs + SteadyState actor graph + perturbation/foveation story are coherent and performance-aware. Auth publish cadence **[20, 100000] Hz**; home GPU TPS bar **≥3000** (standards TPS addendum). D-PUB-1 aligned. Live code may still lag at `PUBLISH_MAX_HZ = 1000`.
 
 ## Weighted result
 

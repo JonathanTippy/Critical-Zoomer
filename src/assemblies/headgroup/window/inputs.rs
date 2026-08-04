@@ -1,3 +1,4 @@
+// read delivery.md for project context
 use std::cmp::min;
 use eframe::emath::Pos2;
 use rug::Integer;

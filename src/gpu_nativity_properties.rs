@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! Property tests for GPU nativity: gears, atlas, publisher, symmetry, homothety.
 // r[verify cz.seamless.gpu-preferred+1]
 // r[verify cz.int.publisher-nores-bias+1]

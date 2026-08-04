@@ -1,3 +1,4 @@
+// read delivery.md for project context
 use std::collections::HashMap;
 
 use bytemuck::{Pod, Zeroable};
@@ -119,7 +120,7 @@ fn normalize_host(n: f32, method: u32) -> f32 {
         1 => n.max(1.0).ln(),
         2 => n.max(std::f32::consts::E).ln().ln(),
         3 => 1.0 / n.max(1.0e-6),
-        4 => 1.0 / n.max(1.0).ln().max(1.0e-6),
+        4 => (1.0 / n.max(1.0e-6)).ln(),
         _ => n,
     }
 }
@@ -780,7 +781,7 @@ pub fn build_shade_frame(
             , zoom_match: 1
             , instruction_count: instructions.len() as u32
             , bailout_radius: settings.bailout_radius.determine() as f32
-            , bailout_max_extra: 0 // no computation settings; shade does not continue iterates
+            , bailout_max_extra: settings.bailout_max_additional_iterations
             , origin_re
             , origin_im
             , space

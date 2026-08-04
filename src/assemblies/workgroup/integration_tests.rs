@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! Assembly (integration) verifies for workgroup/headgroup contracts.
 //! Not headed e2e — in-process multi-unit harnesses.
 
@@ -310,11 +311,11 @@ mod assembly_tests {
         let mut cadence = PublishCadence::new_at(true, t0);
         assert!(cadence.allow_publish(t0));
         cadence.record_publish(t0);
-        // Immediate re-publish blocked by max-Hz min gap (D-PUB-1: no min floor).
+        // Immediate re-publish blocked by max-Hz min gap (D-PUB-1: [20, 100000]).
         assert!(!cadence.allow_publish(t0));
         assert!(!cadence.should_publish(t0, true));
         assert!(!cadence.should_publish(t0 + std::time::Duration::from_millis(2), false));
-        assert!(PublishCadence::max_publishes_per_second() <= 1000);
+        assert_eq!(PublishCadence::max_publishes_per_second(), 100_000);
     }
 
     // r[verify cz.int.publisher-nores-bias+1]

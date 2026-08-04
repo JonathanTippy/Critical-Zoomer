@@ -1,3 +1,4 @@
+// read delivery.md for project context
 use std::cmp::*;
 use std::ops::*;
 use rug::Float;

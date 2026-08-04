@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! Tile scheduler SteadyState actor (auth workgroup sub-actor).
 //! Absorbs former work_controller coalesce / should_retarget, plus attention.
 //! Does not feed the reference worker — that receives whole-screen stencils

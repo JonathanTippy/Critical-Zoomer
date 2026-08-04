@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! Temporary debug-session NDJSON logger (session 4dca53). Do not ship.
 // #region agent log
 use std::io::Write;

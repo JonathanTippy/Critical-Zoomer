@@ -1,3 +1,4 @@
+// read delivery.md for project context
 pub mod worker_implementations;
 pub mod scheduler_implementations;
 
@@ -392,11 +393,14 @@ fn build_reference_orbit_f64(
 ) -> Option<ReferenceOrbit> {
     // D-REF-1: required rug precision is discrimination+20. The interactive f64
     // builder is valid while that demand fits in a binary64 mantissa; deeper
-    // mags still take this path until a rug orbit builder is wired.
-    let _required_bits = crate::constants::reference_precision_bits(
-        crate::constants::discrimination_bits_for_mag(0)
+    // mags need a rug orbit builder (not wired here).
+    let zoom_pot = -(big_c.0.exp) - PIXELS_PER_UNIT_POT;
+    let required_bits = crate::constants::reference_precision_bits(
+        crate::constants::discrimination_bits_for_mag(zoom_pot),
     );
-    let _ = _required_bits;
+    if required_bits > 53 {
+        return None;
+    }
     let period = period.max(1);
     let length = (period as usize).saturating_add(1).max(1);
     let mut orbit_f64 = Vec::with_capacity(length);
@@ -489,6 +493,22 @@ mod reference_collection_tests {
                 , "stored stacked mirror must be filled for limbs={limbs}"
             );
         }
+    }
+
+    #[test]
+    fn f64_reference_builder_rejects_when_precision_exceeds_mantissa() {
+        let big_c = (
+            IntExp {
+                val: rug::Integer::from(1),
+                exp: -(25 + PIXELS_PER_UNIT_POT),
+            },
+            IntExp::ZERO,
+        );
+        let c = (big_c.0.clone().to_f64(), big_c.1.clone().to_f64());
+        assert!(
+            build_reference_orbit_f64(big_c, c, 2).is_none(),
+            "D-REF-1: f64 builder must stop once rug precision is required"
+        );
     }
 
     #[test]

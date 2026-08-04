@@ -1,3 +1,4 @@
+// read delivery.md for project context
 use crate::assemblies::structs::*;
 
 // UNDERIVED CONSTANTS
@@ -14,7 +15,20 @@ pub const TILE_EDGE_LENGTH_POT: i32 = 6;
 pub const TILE_EDGE_LENGTH: usize = 1 << TILE_EDGE_LENGTH_POT;
 pub const TILE_SEAT_COUNT: usize = TILE_EDGE_LENGTH * TILE_EDGE_LENGTH;
 
-pub const GPU_WORKER_BATCH_N: usize = 1024;
+pub const GPU_WORKER_BATCH_N: usize = TILE_SEAT_COUNT;
+
+/// Max tiles with deferred GPU scatter in flight (session confirm FIFO).
+pub const GPU_IN_FLIGHT_TILES: usize = 128;
+
+/// Dense cgen tiles packed into one command buffer before submit.
+pub const GPU_CGEN_MICRO_BATCH: usize = 8;
+
+/// Concurrent submitted cgen micro-batches (distinct ring ranges).
+/// Covers a home screen (~90 tiles) in one submit storm before Wait.
+pub const GPU_CGEN_IN_FLIGHT_BATCHES: usize = GPU_IN_FLIGHT_TILES / GPU_CGEN_MICRO_BATCH;
+
+/// Point/scatter ring depth: one slot per in-flight cgen tile.
+pub const GPU_POINT_RING_DEPTH: usize = GPU_CGEN_IN_FLIGHT_BATCHES * GPU_CGEN_MICRO_BATCH;
 
 pub const PERIOD_CONFIRMATION_ITERATIONS: u32 = 20; // A-PER-TWIN-N / D-PER-1
 
@@ -57,6 +71,19 @@ pub const NORES_ANSWER:Answer = Answer{
     , escape_time_angle: 0
     , min_magnitude_angle: 0
 };
+
+/// True when `a` is the infinity / no-resolution stack terminator (not real work).
+pub fn answer_is_nores(a: &Answer) -> bool {
+    match a.result {
+        MandelbrotResult::Outside { escape_time_r2, escape_z } => {
+            escape_time_r2 == 1
+                && a.min_magnitude.is_infinite()
+                && escape_z.0.is_infinite()
+                && escape_z.1.is_infinite()
+        }
+        MandelbrotResult::Inside { .. } => false,
+    }
+}
 
 #[cfg(test)]
 mod constants_tests {

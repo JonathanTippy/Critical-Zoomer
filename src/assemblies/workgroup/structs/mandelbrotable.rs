@@ -1,3 +1,4 @@
+// read delivery.md for project context
 use std::ops::*;
 
 use crate::gear::Gear;

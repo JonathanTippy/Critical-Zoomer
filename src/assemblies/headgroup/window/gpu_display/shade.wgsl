@@ -53,7 +53,7 @@ fn normalize_value(n: f32, method: u32) -> f32 {
         return 1.0 / max(n, 1.0e-6);
     }
     if (method == NORM_RECIP_LN) {
-        return 1.0 / max(log(max(n, 1.0)), 1.0e-6);
+        return log(max(1.0 / max(n, 1.0e-6), 1.0e-6));
     }
     return n;
 }

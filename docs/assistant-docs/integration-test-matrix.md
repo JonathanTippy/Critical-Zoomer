@@ -13,4 +13,4 @@ meaningfully different passing assembly verifies per `cz.int.*` id.
 | cz.int.session-pipeline+1 | zoom-in lookahead; zoom-out scredge; progress; mag match | green |
 
 Phase gate: **green**. Next: end-to-end testing.
-Auth tile_publisher ≥30/s wording still pending Jonathan (non-blocking; D-PUB-1).
+Auth cadence is **[20, 100000] Hz** (`architecture.md`, `tile_publisher.md`); D-PUB-1 matches. Live `PUBLISH_MAX_HZ` may still lag.

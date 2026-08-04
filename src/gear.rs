@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! Precision gears for tile work (docs/design/tile_worker.md).
 //!
 //! Smaller types are preferred for speed. GPU is preferred to CPU when the gear

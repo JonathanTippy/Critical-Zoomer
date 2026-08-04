@@ -1,3 +1,4 @@
+// read delivery.md for project context
 use steady_state::*;
 use eframe::egui;
 use eframe::egui::*;
@@ -69,9 +70,9 @@ impl Settings {
         , bailout_radius: Animable{start:None,period:Duration::from_secs(10)
             , value:2.0
             , animated:false
-            , range:(2.0, u32::MAX as f64)
-            , limits:(2.0, u32::MAX as f64)
-            , normalizing:Normalizing::LnLn{}}
+            , range:(2.0, 255.0)
+            , limits:(2.0, 255.0)
+            , normalizing:Normalizing::None{}}
         , bailout_max_additional_iterations: 10
         , id_counter: 3
         , currently_selected_coloring_instruction: 0
@@ -126,24 +127,21 @@ use core::ops::RangeInclusive;
 use std::f64::consts::*;
 impl Animable {
     pub fn determine(&mut self) -> f64 {
-        match self {
-            Animable{mut start, period, range, limits, normalizing, animated, value, ..} => {
-                if *animated {
-                    if start.is_none() {start = Some(Instant::now())}
-                    let elapsed = start.unwrap().elapsed();
-                    let phase_time = elapsed.as_secs_f64() % period.as_secs_f64();
-                    let normalized_phase_time = phase_time / period.as_secs_f64();
-                    let wave_result = (1.0-((normalized_phase_time*TAU).cos()))/2.0;
-
-                    let min = normalizing.normalize(&self.range.0);
-                    let max = normalizing.normalize(&self.range.1);
-                    let range = max - min;
-                    normalizing.denormalize(&(min + (range*wave_result)))
-                } else {
-                    normalizing.reshape_input(limits, value)
-                }
-
+        if self.animated {
+            if self.start.is_none() {
+                self.start = Some(Instant::now());
             }
+            let elapsed = self.start.unwrap().elapsed();
+            let phase_time = elapsed.as_secs_f64() % self.period.as_secs_f64();
+            let normalized_phase_time = phase_time / self.period.as_secs_f64();
+            let wave_result = (1.0 - ((normalized_phase_time * TAU).cos())) / 2.0;
+
+            let min = self.normalizing.normalize(&self.range.0);
+            let max = self.normalizing.normalize(&self.range.1);
+            let span = max - min;
+            self.normalizing.denormalize(&(min + (span * wave_result)))
+        } else {
+            self.normalizing.reshape_input(&self.limits, &self.value)
         }
     }
 
@@ -162,20 +160,21 @@ pub enum Normalizing {
 }
 
 impl Normalizing {
+    // Domain guards mirror shade.wgsl so period animation and paint agree.
     pub fn normalize(&self, input:&f64) -> f64 {
         match self {
             Normalizing::None{..} => {*input}
             Normalizing::LnLn{..} => {
-                input.ln().ln()
+                input.max(E).ln().ln()
             }
             Normalizing::Ln{..} => {
-                input.ln()
+                input.max(1.0).ln()
             }
-            // The reciprocal of the log, matching the shading shader.
+            // v0.0.9: reciprocal then log, not log then reciprocal.
             Normalizing::RecipLn{..} => {
-                1.0/input.ln()
+                (1.0 / input.max(1.0e-6)).ln()
             }
-            Normalizing::Reciprocal{..} => {1.0/input}
+            Normalizing::Reciprocal{..} => {1.0 / input.max(1.0e-6)}
         }
     }
 
@@ -189,9 +188,9 @@ impl Normalizing {
                 input.exp()
             }
             Normalizing::RecipLn{..} => {
-                (1.0/input).exp()
+                1.0 / input.exp()
             }
-            Normalizing::Reciprocal{..} => {1.0/input}
+            Normalizing::Reciprocal{..} => {1.0 / input.max(1.0e-300)}
         }
     }
 
@@ -487,6 +486,90 @@ mod animable_tests {
     }
 
     #[test]
+    fn determine_static_uses_normalizing_reshape() {
+        let mut a = Animable {
+            start: None,
+            period: Duration::from_secs(10),
+            value: 5.0,
+            animated: false,
+            range: (1.0, 10.0),
+            limits: (1.0, 10.0),
+            normalizing: Normalizing::Ln {},
+        };
+        let v = a.determine();
+        let expected = Normalizing::Ln {}.reshape_input(&(1.0, 10.0), &5.0);
+        assert!((v - expected).abs() < 1e-9, "reshape path got {v}, want {expected}");
+    }
+
+    #[test]
+    fn animated_period_with_recip_ln_stays_finite_at_range_min() {
+        let mut a = Animable {
+            start: Some(Instant::now()),
+            period: Duration::from_secs(4),
+            value: 0.0,
+            animated: true,
+            range: (1.0, 10.0),
+            limits: (1.0, 10.0),
+            normalizing: Normalizing::RecipLn {},
+        };
+        for _ in 0..30 {
+            let v = a.determine();
+            assert!(v.is_finite(), "RecipLn period animation produced {v}");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn animated_period_with_every_normalizer_stays_finite() {
+        for normalizing in [
+            Normalizing::None {},
+            Normalizing::Ln {},
+            Normalizing::LnLn {},
+            Normalizing::Reciprocal {},
+            Normalizing::RecipLn {},
+        ] {
+            let mut a = Animable {
+                start: Some(Instant::now()),
+                period: Duration::from_secs(3),
+                value: 0.0,
+                animated: true,
+                range: (1.0, 10.0),
+                limits: (1.0, 10.0),
+                normalizing,
+            };
+            for _ in 0..12 {
+                let v = a.determine();
+                assert!(
+                    v.is_finite()
+                    , "{normalizing:?} period animation produced {v}"
+                );
+                std::thread::sleep(Duration::from_millis(15));
+            }
+        }
+    }
+
+    #[test]
+    fn recip_ln_normalize_matches_v09_log_of_reciprocal() {
+        let n = Normalizing::RecipLn {};
+        let at_one = n.normalize(&1.0);
+        assert!(
+            at_one.abs() < 1e-12
+            , "ln(1/1) must be zero, got {at_one}"
+        );
+        let at_ten = n.normalize(&10.0);
+        let expected = (0.1f64).ln();
+        assert!(
+            (at_ten - expected).abs() < 1e-12
+            , "ln(1/10) mismatch: got {at_ten}, want {expected}"
+        );
+        let roundtrip = n.denormalize(&at_ten);
+        assert!(
+            (roundtrip - 10.0).abs() < 1e-9
+            , "denormalize(normalize(10)) = {roundtrip}"
+        );
+    }
+
+    #[test]
     fn determine_animated_stays_in_normalized_range() {
         let mut a = Animable {
             start: Some(Instant::now()),
@@ -555,6 +638,33 @@ mod animable_tests {
         assert!(
             (near_mid - 12.0).abs() < 0.05,
             "phase~0.5 should sit near range max, got {near_mid}"
+        );
+    }
+
+    // r[verify cz.cosmetic.bailout-range-2-255+1]
+  // r[verify cz.shade.escape-continues-to-bailout+1]
+    #[test]
+    fn bailout_radius_animated_determine_advances_over_time() {
+        let mut a = Settings::DEFAULT.bailout_radius;
+        a.animated = true;
+        a.range = (4.0, 64.0);
+        a.limits = (2.0, 255.0);
+        a.period = Duration::from_secs(4);
+        a.start = Some(Instant::now());
+        let first = a.determine();
+        std::thread::sleep(Duration::from_millis(80));
+        let second = a.determine();
+        assert!(
+            (2.0..=255.0).contains(&first) && (2.0..=255.0).contains(&second)
+            , "animated bailout must stay in [2,255], got {first} and {second}"
+        );
+        assert!(
+            (first - second).abs() > 1e-6
+            , "animated bailout must advance, got {first} then {second}"
+        );
+        assert!(
+            a.start.is_some()
+            , "determine must persist animation start for the next frame"
         );
     }
 

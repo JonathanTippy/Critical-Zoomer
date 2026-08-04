@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! Known-good Mandelbrot oracles for e2e (requirements E2E Addendum).
 //! Prove with unit/property tests, then headed scripts compare live behavior against these facts.
 //!

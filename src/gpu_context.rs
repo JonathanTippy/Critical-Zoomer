@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! The one wgpu context the whole app shares.
 //!
 //! Requirements: no GPU toggle; GPU acceleration always on when a device exists.

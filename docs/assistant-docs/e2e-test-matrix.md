@@ -13,7 +13,7 @@ Status: `green` | `in-progress` | `blocked-impl`
 | cz.e2e.perf-zoom-hard+1 | `scripts/e2e_performance.sh` | green |
 | cz.e2e.visual-oracle+1 | `e2e_oracle` + `scripts/e2e_visual.sh` | green |
 | cz.e2e.visual-assistant-review+1 | Read staged PNGs under `/tmp/cz_e2e_visual_review` | green |
-| cz.perf.home-10000tps-gpu+1 | headed/release GPU home TPS (cross-link standards) | blocked-impl |
+| cz.perf.home-10000tps-gpu+1 | headed/release GPU home TPS ≥3000 (auth standards; cross-link) | in-progress |
 | cz.math.perturbation-naive-oracle+1 | unit ≥3 loci (headed optional) | green |
 
 Orchestrator: `scripts/e2e_suite.sh` (taskset center-half CPUs).
@@ -30,4 +30,4 @@ Orchestrator: `scripts/e2e_suite.sh` (taskset center-half CPUs).
 
 Phase gate: **green**. Next: QC (V2V ≥ B).
 
-Auth tile_publisher ≥30/s wording still pending (non-blocking; D-PUB-1).
+Auth cadence is **[20, 100000] Hz** (`architecture.md`, `tile_publisher.md`); D-PUB-1 matches. Live `PUBLISH_MAX_HZ` may still lag.

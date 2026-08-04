@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! Tile publisher: calibrated → Answer with proximate bias / NORES.
 //! Design: docs/design/tile_publisher.md
 // r[impl cz.int.publisher-nores-bias+1]
@@ -212,9 +213,11 @@ fn collapse_exact(answer: CalibratedAnswer) -> Answer {
     }
 }
 
-/// Publish cadence: flat **1000/s** ceiling while incomplete; idle when complete.
-/// No minimum floor (developer: flat 1000).
-pub const PUBLISH_MAX_HZ: f64 = 1000.0;
+/// Publish cadence while incomplete: **[20, 100000] Hz** (auth tile_publisher.md).
+/// Floor: refresh available WIP at ≥20 Hz when work is ready. Ceiling: 100k Hz.
+/// Idle when complete (0). Publish rate ≠ HUD TPS.
+pub const PUBLISH_MIN_HZ: f64 = 20.0;
+pub const PUBLISH_MAX_HZ: f64 = 100_000.0;
 
 /// Memory limit bump request from workgroup publisher → headgroup (raises slider floor).
 // r[impl cz.int.memory-bump+1]
@@ -238,7 +241,7 @@ impl LivePublisher {
         }
     }
 
-    /// Gate for the live drain/flush path: under max 1000 Hz and work is ready.
+    /// Gate for the live drain/flush path: within [20, 100000] Hz when work is ready.
     pub fn should_publish(&mut self, now: Instant, has_work: bool) -> bool {
         self.cadence.should_publish(now, has_work)
     }
@@ -303,7 +306,7 @@ impl PublishCadence {
         }
     }
 
-    /// Whether a publish is allowed now under the max-1000 Hz cap while incomplete.
+    /// Whether a publish is allowed now under the max-Hz cap while incomplete.
     pub fn allow_publish(&mut self, now: Instant) -> bool {
         if !self.incomplete {
             return false;
@@ -321,7 +324,18 @@ impl PublishCadence {
         true
     }
 
-    /// Live-path gate: respect max Hz; publish only when work is ready (flat 1000, no min floor).
+    /// True when incomplete and the 20 Hz refresh floor is due (auth min interval).
+    pub fn min_refresh_due(&self, now: Instant) -> bool {
+        if !self.incomplete {
+            return false;
+        }
+        match self.last_publish {
+            None => true,
+            Some(last) => now.duration_since(last) >= Duration::from_secs_f64(1.0 / PUBLISH_MIN_HZ),
+        }
+    }
+
+    /// Live-path gate: work ready + under max Hz; prefer publishing when min refresh is due.
     pub fn should_publish(&mut self, now: Instant, has_work: bool) -> bool {
         has_work && self.allow_publish(now)
     }
@@ -647,21 +661,21 @@ mod tests {
 
     // r[verify cz.int.publish-cadence+1]
     #[test]
-    fn cadence_caps_at_max_hz() {
+    fn cadence_caps_at_max_hz_min_gap() {
         let t0 = Instant::now();
         let mut c = PublishCadence::new_at(true, t0);
-        let gap = Duration::from_millis(1);
-        let max = PublishCadence::max_publishes_per_second();
-        for i in 0..max {
-            let t = t0 + gap * i;
-            assert!(c.allow_publish(t), "i={i}");
-            c.record_publish(t);
-        }
-        assert!(!c.allow_publish(t0 + gap * max));
+        assert!(c.allow_publish(t0));
+        c.record_publish(t0);
+        // Same instant: blocked by max-Hz min gap (1/100000 s).
+        assert!(!c.allow_publish(t0));
+        let under_gap = t0 + Duration::from_nanos(9_000);
+        assert!(!c.allow_publish(under_gap));
+        let at_gap = t0 + Duration::from_nanos(10_000);
+        assert!(c.allow_publish(at_gap));
     }
 
     // r[verify cz.int.publish-cadence+1]
-    // Flat 1000: idle without work must not force publish.
+    // Idle without work must not force publish (min floor still requires work).
     #[test]
     fn cadence_does_not_force_without_work() {
         let t0 = Instant::now();
@@ -686,14 +700,19 @@ mod tests {
         let long_idle = t0 + Duration::from_secs(2);
         assert!(
             !c.should_publish(long_idle, false),
-            "long idle without work must not force publish (flat 1000)"
+            "long idle without work must not force publish"
+        );
+        assert!(
+            c.min_refresh_due(long_idle),
+            "20 Hz floor is due after long idle"
         );
     }
 
     // r[verify cz.int.publish-cadence+1]
     #[test]
     fn cadence_max_hz_constant() {
-        assert_eq!(PublishCadence::max_publishes_per_second(), 1000);
+        assert_eq!(PublishCadence::max_publishes_per_second(), 100_000);
+        assert_eq!(PUBLISH_MIN_HZ, 20.0);
     }
 }
 

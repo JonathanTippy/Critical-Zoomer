@@ -1,3 +1,4 @@
+// read delivery.md for project context
 //! Background reference-orbit binding per docs/design/reference_worker.md.
 //!
 //! Update trigger: point-stencil homothety magnification change.

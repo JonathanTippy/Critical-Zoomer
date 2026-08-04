@@ -1,3 +1,4 @@
+// read delivery.md for project context
 // Extracted from tile_session.rs — unit/integration tests for TileSession.
 use super::*;
 
@@ -319,38 +320,46 @@ mod perturbation_always_on_tests {
                 session.set_mag_velocity(0);
                 let t0 = Instant::now();
                 let mut guard = 0u32;
-                while session.percent_completed() < 95.0 && t0.elapsed().as_millis() < 30_000 {
+                while session.gpu_resident_fill_percent() < 95.0 && t0.elapsed().as_millis() < 30_000 {
                     session.workshift();
                     guard += 1;
                 }
                 let ms = t0.elapsed().as_millis();
                 eprintln!(
                     "home_800x480 GPU-path fill {}% in {ms}ms ({guard} workshifts) gpu_preferred={} gpu_held={}"
-                    , session.percent_completed()
+                    , session.gpu_resident_fill_percent()
                     , session.worker_state.is_gpu_preferred()
                     , session.worker_state.gpu_device_held()
                 );
                 assert!(
-                    session.percent_completed() >= 95.0
+                    session.gpu_resident_fill_percent() >= 95.0
                     , "GPU path only reached {}% in {ms}ms"
-                    , session.percent_completed()
+                    , session.gpu_resident_fill_percent()
                 );
-                // Standards TPS addendum: completed whole tiles / s ≥ 10000 on GPU.
-                let whole = session
-                    .answer_tiles
-                    .values()
-                    .filter(|t| {
-                        t.data.iter().filter(|c| c.is_some()).count() == TILE_SEAT_COUNT
-                    })
-                    .count() as f64;
+                // Standards TPS addendum: headgroup-shaped GPU-resident whole tiles / s ≥ 3000.
+                let whole = session.headgroup_completed_whole_tiles() as f64;
+                let fill_pct = session.gpu_resident_fill_percent();
                 let secs = (ms as f64 / 1000.0).max(1e-3);
                 let tps = whole / secs;
                 eprintln!(
-                    "home_gpu_completed_whole_tps≈{tps:.1} whole={whole} ms={ms}"
+                    "home_gpu_headgroup_whole_tps≈{tps:.1} whole={whole} ms={ms} gpu_held={} fill={fill_pct:.1}% host_fill={:.1}%"
+                    , session.worker_state.gpu_device_held()
+                    , session.percent_completed()
                 );
                 assert!(
-                    tps >= 10_000.0
-                    , "home GPU completed-whole TPS {tps:.1} < 10000 (whole={whole}, ms={ms})"
+                    session.worker_state.gpu_device_held()
+                    , "GPU path probe must hold a device (lazy-init); preferred={} held={}"
+                    , session.worker_state.is_gpu_preferred()
+                    , session.worker_state.gpu_device_held()
+                );
+                assert!(
+                    fill_pct >= 95.0
+                    , "GPU-resident fill only reached {fill_pct:.1}% in {ms}ms (host {}%)"
+                    , session.percent_completed()
+                );
+                assert!(
+                    tps >= 3_000.0
+                    , "home GPU headgroup whole-TPS {tps:.1} < 3000 (whole={whole}, ms={ms})"
                 );
             })
             .expect("spawn");
@@ -535,5 +544,266 @@ mod perturbation_always_on_tests {
             })
             .expect("spawn");
         handle.join().expect("same-mag pan test panicked");
+    }
+
+    // r[verify cz.seamless.foveated-mag-velocity+1]
+    #[test]
+    fn lookahead_wip_enqueues_before_bump_completes() {
+        let handle = std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(|| {
+                let location = ObjectivePosAndZoom {
+                    pos: (IntExp::from(-1), IntExp::ZERO)
+                    , zoom_pot: 2
+                };
+                let mut session = TileSession::new(location, (64, 64));
+                session.force_cpu_bouts_for_test();
+                session.set_mag_velocity(1);
+                let mut guard = 0u32;
+                let mut saw_partial_wip = false;
+                while guard < 800 {
+                    session.workshift_budget_ms(32);
+                    if session.has_open_lookahead() {
+                        let wip = session.drain_lookahead_publishes();
+                        if !wip.is_empty() {
+                            assert!(
+                                session.has_open_lookahead()
+                                , "WIP publish must not wait for full 64² bump"
+                            );
+                            saw_partial_wip = true;
+                            break;
+                        }
+                    }
+                    guard += 1;
+                }
+                assert!(
+                    saw_partial_wip
+                    , "partial lookahead column must reach lookahead_unsent before bump completes"
+                );
+            })
+            .expect("spawn");
+        handle.join().expect("lookahead wip test panicked");
+    }
+
+    // r[verify cz.seamless.foveated-mag-velocity+1]
+    // r[verify cz.int.stencil-retarget+1]
+    #[test]
+    fn mag_retarget_flushes_partial_lookahead_column() {
+        let handle = std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(|| {
+                let location = ObjectivePosAndZoom {
+                    pos: (IntExp::from(-1), IntExp::ZERO)
+                    , zoom_pot: 2
+                };
+                let mut session = TileSession::new(location.clone(), (64, 64));
+                session.force_cpu_bouts_for_test();
+                session.set_mag_velocity(1);
+                let mut guard = 0u32;
+                while guard < 800 {
+                    session.workshift_budget_ms(32);
+                    if session.has_open_lookahead() {
+                        let wip = session.drain_lookahead_publishes();
+                        if !wip.is_empty() {
+                            break;
+                        }
+                    }
+                    guard += 1;
+                }
+                assert!(
+                    session.has_open_lookahead()
+                    , "precondition: need in-flight lookahead before mag retarget"
+                );
+                session.retarget(
+                    ObjectivePosAndZoom {
+                        pos: location.pos.clone()
+                        , zoom_pot: 3
+                    }
+                    , (64, 64)
+                );
+                let flushed = session.drain_lookahead_publishes();
+                assert!(
+                    !flushed.is_empty()
+                    , "mag retarget must flush partial column to lookahead_unsent"
+                );
+            })
+            .expect("spawn");
+        handle.join().expect("lookahead retarget flush test panicked");
+    }
+
+    // r[verify cz.perf.play-minimize+1]
+    #[test]
+    fn touch_play_visible_ignores_stale_lookahead() {
+        let handle = std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(|| {
+                let location = ObjectivePosAndZoom {
+                    pos: (IntExp::from(-1), IntExp::ZERO),
+                    zoom_pot: 2,
+                };
+                let mut session = TileSession::new(location.clone(), (64, 64));
+                session.force_cpu_bouts_for_test();
+                session.set_mag_velocity(1);
+                let mut guard = 0u32;
+                while guard < 800 {
+                    session.workshift_budget_ms(32);
+                    if !session.drain_lookahead_publishes().is_empty() {
+                        break;
+                    }
+                    guard += 1;
+                }
+                session.retarget(
+                    ObjectivePosAndZoom {
+                        pos: location.pos.clone(),
+                        zoom_pot: 3,
+                    },
+                    (64, 64),
+                );
+                assert!(
+                    session.has_unsent_publish(),
+                    "precondition: lookahead preserved across mag retarget"
+                );
+                assert!(
+                    !session.has_unsent_screen_publish_for_test(),
+                    "precondition: zoom wiped current-stencil unsent"
+                );
+                session.set_mag_velocity(1);
+                assert!(
+                    session.play_need_visible_for_test(),
+                    "stale lookahead must not clear play_need_visible"
+                );
+            })
+            .expect("spawn");
+        handle.join().expect("touch_play_visible lookahead test panicked");
+    }
+}
+
+mod mag_depth_tests {
+    use super::*;
+    use crate::assemblies::headgroup::window::sampling::{SamplingContext, ZoomerCommand};
+    use crate::assemblies::headgroup::window::transforms::transform;
+    use crate::constants::HOME_POSITION;
+    use crate::gear::Gear;
+
+    fn zoom_from_home(center: (i32, i32), steps: usize) -> ObjectivePosAndZoom {
+        let mut ctx = SamplingContext {
+            tiles: Default::default(),
+            tile_gpu_ids: Default::default(),
+            pending_tile_uploads: Vec::new(),
+            next_tile_gpu_id: 1,
+            reset_gpu_tile_slots: false,
+            proximate_answers: false,
+            unsent_answers: false,
+            screen_size: (800, 480),
+            location: ObjectivePosAndZoom {
+                pos: (IntExp::from(HOME_POSITION.0), IntExp::from(HOME_POSITION.1)),
+                zoom_pot: HOME_POSITION.2,
+            },
+            updated: false,
+            mouse_drag_start: None,
+            memory_limit_bytes: 256 * 1024 * 1024,
+            last_memory_bump: None,
+            handle_filled: Default::default(),
+        };
+        for _ in 0..steps {
+            transform(
+                vec![ZoomerCommand::Zoom {
+                    pot: 1,
+                    center_screenspace_pos: center,
+                }],
+                &mut ctx,
+            );
+        }
+        ctx.location
+    }
+
+    #[test]
+    fn reference_orbit_seeds_through_mag_twenty() {
+        for mag in [10i32, 15, 18, 19, 20, 21] {
+            let location = ObjectivePosAndZoom {
+                pos: (IntExp::from(-1), IntExp::ZERO),
+                zoom_pot: mag,
+            };
+            let session = TileSession::new(location, (4, 4));
+            assert_ne!(
+                session.bound_orbit_id_for_test(),
+                ZERO_ORBIT_ID,
+                "mag {mag}: corner nucleus must bind a reference orbit"
+            );
+        }
+    }
+
+    #[test]
+    fn gear_selects_beyond_f64_when_discrimination_exceeds_mantissa() {
+        let mag = 20i32;
+        let stencil = PointStencil {
+            homothety: (IntExp::from(-1), IntExp::ZERO, mag),
+            resolution: (64, 64),
+            serial_number: 0,
+            focus: None,
+            hover: None,
+            mag_velocity: 0.0,
+        }
+        .correct_precision();
+        let corner = (stencil.homothety.0.clone(), stencil.homothety.1.clone());
+        assert_eq!(
+            stencil.select_gear(Some(&corner), true),
+            Gear::StackedI32 { limbs: 1 }
+        );
+        assert_eq!(
+            stencil.select_gear(Some(&corner), false),
+            Gear::F64
+        );
+    }
+
+    #[test]
+    fn workshift_completes_at_mag_twenty_on_period_two_nucleus() {
+        let handle = std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(|| {
+                let location = ObjectivePosAndZoom {
+                    pos: (IntExp::from(-1), IntExp::ZERO),
+                    zoom_pot: 20,
+                };
+                let mut session = TileSession::new(location, (6, 6));
+                session.force_cpu_bouts_for_test();
+                let mut guard = 0;
+                while session.percent_completed() < 100.0 {
+                    session.workshift();
+                    guard += 1;
+                    assert!(
+                        guard < 800,
+                        "mag 20: session stalled at {:.1}%",
+                        session.percent_completed()
+                    );
+                }
+            })
+            .expect("spawn mag-20 workshift test");
+        handle.join().expect("mag-20 workshift test panicked");
+    }
+
+    #[test]
+    fn workshift_completes_after_twenty_zooms_from_home() {
+        let handle = std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(|| {
+                let center = (400, 240);
+                let location = zoom_from_home(center, 20);
+                let mag = location.zoom_pot;
+                let mut session = TileSession::new(location, (64, 64));
+                session.force_cpu_bouts_for_test();
+                let mut guard = 0;
+                while session.percent_completed() < 100.0 {
+                    session.workshift();
+                    guard += 1;
+                    assert!(
+                        guard < 400,
+                        "mag {mag}: stalled at {:.1}% after zoom-from-home",
+                        session.percent_completed()
+                    );
+                }
+            })
+            .expect("spawn zoom-from-home test");
+        handle.join().expect("zoom-from-home test panicked");
     }
 }

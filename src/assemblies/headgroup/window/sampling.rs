@@ -1,3 +1,4 @@
+// read delivery.md for project context
 use egui::{Pos2};
 use std::collections::HashMap;
 
@@ -263,10 +264,15 @@ impl SamplingContext {
                 if ax >= *ox && ay >= *oy && ax < *ox + edge && ay < *oy + edge {
                     let local = ((ax - *ox) as usize, (ay - *oy) as usize);
                     if let Some(a) = tile.get(local) {
+                        let ans = Answer::from(a);
+                        // NORES is the stack floor — skip so lesser/finer can fill.
+                        if crate::constants::answer_is_nores(&ans) {
+                            continue;
+                        }
                         let dist = dx.abs().saturating_add(dy.abs());
                         match best {
                             Some((best_dist, _)) if best_dist <= dist => {}
-                            _ => { best = Some((dist, Answer::from(a))); }
+                            _ => { best = Some((dist, ans)); }
                         }
                     }
                 }
@@ -313,10 +319,14 @@ impl SamplingContext {
                         , (source_seat.1 - *oy) as usize
                     );
                     if let Some(a) = tile.get(local) {
+                        let ans = Answer::from(a);
+                        if crate::constants::answer_is_nores(&ans) {
+                            continue;
+                        }
                         let dist = dx_fine.abs().saturating_add(dy_fine.abs());
                         match best {
                             Some((best_dist, _)) if best_dist <= dist => {}
-                            _ => { best = Some((dist, Answer::from(a))); }
+                            _ => { best = Some((dist, ans)); }
                         }
                     }
                 }
@@ -358,10 +368,14 @@ impl SamplingContext {
                         , (source_seat.1 - *oy) as usize
                     );
                     if let Some(a) = tile.get(local) {
+                        let ans = Answer::from(a);
+                        if crate::constants::answer_is_nores(&ans) {
+                            continue;
+                        }
                         let dist = dx_fine.abs().saturating_add(dy_fine.abs());
                         match best {
                             Some((best_dist, _)) if best_dist <= dist => {}
-                            _ => { best = Some((dist, Answer::from(a))); }
+                            _ => { best = Some((dist, ans)); }
                         }
                     }
                 }
@@ -535,6 +549,47 @@ mod hoard_tests {
 }
     }
 
+    // r[verify cz.display.nores-when-no-proximate+1]
+    // r[verify cz.tenacious.nores-not-flat-black+1]
+    #[test]
+    fn native_nores_seat_falls_through_to_lesser_work() {
+        let mut ctx = empty_ctx(0);
+        let mut coarse = Tile::new((0, 0), -1);
+        for y in 0..TILE_EDGE_LENGTH {
+            for x in 0..TILE_EDGE_LENGTH {
+                coarse.set((x, y), outside_answer(42));
+            }
+        }
+        ctx.ingest_gpu_tile(GPUTile::from_answer_tile(
+            &coarse
+            , (64, 64)
+            , ObjectivePosAndZoom {
+                pos: (IntExp::ZERO, IntExp::ZERO),
+                zoom_pot: -1,
+            },
+        ));
+        let mut native = Tile::new((0, 0), 0);
+        native.set((0, 0), NORES_ANSWER);
+        ctx.ingest_gpu_tile(GPUTile::from_answer_tile(
+            &native
+            , (64, 64)
+            , ObjectivePosAndZoom {
+                pos: (IntExp::ZERO, IntExp::ZERO),
+                zoom_pot: 0,
+            },
+        ));
+        let a = ctx.lookup_answer_viewport((0, 0));
+        match a.result {
+            MandelbrotResult::Outside { escape_time_r2, .. } => {
+                assert_eq!(
+                    escape_time_r2, 42,
+                    "NORES at native mag must not hide lesser work"
+                );
+            }
+            MandelbrotResult::Inside { .. } => panic!("expected lesser Outside"),
+        }
+    }
+
     // Overlapping same / coarser / finer: finer must win when same is absent.
     #[test]
     fn overlapping_prefers_finer_before_lesser() {
@@ -698,6 +753,24 @@ mod hoard_tests {
             frame.tile_entries.iter().any(|e| e.zoom_delta > 0)
             , "expected a lesser (positive zoom_delta) entry"
         );
+    }
+
+    // r[verify cz.shade.escape-continues-to-bailout+1]
+    // r[verify cz.cosmetic.bailout-range-2-255+1]
+    #[test]
+    fn build_shade_frame_wires_bailout_settings_into_uniforms() {
+        use crate::assemblies::headgroup::window::gpu_display::build_shade_frame;
+        use crate::settings::Settings;
+        let mut ctx = empty_ctx(0);
+        let mut settings = Settings::DEFAULT;
+        settings.bailout_radius.value = 32.0;
+        settings.bailout_max_additional_iterations = 15;
+        let frame = build_shade_frame(&mut ctx, &mut settings);
+        assert_eq!(
+            frame.uniforms.bailout_radius
+            , settings.bailout_radius.determine() as f32
+        );
+        assert_eq!(frame.uniforms.bailout_max_extra, 15);
     }
 
     // D-MEM-2: bump raises the memory limit the slider mirrors.

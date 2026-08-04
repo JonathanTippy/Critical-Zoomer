@@ -1,6 +1,6 @@
 # Unit-test matrix (assistant-owned, non-authoritative)
 
-Phase gate: every row `green`. Soft-skip GPU ≠ green. `D-*` decisions are oracles only when they do not contradict authoritative docs. D-PUB-1: flat 1000 Hz + GPU publisher (no min floor).
+Phase gate: every row `green`. Soft-skip GPU ≠ green (DAT 2026-08-01 reopened unit phase). `D-*` decisions are oracles only when they do not contradict authoritative docs. D-PUB-1: [20, 100000] Hz + GPU publisher (idle when complete).
 
 Status: `green` | `in-progress` | `blocked-impl`
 
@@ -32,7 +32,7 @@ Status: `green` | `in-progress` | `blocked-impl`
 | cz.int.memory-bump+1 | tile_manager + sampling + unit extras | n/a | multi | green |
 | cz.int.hoard-ingest-sample+1 | sampling (≥3 unit) | n/a | sampling.rs | green |
 | cz.int.publisher-nores-bias+1 | tile_publisher (≥3) | clamp bounds | tile_publisher.rs | green |
-| cz.int.publish-cadence+1 | cadence max 1000; no min floor (D-PUB-1 flat 1000) | n/a | tile_publisher.rs | green |
+| cz.int.publish-cadence+1 | cadence [20, 100000] Hz incomplete; idle when complete (D-PUB-1) | n/a | tile_publisher.rs | green |
 | cz.int.stencil-retarget+1 | unit extract (≥3) | n/a | stencil / window | green |
 | cz.int.session-pipeline+1 | unit extract (≥3) | n/a | tile_session | green |
 | cz.shade.escape-continues-to-bailout+1 | shade_tests (≥3) | n/a | shade_tests.rs | green |
@@ -42,8 +42,8 @@ Status: `green` | `in-progress` | `blocked-impl`
 | cz.shade.small-time-edge-nonzero+1 | shade_tests (≥3) | n/a | shade_tests.rs | green |
 | cz.shade.layers-in-script-order+1 | shade_tests (≥3) | GPU↔oracle | shade_tests.rs | green |
 | cz.perf.foveation-half-time+1 | tile_session (≥3) | 50/50 time | tile_session / standards_perf | green |
-| cz.perf.home-100tps+1 | home fill release (≥3) | ≤5s | tile_session | green |
-| cz.perf.home-10000tps-gpu+1 | GPU home TPS ≥10000 | ≥10k | standards_perf / e2e | blocked-impl |
+| cz.perf.home-100tps+1 | home fill release (≥3); auth CPU TPS ≥150 | ≤5s / ≥150 | tile_session | green |
+| cz.perf.home-10000tps-gpu+1 | GPU home TPS ≥3000 headgroup-shaped (Jonathan) | ≥3k | tile_session_tests `home_800x480_fills_gpu_path_probe` | in-progress (micro-batch 8× write-all-then-encode + ring depth 128 storm + continuous confirm drain; fill≥95%; whole-TPS ~65–270 noisy, often ~180–230 — still ≪3000; prior per-tile submit ~250–320; remaining: readback/Wait + interior bout; no homescreen cheat) |
 | cz.perf.min-300m-ips-cpu+2 | standards_perf fullstack (≥3; outside r=2 + inside) + microbench | ≥300M | standards_perf | green |
 | cz.perf.min-30b-ips-gpu+1 | standards_perf fullstack (≥3; outside r=2 + inside) + gpu microbench | ≥30B | standards_perf / perturb_gpu | green |
 | cz.perf.optimal-ipp+1 | standards_perf (≥3) | escape IPP | standards_perf | green |
@@ -121,8 +121,11 @@ Former untagged slices now carry `cz.*` ids in section A:
 | D-CANCEL-1 | cancel keeps hoard | green |
 | D-REF-1 | +20 bits | green |
 | D-REF-2 | retire last-user or >N=3 | green |
-| D-PUB-1 | max 1000; no min floor; GPU publisher | green |
+| D-PUB-1 | [20, 100000] Hz incomplete; idle when complete; GPU publisher | green |
 | D-PUB-2 | clamp all-numeric | green |
+| D-PUB-3 | publisher = continuity only; not completion/TPS authority | recorded (2026-08-03) |
+| D-PUB-4 | bypass = same as CPU idea (calibrated tile → proximate bias); GPU-resident only | recorded (2026-08-03) |
+| D-GPU-1…6 | escaped\|repeated; no Answer readback; on-device counter↔final store; host schedule≠completion auth; **multi-tile GPU parallel OK** (same interface) | recorded (2026-08-03); probe still fails ≥3000 |
 | D-STEN-1 | mouse+vel+seq fields | green |
 | D-WORK-1 | address-only keys | green |
 | D-UI-1 | apply enabled when equal | green |
@@ -147,7 +150,7 @@ Former untagged slices now carry `cz.*` ids in section A:
 
 ## Auth note
 
-Developer cadence rule: flat **1000/s** ceiling (D-PUB-1). Auth `tile_publisher.md` still mentions ≥30/s — treat as stale until human edits; tests enforce flat 1000. GPU publisher shader is still required.
+Developer cadence rule: **[20, 100000] Hz** while incomplete (D-PUB-1; matches auth `architecture.md` + `tile_publisher.md`). Idle when complete. Live `PublishCadence` / `PUBLISH_MAX_HZ` may still lag auth — treat as impl debt, not a soft-skip of the standard. GPU publisher shader is still required.
 
 ## Preflight (2026-07-31)
 

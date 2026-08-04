@@ -6,8 +6,8 @@ Evaluated under the V2V skill (strict). Evidence dated 2026-07-31 / 2026-08-01 t
 
 | Item | Score | Evidence |
 |------|-------|----------|
-| Spec | 7.8 | `docs/requirements.md` + `standards.md` + `design/*` versioned `r[]`; architecture allocation table. Auth `tile_publisher` ≥30/s wording still stale vs D-PUB-1 (known non-blocking). |
-| Tracey | 7.8 | `tracey query status`: **76/77** covered, **0** untested, **0** stale. Sole uncovered: `cz.perf.home-10000tps-gpu` (soft-skip / blocked-impl). |
+| Spec | 7.8 | `docs/requirements.md` + `standards.md` + `design/*` versioned `r[]`; architecture allocation table. Auth publish cadence **[20, 100000] Hz**; D-PUB-1 aligned. |
+| Tracey | 7.8 | `tracey query status`: **76/77** covered, **0** untested, **0** stale. Sole uncovered: `cz.perf.home-10000tps-gpu` (impl debt; auth bar now ≥3000 — soft-skip forbidden). |
 | Coverage | 6.0 | CI runs `cargo llvm-cov`; local summary this pass aborted under fat/stacky tests before TOTAL. `scripts/coverage.sh` exists with GUI ignores. No fresh ≥98% region proof. |
 | Properties | 7.0 | IntExp commute/assoc, Range guess_biased, Mandelbrot conjugate, shade GPU↔oracle props; roster in unit-test matrix. Not majority of all correctness paths. |
 | SubsystemsDesign | 6.8 | Clear headgroup/workgroup actor split; `tile_session.rs` ~2001 lines (at skill’s soft ceiling); large perturb/GPU files remain. |
@@ -42,4 +42,4 @@ Delivery QC gate is **B (7.0–7.9)**. This evaluation is **borderline**. Treat 
 **Recommended next actions:**  
 - Capture llvm-cov via `scripts/coverage.sh`  
 - Finish or triage scoped mutants  
-- Keep GPU 10k TPS as soft-skip until implementable  
+- Meet GPU home TPS ≥3000 (auth); soft-skip forbidden  
