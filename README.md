@@ -1,6 +1,6 @@
 ![Untitled-Artwork_shortened](https://user-images.githubusercontent.com/54297927/212390663-ff8359e9-438a-4742-8cf6-3b7675a27f7a.jpg)
 Artwork by Deborah Tippy
-
+[![Leaderboard](https://my.kmf-lab.com/leaderboard/static/badge/JonathanTippy.svg)](https://my.kmf-lab.com/leaderboard/JonathanTippy/critical-zoomer)
 
 # Critical Zoomer
 a mandelbrot set zoomer written in rust
