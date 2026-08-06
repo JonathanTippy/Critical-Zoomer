@@ -1,5 +1,7 @@
 This directory is for assistnat-generated docs. Separate from human docs; not authoritative vs root docs.
 
+**2026-08-06: codebase reverted to v0.0.9 (e6a0560).** The tile-era machine is gone from the live tree; its design docs, unit designs, experiments, and bug-stack detail are under `Stale/`. The v0.0.9 workgroup study is enshrined at `docs/design/workgroup-virtues.md` — its invariants govern any new workgroup work.
+
 ## Layout
 
 - assistant status, RCA, bug/todo stack, align logs, implementation notes.
@@ -7,5 +9,8 @@ This directory is for assistnat-generated docs. Separate from human docs; not au
 
 ## Index
 
-- `issue-stack.md` — live open/done bug and todo stack
-- `unit-design/` — non-authoritative unit design pack (decisions, coverage matrix, supplements, new units)
+- `issue-stack.md` — live open/done bug and todo stack (slimmed post-revert; tile-era detail in `Stale/issue-stack-tile-era.md`)
+- `collected-wisdom.md` — good content rescued from stale docs (assistant + developer) that the v0.0.9 study did not contradict
+- `unit-design/` — non-authoritative unit design pack (decisions, still-relevant new units)
+- `Stale/` — tile-era unit design pack, coverage matrix, GPU-TPS experiments, issue-stack detail
+- `dat-2026-08-01.md` — first V2V DAT; process lessons still apply (see delivery.md)

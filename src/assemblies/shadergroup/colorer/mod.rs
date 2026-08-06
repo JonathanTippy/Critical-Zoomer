@@ -1,0 +1,159 @@
+use rand::Rng;
+use steady_state::*;
+use crate::assemblies::headgroup::window::sampling::*;
+
+use crate::utils::*;
+
+use crate::assemblies::workgroup::work_collector::*;
+
+use crate::assemblies::shadergroup::escaper::*;
+
+use crate::settings::*;
+
+use crate::assemblies::shadergroup::colorer::color::*;
+pub mod color;
+
+use crate::assemblies::structs::*;
+use egui::Color32;
+
+pub struct ColorerState {
+    pub values:Option<ZoomerValuesScreen>,
+    pub start:Instant,
+    pub settings:Settings
+}
+
+pub async fn run(
+    actor: SteadyActorShadow,
+    values_in: SteadyRx<ZoomerValuesScreen>,
+    settings_in: SteadyRx<Settings>,
+    screens_out: SteadyTx<View<Color32>>,
+    state: SteadyState<ColorerState>,
+) -> Result<(), Box<dyn Error>> {
+    // The worker is tested by its simulated neighbors, so we always use internal_behavior.
+    internal_behavior(
+        actor.into_spotlight([&settings_in, &values_in], [&screens_out]),
+        values_in,
+        settings_in,
+        screens_out,
+        state,
+    )
+        .await
+}
+
+async fn internal_behavior<A: SteadyActor>(
+    mut actor: A,
+    values_in: SteadyRx<ZoomerValuesScreen>,
+    settings_in: SteadyRx<Settings>,
+    screens_out: SteadyTx<View<Color32>>,
+    state: SteadyState<ColorerState>,
+) -> Result<(), Box<dyn Error>> {
+    let mut values_in = values_in.lock().await;
+    let mut screens_out = screens_out.lock().await;
+    let mut settings_in = settings_in.lock().await;
+
+    let mut state = state.lock(|| ColorerState {
+        values: None,
+        start: Instant::now(),
+        settings: Settings::DEFAULT
+    }).await;
+
+    // Lock all channels for exclusive access within this actor.
+
+    let max_sleep = Duration::from_millis(8);
+
+    // Main processing loop.
+    // The actor runs until all input channels are closed and empty, and the output channel is closed.
+    while actor.is_running(
+        || i!(true)
+    ) {
+        await_for_any!(//#!#//
+            actor.wait_periodic(max_sleep),
+            actor.wait_avail(&mut values_in, 1),
+            actor.wait_avail(&mut settings_in, 1),
+        );
+
+
+
+
+        let elapsed = state.start.elapsed().as_millis();
+
+        //let radius:f64 = 2.0 + (((elapsed % 10000) as f64 / 10000.0) * 4.0);
+
+        /*let u_1:f64 = 10.0;
+        let u_2:f64 = 100.0;
+        let t_p = 10000;
+        let t = ((elapsed % t_p) as f64 / t_p as f64);
+        let t_pi = t * 6.28;
+        let t_sin = (t_pi.sin() + 1.0)/2.0;
+
+        //let u = u_1 + t_sin * (u_2 - u_1);
+
+        let loglog_u1 = (u_1.ln()).ln();
+        let loglog_u2 = (u_2.ln()).ln();
+        let loglog_u = loglog_u1 + (loglog_u2 - loglog_u1) * t_sin;
+        let u = (loglog_u.exp()).exp();
+
+        let u = 25.0;*/
+
+        // do stuff
+
+        if actor.avail_units(&mut settings_in) > 0 {
+            while actor.avail_units(&mut settings_in) > 1 {
+                let stuff = actor.try_take(&mut settings_in).expect("internal error");
+                drop(stuff);
+            };
+            match actor.try_take(&mut settings_in) {
+                Some(s) => {
+                    let mut rng = rand::thread_rng();
+                    state.settings = s;
+                }
+                None => {}
+            }
+        }
+
+        if actor.avail_units(&mut values_in) > 0 {
+            while actor.avail_units(&mut values_in) > 1 {
+                let stuff = actor.try_take(&mut values_in).expect("internal error");
+                drop(stuff);
+            };
+            match actor.try_take(&mut values_in) {
+                Some(v) => {
+                    let mut rng = rand::thread_rng();
+                    //info!("recieved values");
+                    state.values = Some(v);
+                }
+                None => {}
+            }
+        }
+
+        let mut settings = state.settings.clone();
+        if let Some(v) = &mut state.values {
+            let output = color(v, &mut settings);
+
+            actor.try_send(&mut screens_out, View{
+                data: output.clone()
+                , bitmap: vec!(0u8;output.len())
+                , stencil: PointStencil{
+                    resolution: (v.res.0 as usize, v.res.1 as usize)
+                    , location: (
+                        v.objective_location.clone().pos.0
+                        , IntExp::ZERO-v.objective_location.clone().pos.1
+                        , v.objective_location.clone().zoom_pot
+                    )
+                    , serial_number: 0
+                }
+            });
+            //info!("sent colors to window");
+        }
+        state.settings = settings;
+
+
+
+
+
+    }
+
+    // Final shutdown log, reporting all statistics.
+    info!("Colorer shutting down.");
+    Ok(())
+}

@@ -1,51 +1,13 @@
-// read delivery.md for project context
 use eframe::emath::Rect;
-use egui::{color_picker, Slider, Ui};
+use egui::{color_picker, Ui};
 use egui_dnd::dnd;
 use crate::settings::*;
-use crate::assemblies::workgroup::tile_manager::memory_slider_floor_gb;
 impl Settings {
     pub fn widgetize(&mut self, ui:&mut Ui) {
 
         ui.label("bailout radius:");
         self.bailout_radius.widgetize(ui);
 
-        ui.separator();
-        ui.label("memory limit (per side: CPU and VRAM each get this budget):");
-        // Soft max for the slider UI; treat near-max as "unlimited" display.
-        const SLIDER_MAX: f64 = 64.0 * 1024.0 * 1024.0 * 1024.0; // 64 GiB
-        let mut gb = if self.memory_limit_bytes == usize::MAX {
-            SLIDER_MAX / 1_000_000_000.0
-        } else {
-            (self.memory_limit_bytes as f64) / 1_000_000_000.0
-        };
-        let response = ui.add(
-            Slider::new(
-                &mut gb,
-                memory_slider_floor_gb(self.memory_floor_bytes)
-                    ..=(SLIDER_MAX / 1_000_000_000.0),
-            )
-                .logarithmic(true)
-                .suffix(" GB")
-                .text("L")
-        );
-        if response.changed() {
-            if gb * 1_000_000_000.0 >= SLIDER_MAX * 0.99 {
-                self.memory_limit_bytes = usize::MAX;
-            } else {
-                self.memory_limit_bytes = (gb * 1_000_000_000.0).round().max(1.0) as usize;
-            }
-        }
-        if self.memory_limit_bytes == usize::MAX {
-            ui.label("current: unlimited");
-        } else {
-            ui.label(format!(
-                "current: {:.3} GB  (bumps raise the floor when on-screen+lookahead exceed L)"
-                , self.memory_limit_bytes as f64 / 1_000_000_000.0
-            ));
-        }
-
-        ui.separator();
         ui.label("order of coloring steps:");
 
         //ui.add(egui::Slider::new(&mut state.settings.bailout_max_additional_iterations,  0..=100000).logarithmic(true));
@@ -86,7 +48,7 @@ impl ColoringInstruction {
     pub fn widgetize(&mut self, ui: &mut Ui) {
         match self {
             ColoringInstruction::PaintEscapeTime{
-                inside_opacity, outside_opacity, color, range, shading_method, normalizing_method, ..
+                opacity, color, range, shading_method, normalizing_method, ..
             } => {
                 ui.label("Escape Time Coloring Settings");
                 ui.label("Escape Time shading method:");
@@ -99,10 +61,8 @@ impl ColoringInstruction {
                 let mut color_array = [color.0, color.1, color.2];
                 color_picker::color_edit_button_srgb(ui, &mut color_array);
                 *color = (color_array[0], color_array[1], color_array[2]);
-                ui.label("Escape Time opacity of inside shading:");
-                ui.add(egui::Slider::new(inside_opacity, 0..=255));
-                ui.label("Escape Time opacity of outside shading:");
-                ui.add(egui::Slider::new(outside_opacity, 0..=255));
+                ui.label("Escape Time opacity of shading:");
+                ui.add(egui::Slider::new(opacity, 0..=255));
             }
             , ColoringInstruction::PaintSmallTime{
                 inside_opacity, outside_opacity, color, range, shading_method, normalizing_method, ..
@@ -143,33 +103,29 @@ impl ColoringInstruction {
                 ui.add(egui::Slider::new(outside_opacity, 0..=255));
             }
             , ColoringInstruction::HighlightInFilaments{
-                inside_opacity, outside_opacity, color, ..
+                opacity, color, ..
             } => {
                 ui.label("In Filament Highlighting Settings");
                 ui.label("In Filament color of shading:");
                 let mut color_array = [color.0, color.1, color.2];
                 color_picker::color_edit_button_srgb(ui, &mut color_array);
                 *color = (color_array[0], color_array[1], color_array[2]);
-                ui.label("In Filament opacity of inside shading:");
-                ui.add(egui::Slider::new(inside_opacity, 0..=255));
-                ui.label("In Filament opacity of outside shading:");
-                ui.add(egui::Slider::new(outside_opacity, 0..=255));
+                ui.label("In Filament opacity of shading:");
+                ui.add(egui::Slider::new(opacity, 0..=255));
             }
             , ColoringInstruction::HighlightOutFilaments{
-                inside_opacity, outside_opacity, color, ..
+                opacity, color, ..
             } => {
                 ui.label("Out Filament Highlighting Settings");
                 ui.label("Out Filament color of shading:");
                 let mut color_array = [color.0, color.1, color.2];
                 color_picker::color_edit_button_srgb(ui, &mut color_array);
                 *color = (color_array[0], color_array[1], color_array[2]);
-                ui.label("Out Filament opacity of inside shading:");
-                ui.add(egui::Slider::new(inside_opacity, 0..=255));
-                ui.label("Out Filament opacity of outside shading:");
-                ui.add(egui::Slider::new(outside_opacity, 0..=255));
+                ui.label("Out Filament opacity of shading:");
+                ui.add(egui::Slider::new(opacity, 0..=255));
             }
             , ColoringInstruction::HighlightNodes{
-                inside_opacity, outside_opacity, color, thickness, ..
+                inside_opacity, outside_opacity, color, thickness, only_fattest, ..
             } => {
                 ui.label("Node Highlighting Settings");
                 ui.label("Node Highlighting color of shading:");
@@ -182,6 +138,8 @@ impl ColoringInstruction {
                 ui.add(egui::Slider::new(outside_opacity, 0..=255));
                 ui.label("Node Highlighting thickness:");
                 ui.add(egui::Slider::new(thickness, 0..=10));
+                ui.label("Node Highlighting only show fattest?:");
+                ui.checkbox(only_fattest, "fat");
             }
             , ColoringInstruction::HighlightSmallTimeEdges{
                 inside_opacity, outside_opacity, color, ..

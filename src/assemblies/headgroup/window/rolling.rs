@@ -1,4 +1,3 @@
-// read delivery.md for project context
 use std::time::{Duration, Instant};
 use std::collections::*;
 pub fn rolling_frame_calc(
@@ -152,81 +151,4 @@ pub fn rolling_frame_calc(
             Some( ( average, worst ) )
         } else {None},
     )
-}
-/// Rolling 1-second counter of completed tiles ingested into the headgroup hoard.
-/// Standards HUD TPS — not workgroup emit rate.
-#[derive(Default, Debug, Clone)]
-pub struct TpsCounter {
-    events: VecDeque<Instant>,
-}
-
-impl TpsCounter {
-    pub fn new() -> Self {
-        Self { events: VecDeque::new() }
-    }
-
-    /// Record `n` newly completed tiles ingested this turn.
-    pub fn record(&mut self, n: usize, now: Instant) {
-        for _ in 0..n {
-            self.events.push_front(now);
-        }
-        self.prune(now);
-    }
-
-    fn prune(&mut self, now: Instant) {
-        while let Some(back) = self.events.back() {
-            if now.duration_since(*back) > Duration::from_secs(1) {
-                self.events.pop_back();
-            } else {
-                break;
-            }
-        }
-    }
-
-    /// Completed tiles in the last 1s window.
-    pub fn tps(&mut self, now: Instant) -> f64 {
-        self.prune(now);
-        self.events.len() as f64
-    }
-}
-
-#[cfg(test)]
-mod tps_tests {
-    use super::*;
-
-    #[test]
-    fn empty_is_zero() {
-        let mut c = TpsCounter::new();
-        assert_eq!(c.tps(Instant::now()), 0.0);
-    }
-
-    #[test]
-    fn records_count_within_window() {
-        let mut c = TpsCounter::new();
-        let t0 = Instant::now();
-        c.record(5, t0);
-        assert_eq!(c.tps(t0), 5.0);
-    }
-
-    #[test]
-    fn prunes_events_older_than_one_second() {
-        let mut c = TpsCounter::new();
-        let t0 = Instant::now();
-        c.events.push_front(t0 - Duration::from_millis(1500));
-        c.record(2, t0);
-        assert_eq!(c.tps(t0), 2.0);
-    }
-
-    // Standards: TPS is completed whole tiles / s, not emit rate.
-    // r[verify cz.perf.home-100tps+1]
-    #[test]
-    fn hud_tps_is_count_of_recorded_completions_not_emits() {
-        let mut c = TpsCounter::new();
-        let t0 = Instant::now();
-        // Simulate old bug: 20 WIP emits in a second would show "20tps".
-        // Correct HUD only records completions (here: 2).
-        c.record(2, t0);
-        assert_eq!(c.tps(t0), 2.0);
-        assert!(c.tps(t0) < 10.0, "must not look like WIP emit rate");
-    }
 }

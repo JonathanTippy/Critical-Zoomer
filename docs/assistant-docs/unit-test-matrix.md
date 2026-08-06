@@ -17,6 +17,13 @@ Status: `green` | `in-progress` | `blocked-impl`
 | cz.display.offscreen-r2-circle+1 | offscreen.rs (≥3) | n/a | offscreen.rs | green |
 | cz.display.offscreen-arrows+1 | offscreen classifier + window arrows impl | n/a | offscreen.rs | green |
 | cz.display.nores-when-no-proximate+1 | sampling + gpu_tile + shade | n/a | multi | green |
+| cz.display.nores-fallthrough-gpu+1 | sampling_fitness S1–S3 + H2 (≥3) | GPU skip full NORES | shade_tests | green |
+| cz.hoard.wip-proximate-not-nores+1 | core_fitness H1 (≥2) + publisher | proximate / hole | tile_session_tests | green |
+| cz.look.lookahead-column-opens+1 | core_fitness H3 | zoom-in column | tile_session_tests | green |
+| cz.look.lookback-column-shade+1 | sampling_fitness H2 | lesser shade | shade_tests | green |
+| cz.play.sync-tick-budget+1 | play_tick (≥3) | GPU-scaled N | play_tick.rs | green |
+| cz.play.sync-tick-exact-n+1 | play_tick + core_fitness P2 | exact N | multi | green |
+| cz.play.no-payload-readback+1 | play_tick + core_fitness P3 | zero harvest | multi | green |
 | cz.tenacious.nores-not-flat-black+1 | b_ten_1 + shade | n/a | multi | green |
 | cz.tenacious.no-max-iter+1 | tenacity + IPP origin (≥3) | finish without max-iter | perturb_cpu / standards_perf | green |
 | cz.hoarding.one-answer-per-point+1 | sampling hoard_tests (≥3) | n/a | sampling.rs | green |

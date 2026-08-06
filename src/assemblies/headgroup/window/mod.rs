@@ -1,22 +1,23 @@
-// read delivery.md for project context
 use steady_state::*;
 use eframe::{egui, NativeOptions};
 //use eframe::Frame::raw_window_handle;
 use winit::platform::x11::EventLoopBuilderExtX11; // For X11
 //use winit::platform::wayland::EventLoopBuilderExtWayland; // For Wayland
 //use winit::platform::windows::EventLoopBuilderExtWindows; // For Windows
-use egui::{Color32, Pos2, Vec2, ViewportInfo};
+use egui::{Color32, ColorImage, Pos2, TextureHandle, Vec2, ViewportInfo};
 use std::error::Error;
 use std::sync::{Arc, Mutex};
+
 use std::collections::*;
 use std::cmp::*;
 
 use rug::*;
-use transforms::transform;
-use crate::assemblies::workgroup::tile_scheduler_actor::*;
+
+use crate::assemblies::shadergroup::colorer::*;
+use crate::assemblies::workgroup::work_controller::*;
 
 use crate::settings::*;
-use crate::utils::*; use crate::intexp::*;
+use crate::utils::*;
 use crate::constants::*;
 use crate::assemblies::headgroup::window::rolling::*;
 use crate::assemblies::headgroup::window::widgetize::*;
@@ -24,37 +25,20 @@ use crate::assemblies::headgroup::window::widgetize::*;
 use crate::assemblies::structs::*;
 use crate::assemblies::headgroup::window::inputs::*;
 use crate::assemblies::headgroup::window::sampling::*;
-use crate::assemblies::headgroup::window::gpu_display::*;
 
-use crate::intexp::*;
 
 pub mod rolling;
 pub mod widgetize;
 pub mod inputs;
 pub mod sampling;
-pub mod gpu_display;
 pub mod transforms;
-pub mod coords;
-pub mod navigate;
-pub mod offscreen;
-
-use crate::assemblies::headgroup::window::coords::*;
-use crate::assemblies::headgroup::window::navigate::*;
-use crate::assemblies::headgroup::window::offscreen::{
-    R2ScreenRelation, ViewportComplexRect,
-};
 
 const RECOVER_EGUI_CRASHES:bool = false;
 // ^ half implimented; in cases where the window is supposed to
 // be minimized or not on top, it might bother the user by restarting.
 //const MIN_FRAME_RATE:f64 = 20.0;
 //const MAX_FRAME_TIME:f64 = 1.0 / MIN_FRAME_RATE;
-// r[impl cz.perf.headgroup-vsync+1]
-pub const VSYNC: bool = true;
-/// Wake pacing hint only; present rate is Fifo/vsync (do not fake an FPS cap).
-const TARGET_FRAME_PERIOD: std::time::Duration = std::time::Duration::from_nanos(16_666_667);
-/// wgpu present mode forced for vsync (NativeOptions.vsync does not drive wgpu).
-pub const HEADGROUP_PRESENT_MODE: wgpu::PresentMode = wgpu::PresentMode::Fifo;
+const VSYNC:bool = false;
 
 
 
@@ -63,11 +47,33 @@ pub const HEADGROUP_PRESENT_MODE: wgpu::PresentMode = wgpu::PresentMode::Fifo;
 
 /// State struct for the window actor.
 
+pub struct ZoomerState {
+    pub settings_window_open: bool
+    , pub position: (String, String)
+    , pub zoom: String
+}
+
+pub struct ZoomerReport {
+    pub actor_start: Instant,
+    pub actor_wake: Instant,
+    pub time_to_xyz: Vec<(String, Duration)>
+}
+
+
+
+pub struct ZoomerCommandPackage {
+    pub start_time: Instant
+    , pub commands: Vec<ZoomerCommand>
+}
+
+
 #[derive(Clone)]
 pub struct WindowState {
     pub size: Vec2
     , pub location: Option<Pos2>
     , pub last_frame_period: Option<(Instant, Instant)>
+    , pub buffers: Vec<Vec<Color32>>
+    , pub id_counter:u64
     , pub sampling_context: SamplingContext
     , pub settings_window_context: Arc<Mutex<SettingsWindowContext>>
     , pub settings_window_open: bool
@@ -78,60 +84,44 @@ pub struct WindowState {
         , VecDeque<(Instant, u64, Duration, Duration)>
         , Option<Instant>
     )
+    , pub texturing_things: Vec<(TextureHandle, ColorImage, Vec<Color32>)>
+    //, pub sampling_resolution_multiplier: f32
     , pub timer: Instant
+    , pub fps_margin: f32
+    , pub timer2: Instant
     , pub controls_timer: Instant
     , pub stencil_serial_number_counter: u64
     , pub scroll_debt: f32
-    , pub startup_goto_applied: bool
-    , pub nav_target: Option<(IntExp, IntExp, i32)>
-    , pub gpu_atlas_size: (u32, u32)
-    , pub coord_input: String
-    , pub atlas_location: Option<ObjectivePosAndZoom>
-    , pub shift_was_down: bool
-    // Accumulator for Shift hold zoom (~5 bumps/s).
-    , pub key_zoom_in_debt: f32
-    // Accumulator for Space hold zoom (~5 bumps/s).
-    , pub key_zoom_out_debt: f32
-    // EWMA of signed zoom bumps/sec (D-SCH-2); shipped on PointStencil.
-    , pub mag_velocity_ewma: f64
-    // Headgroup completed-tile TPS (standards HUD).
-    , pub tps_counter: crate::assemblies::headgroup::window::rolling::TpsCounter
 }
 
 /// Entry point for the window actor.
 pub async fn run(
-    actor: SteadyActorShadow
-    , pixels_in: SteadyRx<GpuTileHandle>
-    // Slot 0 → tile scheduler; slot 1 → reference worker (whole-screen stencil).
-    , stencil_out: SteadyTxBundle<PointStencil, 2>
-    , settings_out: SteadyTxBundle<Settings,2>
-    , attention_out: SteadyTx<(i32, i32)>
-    , memory_bump_in: SteadyRx<crate::assemblies::workgroup::tile_publisher::MemoryBump>
-    , state: SteadyState<WindowState>
+    actor: SteadyActorShadow,
+    pixels_in: SteadyRx<View<Color32>>,
+    stencil_out: SteadyTx<(PointStencil)>,
+    settings_out: SteadyTxBundle<Settings,2>,
+    attention_out: SteadyTx<(i32, i32)>,
+    state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
     internal_behavior(
-        actor.into_spotlight(
-            [&pixels_in, &memory_bump_in]
-            , [&stencil_out[0], &stencil_out[1], &settings_out[0], &settings_out[1], &attention_out]
-        )
-        , pixels_in
-        , stencil_out
-        , settings_out
-        , attention_out
-        , memory_bump_in
-        , state
+        actor.into_spotlight([&pixels_in], [&stencil_out, &settings_out[0], &settings_out[1], &attention_out]),
+        pixels_in,
+        stencil_out,
+        settings_out,
+        attention_out,
+        state,
     )
     .await
+    // If it's testing, use test behavior instead
 }
 
 async fn internal_behavior<A: SteadyActor>(
-    actor: A
-    , pixels_in: SteadyRx<GpuTileHandle>
-    , stencil_out: SteadyTxBundle<PointStencil, 2>
-    , settings_out: SteadyTxBundle<Settings, 2>
-    , attention_out: SteadyTx<(i32, i32)>
-    , memory_bump_in: SteadyRx<crate::assemblies::workgroup::tile_publisher::MemoryBump>
-    , state: SteadyState<WindowState>
+    actor: A,
+    pixels_in: SteadyRx<View<Color32>>,
+    stencil_out: SteadyTx<(PointStencil)>,
+    settings_out: SteadyTxBundle<Settings, 2>,
+    attention_out: SteadyTx<(i32, i32)>,
+    state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
 
     let portable_actor = Arc::new(Mutex::new(actor));
@@ -140,43 +130,29 @@ async fn internal_behavior<A: SteadyActor>(
         size: egui::vec2(DEFAULT_WINDOW_RES.0 as f32, DEFAULT_WINDOW_RES.1 as f32)
         , location: None
         , last_frame_period: None
+        , buffers: vec!(vec!(Color32::BLACK;(DEFAULT_WINDOW_RES.0*DEFAULT_WINDOW_RES.1) as usize))
+        , id_counter: 0
         , sampling_context: SamplingContext {
-            tiles: HashMap::new()
-            , tile_gpu_ids: HashMap::new()
-            , handle_filled: HashMap::new()
-            , pending_tile_uploads: Vec::new()
-            , next_tile_gpu_id: 1
-            , reset_gpu_tile_slots: false
-            , proximate_answers: true
-            , unsent_answers: true
+            screen: None
             , screen_size: (DEFAULT_WINDOW_RES.0, DEFAULT_WINDOW_RES.1)
             , location: ObjectivePosAndZoom {
                 pos: (IntExp::from(HOME_POSITION.0), IntExp::from(HOME_POSITION.1))
                 , zoom_pot: HOME_POSITION.2
             }
             , updated: true
-            , mouse_drag_start: None
-            , memory_limit_bytes: 1_000_000_000
-            , last_memory_bump: None
+            , mouse_drag_start:None
         }
-        , atlas_location: None
-        , shift_was_down: false
-        , key_zoom_in_debt: 0.0
-        , key_zoom_out_debt: 0.0
-        , mag_velocity_ewma: 0.0
-        , tps_counter: crate::assemblies::headgroup::window::rolling::TpsCounter::new()
         , settings_window_context: Arc::new(Mutex::new(DEFAULT_SETTINGS_WINDOW_CONTEXT))
         , settings_window_open: false
         , controls_settings: ControlsSettings::H
         , rolling_frame_info: (VecDeque::new(), VecDeque::new(), VecDeque::new(), None)
+        , texturing_things: vec!()
         , timer: Instant::now()
+        , fps_margin: 0.0
+        , timer2: Instant::now()
         , controls_timer: Instant::now()
         , stencil_serial_number_counter: 0
         , scroll_debt: SCROLL_SPEED/2.0
-        , startup_goto_applied: false
-        , nav_target: None
-        , gpu_atlas_size: (DEFAULT_WINDOW_RES.0, DEFAULT_WINDOW_RES.1)
-        , coord_input: String::new()
     }).await;
 
     {
@@ -192,50 +168,26 @@ async fn internal_behavior<A: SteadyActor>(
 
     let viewport_options =
         egui::ViewportBuilder::default()
-            .with_inner_size(state.size.clone())
-            .with_icon(
-                eframe::icon_data::from_png_bytes(
-                    include_bytes!("../../../../icons/assembly_chain_crosshair.png"),
-                )
-                    .expect("failed to load app icon"),
-                //  ^ cannot happen during runtime due to file paths; image is baked in
-            )
-        ;
-    let viewport_options = match state.location {
-        Some(l) => viewport_options.with_position(l),
-        None => viewport_options,
-    };
+        .with_inner_size(state.size.clone())
+            ;
 
-    let mut wgpu_options = eframe::egui_wgpu::WgpuConfiguration::default();
-    // NativeOptions.vsync only affects the glow backend. wgpu presents from
-    // wgpu_options.present_mode; AutoVsync can pick Immediate/Mailbox and run
-    // uncapped (~300fps), starving compute. Force FIFO for the 60fps cap.
-    wgpu_options.present_mode = HEADGROUP_PRESENT_MODE;
-    // One device for compute and display: the production atlas hands tiles to the
-    // headgroup by GPU copy. A second eframe-owned device would make that copy
-    // address the wrong hoard and leave the viewport as flat NORES grey.
-    if let Some(gpu) = crate::gpu_context::GpuContext::shared() {
-        wgpu_options.wgpu_setup = eframe::egui_wgpu::WgpuSetup::Existing(
-            eframe::egui_wgpu::WgpuSetupExisting {
-                instance: gpu.instance.clone()
-                , adapter: gpu.adapter.clone()
-                , device: gpu.device.clone()
-                , queue: gpu.queue.clone()
-            }
-        );
-    }
+    let viewport_options = match state.location {
+        Some(l) => {viewport_options.with_position(l)}
+        None => {viewport_options}
+    };
 
     let options = eframe::NativeOptions {
         event_loop_builder: Some(Box::new(|builder| {
+            // Enable any_thread for X11 or Wayland
             #[cfg(target_os = "linux")]
             { builder.with_any_thread(true); }
 
         })),
         viewport: viewport_options,
         vsync: VSYNC,
-        renderer: eframe::Renderer::Wgpu,
-        wgpu_options,
         ..NativeOptions::default()
+
+
     };
 
     let portable_state = Arc::new(Mutex::new(state));
@@ -246,33 +198,18 @@ async fn internal_behavior<A: SteadyActor>(
         , stencil_out: stencil_out.clone()
         , settings_out: settings_out.clone()
         , attention_out: attention_out.clone()
-        , memory_bump_in: memory_bump_in.clone()
         , portable_state: portable_state.clone()
     };
 
-    match eframe::run_native(
-        "Critical Zoomer"
-        , options
-        , Box::new(|cc| {
-            if let Some(render_state) = &cc.wgpu_render_state {
-                ensure_resources(render_state);
-            }
-            Ok(Box::new(passthrough))
-        })
-    ) {
-        Ok(()) => {}
-        Err(err) => {
-            // Under xvfb / after a prior event-loop attempt, winit can return
-            // RecreationAttempt. Panicking here restarts the actor into a loop;
-            // shut down cleanly instead so e2e harnesses can exit.
-            error!("eframe event loop ended: {err}");
-        }
-    }
+    eframe::run_native(
+        "Critical Zoomer",
+        options,
+        Box::new(|_cc| Ok(Box::new(passthrough)))
+    ).unwrap();
 
 
     let mut actor = portable_actor.lock().unwrap();
-    let _sampler_out = stencil_out[0].try_lock().unwrap();
-    let _reference_out = stencil_out[1].try_lock().unwrap();
+    let sampler_out = stencil_out.try_lock().unwrap();
     let pixels_in = pixels_in.try_lock().unwrap();
     let state = portable_state.lock().unwrap();
 
@@ -296,13 +233,12 @@ async fn internal_behavior<A: SteadyActor>(
 
 
 struct EguiWindowPassthrough<'a, A> {
-    portable_actor: Arc<Mutex<A>>
-    , pixels_in: SteadyRx<GpuTileHandle>
-    , stencil_out: SteadyTxBundle<PointStencil, 2>
-    , settings_out: SteadyTxBundle<Settings, 2>
-    , attention_out: SteadyTx<(i32, i32)>
-    , memory_bump_in: SteadyRx<crate::assemblies::workgroup::tile_publisher::MemoryBump>
-    , portable_state:Arc<Mutex<StateGuard<'a, WindowState>>>
+    portable_actor: Arc<Mutex<A>>,
+    pixels_in: SteadyRx<View<Color32>>,
+    stencil_out: SteadyTx<(PointStencil)>,
+    settings_out: SteadyTxBundle<Settings, 2>,
+    attention_out: SteadyTx<(i32, i32)>,
+    portable_state:Arc<Mutex<StateGuard<'a, WindowState>>>
 }
 
 impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
@@ -316,26 +252,18 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
         // init hybrid actor
         let mut actor = self.portable_actor.lock().unwrap();
         let mut pixels_in = self.pixels_in.try_lock().unwrap();
-        let mut stencil_to_scheduler = self.stencil_out[0].try_lock().unwrap();
-        let mut stencil_to_reference = self.stencil_out[1].try_lock().unwrap();
+        let mut stencil_out = self.stencil_out.try_lock().unwrap();
         let settings_out = [
             self.settings_out[0].try_lock().unwrap()
             ,self.settings_out[1].try_lock().unwrap()
         ];
         let mut attention_out = self.attention_out.try_lock().unwrap();
-        let mut memory_bump_in = self.memory_bump_in.try_lock().unwrap();
         let mut state = self.portable_state.lock().unwrap();
+
 
         if actor.is_running(
             || i!(true)
         ) {
-
-            // Drain workgroup memory bumps → raise slider floor + sampling limit.
-            while actor.avail_units(&mut memory_bump_in) > 0 {
-                if let Some(bump) = actor.try_take(&mut memory_bump_in) {
-                    apply_ui_memory_bump(&mut state, bump.needed_bytes);
-                }
-            }
 
             // calculate framerate and frametime
 
@@ -369,142 +297,66 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             );
 
 
-            // Cap headgroup wakeups near 60fps (design/headgroup.md).
-            // Final schedule is applied at end-of-frame from this_frame_start.
-            ctx.request_repaint_after(TARGET_FRAME_PERIOD);
+            // prevent vsync
+            ctx.request_repaint();
 
             let size = (state.size.x as usize, state.size.y as usize);
             let pixels = size.0 * size.1;
 
-            //let mut sampler_buffer = vec!();//Vec::with_capacity(pixels);
+            let mut sampler_buffer = Vec::with_capacity(pixels);
 
-            while actor.avail_units(&mut pixels_in) > 0 {
-                match actor.try_take(&mut pixels_in) {
-                    Some(tile) => {
-                        // Standards TPS: only new *completed whole* tiles, not WIP emits.
-                        if state.sampling_context.ingest_gpu_handle(tile) {
-                            state.tps_counter.record(1, Instant::now());
-                        }
-                    }
-                    None => { break; }
+            match actor.try_take(&mut pixels_in) {
+                Some(s) => {
+                    update_sampling_context(&mut state.sampling_context, s);
+
                 }
+                None => {}
+            }
+
+            if state.sampling_context.screen.is_none() {
+                for _ in 0..pixels {sampler_buffer.push(Color32::PURPLE)};
+                //actor.try_send(&mut sampler_out, (state.sampling_context.relative_transforms.clone(), (state.size.x as u32, state.size.y as u32)));
+            }
+
+            if state.sampling_context.updated
+            {
+                actor.try_send(&mut stencil_out, PointStencil{
+                    location: (state.sampling_context.location.pos.0.clone()
+                    , IntExp::ZERO-state.sampling_context.location.pos.1.clone()
+                    , state.sampling_context.location.zoom_pot.clone()
+                    )
+                    , resolution: (state.size.x as usize, state.size.y as usize)
+                    , serial_number: state.stencil_serial_number_counter
+                });
+                state.stencil_serial_number_counter +=1;
+                state.sampling_context.updated = false;
             }
 
             // sample
 
-            let (mut command_package, attention) = parse_inputs(&ctx, &mut state, size);
+            let (command_package, attention) = parse_inputs(&ctx, &mut state, size);
             actor.try_send(&mut attention_out, attention);
 
-            if !state.startup_goto_applied {
-                if let Ok(line) = std::env::var("CZ_GOTO") {
-                    if !line.trim().is_empty() {
-                        let cmds = if std::env::var("CZ_NAV").is_ok() {
-                            commands_from_navigate_line(&line)
-                        } else {
-                            commands_from_goto_line(&line)
-                        };
-                        if let Some(cmds) = cmds {
-                            if std::env::var("CZ_NAV").is_ok() {
-                                if let ZoomerCommand::NavigateTo { real, imag, pot } = &cmds[0] {
-                                    state.nav_target = Some((real.clone(), imag.clone(), *pot));
-                                }
-                            } else {
-                                command_package.extend(cmds);
-                            }
-                        }
-                    }
-                }
-                state.startup_goto_applied = true;
-            }
-            // Harness may isolate goto/nav under CZ_GOTOFILE / CZ_NAVFILE (session
-            // prefix). Fall back to legacy /tmp paths for ad-hoc ctl use.
-            let goto_path = std::env::var("CZ_GOTOFILE")
-                .unwrap_or_else(|_| "/tmp/cz_ctl.goto".to_string());
-            if let Ok(line) = std::fs::read_to_string(&goto_path) {
-                let _ = std::fs::remove_file(&goto_path);
-                if let Some(cmds) = commands_from_goto_line(&line) {
-                    command_package.extend(cmds);
-                    state.nav_target = None;
-                }
-            }
-            let nav_path = std::env::var("CZ_NAVFILE")
-                .unwrap_or_else(|_| "/tmp/cz_ctl.navigate".to_string());
-            if let Ok(line) = std::fs::read_to_string(&nav_path) {
-                let _ = std::fs::remove_file(&nav_path);
-                if let Some(cmds) = commands_from_navigate_line(&line) {
-                    if let ZoomerCommand::NavigateTo { real, imag, pot } = &cmds[0] {
-                        state.nav_target = Some((real.clone(), imag.clone(), *pot));
-                    }
-                }
-            }
-            if let Some(target) = state.nav_target.clone() {
-                if let Some(nav_cmds) = advance_navigation(
-                    &target
-                    , &state.sampling_context.location
-                    , size
-                ) {
-                    command_package.extend(nav_cmds);
-                } else {
-                    state.nav_target = None;
-                }
+            state.sampling_context.screen_size = (size.0 as u32, size.1 as u32);
+
+            if state.sampling_context.screen.is_some() {
+                sample(command_package, &mut sampler_buffer, &mut state.sampling_context);
             }
 
-            state.sampling_context.screen_size = (size.0 as u32, size.1 as u32); // r[impl cz.ui.viewport-fill+1]
+            let start = Instant::now();
 
-            transform(command_package, &mut state.sampling_context);
-
-            // Always ship stencil so mag_velocity EWMA decays to the workgroup even
-            // when the viewport is stationary. Fan out: scheduler + reference worker
-            // (auth: reference receives whole-screen stencils from the headgroup).
-            {
-                let loc_changed = state.sampling_context.updated;
-                let stencil = PointStencil{
-                    homothety: (state.sampling_context.location.pos.0.clone()
-                                , IntExp::ZERO-state.sampling_context.location.pos.1.clone()
-                                , state.sampling_context.location.zoom_pot.clone()
-                    )
-                    , resolution: (state.size.x as usize, state.size.y as usize)
-                    , serial_number: state.stencil_serial_number_counter
-                    , focus: None
-                    , hover: None
-                    , mag_velocity: state.mag_velocity_ewma
-                };
-                actor.try_send(&mut stencil_to_scheduler, stencil.clone());
-                actor.try_send(&mut stencil_to_reference, stencil);
-                if loc_changed {
-                    state.stencil_serial_number_counter =
-                        state.stencil_serial_number_counter.wrapping_add(1);
-                    state.sampling_context.updated = false;
-                }
-            }
-
-            state.atlas_location = Some(state.sampling_context.location.clone());
-            let mut settings_for_shade = state.settings_window_context.try_lock()
-                .ok()
-                .map(|guard| guard.settings.clone())
-                .unwrap_or_else(|| Settings::DEFAULT);
-            // Keep sampling budget aligned with the settings slider before prune.
-            state.sampling_context.memory_limit_bytes =
-                settings_for_shade.memory_limit_bytes;
-            let blit_frame = {
-                let frame = build_shade_frame(
-                    &mut state.sampling_context
-                    , &mut settings_for_shade
-                );
-                // Local prune may have bumped; raise the settings slider floor.
-                if let Some(needed) = state.sampling_context.last_memory_bump.take() {
-                    apply_ui_memory_bump(&mut state, needed);
-                    settings_for_shade.memory_limit_bytes =
-                        state.sampling_context.memory_limit_bytes;
-                }
-                if let Ok(mut guard) = state.settings_window_context.try_lock() {
-                    guard.settings = settings_for_shade;
-                }
-                state.sampling_context.unsent_answers = false;
-                state.sampling_context.proximate_answers = false;
-                state.gpu_atlas_size = state.sampling_context.screen_size;
-                frame
+            let image = ColorImage {
+                size: [size.0, size.1],
+                pixels: sampler_buffer,
+                source_size: egui::vec2(size.0 as f32, size.1 as f32)
             };
+
+            let handle = ctx.load_texture(
+                "pixel_texture",
+                image,
+                egui::TextureOptions::NEAREST,
+            );
+
 
             egui::CentralPanel::default()
             .frame(egui::Frame {
@@ -518,8 +370,10 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 ui.visuals_mut().override_text_color = Some(Color32::WHITE);
 
                 let available_size = ui.available_size();
-                let paint_rect = ui.available_rect_before_wrap();
-                paint_central_panel(ui, paint_rect, blit_frame);
+
+                //let start = Instant::now();
+
+                ui.image((handle.id(), available_size));
 
                 state.size = available_size;
 
@@ -551,8 +405,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
                                 match rolling_frame_result.1 {
                                     Some(r) => {
-                                        let tps = state.tps_counter.tps(Instant::now());
-                                        response += format!("fps:{:.0} / tps:{:.0} / 1s low: {:.1}", r.0.0 as f64 / 1000000000.0, tps, 1.0 / r.1.0.as_secs_f64()).as_str();
+                                        response += format!("fps:{:.0} / 1s low: {:.1}", r.0.0 as f64 / 1000000000.0, 1.0 / r.1.0.as_secs_f64()).as_str();
 
                                     }
                                     None => {}
@@ -565,27 +418,6 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                     }
                                     None => {}
                                 }
-
-                                // r[impl cz.display.offscreen-r2-circle+1]
-                                let screen_stencil = PointStencil {
-                                    homothety: (
-                                        state.sampling_context.location.pos.0.clone(),
-                                        IntExp::ZERO
-                                            - state.sampling_context.location.pos.1.clone(),
-                                        state.sampling_context.location.zoom_pot,
-                                    ),
-                                    resolution: (
-                                        state.size.x.max(1.0) as usize,
-                                        state.size.y.max(1.0) as usize,
-                                    ),
-                                    serial_number: 0,
-                                    focus: None,
-                                    hover: None,
-            mag_velocity: 0.0
-                                };
-                                let view = ViewportComplexRect::from_stencil(&screen_stencil);
-                                // Red arrows drawn below via painter; keep debug free of unicode HUD.
-                                let _ = view.needs_red_arrows();
 
                                 response
                             }
@@ -601,160 +433,14 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     }
                 );
 
-                // Red off-screen / too-small guidance arrows (requirements).
-                // r[impl cz.display.offscreen-arrows+1]
-                {
-                    let screen_stencil = PointStencil {
-                        homothety: (
-                            state.sampling_context.location.pos.0.clone(),
-                            IntExp::ZERO
-                                - state.sampling_context.location.pos.1.clone(),
-                            state.sampling_context.location.zoom_pot,
-                        ),
-                        resolution: (
-                            state.size.x.max(1.0) as usize,
-                            state.size.y.max(1.0) as usize,
-                        ),
-                        serial_number: 0,
-                        focus: None,
-                        hover: None,
-            mag_velocity: 0.0
-                    };
-                    let view = ViewportComplexRect::from_stencil(&screen_stencil);
-                    if view.needs_red_arrows() {
-                        let painter = ui.painter();
-                        let rect = ui.max_rect();
-                        let red = Color32::from_rgb(220, 40, 40);
-                        let stroke = egui::Stroke::new(3.0, red);
-                        let cx = rect.center().x;
-                        let cy = rect.center().y;
-                        let arm = 28.0;
-                        match view.classify_r2() {
-                            R2ScreenRelation::OffScreen | R2ScreenRelation::MostlyOffScreen => {
-                                // Point toward origin: arrows on edge facing the set.
-                                let set_cx = 0.0;
-                                let set_cy = 0.0;
-                                let view_cx = (view.real_min + view.real_max) * 0.5;
-                                let view_cy = (view.imag_min + view.imag_max) * 0.5;
-                                let dx = set_cx - view_cx;
-                                let dy = set_cy - view_cy;
-                                if dx.abs() >= dy.abs() {
-                                    let x = if dx > 0.0 { rect.right() - 40.0 } else { rect.left() + 40.0 };
-                                    let dir = if dx > 0.0 { 1.0 } else { -1.0 };
-                                    painter.line_segment(
-                                        [egui::pos2(x - dir * arm, cy), egui::pos2(x, cy)],
-                                        stroke,
-                                    );
-                                    painter.line_segment(
-                                        [egui::pos2(x, cy), egui::pos2(x - dir * 12.0, cy - 10.0)],
-                                        stroke,
-                                    );
-                                    painter.line_segment(
-                                        [egui::pos2(x, cy), egui::pos2(x - dir * 12.0, cy + 10.0)],
-                                        stroke,
-                                    );
-                                } else {
-                                    let y = if dy > 0.0 { rect.top() + 40.0 } else { rect.bottom() - 40.0 };
-                                    // +imag is up on screen roughly when dy>0 toward higher imag
-                                    let dir = if dy > 0.0 { -1.0 } else { 1.0 };
-                                    painter.line_segment(
-                                        [egui::pos2(cx, y - dir * arm), egui::pos2(cx, y)],
-                                        stroke,
-                                    );
-                                    painter.line_segment(
-                                        [egui::pos2(cx, y), egui::pos2(cx - 10.0, y - dir * 12.0)],
-                                        stroke,
-                                    );
-                                    painter.line_segment(
-                                        [egui::pos2(cx, y), egui::pos2(cx + 10.0, y - dir * 12.0)],
-                                        stroke,
-                                    );
-                                }
-                            }
-                            R2ScreenRelation::TooSmall | R2ScreenRelation::MostlyTooSmall => {
-                                // Up and down arrows: zoomed out too far.
-                                for (y, dir) in [(rect.top() + 36.0, -1.0), (rect.bottom() - 36.0, 1.0)] {
-                                    painter.line_segment(
-                                        [egui::pos2(cx, y), egui::pos2(cx, y + dir * arm)],
-                                        stroke,
-                                    );
-                                    painter.line_segment(
-                                        [egui::pos2(cx, y), egui::pos2(cx - 10.0, y + dir * 12.0)],
-                                        stroke,
-                                    );
-                                    painter.line_segment(
-                                        [egui::pos2(cx, y), egui::pos2(cx + 10.0, y + dir * 12.0)],
-                                        stroke,
-                                    );
-                                }
-                            }
-                            R2ScreenRelation::OnScreen => {}
-                        }
-                    }
-                }
-
-                egui::Area::new(egui::Id::new("coord_bar"))
-                    .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 8.0))
-                    .order(egui::Order::Foreground)
-                    .show(ctx, |ui| {
-                        egui::Frame::popup(ui.style())
-                            .inner_margin(egui::Margin::symmetric(8, 6))
-                            .show(ui, |ui| {
-                                ui.set_min_width(520.0);
-                                let screen = (
-                                    state.size.x.max(1.0) as u32
-                                    , state.size.y.max(1.0) as u32
-                                );
-                                let (cre, cim) = viewport_center(
-                                    &state.sampling_context.location
-                                    , screen
-                                );
-                                let center_text = format_location_readout(
-                                    &cre
-                                    , &cim
-                                    , state.sampling_context.location.zoom_pot
-                                );
-                                ui.horizontal(|ui| {
-                                    ui.label("location");
-                                    let mut readonly = center_text.clone();
-                                    ui.add(
-                                        egui::TextEdit::singleline(&mut readonly)
-                                            .desired_width(320.0)
-                                            .interactive(true)
-                                    );
-                                    if ui.button("Copy").clicked() {
-                                        ui.ctx().copy_text(center_text);
-                                    }
-                                });
-                                ui.horizontal(|ui| {
-                                    ui.label("goto");
-                                    let response = ui.add(
-                                        egui::TextEdit::singleline(&mut state.coord_input)
-                                            .desired_width(280.0)
-                                            .hint_text("re, im  or  a+bi")
-                                    );
-                                    let valid = goto_line_is_valid(&state.coord_input);
-                                    let apply = ui.add_enabled(valid, egui::Button::new("Apply"));
-                                    let go = apply.clicked()
-                                        || (valid
-                                            && response.lost_focus()
-                                            && ui.input(|i| i.key_pressed(egui::Key::Enter)));
-                                    if go {
-                                        if let Some(cmds) = commands_from_goto_line(&state.coord_input) {
-                                            transform(cmds, &mut state.sampling_context);
-                                            state.sampling_context.updated = true;
-                                        }
-                                    }
-                                });
-                            });
-                    });
-
+                // Add a gear icon button in the top-right corner
                 ui.put(
                     egui::Rect::from_min_size(
                         egui::pos2(ui.available_width() - 40.0, 0.0),
                         egui::vec2(40.0, 40.0)
                     ),
                     |ui: &mut egui::Ui| {
+                        // create button and get its state
                         let button_state = ui.button("⚙");
                         if button_state.clicked() {
                             state.settings_window_open = true;
@@ -763,25 +449,20 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     }
                 );
 
-                // Home → startup framing (HOME_POSITION UL + zoom), not 0+0i.
+                // Add a home icon button in the top-right corner
                 ui.put(
                     egui::Rect::from_min_size(
                         egui::pos2(ui.available_width() - 80.0, 0.0),
                         egui::vec2(40.0, 40.0)
                     ),
                     |ui: &mut egui::Ui| {
+                        // create button and get its state
                         let button_state = ui.button("🏠");
                         if button_state.clicked() {
                             state.sampling_context.location = ObjectivePosAndZoom {
-                                pos: (
-                                    IntExp::from(HOME_POSITION.0),
-                                    IntExp::from(HOME_POSITION.1),
-                                ),
-                                zoom_pot: HOME_POSITION.2,
+                                pos: (IntExp::from(HOME_POSITION.0), IntExp::from(HOME_POSITION.1))
+                                , zoom_pot: HOME_POSITION.2
                             };
-                            state.sampling_context.mouse_drag_start = None;
-                            state.atlas_location = None;
-                            state.nav_target = None;
                             state.sampling_context.updated = true;
                         }
                         return button_state;
@@ -791,69 +472,25 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
 
                 if state.settings_window_open {
-                    let before_script = state.settings_window_context.try_lock()
-                        .ok()
-                        .map(|g| format!("{:?}", g.settings.coloring_script));
-                    let before_bailout = state.settings_window_context.try_lock()
-                        .ok()
-                        .map(|g| (
-                            g.settings.bailout_radius.value
-                            , g.settings.bailout_max_additional_iterations
-                        ));
                     let result = settings(&ctx, state.settings_window_context.clone());
                     state.settings_window_open = !result.will_close;
-                    let after_script = format!("{:?}", result.settings.coloring_script);
-                    let after_bailout = (
-                        result.settings.bailout_radius.value
-                        , result.settings.bailout_max_additional_iterations
-                    );
-                    if before_script.as_deref() != Some(after_script.as_str())
-                        || before_bailout != Some(after_bailout)
-                    {
-                        state.sampling_context.proximate_answers = true;
-                    }
-                    state.sampling_context.memory_limit_bytes =
-                        result.settings.memory_limit_bytes;
                     for mut channel in settings_out {
                         actor.try_send(&mut channel, result.settings.clone());
                     }
-                } else if let Some((limit, settings)) = state
-                    .settings_window_context
-                    .try_lock()
-                    .ok()
-                    .map(|guard| (guard.settings.memory_limit_bytes, guard.settings.clone()))
-                {
-                    state.sampling_context.memory_limit_bytes = limit;
+                } else {
                     for mut channel in settings_out {
-                        actor.try_send(&mut channel, settings.clone());
+                        actor.try_send(&mut channel, state.settings_window_context.try_lock().unwrap().settings.clone());
                     }
                 }
             });
 
 
-            state.last_frame_period = Some((this_frame_start, Instant::now()));
-
-            // Schedule next wake from this frame start (Fifo is the primary cap
-            // on a real display; NativeOptions.vsync does not apply to wgpu).
-            let elapsed = this_frame_start.elapsed();
-            ctx.request_repaint_after(TARGET_FRAME_PERIOD.saturating_sub(elapsed));
+            state.last_frame_period = Some(  (this_frame_start, Instant::now())  );
 
         }
         else {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
-    }
-}
-
-fn apply_ui_memory_bump(state: &mut WindowState, needed: usize) {
-    use crate::assemblies::workgroup::tile_manager::apply_memory_bump;
-    state.sampling_context.memory_limit_bytes =
-        apply_memory_bump(state.sampling_context.memory_limit_bytes, needed);
-    if let Ok(mut guard) = state.settings_window_context.try_lock() {
-        guard.settings.memory_limit_bytes =
-            apply_memory_bump(guard.settings.memory_limit_bytes, needed);
-        // On-demand floor rises with protected screen+lookahead so the slider cannot drop below.
-        guard.settings.memory_floor_bytes = guard.settings.memory_floor_bytes.max(needed);
     }
 }
 

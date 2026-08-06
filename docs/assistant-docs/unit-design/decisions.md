@@ -2,6 +2,11 @@
 
 Recorded from the unit-design closing pass. These override assistant guesses in this tree. They do **not** override authoritative root/`docs/design` content; where they contradict authoritative text, flag and ask.
 
+> **2026-08-06 post-revert status.** The codebase is back at v0.0.9 (e6a0560); the tile machine is gone from the live tree. Sections below split:
+> - **Standing (product/process, still binding):** Design fallbacks rule; Coloring & settings; Shading; D-UI-1; D-PER-3/4/6 as algorithm preferences (v0.0.9's every-iteration loop check is consistent with them); D-REF precision principles for when perturbation returns.
+> - **Suspended (tile-machine-specific):** Memory / tile manager; Scheduling (tile columns); D-STEN-1 fields beyond v0.0.9's PointStencil; D-WORK-1 (tile keys); Publisher topology D-PUB-2..6; the whole GPU-native completion block; D-PLAY-TICK as written (v0.0.9's ~10ms wall-clock workshift is the golden cadence — see `docs/design/workgroup-virtues.md`; re-derive any tick design from it).
+> - Any GPU/depth re-implementation must satisfy the seven invariants in `docs/design/workgroup-virtues.md` before its own design concerns.
+
 ## Design fallbacks (standing rule — 2026-08-04 Jonathan)
 
 Contingent alternatives recorded in this file (cross-tile WIP, period two-pass, on-device intratile, single GPU conductor, multi-tile serial break, etc.) are **design fallbacks**, not mechanical/runtime switches.
@@ -96,6 +101,7 @@ Closes the observation half of `cz.pub.gpu-native-work` for home GPU TPS. Does *
 | D-GPU-11 | **Two-phase field work forced by in-fill (2026-08-04 Jonathan).** Boundary-tracing / in-fill optimization **requires** a two-phase design: **Phase 1** — determine membership, period (when certain), escape, angles, etc., apply in-fill, allow **move on** to the next tile without min-magnitude/small-time on in-filled seats (D-GPU-1). **Phase 2** — compute **min-magnitude and small-time** (and any other still-missing stats) on seats that still need them, including in-filled points (auth). This is **default / required**, not a design fallback. Distinct from period two-pass (D-PER-5), which remains fallback-only. |
 | D-GPU-IDEA-1 | **Single workgroup GPU conductor (design fallback / idea).** Recorded for suggestion only. **Do not implement without explicit approval.** Steady State actor graph remains the plan. |
 | D-PERF-HOME-1 | **Home TPS (2026-08-04 Jonathan).** Auth addendum CPU ≥150 / GPU ≥3000 is the hard bar. Older “~100 TPS” home line was approximate; not a competing requirement. |
+| D-PLAY-TICK | **Sync play tick (2026-08-06 Jonathan).** Pipeline stays **fully sync**. Tick period ≈ **50 ms**. Each tick runs an **exactly bounded** iteration (or bout/seat work-unit) count **N**, with **N adapted from a GPU speed probe** (IPS-class): weak GPUs do less work per tick, not longer ticks. Explicit fence / on-device completion Wait **inside** the tick is allowed so work cannot silently queue behind. **Payload readback remains banned** on the GPU-native hot path (D-GPU-2); host syncs only tiny completion signals. Same period on 1× and 200× GPU FLOPS — continuous visible output every tick. Non-auth; tensions with live 1 ms `PLAY_INPUT_POLL_MS` / wall-time `workshift_budget_ms`. |
 
 ## Assumed numeric placeholders (pending experiment)
 

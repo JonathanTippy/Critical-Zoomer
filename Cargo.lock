@@ -1121,20 +1121,16 @@ dependencies = [
 name = "critical_zoomer"
 version = "0.0.8"
 dependencies = [
- "bytemuck",
  "clap",
  "criterion",
  "eframe",
  "egui",
- "egui-wgpu",
  "egui_dnd",
  "num-traits",
  "proptest",
  "rand 0.9.2",
  "rug",
- "smallvec",
  "steady_state",
- "wgpu",
  "winit",
 ]
 
@@ -1358,7 +1354,6 @@ dependencies = [
  "objc2-foundation 0.2.2",
  "parking_lot",
  "percent-encoding",
- "pollster",
  "profiling",
  "raw-window-handle",
  "static_assertions",
@@ -1366,7 +1361,6 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "web-time",
- "wgpu",
  "winapi",
  "windows-sys 0.59.0",
  "winit",
@@ -3347,12 +3341,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pollster"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f3a9f18d041e6d0e102a0a46750538147e5e8992d3b4873aaafee2520b00ce3"
-
-[[package]]
 name = "portable-atomic"
 version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3932,9 +3920,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.15.2"
+version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
+checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 
 [[package]]
 name = "smithay-client-toolkit"

@@ -1,4 +1,3 @@
-// read delivery.md for project context
 use steady_state::*;
 use eframe::egui;
 use eframe::egui::*;
@@ -25,12 +24,8 @@ const VSYNC:bool = true;
 
 pub const DEFAULT_SETTINGS_WINDOW_RES:(u32, u32) = (500, 800);
 
-// D-COLOR-1: escape time; in-filaments black; out-filaments as outside ∞-escape; nothing else.
-// r[impl cz.cosmetic.defaults+1]
-// r[impl cz.cosmetic.layer-model+1]
-pub const DEFAULT_COLORING_SCRIPT:[ColoringInstruction;3] = [
-    ColoringInstruction::PaintEscapeTime{id: 0
-        , inside_opacity:255, outside_opacity:255
+pub const DEFAULT_COLORING_SCRIPT:[ColoringInstruction;7] = [
+    ColoringInstruction::PaintEscapeTime{id: 0, opacity:255
         , color:(128,128,128), range:64
         , shading_method: ShadingInstruction{
             shading: Shading::Sinus{}
@@ -54,13 +49,61 @@ pub const DEFAULT_COLORING_SCRIPT:[ColoringInstruction;3] = [
             }
         }
         , normalizing_method: Normalizing::None{}}
-    , ColoringInstruction::HighlightInFilaments{
-        id: 1, inside_opacity:255, outside_opacity:255, color:(0,0,0)
-    }
-    // Out filaments: paint like ∞ escape (shade path); color unused when ∞-escape path is used.
-    , ColoringInstruction::HighlightOutFilaments{
-        id: 2, inside_opacity:255, outside_opacity:255, color:(128,128,128)
-    }
+    , ColoringInstruction::PaintSmallTime{id: 1, inside_opacity:0, outside_opacity:30
+        , color:(128,128,128), range:64
+        , shading_method: ShadingInstruction{
+            shading: Shading::Sinus{}
+            , period: Animable{
+                start:None
+                , period:Duration::from_secs(10)
+                , value:3.0
+                , animated:false
+                , range:(1.0, 10.0)
+                , limits:(1.0, 10.0)
+                , normalizing:Normalizing::None{}
+            }
+            , phase: Animable{
+                start:None
+                , period:Duration::from_secs(10)
+                , value:0.0
+                , animated:false
+                , range:(0.0, 10.0)
+                , limits:(0.0, 10.0)
+                , normalizing:Normalizing::None{}
+            }
+        }
+        , normalizing_method: Normalizing::None{}}
+    , ColoringInstruction::PaintSmallness{
+        id: 2, inside_opacity:0, outside_opacity:0
+        , color:(128,128,128), range:64
+        , shading_method: ShadingInstruction{
+            shading: Shading::Sinus{}
+            , period: Animable{
+                start:None
+                , period:Duration::from_secs(10)
+                , value:10.0
+                , animated:false
+                , range:(1.0, 10.0)
+                , limits:(1.0, 10.0)
+                , normalizing:Normalizing::None{}
+            }
+            , phase: Animable{
+                start:None
+                , period:Duration::from_secs(10)
+                , value:0.0
+                , animated:false
+                , range:(0.0, 10.0)
+                , limits:(0.0, 10.0)
+                , normalizing:Normalizing::None{}
+            }
+        }
+        , normalizing_method: Normalizing::None{}}
+    , ColoringInstruction::HighlightInFilaments{id: 3, opacity:255, color:(0,0,0)}
+    , ColoringInstruction::HighlightOutFilaments{id: 4, opacity:255, color:(128,128,128)}
+    , ColoringInstruction::HighlightNodes{id: 5, inside_opacity:0, outside_opacity:0
+        , color:(128,128,128), thickness:10, only_fattest:true}
+    , ColoringInstruction::HighlightSmallTimeEdges{id: 6, inside_opacity:30, outside_opacity:0
+        , color:(128,128,128)}
 ];
 
 
@@ -70,17 +113,13 @@ impl Settings {
         , bailout_radius: Animable{start:None,period:Duration::from_secs(10)
             , value:2.0
             , animated:false
-            , range:(2.0, 255.0)
-            , limits:(2.0, 255.0)
-            , normalizing:Normalizing::None{}}
+            , range:(2.0, u32::MAX as f64)
+            , limits:(2.0, u32::MAX as f64)
+            , normalizing:Normalizing::LnLn{}}
         , bailout_max_additional_iterations: 10
-        , id_counter: 3
+        , estimate_extra_iterations: false
+        , id_counter: 7
         , currently_selected_coloring_instruction: 0
-        // L = L CPU + L VRAM; default 1GB each side of the ledger.
-        // r[impl cz.system.memory-default-1gb+1]
-        // r[impl cz.cosmetic.bailout-range-2-255+1]
-        , memory_limit_bytes: 1_000_000_000
-        , memory_floor_bytes: 125_000_000
     };
 }
 
@@ -90,7 +129,7 @@ pub const DEFAULT_SETTINGS_WINDOW_CONTEXT:SettingsWindowContext = SettingsWindow
     , location: None
     , will_close: false
     , checked: false
-    , id_counter: 3
+    , id_counter: 7
 };
 
 #[derive(Clone, Debug)]
@@ -98,12 +137,9 @@ pub struct Settings {
     pub coloring_script:Option<Vec<ColoringInstruction>>
     , pub bailout_radius:Animable
     , pub bailout_max_additional_iterations:u32
+    , pub estimate_extra_iterations:bool
     , pub currently_selected_coloring_instruction: u64
     , pub id_counter: u64
-    // Soft per-side budget (bytes). Slider L means L CPU + L VRAM.
-    , pub memory_limit_bytes: usize
-    // On-demand slider floor (protected screen+lookahead); bumps raise this.
-    , pub memory_floor_bytes: usize
 }
 
 
@@ -127,21 +163,24 @@ use core::ops::RangeInclusive;
 use std::f64::consts::*;
 impl Animable {
     pub fn determine(&mut self) -> f64 {
-        if self.animated {
-            if self.start.is_none() {
-                self.start = Some(Instant::now());
-            }
-            let elapsed = self.start.unwrap().elapsed();
-            let phase_time = elapsed.as_secs_f64() % self.period.as_secs_f64();
-            let normalized_phase_time = phase_time / self.period.as_secs_f64();
-            let wave_result = (1.0 - ((normalized_phase_time * TAU).cos())) / 2.0;
+        match self {
+            Animable{mut start, period, range, limits, normalizing, animated, value, ..} => {
+                if *animated {
+                    if start.is_none() {start = Some(Instant::now())}
+                    let elapsed = start.unwrap().elapsed();
+                    let phase_time = elapsed.as_secs_f64() % period.as_secs_f64();
+                    let normalized_phase_time = phase_time / period.as_secs_f64();
+                    let wave_result = (1.0-((normalized_phase_time*TAU).cos()))/2.0;
 
-            let min = self.normalizing.normalize(&self.range.0);
-            let max = self.normalizing.normalize(&self.range.1);
-            let span = max - min;
-            self.normalizing.denormalize(&(min + (span * wave_result)))
-        } else {
-            self.normalizing.reshape_input(&self.limits, &self.value)
+                    let min = normalizing.normalize(&self.range.0);
+                    let max = normalizing.normalize(&self.range.1);
+                    let range = max - min;
+                    normalizing.denormalize(&(min + (range*wave_result)))
+                } else {
+                    normalizing.reshape_input(limits, value)
+                }
+
+            }
         }
     }
 
@@ -160,21 +199,19 @@ pub enum Normalizing {
 }
 
 impl Normalizing {
-    // Domain guards mirror shade.wgsl so period animation and paint agree.
     pub fn normalize(&self, input:&f64) -> f64 {
         match self {
             Normalizing::None{..} => {*input}
             Normalizing::LnLn{..} => {
-                input.max(E).ln().ln()
+                input.ln().ln()
             }
             Normalizing::Ln{..} => {
-                input.max(1.0).ln()
+                input.ln()
             }
-            // v0.0.9: reciprocal then log, not log then reciprocal.
             Normalizing::RecipLn{..} => {
-                (1.0 / input.max(1.0e-6)).ln()
+                (1.0/input).ln()
             }
-            Normalizing::Reciprocal{..} => {1.0 / input.max(1.0e-6)}
+            Normalizing::Reciprocal{..} => {1.0/input}
         }
     }
 
@@ -188,9 +225,9 @@ impl Normalizing {
                 input.exp()
             }
             Normalizing::RecipLn{..} => {
-                1.0 / input.exp()
+                1.0/(input.exp())
             }
-            Normalizing::Reciprocal{..} => {1.0 / input.max(1.0e-300)}
+            Normalizing::Reciprocal{..} => {1.0/input}
         }
     }
 
@@ -204,6 +241,59 @@ impl Normalizing {
         self.denormalize(&(normalized_min + (normalized_range*scalar_input)))
     }
 
+    pub fn get_normalizer(&self) -> Normalizer {
+        match self {
+            Normalizing::None{..} => {
+                Normalizer{
+                    normalize64: |n| {*n}
+                    , denormalize64: |n| {*n}
+                    , normalize32: |n| {*n}
+                    , denormalize32: |n| {*n}
+                }
+            }
+            Normalizing::LnLn{..} => {
+                Normalizer{
+                    normalize64: |n| {n.ln().ln()}
+                    , denormalize64: |n| {n.exp().exp()}
+                    , normalize32: |n| {n.ln().ln()}
+                    , denormalize32: |n| {n.exp().exp()}
+                }
+            }
+            Normalizing::Ln{..} => {
+                Normalizer{
+                    normalize64: |n| {n.ln()}
+                    , denormalize64: |n| {n.exp()}
+                    , normalize32: |n| {n.ln()}
+                    , denormalize32: |n| {n.exp()}
+                }
+            }
+            Normalizing::RecipLn{..} => {
+                Normalizer{
+                    normalize64: |n| {1.0/n.ln()}
+                    , denormalize64: |n| {(1.0/n).exp()}
+                    , normalize32: |n| {1.0/n.ln()}
+                    , denormalize32: |n| {(1.0/n).exp()}
+                }
+            }
+            Normalizing::Reciprocal{..} => {
+                Normalizer{
+                    normalize64: |n| {1.0/n}
+                    , denormalize64: |n| {1.0/n}
+                    , normalize32: |n| {1.0/n}
+                    , denormalize32: |n| {1.0/n}
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, Copy, PartialEq)]
+
+pub struct Normalizer {
+    pub normalize64: fn(&f64)->f64
+    , pub denormalize64: fn(&f64)->f64
+    , pub normalize32: fn(&f32)->f32
+    , pub denormalize32: fn(&f32)->f32
 }
 
 #[derive(Clone, Debug, Copy)]
@@ -226,7 +316,7 @@ pub enum Shading {
 
 pub enum ColoringInstruction {
     PaintEscapeTime{
-         inside_opacity:u8, outside_opacity:u8
+         opacity:u8
         , color:(u8,u8,u8), range:u8
         , shading_method: ShadingInstruction
         , normalizing_method: Normalizing
@@ -247,11 +337,11 @@ pub enum ColoringInstruction {
         , id:u64
     }
     , HighlightInFilaments{
-        inside_opacity:u8, outside_opacity:u8, color:(u8,u8,u8)
+        opacity:u8, color:(u8,u8,u8)
         , id:u64
     }
     , HighlightOutFilaments{
-        inside_opacity:u8, outside_opacity:u8, color:(u8,u8,u8)
+        opacity:u8, color:(u8,u8,u8)
         , id:u64
     }
     , HighlightNodes{
@@ -259,6 +349,7 @@ pub enum ColoringInstruction {
         , color:(u8,u8,u8)
         , id:u64
         , thickness:u8
+        , only_fattest: bool
     }
     , HighlightSmallTimeEdges{
         inside_opacity:u8, outside_opacity:u8
@@ -412,9 +503,7 @@ pub fn settings (
                 });
 
 
-                // Do not request an immediate repaint — that overrides the main
-                // viewport's 60fps `request_repaint_after` (smallest delay wins).
-                ctx.request_repaint_after(std::time::Duration::from_nanos(16_666_667));
+                ctx.request_repaint();
 
             });
 
@@ -457,440 +546,5 @@ pub fn settings (
     SettingsWindowResult{
         will_close: will_close,
         settings: state.settings.clone()
-    }
-}
-
-#[cfg(test)]
-mod animable_tests {
-    use super::*;
-    use std::time::Duration;
-
-    fn static_animable(value: f64, range: (f64, f64)) -> Animable {
-        Animable {
-            start: None,
-            period: Duration::from_secs(10),
-            value,
-            animated: false,
-            range,
-            limits: range,
-            normalizing: Normalizing::None {},
-        }
-    }
-
-    #[test]
-    fn determine_static_returns_value_inside_limits() {
-        let mut a = static_animable(3.5, (1.0, 10.0));
-        let v = a.determine();
-        assert!((v - 3.5).abs() < 1e-9, "got {v}");
-        assert!(v >= 1.0 && v <= 10.0);
-    }
-
-    #[test]
-    fn determine_static_uses_normalizing_reshape() {
-        let mut a = Animable {
-            start: None,
-            period: Duration::from_secs(10),
-            value: 5.0,
-            animated: false,
-            range: (1.0, 10.0),
-            limits: (1.0, 10.0),
-            normalizing: Normalizing::Ln {},
-        };
-        let v = a.determine();
-        let expected = Normalizing::Ln {}.reshape_input(&(1.0, 10.0), &5.0);
-        assert!((v - expected).abs() < 1e-9, "reshape path got {v}, want {expected}");
-    }
-
-    #[test]
-    fn animated_period_with_recip_ln_stays_finite_at_range_min() {
-        let mut a = Animable {
-            start: Some(Instant::now()),
-            period: Duration::from_secs(4),
-            value: 0.0,
-            animated: true,
-            range: (1.0, 10.0),
-            limits: (1.0, 10.0),
-            normalizing: Normalizing::RecipLn {},
-        };
-        for _ in 0..30 {
-            let v = a.determine();
-            assert!(v.is_finite(), "RecipLn period animation produced {v}");
-            std::thread::sleep(Duration::from_millis(20));
-        }
-    }
-
-    #[test]
-    fn animated_period_with_every_normalizer_stays_finite() {
-        for normalizing in [
-            Normalizing::None {},
-            Normalizing::Ln {},
-            Normalizing::LnLn {},
-            Normalizing::Reciprocal {},
-            Normalizing::RecipLn {},
-        ] {
-            let mut a = Animable {
-                start: Some(Instant::now()),
-                period: Duration::from_secs(3),
-                value: 0.0,
-                animated: true,
-                range: (1.0, 10.0),
-                limits: (1.0, 10.0),
-                normalizing,
-            };
-            for _ in 0..12 {
-                let v = a.determine();
-                assert!(
-                    v.is_finite()
-                    , "{normalizing:?} period animation produced {v}"
-                );
-                std::thread::sleep(Duration::from_millis(15));
-            }
-        }
-    }
-
-    #[test]
-    fn recip_ln_normalize_matches_v09_log_of_reciprocal() {
-        let n = Normalizing::RecipLn {};
-        let at_one = n.normalize(&1.0);
-        assert!(
-            at_one.abs() < 1e-12
-            , "ln(1/1) must be zero, got {at_one}"
-        );
-        let at_ten = n.normalize(&10.0);
-        let expected = (0.1f64).ln();
-        assert!(
-            (at_ten - expected).abs() < 1e-12
-            , "ln(1/10) mismatch: got {at_ten}, want {expected}"
-        );
-        let roundtrip = n.denormalize(&at_ten);
-        assert!(
-            (roundtrip - 10.0).abs() < 1e-9
-            , "denormalize(normalize(10)) = {roundtrip}"
-        );
-    }
-
-    #[test]
-    fn determine_animated_stays_in_normalized_range() {
-        let mut a = Animable {
-            start: Some(Instant::now()),
-            period: Duration::from_secs(2),
-            value: 0.0,
-            animated: true,
-            range: (2.0, 8.0),
-            limits: (2.0, 8.0),
-            normalizing: Normalizing::None {},
-        };
-        for _ in 0..20 {
-            let v = a.determine();
-            assert!(
-                (2.0..=8.0).contains(&v),
-                "animated wave left range: {v}"
-            );
-            // Must not collapse to constant 0/1/-1 (common mutants).
-            std::thread::sleep(Duration::from_millis(30));
-        }
-        let samples: Vec<f64> = (0..5).map(|_| {
-            std::thread::sleep(Duration::from_millis(50));
-            a.determine()
-        }).collect();
-        let spread = samples.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
-            - samples.iter().cloned().fold(f64::INFINITY, f64::min);
-        assert!(spread > 1e-6 || samples.iter().any(|&x| (x - 0.0).abs() > 1e-6));
-    }
-
-    #[test]
-    fn determine_period_modulo_not_division_identity() {
-        // Phase uses elapsed % period; if mutated to / the value drifts unboundedly.
-        let mut a = Animable {
-            start: Some(Instant::now() - Duration::from_secs(100)),
-            period: Duration::from_secs(3),
-            value: 0.0,
-            animated: true,
-            range: (0.0, 1.0),
-            limits: (0.0, 1.0),
-            normalizing: Normalizing::None {},
-        };
-        let v = a.determine();
-        assert!((0.0..=1.0).contains(&v), "phase escaped unit range: {v}");
-    }
-
-    #[test]
-    fn determine_wave_is_half_raised_cosine_not_identity() {
-        // At phase 0: (1-cos(0))/2 == 0 → denorm to range.0
-        // At phase 0.5: (1-cos(π))/2 == 1 → denorm to range.1
-        // Mutating /2.0 to % or * breaks endpoints.
-        let mut a = Animable {
-            start: Some(Instant::now()),
-            period: Duration::from_secs(10_000),
-            value: 0.0,
-            animated: true,
-            range: (4.0, 12.0),
-            limits: (4.0, 12.0),
-            normalizing: Normalizing::None {},
-        };
-        let near_start = a.determine();
-        assert!(
-            (near_start - 4.0).abs() < 0.05,
-            "phase~0 should sit near range min, got {near_start}"
-        );
-        a.start = Some(Instant::now() - Duration::from_secs(5_000));
-        let near_mid = a.determine();
-        assert!(
-            (near_mid - 12.0).abs() < 0.05,
-            "phase~0.5 should sit near range max, got {near_mid}"
-        );
-    }
-
-    // r[verify cz.cosmetic.bailout-range-2-255+1]
-  // r[verify cz.shade.escape-continues-to-bailout+1]
-    #[test]
-    fn bailout_radius_animated_determine_advances_over_time() {
-        let mut a = Settings::DEFAULT.bailout_radius;
-        a.animated = true;
-        a.range = (4.0, 64.0);
-        a.limits = (2.0, 255.0);
-        a.period = Duration::from_secs(4);
-        a.start = Some(Instant::now());
-        let first = a.determine();
-        std::thread::sleep(Duration::from_millis(80));
-        let second = a.determine();
-        assert!(
-            (2.0..=255.0).contains(&first) && (2.0..=255.0).contains(&second)
-            , "animated bailout must stay in [2,255], got {first} and {second}"
-        );
-        assert!(
-            (first - second).abs() > 1e-6
-            , "animated bailout must advance, got {first} then {second}"
-        );
-        assert!(
-            a.start.is_some()
-            , "determine must persist animation start for the next frame"
-        );
-    }
-
-    #[test]
-    fn max_frame_time_is_reciprocal_of_min_frame_rate() {
-        // Guards const MAX_FRAME_TIME = 1.0 / MIN_FRAME_RATE mutants (% or *).
-        assert!((super::MAX_FRAME_TIME - (1.0 / super::MIN_FRAME_RATE)).abs() < 1e-12);
-        assert!((super::MAX_FRAME_TIME - 0.05).abs() < 1e-12);
-    }
-
-    // r[verify cz.cosmetic.defaults+1]
-    // D-COLOR-1 / REQ-COSMETIC-DEFAULT
-    #[test]
-    fn default_script_has_exactly_three_layers() {
-        assert_eq!(DEFAULT_COLORING_SCRIPT.len(), 3);
-    }
-
-    // r[verify cz.cosmetic.defaults+1]
-    #[test]
-    fn default_script_is_escape_infil_outfil_only() {
-        assert!(matches!(
-            DEFAULT_COLORING_SCRIPT[0],
-            ColoringInstruction::PaintEscapeTime { .. }
-        ));
-        assert!(matches!(
-            DEFAULT_COLORING_SCRIPT[1],
-            ColoringInstruction::HighlightInFilaments { color: (0, 0, 0), .. }
-        ));
-        assert!(matches!(
-            DEFAULT_COLORING_SCRIPT[2],
-            ColoringInstruction::HighlightOutFilaments { .. }
-        ));
-    }
-
-    // r[verify cz.cosmetic.defaults+1]
-    #[test]
-    fn default_script_excludes_subtle_extra_layers() {
-        for inst in DEFAULT_COLORING_SCRIPT.iter() {
-            assert!(!matches!(
-                inst,
-                ColoringInstruction::PaintSmallTime { .. }
-                    | ColoringInstruction::PaintSmallness { .. }
-                    | ColoringInstruction::HighlightNodes { .. }
-                    | ColoringInstruction::HighlightSmallTimeEdges { .. }
-            ));
-        }
-    }
-
-    // r[verify cz.cosmetic.layer-model+1]
-    // D-COLOR-4 / REQ-COSMETIC-LAYER: highlights are ColoringInstruction variants in the list.
-    #[test]
-    fn highlights_are_script_layer_variants() {
-        assert!(matches!(
-            ColoringInstruction::HighlightInFilaments {
-                id: 0,
-                inside_opacity: 255,
-                outside_opacity: 255,
-                color: (0, 0, 0)
-            },
-            ColoringInstruction::HighlightInFilaments { .. }
-        ));
-        assert!(matches!(
-            ColoringInstruction::HighlightOutFilaments {
-                id: 0,
-                inside_opacity: 255,
-                outside_opacity: 255,
-                color: (1, 1, 1)
-            },
-            ColoringInstruction::HighlightOutFilaments { .. }
-        ));
-        assert!(matches!(
-            ColoringInstruction::HighlightNodes {
-                id: 0,
-                inside_opacity: 0,
-                outside_opacity: 0,
-                color: (0, 0, 0),
-                thickness: 1
-            },
-            ColoringInstruction::HighlightNodes { .. }
-        ));
-    }
-
-    // r[verify cz.cosmetic.layer-model+1]
-    #[test]
-    fn highlight_kinds_occupy_ordered_script_slots() {
-        let script = vec![
-            ColoringInstruction::HighlightInFilaments {
-                id: 1,
-                inside_opacity: 255,
-                outside_opacity: 255,
-                color: (0, 0, 0),
-            },
-            ColoringInstruction::PaintEscapeTime {
-                id: 2,
-                inside_opacity: 255,
-                outside_opacity: 255,
-                color: (1, 1, 1),
-                range: 8,
-                shading_method: ShadingInstruction {
-                    shading: Shading::Modular {},
-                    period: Animable {
-                        start: None,
-                        period: Duration::from_secs(1),
-                        value: 1.0,
-                        animated: false,
-                        range: (1.0, 1.0),
-                        limits: (1.0, 1.0),
-                        normalizing: Normalizing::None {},
-                    },
-                    phase: Animable {
-                        start: None,
-                        period: Duration::from_secs(1),
-                        value: 0.0,
-                        animated: false,
-                        range: (0.0, 1.0),
-                        limits: (0.0, 1.0),
-                        normalizing: Normalizing::None {},
-                    },
-                },
-                normalizing_method: Normalizing::None {},
-            },
-            ColoringInstruction::HighlightOutFilaments {
-                id: 3,
-                inside_opacity: 128,
-                outside_opacity: 128,
-                color: (9, 9, 9),
-            },
-        ];
-        assert!(matches!(script[0], ColoringInstruction::HighlightInFilaments { .. }));
-        assert!(matches!(script[1], ColoringInstruction::PaintEscapeTime { .. }));
-        assert!(matches!(script[2], ColoringInstruction::HighlightOutFilaments { .. }));
-    }
-
-    #[test]
-    fn ste_highlight_is_also_a_script_layer() {
-        let layer = ColoringInstruction::HighlightSmallTimeEdges {
-            id: 7,
-            inside_opacity: 10,
-            outside_opacity: 20,
-            color: (3, 4, 5),
-        };
-        assert!(matches!(layer, ColoringInstruction::HighlightSmallTimeEdges { .. }));
-        assert_eq!(layer.id(), 7);
-    }
-
-    // D-COLOR-2: paint layers carry source+norm+colorizer+base+opacities via the enum.
-    #[test]
-    fn paint_escape_layer_exposes_required_fields() {
-        let layer = &DEFAULT_COLORING_SCRIPT[0];
-        match layer {
-            ColoringInstruction::PaintEscapeTime {
-                inside_opacity,
-                outside_opacity,
-                color,
-                shading_method,
-                normalizing_method,
-                ..
-            } => {
-                let _ = inside_opacity;
-                let _ = outside_opacity;
-                let _ = color;
-                let _ = shading_method;
-                let _ = normalizing_method;
-            }
-            other => panic!("expected PaintEscapeTime, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn node_highlight_exposes_inside_and_outside_opacity() {
-        let layer = ColoringInstruction::HighlightNodes {
-            id: 0,
-            inside_opacity: 11,
-            outside_opacity: 22,
-            color: (1, 2, 3),
-            thickness: 2,
-        };
-        match layer {
-            ColoringInstruction::HighlightNodes {
-                inside_opacity: 11,
-                outside_opacity: 22,
-                ..
-            } => {}
-            other => panic!("inside/outside opacity missing: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn small_time_paint_layer_exposes_dual_opacity() {
-        let layer = ColoringInstruction::PaintSmallTime {
-            id: 0,
-            inside_opacity: 1,
-            outside_opacity: 2,
-            color: (0, 0, 0),
-            range: 4,
-            shading_method: ShadingInstruction {
-                shading: Shading::Sinus {},
-                period: Animable {
-                    start: None,
-                    period: Duration::from_secs(1),
-                    value: 1.0,
-                    animated: false,
-                    range: (1.0, 1.0),
-                    limits: (1.0, 1.0),
-                    normalizing: Normalizing::None {},
-                },
-                phase: Animable {
-                    start: None,
-                    period: Duration::from_secs(1),
-                    value: 0.0,
-                    animated: false,
-                    range: (0.0, 1.0),
-                    limits: (0.0, 1.0),
-                    normalizing: Normalizing::None {},
-                },
-            },
-            normalizing_method: Normalizing::Ln {},
-        };
-        assert!(matches!(
-            layer,
-            ColoringInstruction::PaintSmallTime {
-                inside_opacity: 1,
-                outside_opacity: 2,
-                normalizing_method: Normalizing::Ln {},
-                ..
-            }
-        ));
     }
 }

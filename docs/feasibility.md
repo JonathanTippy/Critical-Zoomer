@@ -34,6 +34,7 @@ in:
 - perfect, fast performance in simple areas
 - aggressive leverage of algorithms, storage, and compute
 - A better experience than ever seen before in any one app
+- literally no stalls ever
 
 Conclusion:
 
