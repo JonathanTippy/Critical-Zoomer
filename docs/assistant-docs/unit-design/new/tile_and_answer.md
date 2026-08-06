@@ -11,7 +11,7 @@ No authoritative unit file. Non-authoritative.
 
 ## Answer (published / headgroup) (UD-ANS-1) — inferred from auth tile_worker + architecture
 
-Finished (best-effort) point stats for shading:
+Finished (best-effort) point stats for shading. Architecture: **agnostic Answers are impossible** after the publisher — every published seat is a concrete Answer (possibly nores).
 
 - Membership: Inside(period) | Outside(escape_time_r2, escape_z)
 - min_magnitude_time (small time)
@@ -24,14 +24,17 @@ All fields numeric for publisher clamp (D-PUB-2).
 
 ## CalibratedAnswer (pre-publisher) (UD-CAL-1) — inferred
 
-Same conceptual fields as ranges (and agnostic union when in/out not yet proven). Highlights may exist as ranged bools for scheduler/shade prep; publisher collapses to Answer.
+Same conceptual fields as **ranges**. Membership may still be unproven here; that is calibrated honesty, not a published agnostic Answer. Publisher collapses to Answer via proximate bias (D-PUB-2). **In, period unknown** is allowed when interior is certain but twin-test has not passed (D-PER-4).
 
 ## GPU packing (UD-GPU-1) — assumed layout pending impl lock
 
-Packed bytes for memory accounting (D-MEM-3) = `sizeof` the GPU answer texel × 64 × 64.
+Packed bytes for memory accounting (D-MEM-3) = packed size of one GPU calibrated/answer seat × 64 × 64.
 
-**Assumed texel (replace if encoding hardens differently):** fixed-size POD matching shade bindings (escape/period/smallness/angles as f32/u32 fields). Cost uses this packed size, not Vulkan allocation padding.
+**Assumed seat packing (replace if encoding hardens differently):** fixed-size POD matching publisher/shade bindings (escape/period/smallness/angles as f32/u32 fields). Cost uses this packed size, not allocator padding.
 
-## CPU vs GPU variants (UD-TILE-2) — inferred
+## CPU vs GPU variants (UD-TILE-2) — D-PUB-4 / D-GPU-7
 
-Workgroup may hold CPU or GPU-resident calibrated/work tiles. Headgroup hoard is GPU answers only. Uploader converts when needed; GPU-native work bypasses upload.
+- **WIP (GPU path):** dense active iterating state; finished seats removed and replaced from the **same tile** (D-GPU-8). Cross-tile refill = design fallback, approval required.
+- **Calibrated tile (GPU path):** persistent per-seat calibrated buffer in VRAM; **every progressed seat** updated every bout, including partial ranges (D-GPU-7); publisher notified and binds directly.
+- **Answer tile (headgroup):** publisher output only; GPU-resident.
+- Uploader converts CPU calibrated → GPU calibrated when the worker was CPU. GPU-native work never goes through the uploader.

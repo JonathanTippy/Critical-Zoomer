@@ -174,7 +174,7 @@ impl SamplingContext {
             id
         });
 
-        let upload = if let Some(prod) = handle.production_slot {
+        let upload = if let Some(prod) = handle.production_slot.take() {
             Some(crate::assemblies::headgroup::window::gpu_display::pending_handoff(gpu_id, prod))
         } else if let Some(tile) = handle.cpu_fallback.as_deref() {
             Some(crate::assemblies::headgroup::window::gpu_display::pack_tile_upload(tile, gpu_id))

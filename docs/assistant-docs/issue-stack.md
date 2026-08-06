@@ -13,7 +13,7 @@ Landing notes (assistant): NORES fallthrough + WIP proximate gate + location mag
 - sampling bug (?), some tiles are the NORES values for no reason — *partial: sampling skips NORES for lesser fallthrough; headed recheck*
 - thin towers of one tile going up / down (lookahead / hoard) are missing, resulting in extreme overuse of the nores value — *partial: progressive lookahead enqueue + retarget flush; headed recheck*
 - when zooming, new work takes a good 1-2s to start (play, regression) — *partial: 8ms post-retarget burst + play-need ignores stale lookahead; headed recheck*
-- even though TPS is better than before, it is not near the target. — *design closed (D-GPU-1…6, D-PUB-3/4). Fuse encode + GPU CGenerator + view-lifetime cgen buffer landed. Micro-batch parallelization landed: write-all-then-encode (distinct ring slots per tile, one CB per 8 tiles), deep ring (128) for screen-wide submit storm, Poll/Wait confirm drain without fail-poisoning seat_done. Probe fill ≥95%; whole-TPS noisy ~65–270 (often ~180–230) — still ~10–45× under 3000. Remaining wall: completion readback / Wait amortization and bout depth for interior tiles; headed NORES-grey (B-DISP) note-only. No homescreen cheat.*
+- even though TPS is better than before, it is not near the target. — *design closed (D-GPU-1…8, D-PUB-3/4): GPU-resident calibrated after every bout, publisher binds directly (uploader bypass), dense WIP refill, on-device completion counter, no payload readback. Impl still short of ≥3000; remaining wall is host sync / readback drift vs that design. Headed NORES-grey (B-DISP) note-only. No homescreen cheat.*
 - intexp values are not displayed properly
 - animated bailout is not running & configuable bailout not working — *partial: bailout_max_extra wired; Animable determine + [2,255] default; headed recheck*
 - regression: coloring options from v0.0.9 are almost all removed — *open: defaults/subtle layers vs v0.0.9; layer model types present*
@@ -27,9 +27,9 @@ Landing notes (assistant): NORES fallthrough + WIP proximate gate + location mag
 ### B-DISP-1 — Phase 2 cutover display regressions (grey / ~15fps / no GPU escape)
 - **Symptom:** Immediate display grey; ~15fps; **tps:0** at home; no escaper on GPU; settings open greys window; location UI misplaced / no input box.
 - **Mechanism (PO):** Headgroup must own a GPU tile collection and run sampler → escape → edge → shade shaders.
-- **Status:** **fix landing** — GPU-resident whole-tile completions were dead-ending in `HeadgroupTpsSink` (probe only); bridged to publisher bypass → `pixels_in` → `ingest_gpu_handle` (D-PUB-4). Headed re-measure + full coloring_script edge cases still open.
+- **Status:** **fix landing** — GPU-resident whole-tile completions bridged to publisher bypass → `pixels_in` → `ingest_gpu_handle` (D-PUB-4). Shared-device grey / shade/oracle / vsync Fifo landed. **2026-08-04:** headed NORES-grey / blocky-nav closed for default path — GPU-resident atlas handoff is **opt-in** (`CZ_GPU_RESIDENT=1`); default uses Answer/`write_slot` publish. Synthetic Outside-escape-4 fallback removed from GPU publish. Opt-in path materializes via point harvest → `cpu_fallback` pack. **Still open:** headed fps re-measure; true textureStore→copy handoff; full coloring_script edge cases.
 - **Locus:** `tile_session.rs` (`emit_gpu_whole_tile`, `pending_gpu_bypass`); `tile_worker/mod.rs` (`flush_unsent_tiles`); `headgroup/window/{mod,sampling,gpu_display}.rs`.
-- **Guard:** `scripts/e2e_visual.sh` (gray-hole + structure oracles); unit `gpu_bypass_queues_once`.
+- **Guard:** `scripts/e2e_visual.sh` (gray-hole + structure oracles); unit `whole_tile_completion_queues_bypass_once`.
 
 ### B-PER-2 — Period bands in deeper minibrots (regression / thought-fixed)
 - **Status:** landing — regular Inside answers emit `period == 0`; max-iter force-finish removed from perturbation bout. Deeper minibrot visual confirm still needed.
@@ -64,9 +64,9 @@ Landing notes (assistant): NORES fallthrough + WIP proximate gate + location mag
 - **Status:** blocked on developer specifying N / reconciling count. Explicit design hole in `gear.rs`.
 - **Locus:** `docs/design/tile_worker.md`; `src/gear.rs`
 
-### D-PUB-GPU — GPU publisher required; CPU publish_seat is interim only
-- **Need:** GPU shader that combines hoarded tiles with new calibrated work (NORES / proximate bias). Cadence **[20, 100000] Hz** while incomplete; idle when complete (D-PUB-1; auth).
-- **Status:** landing — LivePublisher path owned by tile publisher actor; settings (memory) wired to publisher. GPU `publisher_shader` preferred; host bridge until atlas bind is complete. Cadence constants aligned to auth [20, 100000]; headed GPU home TPS bar ≥3000 still open.
+### D-PUB-GPU — GPU publisher; uploader only for CPU work
+- **Need:** GPU shader combines hoarded tiles with new calibrated work (NORES / proximate bias). Cadence **[20, 100000] Hz** while incomplete; idle when complete (D-PUB-1). GPU-native worker path binds calibrated in VRAM directly (D-PUB-4 / D-GPU-7); uploader bypassed.
+- **Status:** design closed. Impl landing — LivePublisher owned by tile publisher; GPU publisher shader preferred; host bridge until calibrated-buffer bind is complete. Cadence constants aligned to auth [20, 100000]; headed GPU home TPS ≥3000 still open.
 - **Locus:** `workgroup/tile_publisher.rs`, `workgroup/publisher_shader.rs`, `publisher.wgsl`.
 
 ### D-ACT-1 — Workgroup SteadyState actor layout vs auth
@@ -74,10 +74,11 @@ Landing notes (assistant): NORES fallthrough + WIP proximate gate + location mag
 - **Status:** closed — registered actors: tile scheduler, tile worker, intratile scheduler, reference worker, gpu uploader, tile publisher. Reference receives whole-screen stencils from the headgroup (not via scheduler). Glitch = zero-orbit fallback only (no rebase).
 - **Locus:** `main.rs`; `tile_scheduler_actor.rs`; `tile_worker/`; `intratile_actor.rs`; `reference_actor.rs`; `headgroup/window/mod.rs`.
 
-### D-PER-1 — Period-determination phase after boundary + out-fill
-- **Need:** After boundary tracing and out-fill complete, run a phase that determines periods of the **in-edge**. Regular iterate must stay certain (no false periods); unknown period is allowed until this phase. Out-filament rendering must not show an ugly boundary between period-unknown Inside and period-known Inside.
-- **Status:** landing — `OutfillInfillScheduler::{needs,take,apply}_period_resolve*` + `TileSession::try_resolve_periods` after `screen_edge_complete()`. Flood-in period propagation wired (see D-SCH-2). Verify flood-in + out-filament seam visually.
-- **Locus:** `tile_session.rs`; `outfill_infill_scheduler.rs`; shade out-filament.
+### D-PER-1 — Period certainty vs scheduling (tension with auth period_detector)
+- **Need (historical):** After boundary/out-fill, resolve periods on the in-edge; unknown period allowed until sure; avoid ugly out-filament seams between period-unknown and period-known Inside.
+- **Auth tension:** `docs/design/period_detector.md` forbids a separate stalling period-detection phase and requires the detector on iterated points. Locked non-auth default is **integrated** period on the main path (D-PER-4); two-pass / deferred resolve is a **design fallback only** (D-PER-5, approval required).
+- **Status:** impl still has `period_resolve*` gating in places — treat as debt toward D-PER-4 / auth, not as license for a separate phase. Flood-in may still use auth’s “same placeholder period” under unknown (intratile). Visual out-filament seam remains a verify item.
+- **Locus:** `tile_session.rs`; `outfill_infill_scheduler.rs`; shade out-filament; `docs/design/period_detector.md`.
 - **Quotes:** `he-said/period-determination-phase.md`
 
 ### D-SCH-3 — Boundary-trace all renderable edges (not only in/out)

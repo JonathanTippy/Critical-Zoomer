@@ -4,7 +4,9 @@ Pairs with authoritative `docs/design/period_detector.md`. Non-authoritative.
 
 ## Loop detector (UD-PER-LOOP-1) — D-PER-3
 
-Use **power-of-two iteration-count snapshots** (not tortoise-and-hare). At each POT count, compare current z to the stored snapshot; equality produces a period contender `|i - snapshot_i|`.
+**Every iteration:** compare current z to the loop-detector reference (prescribed algorithm). Cost is almost always one or two extra comparisons beside escape. Equality produces a period contender. Twin-test required before claiming period.
+
+Auth allows tortoise-and-hare or POT as detector family; locked live choice is every-iteration equality + twin-test (not POT-only).
 
 ## Twin test (UD-PER-TWIN-1) — D-PER-1, D-PER-2, A-PER-TWIN-N
 
@@ -17,16 +19,24 @@ When a contender appears:
 3. Same relative test on derivatives.
 4. If all N steps pass, contender becomes the period.
 
-## Certainty / tenacity (UD-PER-CERT-1) — inferred + issue-stack alignment
+## Certainty / tenacity (UD-PER-CERT-1) — D-PER-4
 
 Auth: do not claim more knowledge than is certain. Emitting a **false** period violates tenacity.
 
-**Inferred policy for regular iterate:** if twin test has not passed, emit `period == 0` (unknown). Full period resolve may still be a later phase on the in-edge (see live D-PER-1 in issue-stack); this supplement does not reopen that product sequencing — it only closes the detector algorithm choices left open in the unit doc.
+If twin-test has not passed but interior is certain: calibrated may emit **in, period unknown**. Certain period only after twin-test. Unknown period alone does **not** make a seat TPS-done (D-GPU-1: all fields determined).
 
-## GPU (UD-PER-GPU-1) — inferred
+## Default path (UD-PER-PATH-1) — D-PER-4
 
-POT snapshots + fixed-N twin loop are the GPU path. Branching twin test may be simplified but must still respect twin-test semantics before claiming a period.
+**Integrated** with ordinary iterate (auth: no separate stalling period phase). Period determination must not delay escape, play, or per-bout calibrated notify of partial truth. Expectation: only slightly slower than in-determination alone.
 
-## Bucket-fill points (UD-PER-FILL-1) — inferred
+## Design fallback (UD-PER-PATH-2) — D-PER-5
 
-Auth: period bucket-fill still requires compute for small time / min magnitude. Period field may be propagated; other stats are not “done” until iterated.
+**Two-pass fields** is a recorded design fallback only (standing rule in `decisions.md`: suggest with evidence, no impl without approval).
+
+## GPU (UD-PER-GPU-1) — D-PER-6
+
+Every-iteration equality + fixed-N twin-test. Branching confirm is fine; compact sparse contenders so the main bout stays uniform. Never invent a period. Period-edge / same-period fill uses certain periods only; unknown-inside is enough for early interior veto.
+
+## Bucket-fill points (UD-PER-FILL-1) — D-GPU-1 / D-GPU-11
+
+Auth: period bucket-fill still requires compute for small time / min magnitude. In-fill may omit those so the tile can **move on**; Phase 2 must still determine them (required two-phase, not a fallback).

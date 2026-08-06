@@ -12,10 +12,18 @@
 //! hoard; the hoard the workgroup accounts for stays CPU-side per tile_manager.
 // r[impl cz.seamless.gpu-preferred+1]
 
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::assemblies::tile_sheet;
 use crate::gpu_context::GpuContext;
+
+/// One in-flight bulk counter map (never spin-Wait; ladder Step 3).
+struct PendingCompletionPeek {
+    staging: wgpu::Buffer,
+    slots: Vec<u32>,
+    receiver: mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
+}
 
 /// Slots the production atlas starts with, and grows past on demand.
 ///
@@ -41,6 +49,8 @@ pub struct ProductionAtlas {
     , slot_ceiling: u32
     , free_slots: Vec<u32>
     , next_slot: u32
+    // At most one bulk completion map in flight (D-GPU-3 / ladder Step 3b).
+    , pending_completion_peek: Option<PendingCompletionPeek>
 }
 
 /// Process-wide production atlas. The uploader writes finished tiles here; the
@@ -83,6 +93,7 @@ impl ProductionAtlas {
             , slot_ceiling
             , free_slots: Vec::new()
             , next_slot: 0
+            , pending_completion_peek: None
         }
     }
 
@@ -136,16 +147,58 @@ impl ProductionAtlas {
         );
     }
 
-    /// Read several per-tile completion counters in one copy+map (D-GPU-2/3).
-    pub fn read_completion_counts(&self, slots: &[u32]) -> Option<Vec<u32>> {
+    /// Non-blocking bulk counter peek (D-GPU-3). At most one map in flight.
+    /// Returns `Some(counts)` when ready; `None` while copy/map still pending.
+    /// Never spins / Wait — caller must retry on a later drain.
+    pub fn poll_completion_counts(&mut self, slots: &[u32]) -> Option<Vec<u32>> {
         if slots.is_empty() {
             return Some(Vec::new());
         }
+        crate::assemblies::workgroup::gpu_tps_tax::bump_counter_poll();
         let device = &self.shared.device;
+        let _ = device.poll(wgpu::PollType::Poll);
+
+        if let Some(pending) = self.pending_completion_peek.as_ref() {
+            // Keep one map alive; ignore a newer slot list until it completes.
+            match pending.receiver.try_recv() {
+                Ok(Ok(())) => {
+                    let pending = self.pending_completion_peek.take().expect("pending");
+                    let bytes = (pending.slots.len() as u64) * 4;
+                    let slice = pending.staging.slice(..bytes);
+                    let counts = {
+                        let data = slice.get_mapped_range();
+                        (0..pending.slots.len())
+                            .map(|i| {
+                                let o = i * 4;
+                                u32::from_le_bytes([data[o], data[o + 1], data[o + 2], data[o + 3]])
+                            })
+                            .collect()
+                    };
+                    pending.staging.unmap();
+                    // If caller asked for a different set, drop and begin fresh below.
+                    if pending.slots == slots {
+                        return Some(counts);
+                    }
+                }
+                Ok(Err(_)) => {
+                    self.pending_completion_peek = None;
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.pending_completion_peek = None;
+                }
+                Err(mpsc::TryRecvError::Empty) => return None,
+            }
+        }
+
+        if self.pending_completion_peek.is_some() {
+            return None;
+        }
+
+        crate::assemblies::workgroup::gpu_tps_tax::bump_map();
         let bytes = (slots.len() as u64) * 4;
         let staging = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("production_atlas_completion_staging_bulk"),
-            size: bytes,
+            size: bytes.max(4),
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -166,41 +219,34 @@ impl ProductionAtlas {
         }
         self.shared.queue.submit(Some(encoder.finish()));
         let slice = staging.slice(..bytes);
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx, rx) = mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
         });
-        let started = std::time::Instant::now();
-        loop {
-            let _ = device.poll(wgpu::PollType::Poll);
-            match rx.try_recv() {
-                Ok(Ok(())) => {
-                    let counts = {
-                        let data = slice.get_mapped_range();
-                        (0..slots.len())
-                            .map(|i| {
-                                let o = i * 4;
-                                u32::from_le_bytes([data[o], data[o + 1], data[o + 2], data[o + 3]])
-                            })
-                            .collect()
-                    };
-                    staging.unmap();
-                    return Some(counts);
-                }
-                Ok(Err(_)) => return None,
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => return None,
-                Err(std::sync::mpsc::TryRecvError::Empty) => {
-                    if started.elapsed().as_millis() > 2_000 {
-                        return None;
-                    }
-                    std::thread::yield_now();
-                }
-            }
-        }
+        self.pending_completion_peek = Some(PendingCompletionPeek {
+            staging,
+            slots: slots.to_vec(),
+            receiver: rx,
+        });
+        None
+    }
+
+    /// Compatibility: non-blocking peek (ignores `max_wait_ms`; never spins).
+    pub fn try_read_completion_counts(
+        &mut self,
+        slots: &[u32],
+        _max_wait_ms: u128,
+    ) -> Option<Vec<u32>> {
+        self.poll_completion_counts(slots)
+    }
+
+    /// Read several per-tile completion counters (Poll-only, non-blocking).
+    pub fn read_completion_counts(&mut self, slots: &[u32]) -> Option<Vec<u32>> {
+        self.poll_completion_counts(slots)
     }
 
     /// Read the per-tile completion counter (4-byte map only — D-GPU-2/3).
-    pub fn read_completion_count(&self, slot: u32) -> Option<u32> {
+    pub fn read_completion_count(&mut self, slot: u32) -> Option<u32> {
         self.read_completion_counts(&[slot])
             .and_then(|v| v.into_iter().next())
     }
@@ -282,6 +328,85 @@ impl ProductionAtlas {
     ) {
         tile_sheet::copy_slot(encoder, &self.meta_texture, slot, dst_meta, dst_slot);
         tile_sheet::copy_slot(encoder, &self.z_texture, slot, dst_z, dst_slot);
+    }
+
+    /// True when any seat in the slot has a non-missing kind (`.w` ≠ 0).
+    ///
+    /// Used to detect the B-DISP failure mode where completion counters advance
+    /// but `textureStore` texels never become visible to `copy_texture_to_texture`
+    /// (CPU `write_slot` handoff still paints). One blocking map per check.
+    pub fn slot_has_visible_answers(&self, slot: u32) -> bool {
+        let seats = (tile_sheet::TILE_EDGE * tile_sheet::TILE_EDGE) as usize;
+        let unpadded = (tile_sheet::TILE_EDGE * 16) as usize;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize;
+        let padded = unpadded.div_ceil(align) * align;
+        let bytes = padded * tile_sheet::TILE_EDGE as usize;
+        let device = &self.shared.device;
+        let queue = &self.shared.queue;
+        let staging = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("production_atlas_slot_peek"),
+            size: bytes as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let origin = tile_sheet::slot_origin(slot);
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("production_atlas_slot_peek_enc"),
+        });
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.meta_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: origin[0],
+                    y: origin[1],
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &staging,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded as u32),
+                    rows_per_image: Some(tile_sheet::TILE_EDGE),
+                },
+            },
+            wgpu::Extent3d {
+                width: tile_sheet::TILE_EDGE,
+                height: tile_sheet::TILE_EDGE,
+                depth_or_array_layers: 1,
+            },
+        );
+        queue.submit(Some(encoder.finish()));
+        let slice = staging.slice(..);
+        let (sender, receiver) = mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| {
+            let _ = sender.send(r);
+        });
+        let _ = device.poll(wgpu::PollType::Wait);
+        if receiver.recv().ok().and_then(|r| r.ok()).is_none() {
+            return false;
+        }
+        let data = slice.get_mapped_range();
+        let mut any = false;
+        for y in 0..tile_sheet::TILE_EDGE as usize {
+            let row = &data[y * padded..y * padded + unpadded];
+            let pix: &[[f32; 4]] = bytemuck::cast_slice(row);
+            for p in pix.iter().take(tile_sheet::TILE_EDGE as usize) {
+                if p[3] != 0.0 {
+                    any = true;
+                    break;
+                }
+            }
+            if any {
+                break;
+            }
+        }
+        drop(data);
+        staging.unmap();
+        let _ = seats;
+        any
     }
 
     fn grow(&mut self, wanted: u32) -> bool {

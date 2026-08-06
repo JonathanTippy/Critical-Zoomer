@@ -40,15 +40,19 @@ Spiral in from outer edge unless intratile scheduler supplies queues. Derivative
 
 As auth: escape time & z; period; in/out; small time; smallness; escape-time slope angle; smallness slope angle. Encoding: `new/tile_and_answer.md`.
 
-## GPU-native completion (UD-TW-8) — D-GPU-1…6
+## GPU-native path (UD-TW-8) — D-GPU-1…11
 
-Host scheduling may still prefer tenacious focus on a tile. On the GPU-native path, **multiple tiles may be in flight in parallel** (D-GPU-6) as long as the interface stays the same:
+**Default:** one tile at a time until **move-on done** (D-GPU-6), with in-fill exception (D-GPU-1/11).
 
-1. **Complete** = every seat has **escaped or repeated** (D-GPU-1). Identical criterion to CPU.
-2. Final Answers stay in the GPU tile/atlas. **No full Answer/point-buffer readback** (D-GPU-2).
-3. Observe completion via an **on-device per-tile counter** bumped in the same finish path that commits the terminal **calibrated** seat (escaped/repeated) (D-GPU-3, D-GPU-4). Host may map/poll only that tiny counter for TPS / “tile done.”
-4. Host done-bitmaps are for **arming/scheduling only**, not for declaring completion (D-GPU-5).
-5. **Publisher** still receives the worker’s **calibrated tile** (GPU-resident on bypass) and biases with proximate — same as CPU (D-PUB-4). Publisher does **not** own completion (D-PUB-3); worker on-device counter does (D-GPU-*).
-6. **Multi-tile concurrency** uses separate atlas slots + per-tile counters; do not invent a screen-wide completion protocol (D-GPU-6).
+1. **Move-on done** = all fields determined **except** min-magnitude/small-time may be absent on **in-filled** seats — tile may proceed (D-GPU-1). Not the same as “calibrated was written this bout.”
+2. **Required two-phase (D-GPU-11):** Phase 1 — membership/period/escape/angles + in-fill + move on. Phase 2 — min-magnitude/small-time catch-up (including in-filled points). Distinct from period two-pass fallback (D-PER-5).
+3. Calibrated/Answers stay on the GPU. **No full payload readback** on the hot path (D-GPU-2).
+4. On-device counter bumps when a seat is **move-on done** and committed (D-GPU-3/4). That event feeds **HUD TPS**. Phase 2 min-mag/small-time does not re-count the tile.
+5. Host bitmaps = arming only (D-GPU-5).
+6. **Every bout:** progressed seats write GPU calibrated (partial OK) + notify publisher (D-GPU-7). Counter only on move-on done.
+7. **Dense WIP:** refill from same tile (D-GPU-8). Cross-tile = design fallback.
+8. **Spiral / intratile (D-GPU-9):** GPU spiral + WIP; CPU control plane. On-device intratile = design fallback.
+9. Publisher = continuity only (D-PUB-3).
+10. **IPS:** ≈ 20 × best CPU (D-GPU-10).
 
-Edge tiles: counter target = valid seat count. Cancel because left screen: drop counter + production slot; do not count TPS (D-CANCEL-1 + D-GPU-4).
+Edge tiles: counter target = valid seat count. Cancel left-screen: drop counter + slot; no TPS.

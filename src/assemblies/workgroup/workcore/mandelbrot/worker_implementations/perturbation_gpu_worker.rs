@@ -138,12 +138,16 @@ pub struct PerturbationGpuWorkerState {
     cgen_half_busy: [bool; GPU_CGEN_IN_FLIGHT_BATCHES],
     /// Confirms still outstanding per micro-batch range.
     cgen_half_remaining: [u32; GPU_CGEN_IN_FLIGHT_BATCHES],
+    /// Cached mega-buffer harvest for B-DISP materialize (ring → points).
+    display_harvest_cache: Option<(usize, Vec<GpuPertPoint>)>,
 }
 
 /// One dense tile staged into a cgen micro-batch (write-all-then-encode).
 #[derive(Clone, Debug)]
 pub struct CgenQueuedTile {
     pub ring_idx: usize,
+    /// Offset into fused mega point buffer (tile_index_in_batch * TILE_SEAT_COUNT).
+    pub point_base: u32,
     pub tile_origin: (usize, usize),
     pub atlas_slot: u32,
     pub tile_index: usize,
@@ -196,8 +200,10 @@ struct GpuUniforms {
     tile_origin_y: u32,
     tile_edge: u32,
     use_c_generator: u32,
-    _pad0: u32,
-    _pad1: u32,
+    tile_count: u32,
+    seats_per_tile: u32,
+    /// Packed (ox,oy) pairs as vec4: [ox0,oy0,ox1,oy1] … (max 128 tiles).
+    tile_origins: [[u32; 4]; 64],
 }
 
 /// View-lifetime CGenerator (binding 3). Uploaded once per PointStencil (+ orbit).
@@ -228,8 +234,9 @@ impl GpuUniforms {
             tile_origin_y: 0,
             tile_edge: crate::constants::TILE_EDGE_LENGTH as u32,
             use_c_generator: 0,
-            _pad0: 0,
-            _pad1: 0,
+            tile_count: 1,
+            seats_per_tile: crate::constants::TILE_SEAT_COUNT as u32,
+            tile_origins: [[0; 4]; 64],
         }
     }
 }
@@ -305,6 +312,7 @@ impl PerturbationGpuWorkerState {
             cgen_open_half: None,
             cgen_half_busy: [false; GPU_CGEN_IN_FLIGHT_BATCHES],
             cgen_half_remaining: [0; GPU_CGEN_IN_FLIGHT_BATCHES],
+            display_harvest_cache: None,
         }
     }
 
@@ -339,6 +347,7 @@ impl PerturbationGpuWorkerState {
             cgen_open_half: None,
             cgen_half_busy: [false; GPU_CGEN_IN_FLIGHT_BATCHES],
             cgen_half_remaining: [0; GPU_CGEN_IN_FLIGHT_BATCHES],
+            display_harvest_cache: None,
         }
     }
 
@@ -361,11 +370,19 @@ impl PerturbationGpuWorkerState {
     }
 
     /// Enable GPU-resident scatter handoff when stationary + atlas available.
+    ///
+    /// Opt-in via `CZ_GPU_RESIDENT=1` until B-DISP handoff is solid: the nomap
+    /// textureStore→copy path still paints wrong tiles while panning (mag
+    /// velocity stays 0). Default stays on the Answer/`write_slot` path.
     pub fn refresh_stationary_gpu_resident(&mut self, mag_velocity: i32) {
         if self.gpu_desired && self.path == PerturbationComputePath::Gpu {
             let _ = self.ensure_gpu();
         }
-        self.stationary_gpu_resident = mag_velocity == 0
+        let opt_in = std::env::var("CZ_GPU_RESIDENT")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        self.stationary_gpu_resident = opt_in
+            && mag_velocity == 0
             && self.is_gpu_preferred()
             && self.gpu.is_some()
             && crate::assemblies::workgroup::production_atlas::ProductionAtlas::shared()
@@ -393,6 +410,112 @@ impl PerturbationGpuWorkerState {
 
     pub fn release_held_scatter_ring(&mut self, ring: Option<usize>) {
         self.release_scatter_ring(ring);
+    }
+
+    /// B-DISP: build a CPU-packed GPUTile from harvested bout points.
+    ///
+    /// Nomap `textureStore` texels are not reliable for headgroup handoff on
+    /// current drivers; publishing with `cpu_fallback` uses `pack_tile_upload`.
+    /// FLAG_FINISHED without escape packs as Inside (not Outside).
+    pub fn materialize_gpu_tile_for_display(
+        &mut self,
+        ring: usize,
+        point_base: u32,
+        origin: (usize, usize),
+        screen_res: (usize, usize),
+        location: &crate::utils::ObjectivePosAndZoom,
+    ) -> crate::assemblies::structs::GPUTile {
+        use crate::assemblies::structs::{GPUAnswer, GPUTile, MandelbrotResult};
+        use crate::constants::{GPU_CGEN_MICRO_BATCH, TILE_SEAT_COUNT};
+
+        let zero = GpuPertPoint {
+            dc_re: 0.0,
+            dc_im: 0.0,
+            dz_re: 0.0,
+            dz_im: 0.0,
+            d_re: 0.0,
+            d_im: 0.0,
+            iteration_count: 0,
+            min_magnitude: 0.0,
+            min_magnitude_time: 0,
+            flags: 0,
+            checkpoint_re: 0.0,
+            checkpoint_im: 0.0,
+            steps_since_checkpoint: 0,
+            next_checkpoint_iteration: 0,
+            detected_period: 0,
+            epsilon: 0.0,
+        };
+        let mut points = vec![zero; TILE_SEAT_COUNT];
+        let need_harvest = self
+            .display_harvest_cache
+            .as_ref()
+            .map(|(r, _)| *r != ring)
+            .unwrap_or(true);
+        if need_harvest {
+            if let Some(gpu) = self.gpu.as_mut() {
+                let mega = TILE_SEAT_COUNT.saturating_mul(GPU_CGEN_MICRO_BATCH.max(1));
+                let mut mega_pts = vec![zero; mega];
+                gpu.harvest_ring_range(ring, 0, &mut mega_pts);
+                self.display_harvest_cache = Some((ring, mega_pts));
+            }
+        }
+        if let Some((_, cached)) = self.display_harvest_cache.as_ref() {
+            let start = point_base as usize;
+            let end = (start + TILE_SEAT_COUNT).min(cached.len());
+            if start < end {
+                points[..end - start].copy_from_slice(&cached[start..end]);
+            }
+        } else if let Some(gpu) = self.gpu.as_mut() {
+            gpu.harvest_ring_range(ring, point_base, &mut points);
+        }
+
+        let mut data = vec![None; TILE_SEAT_COUNT];
+        for (i, p) in points.iter().enumerate() {
+            if (p.flags & FLAG_GLITCH) != 0 {
+                continue;
+            }
+            let escaped = (p.flags & FLAG_ESCAPED) != 0;
+            let periodic = (p.flags & FLAG_PERIODIC) != 0;
+            let finished = (p.flags & FLAG_FINISHED) != 0;
+            if !(escaped || periodic || finished) {
+                continue;
+            }
+            let answer = if periodic || (finished && !escaped) {
+                GPUAnswer {
+                    result: MandelbrotResult::Inside {
+                        period: u64::from(p.detected_period.max(1)),
+                    },
+                    min_magnitude_time: u64::from(p.min_magnitude_time),
+                    min_magnitude: f64::from(p.min_magnitude),
+                }
+            } else {
+                GPUAnswer {
+                    result: MandelbrotResult::Outside {
+                        escape_time_r2: u64::from(p.iteration_count.max(1)),
+                        escape_z: (p.dz_re, p.dz_im),
+                    },
+                    min_magnitude_time: u64::from(p.min_magnitude_time),
+                    min_magnitude: f64::from(p.min_magnitude),
+                }
+            };
+            data[i] = Some(answer);
+        }
+        let data: Box<[Option<GPUAnswer>; TILE_SEAT_COUNT]> = data
+            .into_boxed_slice()
+            .try_into()
+            .unwrap_or_else(|_| panic!("tile seat count mismatch"));
+        GPUTile {
+            origin_seat: origin,
+            magnification_pot: location.zoom_pot,
+            screen_res,
+            location: location.clone(),
+            data,
+        }
+    }
+
+    pub fn clear_display_harvest_cache(&mut self) {
+        self.display_harvest_cache = None;
     }
 
     pub fn point_ring_free_len(&self) -> usize {
@@ -472,15 +595,19 @@ impl PerturbationGpuWorkerState {
         let Some(half) = self.allocate_cgen_half() else {
             return false;
         };
-        let ring_idx = half * GPU_CGEN_MICRO_BATCH + self.cgen_queued.len();
+        // Fused mega buffer lives at the first ring slot of the half.
+        let ring_idx = half * GPU_CGEN_MICRO_BATCH;
         if ring_idx >= GPU_POINT_RING_DEPTH {
             return false;
         }
+        let point_base = (self.cgen_queued.len() as u32)
+            * (crate::constants::TILE_SEAT_COUNT as u32);
         if self.cgen_queued.is_empty() {
             self.cgen_half_busy[half] = true;
         }
         self.cgen_queued.push(CgenQueuedTile {
             ring_idx,
+            point_base,
             tile_origin,
             atlas_slot,
             tile_index,
@@ -488,8 +615,11 @@ impl PerturbationGpuWorkerState {
         true
     }
 
-    /// Write-all then encode+submit the open micro-batch. Returns queued tiles for confirm park.
-    pub fn submit_cgen_micro_batch(&mut self) -> Option<Vec<CgenQueuedTile>> {
+    /// Write-all then encode+submit the open micro-batch.
+    /// Returns tiles + a flag that becomes true when the GPU submit finishes.
+    pub fn submit_cgen_micro_batch(
+        &mut self,
+    ) -> Option<(Vec<CgenQueuedTile>, std::sync::Arc<std::sync::atomic::AtomicBool>)> {
         if self.cgen_queued.is_empty() {
             self.cgen_open_half = None;
             return None;
@@ -506,14 +636,14 @@ impl PerturbationGpuWorkerState {
         }
         let tiles = std::mem::take(&mut self.cgen_queued);
         let half = self.cgen_open_half.take().unwrap_or(0);
-        if !submit_cgen_micro_batch_inner(self, &tiles) {
+        let Some(gpu_done) = submit_cgen_micro_batch_inner(self, &tiles) else {
             self.cgen_half_busy[half] = false;
             self.cgen_half_remaining[half] = 0;
             return None;
-        }
+        };
         self.cgen_half_remaining[half] = tiles.len() as u32;
         self.cgen_half_busy[half] = true;
-        Some(tiles)
+        Some((tiles, gpu_done))
     }
 
     /// Release one ring slot after confirm apply; frees the half when all tiles done.
@@ -544,7 +674,9 @@ impl PerturbationGpuWorkerState {
     }
 
     /// Submit any open multi-tile CGenerator encoder (flush partial micro-batch).
-    pub fn flush_cgen_gpu_batch(&mut self) -> Option<Vec<CgenQueuedTile>> {
+    pub fn flush_cgen_gpu_batch(
+        &mut self,
+    ) -> Option<(Vec<CgenQueuedTile>, std::sync::Arc<std::sync::atomic::AtomicBool>)> {
         self.submit_cgen_micro_batch()
     }
 
@@ -936,10 +1068,17 @@ impl PerturbationGpuContext {
                 cache: None,
             })
         });
-        let point_capacity = GPU_WORKER_BATCH_N as u32;
+        // Mega capacity so half-leading ring slots hold a fused cgen micro-batch.
+        let point_capacity =
+            (GPU_WORKER_BATCH_N * crate::constants::GPU_CGEN_MICRO_BATCH.max(1)) as u32;
+        let single_point_capacity = GPU_WORKER_BATCH_N as u32;
         let orbit_capacity = 65_536u32;
         let uniform_size = std::mem::size_of::<GpuUniforms>() as u64;
-        let point_bytes = (point_capacity as u64) * (std::mem::size_of::<GpuPertPoint>() as u64);
+        let mega_point_bytes =
+            (point_capacity as u64) * (std::mem::size_of::<GpuPertPoint>() as u64);
+        let single_point_bytes =
+            (single_point_capacity as u64) * (std::mem::size_of::<GpuPertPoint>() as u64);
+        let point_bytes = single_point_bytes;
         let orbit_bytes = (orbit_capacity as u64) * 8;
         let orbit_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("perturbation_gpu_orbit"),
@@ -974,13 +1113,19 @@ impl PerturbationGpuContext {
         for i in 0..depth {
             let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(&format!("perturbation_gpu_uniforms_{i}")),
-                size: uniform_size,
+                size: uniform_size.max(256),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
+            // Only half-leading slots need mega point buffers for fused cgen.
+            let this_point_bytes = if i % crate::constants::GPU_CGEN_MICRO_BATCH.max(1) == 0 {
+                mega_point_bytes
+            } else {
+                single_point_bytes
+            };
             let point_buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(&format!("perturbation_gpu_points_{i}")),
-                size: point_bytes,
+                size: this_point_bytes,
                 usage: wgpu::BufferUsages::STORAGE
                     | wgpu::BufferUsages::COPY_DST
                     | wgpu::BufferUsages::COPY_SRC,
@@ -1567,8 +1712,74 @@ impl PerturbationGpuContext {
         uniforms.tile_origin_y = tile_origin_y;
         uniforms.tile_edge = crate::constants::TILE_EDGE_LENGTH as u32;
         uniforms.use_c_generator = 1;
+        uniforms.tile_count = 1;
+        uniforms.seats_per_tile = crate::constants::TILE_SEAT_COUNT as u32;
+        uniforms.tile_origins[0][0] = tile_origin_x;
+        uniforms.tile_origins[0][1] = tile_origin_y;
         queue.write_buffer(
             &self.uniform_ring[idx],
+            0,
+            bytemuck::bytes_of(&uniforms),
+        );
+        if upload_orbit {
+            let need = (orbit_len as usize) * 2;
+            if self.orbit_flat_scratch.len() < need {
+                self.orbit_flat_scratch.resize(need, 0.0);
+            }
+            for (i, &(re, im)) in orbit_f32.iter().take(orbit_len as usize).enumerate() {
+                self.orbit_flat_scratch[i * 2] = re;
+                self.orbit_flat_scratch[i * 2 + 1] = im;
+            }
+            queue.write_buffer(
+                &self.orbit_buffer,
+                0,
+                bytemuck::cast_slice(&self.orbit_flat_scratch[..need]),
+            );
+        }
+        true
+    }
+
+    /// Write uniforms for a fused multi-tile cgen bout into one mega ring slot.
+    pub(crate) fn write_bout_cgen_fused_uniforms(
+        &mut self,
+        orbit_f32: &[(f32, f32)],
+        bailout_radius_squared: f32,
+        bout_iterations: u32,
+        tiles: &[CgenQueuedTile],
+        upload_orbit: bool,
+    ) -> bool {
+        if tiles.is_empty() || tiles.len() > 128 {
+            return false;
+        }
+        let seats = crate::constants::TILE_SEAT_COUNT as u32;
+        let total = seats.saturating_mul(tiles.len() as u32);
+        let count = total.min(self.point_capacity);
+        let orbit_len = orbit_f32.len().min(self.orbit_capacity as usize) as u32;
+        if count == 0 || orbit_len == 0 {
+            return false;
+        }
+        let ring_idx = tiles[0].ring_idx.min(self.uniform_ring.len().saturating_sub(1));
+        let queue = &self.shared.queue;
+        let mut uniforms = GpuUniforms::base(
+            bailout_radius_squared,
+            bout_iterations,
+            orbit_len,
+            count,
+        );
+        uniforms.tile_origin_x = tiles[0].tile_origin.0 as u32;
+        uniforms.tile_origin_y = tiles[0].tile_origin.1 as u32;
+        uniforms.tile_edge = crate::constants::TILE_EDGE_LENGTH as u32;
+        uniforms.use_c_generator = 1;
+        uniforms.tile_count = tiles.len() as u32;
+        uniforms.seats_per_tile = seats;
+        for (i, tile) in tiles.iter().enumerate() {
+            let slot = i / 2;
+            let base = (i % 2) * 2;
+            uniforms.tile_origins[slot][base] = tile.tile_origin.0 as u32;
+            uniforms.tile_origins[slot][base + 1] = tile.tile_origin.1 as u32;
+        }
+        queue.write_buffer(
+            &self.uniform_ring[ring_idx],
             0,
             bytemuck::bytes_of(&uniforms),
         );
@@ -1709,9 +1920,68 @@ impl PerturbationGpuContext {
         }
     }
 
+    /// Copy a range of `point_ring[ring]` → staging and map into `points`.
+    /// Used to materialize display texels when storage `textureStore` is not
+    /// visible to atlas handoff copies (B-DISP).
+    pub(crate) fn harvest_ring_range(
+        &mut self,
+        ring: usize,
+        point_base: u32,
+        points: &mut [GpuPertPoint],
+    ) {
+        crate::assemblies::workgroup::gpu_tps_tax::bump_harvest();
+        let count = points.len().min(self.point_capacity as usize) as u32;
+        if count == 0 || ring >= self.point_ring.len() {
+            return;
+        }
+        let elem = std::mem::size_of::<GpuPertPoint>() as u64;
+        let copy_bytes = u64::from(count) * elem;
+        let src_off = u64::from(point_base) * elem;
+        let use_b = self.staging_flip;
+        self.staging_flip = !self.staging_flip;
+        let device = &self.shared.device;
+        let queue = &self.shared.queue;
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("perturbation_gpu_harvest_range_enc"),
+        });
+        {
+            let staging = if use_b {
+                &self.staging_buffer_b
+            } else {
+                &self.staging_buffer
+            };
+            encoder.copy_buffer_to_buffer(
+                &self.point_ring[ring],
+                src_off,
+                staging,
+                0,
+                copy_bytes,
+            );
+        }
+        queue.submit(Some(encoder.finish()));
+        let staging = if use_b {
+            &self.staging_buffer_b
+        } else {
+            &self.staging_buffer
+        };
+        let slice = staging.slice(..copy_bytes);
+        let (sender, receiver) = mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+        await_map_async(device, &receiver);
+        {
+            let data = slice.get_mapped_range();
+            let out: &[GpuPertPoint] = bytemuck::cast_slice(&data);
+            points[..count as usize].copy_from_slice(out);
+        }
+        staging.unmap();
+    }
+
     /// Copy `point_buffer` → staging and map into `points` (no compute). Used after
     /// one or more compute-only dispatches so residency pays off.
     pub(crate) fn harvest_points(&mut self, points: &mut [GpuPertPoint]) {
+        crate::assemblies::workgroup::gpu_tps_tax::bump_harvest();
         let count = points.len().min(self.point_capacity as usize) as u32;
         if count == 0 {
             return;
@@ -2216,44 +2486,46 @@ fn pack_gpu_from_gear<const N: usize>(
 fn submit_cgen_micro_batch_inner(
     worker_state: &mut PerturbationGpuWorkerState,
     tiles: &[CgenQueuedTile],
-) -> bool {
+) -> Option<std::sync::Arc<std::sync::atomic::AtomicBool>> {
     use crate::assemblies::workgroup::bout_scatter::BoutScatter;
     use crate::assemblies::workgroup::production_atlas::ProductionAtlas;
     use crate::constants::{PIXELS_PER_UNIT_POT, TILE_SEAT_COUNT};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
 
     if tiles.is_empty() {
-        return true;
+        return Some(Arc::new(AtomicBool::new(true)));
     }
     let atlas = match ProductionAtlas::shared() {
         Some(a) => a,
-        None => return false,
+        None => return None,
     };
     let scatter = match BoutScatter::shared() {
         Some(s) => s,
-        None => return false,
+        None => return None,
     };
     if !matches!(worker_state.cpu.gear, crate::gear::Gear::F32) {
-        return false;
+        return None;
     }
     let Some(&orbit_id) = worker_state.cpu.seat_orbit_ids.first() else {
-        return false;
+        return None;
     };
     let (stencil_serial, origin_re, origin_im, space, orbit_ok) = {
         let Some(stencil) = worker_state.cpu.stencil.as_ref() else {
-            return false;
+            return None;
         };
         let Some(orbit) = worker_state.cpu.references.get(orbit_id) else {
-            return false;
+            return None;
         };
         let Some(cgen) = stencil.get_relative_c_generator::<f32>(&orbit.big_c) else {
-            return false;
+            return None;
         };
         let ok = !orbit.f32.big_z_orbit.is_empty() && orbit.f32.big_z_orbit.len() <= 65_536;
         let ((ore, oim), sp) = cgen.origin_and_space();
         (stencil.serial_number, ore, oim, sp, ok)
     };
     if !orbit_ok {
-        return false;
+        return None;
     }
     let half_px = 2.0_f32.powi(-(PIXELS_PER_UNIT_POT + 1));
     let bailout = worker_state.cpu.bailout_radius_squared as f32;
@@ -2267,16 +2539,16 @@ fn submit_cgen_micro_batch_inner(
 
     let local_seats: Vec<u32> = (0..point_count).collect();
 
-    // Home exterior escapes quickly; short bout matches prior single-tile cgen path.
+    // Fused: one init+bout over N tiles, then per-tile scatter with point_base.
     const COMPUTE_ROUNDS: u32 = 1;
     let bout = 256u32;
     let Ok(atlas_guard) = atlas.lock() else {
-        return false;
+        return None;
     };
     let device = worker_state.gpu.as_ref().expect("gpu").shared.device.clone();
     let queue = worker_state.gpu.as_ref().expect("gpu").shared.queue.clone();
 
-    // Phase 1: write all distinct ring uniforms + scatter params (no encode yet).
+    let fused_points = point_count.saturating_mul(tiles.len() as u32);
     {
         let orbit_f32 = worker_state
             .cpu
@@ -2293,66 +2565,70 @@ fn submit_cgen_micro_batch_inner(
             space,
             half_px,
         );
-        for (i, tile) in tiles.iter().enumerate() {
-            if !gpu.write_bout_cgen_uniforms(
-                orbit_f32,
-                bailout,
-                bout,
-                point_count,
-                tile.tile_origin.0 as u32,
-                tile.tile_origin.1 as u32,
-                upload_orbit && i == 0,
-                tile.ring_idx,
-            ) {
-                return false;
-            }
+        if !gpu.write_bout_cgen_fused_uniforms(
+            orbit_f32,
+            bailout,
+            bout,
+            tiles,
+            upload_orbit,
+        ) {
+            return None;
+        }
+        for tile in tiles {
+            // Each tile needs its own scatter staging ring (params/counters).
+            let scatter_ring = tile.ring_idx + (tile.point_base / point_count) as usize;
             if !scatter.write_scatter_nomap(
                 &*atlas_guard,
                 tile.atlas_slot,
                 &local_seats,
-                tile.ring_idx,
+                scatter_ring,
+                tile.point_base,
             ) {
-                return false;
+                return None;
             }
         }
         gpu.last_orbit_id = Some(orbit_key);
     }
 
-    // Phase 2: encode all tiles into one command buffer, one submit.
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("perturbation_gpu_cgen_micro_batch_enc"),
+        label: Some("perturbation_gpu_cgen_micro_batch_fused_enc"),
     });
     {
         let gpu = worker_state.gpu.as_mut().expect("gpu");
+        let mega_ring = tiles[0].ring_idx;
+        if !gpu.encode_bout_cgen_passes(
+            &mut encoder,
+            COMPUTE_ROUNDS,
+            fused_points,
+            mega_ring,
+        ) {
+            return None;
+        }
         for tile in tiles {
-            if !gpu.encode_bout_cgen_passes(
-                &mut encoder,
-                COMPUTE_ROUNDS,
-                point_count,
-                tile.ring_idx,
-            ) {
-                return false;
-            }
+            let scatter_ring = tile.ring_idx + (tile.point_base / point_count) as usize;
             if !scatter.encode_scatter_nomap_pass(
                 &mut encoder,
-                gpu.point_buffer_at(tile.ring_idx),
+                gpu.point_buffer_at(mega_ring),
                 &*atlas_guard,
                 tile.atlas_slot,
                 &local_seats,
-                tile.ring_idx,
+                scatter_ring,
             ) {
-                return false;
+                return None;
             }
+            crate::assemblies::workgroup::gpu_tps_tax::bump_nomap_scatter();
         }
     }
+    let gpu_done = Arc::new(AtomicBool::new(false));
+    let done_cb = Arc::clone(&gpu_done);
+    queue.on_submitted_work_done(move || {
+        done_cb.store(true, Ordering::Release);
+    });
     queue.submit(Some(encoder.finish()));
     worker_state.iterations_advanced = worker_state.iterations_advanced.saturating_add(
-        u64::from(bout)
-            * u64::from(COMPUTE_ROUNDS)
-            * u64::from(point_count)
-            * tiles.len() as u64,
+        u64::from(bout) * u64::from(COMPUTE_ROUNDS) * u64::from(fused_points),
     );
-    true
+    Some(gpu_done)
 }
 
 /// Dense identity tile: CGenerator on GPU, no host δc pack.
@@ -2836,86 +3112,77 @@ fn try_gpu_resident_scatter<const N: usize>(
         return true;
     }
 
+    // Ladder Step 4: never use mapped scatter_submit on the GPU-resident path.
+    // Force nomap + defer semantics even if scatter_defer_flush was cleared.
     {
-        let gpu = worker_state.gpu.as_mut().expect("gpu");
-        if let Some(limbs) = stacked_limbs {
-            gpu.run_stacked_bout_compute_multi_nopoll(
-                limbs,
+        let ring_idx = worker_state
+            .gpu
+            .as_ref()
+            .map(|g| g.ring_active())
+            .unwrap_or(0);
+        let device = worker_state.gpu.as_ref().expect("gpu").shared.device.clone();
+        let queue = worker_state.gpu.as_ref().expect("gpu").shared.queue.clone();
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("perturbation_gpu_forced_nomap_bout_scatter_enc"),
+        });
+        {
+            let gpu = worker_state.gpu.as_mut().expect("gpu");
+            if !gpu.encode_bout_rounds(
+                &mut encoder,
+                stacked_limbs,
                 &gpu_points,
                 orbit_f32,
                 bailout,
                 bout,
                 COMPUTE_ROUNDS,
+                true,
                 needs_upload,
                 upload_orbit,
-            );
-        } else {
-            gpu.run_bout_compute_multi_nopoll(
-                &gpu_points,
-                orbit_f32,
-                bailout,
-                bout,
-                COMPUTE_ROUNDS,
-                needs_upload,
-                upload_orbit,
-            );
-        }
-        gpu.last_orbit_id = Some(orbit_key);
-    }
-    worker_state.iterations_advanced = worker_state.iterations_advanced.saturating_add(
-        u64::from(bout) * u64::from(COMPUTE_ROUNDS) * u64::from(point_count),
-    );
-
-    if !scatter.scatter_submit(
-        worker_state.gpu.as_ref().expect("gpu").point_buffer(),
-        &*atlas_guard,
-        slot,
-        &local_seats,
-    ) {
-        return false;
-    }
-    drop(atlas_guard);
-
-    worker_state.pending_scatter_map_idx = map_idx.clone();
-
-    let terminals = match scatter.flush_scatter_counter() {
-        Some(t) => t,
-        None => return false,
-    };
-    worker_state.last_scatter_terminals = terminals.0;
-    worker_state.last_tile_completion = terminals.1;
-
-    if terminals.0 >= point_count && point_count > 0 {
-        for &bi in &map_idx {
-            if let Some((_, point)) = active_batch.points[bi].as_mut() {
-                point.finished = true;
-                point.escaped = true;
-                point.iteration_count = point.iteration_count.max(1);
+            ) {
+                return false;
+            }
+            gpu.last_orbit_id = Some(orbit_key);
+            if !scatter.encode_scatter_nomap(
+                &mut encoder,
+                gpu.point_buffer(),
+                &*atlas_guard,
+                slot,
+                &local_seats,
+                ring_idx,
+            ) {
+                return false;
             }
         }
-        worker_state.last_scatter_locals = scatter_locals;
-        worker_state.last_scatter_full_batch = true;
-        worker_state.clear_resident();
-        worker_state.cpu_followup = false;
-        worker_state.gpu_low_yield_streak = 0;
-        return true;
+        queue.submit(Some(encoder.finish()));
+        worker_state.iterations_advanced = worker_state.iterations_advanced.saturating_add(
+            u64::from(bout) * u64::from(COMPUTE_ROUNDS) * u64::from(point_count),
+        );
+        drop(atlas_guard);
+        worker_state.pending_scatter_map_idx = map_idx.clone();
+        let held = worker_state
+            .gpu
+            .as_mut()
+            .expect("gpu")
+            .hold_active_for_scatter();
+        worker_state.pending_scatter_ring = Some(held);
+        worker_state.pending_scatter_armed = point_count;
+        worker_state.pending_scatter_locals_buf = scatter_locals;
+        true
     }
-
-    worker_state.resident_map_idx = map_idx;
-    worker_state.resident_gpu_points = gpu_points;
-    worker_state.resident_orbit_key = Some(orbit_key);
-    worker_state.resident_limbs = limbs_key;
-    false
 }
 
 fn try_gpu_workshift<const N: usize>(
     worker_state: &mut PerturbationGpuWorkerState,
     active_batch: &mut PointBatch<f64, CpuPeriodicityDetector, N>,
 ) -> bool {
-    if worker_state.stationary_gpu_resident && worker_state.gpu_resident_slot.is_some() {
-        if try_gpu_resident_scatter(worker_state, active_batch) {
+    if worker_state.stationary_gpu_resident {
+        if worker_state.gpu_resident_slot.is_some()
+            && try_gpu_resident_scatter(worker_state, active_batch)
+        {
             return true;
         }
+        // Ladder Step 5: no harvest / non-resident GPU on stationary preferred path.
+        return false;
     }
     // F32 + StackedI32 stay GPU-native. AdaptiveRug / F64 stay on CPU.
     let stacked_limbs = match worker_state.cpu.gear {

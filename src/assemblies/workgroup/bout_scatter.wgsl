@@ -33,6 +33,10 @@ struct ScatterParams {
     slot_origin_y: u32,
     point_count: u32,
     slot_index: u32,
+    point_base: u32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
 }
 
 @group(0) @binding(0) var<storage, read> points: array<GpuPertPoint>;
@@ -57,7 +61,7 @@ fn scatter(@builtin(global_invocation_id) gid: vec3<u32>) {
     if i >= params.point_count {
         return;
     }
-    let p = points[i];
+    let p = points[params.point_base + i];
     if !is_terminal(p.flags) {
         return;
     }

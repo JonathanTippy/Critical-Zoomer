@@ -47,7 +47,7 @@ Status key: **covered** (auth), **closed-here** (assistant), **hole** (explicit)
 | headgroup.md | supplements/headgroup.md | medium |
 | homothety.md | supplements/homothety.md | low (validity only) |
 | intratile_scheduler.md | supplements/intratile_scheduler.md | medium (preempt, phase jobs) |
-| period_detector.md | supplements/period_detector.md | high (open choices) |
+| period_detector.md | supplements/period_detector.md | closed-here (D-PER-4…6) |
 | reference_worker.md | supplements/reference_worker.md | medium |
 | shaders.md | supplements/shaders.md | high (thresholds, compositing) |
 | tile_manager.md | supplements/tile_manager.md | medium |
@@ -73,7 +73,7 @@ Status key: **covered** (auth), **closed-here** (assistant), **hole** (explicit)
 | Item | Note |
 |------|------|
 | Form-factor packaging (Flatpak/deb) | Outside unit design |
-| GPU tile publisher restore | GPU shader required; cadence [20, 100000] Hz (D-PUB-1); CPU `publish_seat` interim for single-seat until GPU tile path used |
+| GPU tile publisher | GPU shader required; cadence [20, 100000] Hz (D-PUB-1); GPU-native calibrated binds directly (D-PUB-4 / D-GPU-7); uploader only for CPU work |
 | `shadergroup` assembly vs shaders-in-headgroup | **closed** — actor assembly removed; live shade is `gpu_display` wgsl |
 | Parallel `workgroup` vs `workgroup` | **closed** — live SteadyState names match auth: tile scheduler, tile worker, intratile scheduler, reference worker, gpu uploader, tile publisher |
 | Exact EWMA half-life / α for mag velocity | Assumed in tile_scheduler supplement |

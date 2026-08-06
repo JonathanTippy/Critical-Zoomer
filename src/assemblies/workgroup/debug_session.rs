@@ -5,8 +5,8 @@ use std::io::Write;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const LOG_PATH: &str = "/home/jonathan/git/therealcriticalzoomer/.cursor/debug-4dca53.log";
-const SESSION: &str = "4dca53";
+const LOG_PATH: &str = "/home/jonathan/git/Critical-Zoomer/.cursor/debug-bdisp.log";
+const SESSION: &str = "bdisp";
 
 static RPC_N: AtomicU64 = AtomicU64::new(0);
 static GPU_N: AtomicU64 = AtomicU64::new(0);

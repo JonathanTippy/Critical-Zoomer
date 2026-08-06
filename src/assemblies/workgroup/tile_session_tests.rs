@@ -303,6 +303,31 @@ mod perturbation_always_on_tests {
         handle.join().expect("800x480 home fill panicked");
     }
 
+    #[test]
+    fn gpu_publish_handle_queues_for_dpub4_bypass() {
+        use crate::assemblies::workgroup::headgroup_tps_sink::HeadgroupTpsSink;
+        use crate::constants::{HOME_POSITION, TILE_SEAT_COUNT};
+        use crate::intexp::IntExp;
+        let loc = ObjectivePosAndZoom {
+            pos: (IntExp::from(HOME_POSITION.0), IntExp::from(HOME_POSITION.1)),
+            zoom_pot: HOME_POSITION.2,
+        };
+        let mut session = TileSession::new(loc.clone(), (64, 64));
+        let handle = HeadgroupTpsSink::whole_tile_handle(
+            (0, 0),
+            (64, 64),
+            &loc,
+            0,
+            TILE_SEAT_COUNT as u32,
+        );
+        session.record_gpu_publish_handle_for_test(handle);
+        let pending = session.take_pending_gpu_publishes();
+        assert_eq!(pending.len(), 1);
+        assert!(pending[0].production_slot.is_some());
+        assert!(pending[0].calibrated);
+        assert_eq!(session.headgroup_completed_whole_tiles(), 1);
+    }
+
     /// Debug probe: preferred GPU path must stay near CPU fill pace (not ~10× slower).
     #[cfg_attr(coverage, ignore = "llvm-cov overhead; run without coverage")]
     #[cfg_attr(debug_assertions, ignore = "product fill bar requires --release")]
@@ -315,6 +340,22 @@ mod perturbation_always_on_tests {
                     pos: (IntExp::from(HOME_POSITION.0), IntExp::from(HOME_POSITION.1))
                     , zoom_pot: HOME_POSITION.2
                 };
+                // Warm shared device / pipelines outside the TPS window.
+                {
+                    let mut warm = TileSession::new(location.clone(), (800, 480));
+                    warm.set_mag_velocity(0);
+                    let tw = Instant::now();
+                    while warm.gpu_resident_fill_percent() < 95.0
+                        && tw.elapsed().as_millis() < 30_000
+                    {
+                        warm.workshift();
+                    }
+                    assert!(
+                        warm.worker_state.gpu_device_held(),
+                        "warmup must hold a GPU device"
+                    );
+                }
+                crate::assemblies::workgroup::gpu_tps_tax::reset();
                 let mut session = TileSession::new(location, (800, 480));
                 // Prefer live GPU path (do not force CPU).
                 session.set_mag_velocity(0);
@@ -325,11 +366,13 @@ mod perturbation_always_on_tests {
                     guard += 1;
                 }
                 let ms = t0.elapsed().as_millis();
+                let tax = crate::assemblies::workgroup::gpu_tps_tax::snapshot();
                 eprintln!(
-                    "home_800x480 GPU-path fill {}% in {ms}ms ({guard} workshifts) gpu_preferred={} gpu_held={}"
-                    , session.gpu_resident_fill_percent()
-                    , session.worker_state.is_gpu_preferred()
-                    , session.worker_state.gpu_device_held()
+                    "home_800x480 GPU-path fill {}% in {ms}ms ({guard} workshifts) gpu_preferred={} gpu_held={} {}",
+                    session.gpu_resident_fill_percent(),
+                    session.worker_state.is_gpu_preferred(),
+                    session.worker_state.gpu_device_held(),
+                    tax.format_line()
                 );
                 assert!(
                     session.gpu_resident_fill_percent() >= 95.0

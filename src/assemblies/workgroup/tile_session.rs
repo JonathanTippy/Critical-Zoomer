@@ -55,6 +55,12 @@ struct GpuScatterConfirm {
     , atlas_slot: Option<u32>
     // True when ring belongs to a cgen micro-batch half (release via half counter).
     , from_cgen_micro: bool
+    // Offset into the (possibly fused) point buffer for this tile's seats.
+    , point_base: u32
+    // Polls where on-device count was still short (retry/exhaust without Wait).
+    , poll_misses: u32
+    // Set when the owning GPU submit finishes (skip counter map until then).
+    , gpu_done: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>
 }
 
 struct ScredgeWork {
@@ -770,6 +776,121 @@ impl TileSession {
         self.headgroup_tps.completed_whole_tiles()
     }
 
+    /// D-PUB-4: drain GPU-resident handles for publisher bypass (no CPU pack).
+    pub fn take_pending_gpu_publishes(
+        &mut self,
+    ) -> Vec<crate::assemblies::structs::GpuTileHandle> {
+        self.drain_gpu_bypass_handles()
+    }
+
+    /// Re-queue handles that could not be sent on the bypass channel.
+    pub fn restore_pending_gpu_publishes(
+        &mut self,
+        handles: Vec<crate::assemblies::structs::GpuTileHandle>,
+    ) {
+        for handle in handles {
+            self.requeue_gpu_bypass(handle);
+        }
+    }
+
+    fn record_gpu_publish_handle(&mut self, handle: crate::assemblies::structs::GpuTileHandle) {
+        // Do not enqueue synthetic Answer tiles — they overwrite real work with
+        // uniform Outside escape-4 junk and scramble navigation (B-DISP).
+        self.emit_gpu_whole_tile(handle);
+    }
+
+    fn publish_gpu_slot(
+        &mut self,
+        origin: (usize, usize),
+        slot: u32,
+        ring: Option<usize>,
+        point_base: u32,
+        filled_seats: u32,
+    ) {
+        // Prefer CPU-packed answers from a point harvest (`pack_tile_upload`).
+        // Release the production slot — textureStore handoff stays unreliable.
+        let handle = if let Some(ring) = ring {
+            let gpu_tile = self.worker_state.materialize_gpu_tile_for_display(
+                ring,
+                point_base,
+                origin,
+                self.screen_res,
+                &self.location,
+            );
+            if let Some(atlas) =
+                crate::assemblies::workgroup::production_atlas::ProductionAtlas::shared()
+            {
+                if let Ok(mut atlas) = atlas.lock() {
+                    atlas.release(slot);
+                }
+            }
+            let mut handle =
+                crate::assemblies::structs::GpuTileHandle::from_gpu_tile(gpu_tile, None);
+            handle.filled_seats = filled_seats;
+            handle
+        } else {
+            HeadgroupTpsSink::whole_tile_handle(
+                origin,
+                self.screen_res,
+                &self.location,
+                slot,
+                filled_seats,
+            )
+        };
+        self.record_gpu_publish_handle(handle);
+    }
+
+    /// Host-side Answer tile for a GPU-finished origin (non-NORES Outside/Inside).
+    fn enqueue_cpu_fallback_answers_for_origin(&mut self, origin: (usize, usize)) {
+        let mag = self.location.zoom_pot;
+        let tile = self
+            .answer_tiles
+            .entry(origin)
+            .or_insert_with(|| Tile::new(origin, mag));
+        for ly in 0..TILE_EDGE_LENGTH {
+            for lx in 0..TILE_EDGE_LENGTH {
+                let sx = origin.0 + lx;
+                let sy = origin.1 + ly;
+                if sx >= self.screen_res.0 || sy >= self.screen_res.1 {
+                    continue;
+                }
+                let idx = linear_index((sx, sy), self.screen_res.0);
+                let answer = match self.screen_kind[idx] {
+                    Some(SeatKind::Inside { period }) => Answer {
+                        result: MandelbrotResult::Inside {
+                            period: u64::from(period.max(1)),
+                        },
+                        min_magnitude_time: 0,
+                        min_magnitude: 0.0,
+                        escape_time_angle: 0,
+                        min_magnitude_angle: 0,
+                    },
+                    _ => Answer {
+                        // Distinct from NORES (escape_time_r2==1 + infinite min_mag).
+                        result: MandelbrotResult::Outside {
+                            escape_time_r2: 4,
+                            escape_z: (2.0, 0.0),
+                        },
+                        min_magnitude_time: 1,
+                        min_magnitude: 1.0,
+                        escape_time_angle: 0,
+                        min_magnitude_angle: 0,
+                    },
+                };
+                tile.set((lx, ly), answer);
+            }
+        }
+        self.unsent_origins.insert(origin);
+    }
+
+    #[cfg(test)]
+    pub fn record_gpu_publish_handle_for_test(
+        &mut self,
+        handle: crate::assemblies::structs::GpuTileHandle,
+    ) {
+        self.record_gpu_publish_handle(handle);
+    }
+
     /// Fill gate for GPU probe: max(host seats, GPU-resident handle seats).
     pub fn gpu_resident_fill_percent(&self) -> f64 {
         let host = self.percent_completed();
@@ -988,6 +1109,8 @@ impl TileSession {
         }
         out
     }
+
+    fn headgroup_has_whole_tile(&self, origin: (usize, usize)) -> bool {
         let key = (
             self.location.zoom_pot,
             origin.0 as i32,
@@ -1090,7 +1213,9 @@ impl TileSession {
     }
 
     pub fn has_unsent_publish(&self) -> bool {
-        !self.unsent_origins.is_empty() || !self.lookahead_unsent.is_empty()
+        !self.unsent_origins.is_empty()
+            || !self.lookahead_unsent.is_empty()
+            || !self.pending_gpu_bypass.is_empty()
     }
 
     /// Apply shared tile-manager prune; returns bump size when protected tiles exceed limit.
@@ -1560,7 +1685,11 @@ impl TileSession {
         true
     }
 
-    fn park_cgen_micro_batch_confirms(&mut self, tiles: Vec<CgenQueuedTile>) {
+    fn park_cgen_micro_batch_confirms(
+        &mut self,
+        tiles: Vec<CgenQueuedTile>,
+        gpu_done: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) {
         let locals: Vec<(usize, usize)> = (0..TILE_SEAT_COUNT)
             .map(|i| (i % TILE_EDGE_LENGTH, i / TILE_EDGE_LENGTH))
             .collect();
@@ -1573,15 +1702,18 @@ impl TileSession {
                 ring: Some(tile.ring_idx),
                 atlas_slot: Some(tile.atlas_slot),
                 from_cgen_micro: true,
+                point_base: tile.point_base,
+                poll_misses: 0,
+                gpu_done: Some(std::sync::Arc::clone(&gpu_done)),
             });
         }
     }
 
     fn submit_open_cgen_micro_batch(&mut self) -> bool {
-        let Some(tiles) = self.worker_state.submit_cgen_micro_batch() else {
+        let Some((tiles, gpu_done)) = self.worker_state.submit_cgen_micro_batch() else {
             return false;
         };
-        self.park_cgen_micro_batch_confirms(tiles);
+        self.park_cgen_micro_batch_confirms(tiles, gpu_done);
         true
     }
 
@@ -1643,6 +1775,7 @@ impl TileSession {
             return true;
         }
         if self.worker_state.stationary_gpu_resident {
+            self.worker_state.scatter_defer_flush = true;
             if self.advance_stationary_gpu_resident_batch() {
                 return true;
             }
@@ -1823,10 +1956,13 @@ impl TileSession {
         self.worker_state.scatter_defer_flush = true;
         self.reclaim_orphan_paused_gpu_tiles();
         if self.active_tile.is_none() {
-            self.worker_state.scatter_defer_flush = false;
-            let drained = self.drain_gpu_scatter_confirms(true);
+            let drained = self.drain_gpu_scatter_confirms(false);
             self.reclaim_orphan_paused_gpu_tiles();
-            return drained || self.active_tile.is_some();
+            // Stay on stationary path while confirms/paused tiles remain.
+            return drained
+                || self.active_tile.is_some()
+                || !self.gpu_scatter_confirms.is_empty()
+                || !self.paused_gpu_tiles.is_empty();
         }
 
         self.sync_active_atlas_slot();
@@ -1852,7 +1988,16 @@ impl TileSession {
             if !self.worker_state.cgen_micro_batch_open()
                 && !self.worker_state.cgen_micro_batch_can_open()
             {
-                break;
+                // Cgen ring halves full — still allow gear on cgen-exhausted tiles.
+                let gear_ok = self
+                    .active_tile
+                    .as_ref()
+                    .map(|w| w.cgen_exhausted || w.batch.is_some())
+                    .unwrap_or(false)
+                    || self.paused_gpu_tiles.values().any(|w| w.cgen_exhausted);
+                if !gear_ok {
+                    break;
+                }
             }
 
             if self.active_tile.is_none() {
@@ -1938,13 +2083,20 @@ impl TileSession {
             }
         }
         let mut drained = self.drain_gpu_scatter_confirms(false);
+        // Poll again once; never Wait (Step 3a).
         if !self.gpu_scatter_confirms.is_empty() {
-            drained = self.drain_gpu_scatter_confirms(true) || drained;
+            drained = self.drain_gpu_scatter_confirms(false) || drained;
         }
         self.reclaim_orphan_paused_gpu_tiles();
         self.flush_unemitted_whole_tiles();
         self.worker_state.scatter_defer_flush = false;
-        queued > 0 || submitted > 0 || drained
+        // Keep ownership of the stationary path while confirms are in flight so we
+        // do not fall through to mapped scatter_submit / harvest (ladder Step 4–5).
+        queued > 0
+            || submitted > 0
+            || drained
+            || !self.gpu_scatter_confirms.is_empty()
+            || !self.paused_gpu_tiles.is_empty()
     }
 
     fn rescue_paused_gpu_tile_to_active(&mut self) {
@@ -2133,6 +2285,9 @@ impl TileSession {
             ring,
             atlas_slot,
             from_cgen_micro: false,
+            point_base: 0,
+            poll_misses: 0,
+            gpu_done: None,
         });
     }
 
@@ -2150,23 +2305,53 @@ impl TileSession {
         let Some(shared) = crate::gpu_context::GpuContext::shared() else {
             return false;
         };
-        if blocking {
-            let _ = shared.device.poll(wgpu::PollType::Wait);
-        } else {
-            let _ = shared.device.poll(wgpu::PollType::Poll);
+        let _ = blocking;
+        crate::assemblies::workgroup::gpu_tps_tax::bump_counter_poll();
+        let _ = shared.device.poll(wgpu::PollType::Poll);
+
+        // Peek all confirm slots once any submit is done (stable slot list → one map).
+        use std::sync::atomic::Ordering;
+        let any_submit_done = self.gpu_scatter_confirms.iter().any(|c| {
+            c.gpu_done
+                .as_ref()
+                .map(|d| d.load(Ordering::Acquire))
+                .unwrap_or(true)
+        });
+        if !any_submit_done {
+            return false;
         }
         let slots: Vec<u32> = self
             .gpu_scatter_confirms
             .iter()
             .filter_map(|c| c.atlas_slot)
             .collect();
-        let counts = ProductionAtlas::shared()
-            .and_then(|a| a.lock().ok().and_then(|atlas| atlas.read_completion_counts(&slots)))
-            .unwrap_or_default();
+        if slots.is_empty() {
+            return false;
+        }
+        let counts_opt = ProductionAtlas::shared().and_then(|a| {
+            a.lock()
+                .ok()
+                .and_then(|mut atlas| atlas.poll_completion_counts(&slots))
+        });
+        let Some(counts) = counts_opt else {
+            return false;
+        };
         let mut count_i = 0usize;
         let mut any = false;
         let mut deferred: VecDeque<GpuScatterConfirm> = VecDeque::new();
-        while let Some(confirm) = self.gpu_scatter_confirms.pop_front() {
+        while let Some(mut confirm) = self.gpu_scatter_confirms.pop_front() {
+            let submit_done = confirm
+                .gpu_done
+                .as_ref()
+                .map(|d| d.load(Ordering::Acquire))
+                .unwrap_or(true);
+            if !submit_done {
+                if confirm.atlas_slot.is_some() {
+                    count_i += 1;
+                }
+                deferred.push_back(confirm);
+                continue;
+            }
             let origin = if self
                 .active_tile
                 .as_ref()
@@ -2214,23 +2399,17 @@ impl TileSession {
                 },
                 self.screen_res,
             );
-            // Poll: keep incomplete confirms for a later drain.
-            // Wait: GPU CB is finished — if still short, clear poisoned seat_done
-            // bits and fail-apply so a later bout can retry cleanly (old wave semantics).
             if tile_c < needed {
-                if !blocking {
-                    deferred.push_back(confirm);
-                    continue;
-                }
-                if let Some(slot) = confirm.atlas_slot {
-                    if let Some(atlas) = ProductionAtlas::shared() {
-                        if let Ok(a) = atlas.lock() {
-                            a.clear_slot_completion(slot);
+                // After GPU submit finished, one short peek means the bout was
+                // insufficient — exhaust cgen immediately (no 32-poll Wait-alike).
+                if confirm.from_cgen_micro {
+                    if let Some(slot) = confirm.atlas_slot {
+                        if let Some(atlas) = ProductionAtlas::shared() {
+                            if let Ok(a) = atlas.lock() {
+                                a.clear_slot_completion(slot);
+                            }
                         }
                     }
-                }
-                // Prefer gear path next time for this tile (short cgen bout insufficient).
-                if confirm.from_cgen_micro {
                     let ti = confirm.tile_index;
                     if let Some(w) = self.paused_gpu_tiles.get_mut(&ti) {
                         w.cgen_exhausted = true;
@@ -2244,8 +2423,22 @@ impl TileSession {
                             w.cgen_exhausted = true;
                         }
                     }
+                    let _ = self.apply_gpu_scatter_confirm(confirm, 0, tile_c);
+                    continue;
                 }
-                let _ = self.apply_gpu_scatter_confirm(confirm, 0, tile_c);
+                confirm.poll_misses = confirm.poll_misses.saturating_add(1);
+                if confirm.poll_misses >= 32 {
+                    if let Some(slot) = confirm.atlas_slot {
+                        if let Some(atlas) = ProductionAtlas::shared() {
+                            if let Ok(a) = atlas.lock() {
+                                a.clear_slot_completion(slot);
+                            }
+                        }
+                    }
+                    let _ = self.apply_gpu_scatter_confirm(confirm, 0, tile_c);
+                    continue;
+                }
+                deferred.push_back(confirm);
                 continue;
             }
             let batch_t = confirm.armed;
@@ -2265,13 +2458,19 @@ impl TileSession {
     ) -> bool {
         self.worker_state.last_scatter_terminals = batch_t;
         self.worker_state.last_tile_completion = tile_c;
-        if confirm.from_cgen_micro {
-            self.worker_state.release_cgen_micro_ring(confirm.ring);
-        } else {
-            self.worker_state
-                .release_held_scatter_ring(confirm.ring);
-        }
+        let publish_ring = confirm.ring;
+        let publish_point_base = confirm.point_base;
+        let release_ring = |session: &mut Self, confirm: &GpuScatterConfirm| {
+            if confirm.from_cgen_micro {
+                session.worker_state.release_cgen_micro_ring(confirm.ring);
+            } else {
+                session
+                    .worker_state
+                    .release_held_scatter_ring(confirm.ring);
+            }
+        };
         if batch_t < confirm.armed || confirm.armed == 0 {
+            release_ring(self, &confirm);
             for local in &confirm.locals {
                 self.gpu_scatter_inflight
                     .remove(&(confirm.tile_index, local.0, local.1));
@@ -2291,6 +2490,66 @@ impl TileSession {
         } else {
             TileScheduler::tile_origin(&self.tile_scheduler, tile_index)
         };
+
+        let needed = HeadgroupTpsSink::valid_seat_count(origin, self.screen_res);
+        // On-device counter is completion authority (D-GPU-3): when the tile is done,
+        // mark all valid seats and ingest without depending on host seat bitsets alone.
+        if tile_c >= needed {
+            let ox = origin.0;
+            let oy = origin.1;
+            for ly in 0..TILE_EDGE_LENGTH {
+                for lx in 0..TILE_EDGE_LENGTH {
+                    let screen = (ox + lx, oy + ly);
+                    if screen.0 >= self.screen_res.0 || screen.1 >= self.screen_res.1 {
+                        continue;
+                    }
+                    let index = linear_index(screen, self.screen_res.0);
+                    if !self.screen_done[index] {
+                        self.screen_done[index] = true;
+                        self.screen_kind[index] = Some(SeatKind::Outside);
+                        self.seats_done += 1;
+                    }
+                }
+            }
+            TileScheduler::note_tile_has_outside(&mut self.tile_scheduler, tile_index);
+            let count = TILE_SEAT_COUNT as u32;
+            let slot = if self
+                .active_tile
+                .as_ref()
+                .map(|w| w.tile_index == tile_index)
+                .unwrap_or(false)
+            {
+                self.active_tile
+                    .as_mut()
+                    .and_then(|w| w.atlas_slot.take())
+                    .or_else(|| self.worker_state.gpu_resident_slot.take())
+            } else {
+                self.paused_gpu_tiles
+                    .get_mut(&tile_index)
+                    .and_then(|w| w.atlas_slot.take())
+            };
+            self.worker_state.gpu_resident_slot = None;
+            if let Some(slot) = slot {
+                self.publish_gpu_slot(origin, slot, publish_ring, publish_point_base, count);
+            }
+            release_ring(self, &confirm);
+            if self
+                .active_tile
+                .as_ref()
+                .map(|w| w.tile_index == tile_index)
+                .unwrap_or(false)
+            {
+                self.active_tile = None;
+            } else {
+                self.paused_gpu_tiles.remove(&tile_index);
+            }
+            for local in &confirm.locals {
+                self.gpu_scatter_inflight
+                    .remove(&(tile_index, local.0, local.1));
+            }
+            TileScheduler::note_tile_finished(&mut self.tile_scheduler, tile_index);
+            return true;
+        }
 
         let mut any_outside = false;
         for local in &confirm.locals {
@@ -2312,6 +2571,7 @@ impl TileSession {
         if any_outside {
             TileScheduler::note_tile_has_outside(&mut self.tile_scheduler, tile_index);
         }
+        release_ring(self, &confirm);
         self.try_finish_gpu_whole_tile(tile_index, confirm.atlas_slot)
     }
 

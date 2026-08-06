@@ -15,6 +15,7 @@ pub mod publisher_shader;
 pub mod production_atlas;
 pub mod bout_scatter;
 pub mod headgroup_tps_sink;
+pub mod gpu_tps_tax;
 
 #[cfg(test)]
 mod integration_tests;

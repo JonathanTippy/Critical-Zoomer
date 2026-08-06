@@ -878,14 +878,10 @@ fn drain_tile_rx<A: steady_state::SteadyActor>(
         let now = Instant::now();
         let has_work = true;
         if !state.live.should_publish(now, has_work) {
+            // Park one handle; leave the rest in the channel. Never drain-and-drop
+            // GPU handles — that leaks production-atlas slots and strands the viewport
+            // as NORES-grey with tps:0 (B-DISP).
             state.unsent = Some(handle);
-            while actor.avail_units(tiles_rx) > 0 {
-                if let Some(newer) = actor.try_take(tiles_rx) {
-                    state.unsent = Some(newer);
-                } else {
-                    break;
-                }
-            }
             return true;
         }
         let _: &GpuTileHandle = &handle;

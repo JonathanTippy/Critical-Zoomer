@@ -10,8 +10,10 @@ struct Uniforms {
     tile_origin_y: u32,
     tile_edge: u32,
     use_c_generator: u32,
-    _pad0: u32,
-    _pad1: u32,
+    tile_count: u32,
+    seats_per_tile: u32,
+    // Packed (ox,oy) pairs: origins[i/2] holds two tiles. Max 128 tiles.
+    tile_origins: array<vec4<u32>, 64>,
 }
 
 /// View-lifetime CGenerator (uploaded once per PointStencil).
@@ -54,12 +56,30 @@ const FLAG_PERIODIC: u32 = 16u;
 const MAX_PERIOD_SEARCH: u32 = 64u;
 
 /// Dense identity seats: point index i == local seat (lx + ly * edge).
+/// Fused micro-batch: i = tile * seats_per_tile + local.
 fn dc_from_cgen(i: u32) -> vec2<f32> {
     let edge = max(uniforms.tile_edge, 1u);
-    let lx = i % edge;
-    let ly = i / edge;
-    let sx = uniforms.tile_origin_x + lx;
-    let sy = uniforms.tile_origin_y + ly;
+    let spt = max(uniforms.seats_per_tile, edge * edge);
+    var ox = uniforms.tile_origin_x;
+    var oy = uniforms.tile_origin_y;
+    var local = i;
+    if uniforms.tile_count > 1u {
+        let tile = i / spt;
+        local = i % spt;
+        let t = min(tile, 127u);
+        let packed = uniforms.tile_origins[t / 2u];
+        if (t % 2u) == 0u {
+            ox = packed.x;
+            oy = packed.y;
+        } else {
+            ox = packed.z;
+            oy = packed.w;
+        }
+    }
+    let lx = local % edge;
+    let ly = local / edge;
+    let sx = ox + lx;
+    let sy = oy + ly;
     let dc_re = cgen.origin_re + cgen.space * f32(sx) + cgen.half;
     let dc_im = cgen.origin_im - cgen.space * f32(sy) - cgen.half;
     return vec2<f32>(dc_re, dc_im);

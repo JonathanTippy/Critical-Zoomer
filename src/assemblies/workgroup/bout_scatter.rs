@@ -23,6 +23,10 @@ struct ScatterParams {
     slot_origin_y: u32,
     point_count: u32,
     slot_index: u32,
+    point_base: u32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
 }
 
 struct PendingScatter {
@@ -184,12 +188,14 @@ impl BoutScatter {
 
     /// Write scatter params/seats/counter for `ring_idx` (no encode). Call before
     /// `encode_scatter_nomap_pass` when batching many tiles into one submit.
+    /// `point_base` indexes into a fused mega point buffer (0 for single-tile).
     pub fn write_scatter_nomap(
         &self,
         atlas: &ProductionAtlas,
         slot: u32,
         local_seats: &[u32],
         ring_idx: usize,
+        point_base: u32,
     ) -> bool {
         let shared = match GpuContext::shared() {
             Some(s) => s,
@@ -211,6 +217,10 @@ impl BoutScatter {
             slot_origin_y: origin[1],
             point_count: count,
             slot_index: slot,
+            point_base,
+            _pad0: 0,
+            _pad1: 0,
+            _pad2: 0,
         };
         let pipe = match self.scatter_pipeline.lock() {
             Ok(p) => p,
@@ -348,7 +358,8 @@ impl BoutScatter {
         local_seats: &[u32],
         ring_idx: usize,
     ) -> bool {
-        if !self.write_scatter_nomap(atlas, slot, local_seats, ring_idx) {
+        crate::assemblies::workgroup::gpu_tps_tax::bump_nomap_scatter();
+        if !self.write_scatter_nomap(atlas, slot, local_seats, ring_idx, 0) {
             return false;
         }
         self.encode_scatter_nomap_pass(encoder, point_buffer, atlas, slot, local_seats, ring_idx)
@@ -387,6 +398,7 @@ impl BoutScatter {
         slot: u32,
         local_seats: &[u32],
     ) -> bool {
+        crate::assemblies::workgroup::gpu_tps_tax::bump_mapped_scatter();
         let shared = match GpuContext::shared() {
             Some(s) => s,
             None => return false,
@@ -411,6 +423,10 @@ impl BoutScatter {
             slot_origin_y: origin[1],
             point_count: count,
             slot_index: slot,
+            point_base: 0,
+            _pad0: 0,
+            _pad1: 0,
+            _pad2: 0,
         };
         let uniform = pipe.uniform_buffers[staging_idx].clone();
         let seats = pipe.seat_buffers[staging_idx].clone();

@@ -19,10 +19,10 @@ Jobs as in auth. Tracing: depth-first boundary tracing.
 
 A higher-preference phase **immediately** suspends a lower-preference mid-job. Suspended job state must be retained so it can resume when it again becomes the preferred work (tenacity; no discard of progress for preference alone).
 
-## Period-unknown in-fill (UD-ITS-3) — inferred
+## Period-unknown in-fill (UD-ITS-3) — auth + D-PER-4 + D-GPU-11
 
-Auth: under unknown period, spread whatever period will be sent — same across the fill so it will not create a false in-filament. `period == 0` remains “unknown” for shade (see period issues in issue-stack); flood-in after resolve uses propagated known period.
+Auth: under unknown period, spread whatever period will be sent — same across the fill so it will not create a false in-filament. Calibrated may carry **in, period unknown** until twin-test (D-PER-4). In-fill does **not** supply min-magnitude/small-time; tile may move on; Phase 2 catch-up is required (D-GPU-11). Period-edge claims use **certain** periods (D-PER-6).
 
-## Interaction with tile worker spiral (UD-ITS-4) — inferred
+## Control plane vs worker (UD-ITS-4) — D-GPU-9
 
-Default tile-worker schedule is spiral-in from outer edge unless this scheduler has provided more specific seats/queues. Scheduler vetoes / redirects; worker still owns iteration mechanics.
+Default tile-worker schedule is GPU spiral-in unless this scheduler has provided more specific seats/queues. Intratile may stay on CPU as indices / do-don’t / phase (not point payloads, not per-bout chaperone). Worker owns iteration and dense WIP refill.

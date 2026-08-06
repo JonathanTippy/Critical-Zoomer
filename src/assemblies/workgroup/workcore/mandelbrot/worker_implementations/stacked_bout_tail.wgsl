@@ -15,8 +15,9 @@ struct Uniforms {
     tile_origin_y: u32,
     tile_edge: u32,
     use_c_generator: u32,
-    _pad0: u32,
-    _pad1: u32,
+    tile_count: u32,
+    seats_per_tile: u32,
+    tile_origins: array<vec4<u32>, 64>,
 }
 
 struct CGenerator {

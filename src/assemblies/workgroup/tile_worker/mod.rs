@@ -393,6 +393,7 @@ fn flush_unsent_tiles<A: SteadyActor>(
         .map(|s| s.worker_is_gpu_preferred() && s.worker_gpu_device_held())
         .unwrap_or(false);
     let production = crate::assemblies::workgroup::production_atlas::ProductionAtlas::shared();
+    // Answer-tile bypass still packs CPU→atlas; only use when no GPU-native handle.
     let use_bypass = prefer_bypass && production.is_some();
 
     let mut blocked = Vec::new();

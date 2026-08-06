@@ -134,6 +134,7 @@ impl PublisherGpu {
         , bias: &[GpuPackedAnswer]
         , bias_valid: &[u32]
     ) -> Option<Vec<GpuPackedAnswer>> {
+        crate::assemblies::workgroup::gpu_tps_tax::bump_cpu_bridge();
         self.dispatch_publish(calibrated, bias, bias_valid)?;
         self.readback_packed()
     }

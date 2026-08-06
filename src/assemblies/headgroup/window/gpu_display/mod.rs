@@ -1231,6 +1231,14 @@ impl GpuDisplayResources {
         for upload in &frame.pending_uploads {
             let Some(slot) = self.slot_for_id(device, queue, upload.id) else {
                 alloc_fail += 1;
+                // Never leak workgroup production slots when headgroup cannot place.
+                if let Some(src_slot) = upload.production_slot {
+                    if let Some(atlas) = &production {
+                        if let Ok(mut atlas) = atlas.lock() {
+                            atlas.release(src_slot);
+                        }
+                    }
+                }
                 continue;
             };
             if let Some(src_slot) = upload.production_slot {
@@ -1253,6 +1261,11 @@ impl GpuDisplayResources {
                     handoff_cpu_fallback += 1;
                 } else {
                     alloc_fail += 1;
+                    if let Some(atlas) = &production {
+                        if let Ok(mut atlas) = atlas.lock() {
+                            atlas.release(src_slot);
+                        }
+                    }
                 }
             } else if !upload.meta.is_empty() {
                 tile_sheet::write_slot(queue, &self.meta_texture, slot, &upload.meta);

@@ -20,8 +20,11 @@ pub const GPU_WORKER_BATCH_N: usize = TILE_SEAT_COUNT;
 /// Max tiles with deferred GPU scatter in flight (session confirm FIFO).
 pub const GPU_IN_FLIGHT_TILES: usize = 128;
 
-/// Dense cgen tiles packed into one command buffer before submit.
+/// Dense cgen tiles packed into one fused command buffer before submit.
 pub const GPU_CGEN_MICRO_BATCH: usize = 8;
+
+
+
 
 /// Concurrent submitted cgen micro-batches (distinct ring ranges).
 /// Covers a home screen (~90 tiles) in one submit storm before Wait.

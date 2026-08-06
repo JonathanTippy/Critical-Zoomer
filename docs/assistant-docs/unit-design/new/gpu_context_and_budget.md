@@ -18,8 +18,8 @@ Single logical device for the process unless hardware forces otherwise. Init fai
 VRAM side of the memory ledger:
 
 - Limit L from settings means L CPU + L VRAM.
-- Tile costs on the GPU side use packed GPU answer/calibrated bytes (D-MEM-3).
-- Headgroup and workgroup GPU residencies both count; tile manager keep-set must stay within the VRAM half when evaluating GPU tiles.
+- Tile costs on the GPU side use packed GPU calibrated/answer bytes (D-MEM-3).
+- Headgroup Answer tiles and workgroup GPU calibrated/WIP residencies both count; tile manager keep-set must stay within the VRAM half when evaluating GPU tiles.
 - Bumps use exact need (D-MEM-1) and move the slider (D-MEM-2).
 
 ## Interaction with tile manager (UD-GPUBUD-2) — D-MEM-4
