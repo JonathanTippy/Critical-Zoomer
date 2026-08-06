@@ -17,8 +17,13 @@ FP=$(taskset -c "${CZ_CPUSET:-4-11}" cargo test --quiet --lib e2e_oracle::oracle
 echo "oracle_proving_note=$FP"
 
 e2e_send "home"
+# B-DISP-1 grey-screen regression: must show structure within ~1.5s (not flat NORES).
+sleep 1.5
+e2e_send "capture grey_regress_guard.png"
+e2e_wait_file "$E2E_OUT/grey_regress_guard.png" 20 || { e2e_fail_msg "missing grey_regress_guard.png"; e2e_exit; }
+e2e_assert_not_flat_grey "$E2E_OUT/grey_regress_guard.png" 5000
 # Quiet fill then poll until few gray holes (same bar as performance).
-sleep 2.5
+sleep 1.0
 fill_ok=0
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   rm -f "$E2E_OUT/vis_home_final.png"

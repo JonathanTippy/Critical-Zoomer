@@ -101,7 +101,9 @@ impl ProductionAtlas {
         let seat_done_bits = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("production_atlas_seat_done_bits"),
             size: u64::from(slot_capacity) * u64::from(SEAT_DONE_WORDS_PER_SLOT) * 4,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
         (completion_counters, seat_done_bits)

@@ -356,7 +356,7 @@ impl ReferenceCollection {
 
     pub fn try_add_nucleus_at_f64(&mut self, c: (f64, f64)) -> OrbitId {
         // r[impl cz.seamless.reference-background+1]
-        let big_c = (f64_to_intexp(c.0), f64_to_intexp(c.1));
+        let big_c = cap_big_c_for_f64_reference_builder(c);
         self.try_add_nucleus_at_f64_with_big_c(c, big_c)
     }
 
@@ -384,6 +384,20 @@ impl ReferenceCollection {
         self.orbits.push(orbit);
         id
     }
+}
+
+/// `f64_to_intexp` keeps full IEEE mantissa; the interactive f64 reference builder
+/// (D-REF-1) only supports zoom_pot ≤ 24 (53 mantissa bits). Nucleus adds from
+/// plain f64 coordinates do not need finer `big_c` than that.
+fn cap_big_c_for_f64_reference_builder(c: (f64, f64)) -> (IntExp, IntExp) {
+    let pot_cap = 24 + PIXELS_PER_UNIT_POT;
+    let cap = |mut v: IntExp| {
+        if v.exp < -pot_cap {
+            v = v.set_precision(pot_cap);
+        }
+        v
+    };
+    (cap(f64_to_intexp(c.0)), cap(f64_to_intexp(c.1)))
 }
 
 fn build_reference_orbit_f64(

@@ -110,6 +110,8 @@ pub struct TileSession {
     , paused_gpu_tiles: HashMap<usize, Box<ActiveTileWork>>
     // Confirm FIFO aligned with BoutScatter pending maps.
     , gpu_scatter_confirms: VecDeque<GpuScatterConfirm>
+    // GPU whole-tiles awaiting publisher bypass (D-PUB-4; slot already resident).
+    , pending_gpu_bypass: VecDeque<GpuTileHandle>
 }
 
 impl TileSession {
@@ -181,6 +183,7 @@ impl TileSession {
             , gpu_scatter_inflight: HashSet::new()
             , paused_gpu_tiles: HashMap::new()
             , gpu_scatter_confirms: VecDeque::new()
+            , pending_gpu_bypass: VecDeque::new()
         }
     }
 
@@ -520,6 +523,8 @@ impl TileSession {
         if location.zoom_pot != self.location.zoom_pot {
             // Mag change: keep reference collection, notify background worker,
             // poll to bind the new orbit when ready; rebuild screen/tile state.
+            self.flush_pending_lookahead();
+            let preserved_lookahead = std::mem::take(&mut self.lookahead_unsent);
             let attention = self.attention;
             let mut worker_state = std::mem::take(&mut self.worker_state);
             let mut reference_worker = std::mem::replace(
@@ -580,7 +585,7 @@ impl TileSession {
                 , workshifts: 0
                 , answer_tiles: HashMap::new()
                 , unsent_origins: HashSet::new()
-                , lookahead_unsent: Vec::new()
+                , lookahead_unsent: preserved_lookahead
                 , screen_work_ns: 0
                 , lookahead_work_ns: 0
                 , play_need_visible: true
@@ -588,6 +593,7 @@ impl TileSession {
                 , gpu_scatter_inflight: HashSet::new()
                 , paused_gpu_tiles: HashMap::new()
                 , gpu_scatter_confirms: VecDeque::new()
+                , pending_gpu_bypass: std::mem::take(&mut self.pending_gpu_bypass)
             });
             *self = *rebuilt;
             // Caller sets mag_velocity from EWMA mode after retarget.
@@ -846,6 +852,9 @@ impl TileSession {
             }
             steps = steps.saturating_add(1);
         }
+        if self.worker_state.stationary_gpu_resident {
+            self.flush_unemitted_whole_tiles();
+        }
         self.workshifts = self.workshifts.wrapping_add(1);
         if std::env::var("CZ_DEBUG_FILL")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
@@ -930,6 +939,145 @@ impl TileSession {
     /// Lookahead tiles carry their own location (deeper mag under attention).
     pub fn drain_lookahead_publishes(&mut self) -> Vec<(ObjectivePosAndZoom, Box<Tile<Answer>>)> {
         std::mem::take(&mut self.lookahead_unsent)
+    }
+
+    pub fn has_pending_gpu_bypass(&self) -> bool {
+        !self.pending_gpu_bypass.is_empty()
+    }
+
+    /// GPU-resident whole tiles for publisher bypass (D-PUB-4).
+    pub fn drain_gpu_bypass_handles(&mut self) -> Vec<GpuTileHandle> {
+        self.pending_gpu_bypass.drain(..).collect()
+    }
+
+    pub fn requeue_gpu_bypass(&mut self, handle: GpuTileHandle) {
+        self.pending_gpu_bypass.push_back(handle);
+    }
+
+    /// Record a GPU whole-tile completion for probe metrics and headgroup bypass.
+    pub(crate) fn emit_gpu_whole_tile(&mut self, handle: GpuTileHandle) {
+        self.headgroup_tps.ingest_gpu_handle(handle.clone());
+        self.queue_gpu_bypass(handle);
+    }
+
+    fn queue_gpu_bypass(&mut self, handle: GpuTileHandle) {
+        let key = handle.absolute_key();
+        if let Some(pos) = self
+            .pending_gpu_bypass
+            .iter()
+            .rposition(|h| h.absolute_key() == key)
+        {
+            self.pending_gpu_bypass[pos] = handle;
+        } else {
+            self.pending_gpu_bypass.push_back(handle);
+        }
+    }
+
+    /// Origins with screen seats that lack a headgroup whole-tile record (tests).
+    pub(crate) fn missing_screen_whole_origins(&self) -> Vec<(usize, usize)> {
+        let mut out = Vec::new();
+        let tile_count = TileScheduler::tile_count(&self.tile_scheduler);
+        for tile_index in 0..tile_count {
+            let origin = TileScheduler::tile_origin(&self.tile_scheduler, tile_index);
+            if HeadgroupTpsSink::valid_seat_count(origin, self.screen_res) == 0 {
+                continue;
+            }
+            if !self.headgroup_has_whole_tile(origin) {
+                out.push(origin);
+            }
+        }
+        out
+    }
+        let key = (
+            self.location.zoom_pot,
+            origin.0 as i32,
+            origin.1 as i32,
+        );
+        self.headgroup_tps.has_whole_at_key(&key)
+    }
+
+    fn slot_for_tile_emit(
+        &mut self,
+        tile_index: usize,
+        confirm_slot: Option<u32>,
+    ) -> Option<u32> {
+        if self
+            .active_tile
+            .as_ref()
+            .map(|w| w.tile_index == tile_index)
+            .unwrap_or(false)
+        {
+            if let Some(work) = self.active_tile.as_mut() {
+                if let Some(slot) = work.atlas_slot.take() {
+                    return Some(slot);
+                }
+            }
+            return self.worker_state.gpu_resident_slot.take();
+        }
+        if let Some(work) = self.paused_gpu_tiles.get_mut(&tile_index) {
+            if let Some(slot) = work.atlas_slot.take() {
+                return Some(slot);
+            }
+        }
+        confirm_slot.or_else(|| {
+            self.gpu_scatter_confirms
+                .iter()
+                .find(|c| c.tile_index == tile_index)
+                .and_then(|c| c.atlas_slot)
+        })
+    }
+
+    fn clear_tile_work_slot(&mut self, tile_index: usize) {
+        if self
+            .active_tile
+            .as_ref()
+            .map(|w| w.tile_index == tile_index)
+            .unwrap_or(false)
+        {
+            self.active_tile = None;
+        } else {
+            self.paused_gpu_tiles.remove(&tile_index);
+        }
+        self.worker_state.gpu_resident_slot = None;
+    }
+
+    /// Emit a whole GPU tile to the headgroup when screen seats are done (D-PUB-4).
+    fn try_finish_gpu_whole_tile(
+        &mut self,
+        tile_index: usize,
+        confirm_slot: Option<u32>,
+    ) -> bool {
+        let origin = TileScheduler::tile_origin(&self.tile_scheduler, tile_index);
+        let needed = HeadgroupTpsSink::valid_seat_count(origin, self.screen_res);
+        let filled =
+            HeadgroupTpsSink::filled_for_origin(origin, self.screen_res, &self.screen_done);
+        if filled < needed {
+            return false;
+        }
+        if !self.headgroup_has_whole_tile(origin) {
+            let Some(slot) = self.slot_for_tile_emit(tile_index, confirm_slot) else {
+                return false;
+            };
+            let handle = HeadgroupTpsSink::whole_tile_handle(
+                origin,
+                self.screen_res,
+                &self.location,
+                slot,
+                TILE_SEAT_COUNT as u32,
+            );
+            self.emit_gpu_whole_tile(handle);
+        }
+        self.clear_tile_work_slot(tile_index);
+        TileScheduler::note_tile_finished(&mut self.tile_scheduler, tile_index);
+        true
+    }
+
+    /// Catch screen-complete tiles that finished scheduling without a headgroup emit.
+    fn flush_unemitted_whole_tiles(&mut self) {
+        let tile_count = TileScheduler::tile_count(&self.tile_scheduler);
+        for tile_index in 0..tile_count {
+            let _ = self.try_finish_gpu_whole_tile(tile_index, None);
+        }
     }
 
     /// Close open lookahead work into `lookahead_unsent` without finishing the bump.
@@ -1794,6 +1942,7 @@ impl TileSession {
             drained = self.drain_gpu_scatter_confirms(true) || drained;
         }
         self.reclaim_orphan_paused_gpu_tiles();
+        self.flush_unemitted_whole_tiles();
         self.worker_state.scatter_defer_flush = false;
         queued > 0 || submitted > 0 || drained
     }
@@ -1847,18 +1996,9 @@ impl TileSession {
             let filled =
                 HeadgroupTpsSink::filled_for_origin(origin, self.screen_res, &self.screen_done);
             if filled >= needed {
-                let count = TILE_SEAT_COUNT as u32;
-                if let Some(slot) = work.atlas_slot.or(self.worker_state.gpu_resident_slot) {
-                    let handle = HeadgroupTpsSink::whole_tile_handle(
-                        origin,
-                        self.screen_res,
-                        &self.location,
-                        slot,
-                        count,
-                    );
-                    self.headgroup_tps.ingest_gpu_handle(handle);
-                }
-                TileScheduler::note_tile_finished(&mut self.tile_scheduler, tile_index);
+                let confirm_slot = work.atlas_slot.or(self.worker_state.gpu_resident_slot);
+                self.paused_gpu_tiles.insert(tile_index, work);
+                let _ = self.try_finish_gpu_whole_tile(tile_index, confirm_slot);
                 continue;
             }
             // Still has undone seats — restore as active if idle, else keep paused.
@@ -1886,21 +2026,9 @@ impl TileSession {
                         &self.screen_done,
                     );
                     if idle_filled >= idle_needed {
-                        let count = TILE_SEAT_COUNT as u32;
-                        if let Some(slot) = idle.atlas_slot {
-                            let handle = HeadgroupTpsSink::whole_tile_handle(
-                                idle_origin,
-                                self.screen_res,
-                                &self.location,
-                                slot,
-                                count,
-                            );
-                            self.headgroup_tps.ingest_gpu_handle(handle);
-                        }
-                        TileScheduler::note_tile_finished(
-                            &mut self.tile_scheduler,
-                            idle.tile_index,
-                        );
+                        let idle_index = idle.tile_index;
+                        self.paused_gpu_tiles.insert(idle_index, idle);
+                        let _ = self.try_finish_gpu_whole_tile(idle_index, None);
                     } else {
                         self.paused_gpu_tiles.insert(idle.tile_index, idle);
                     }
@@ -2161,11 +2289,7 @@ impl TileSession {
         } else if let Some(w) = self.paused_gpu_tiles.get(&tile_index) {
             w.tile.origin_seat
         } else {
-            for local in &confirm.locals {
-                self.gpu_scatter_inflight
-                    .remove(&(tile_index, local.0, local.1));
-            }
-            return false;
+            TileScheduler::tile_origin(&self.tile_scheduler, tile_index)
         };
 
         let mut any_outside = false;
@@ -2188,50 +2312,7 @@ impl TileSession {
         if any_outside {
             TileScheduler::note_tile_has_outside(&mut self.tile_scheduler, tile_index);
         }
-        let needed = HeadgroupTpsSink::valid_seat_count(origin, self.screen_res);
-        let filled =
-            HeadgroupTpsSink::filled_for_origin(origin, self.screen_res, &self.screen_done);
-        if filled >= needed {
-            let count = TILE_SEAT_COUNT as u32;
-            let slot = if self
-                .active_tile
-                .as_ref()
-                .map(|w| w.tile_index == tile_index)
-                .unwrap_or(false)
-            {
-                self.active_tile
-                    .as_mut()
-                    .and_then(|w| w.atlas_slot.take())
-                    .or_else(|| self.worker_state.gpu_resident_slot.take())
-            } else {
-                self.paused_gpu_tiles
-                    .get_mut(&tile_index)
-                    .and_then(|w| w.atlas_slot.take())
-            };
-            self.worker_state.gpu_resident_slot = None;
-            if let Some(slot) = slot {
-                let handle = HeadgroupTpsSink::whole_tile_handle(
-                    origin,
-                    self.screen_res,
-                    &self.location,
-                    slot,
-                    count,
-                );
-                self.headgroup_tps.ingest_gpu_handle(handle);
-            }
-            if self
-                .active_tile
-                .as_ref()
-                .map(|w| w.tile_index == tile_index)
-                .unwrap_or(false)
-            {
-                self.active_tile = None;
-            } else {
-                self.paused_gpu_tiles.remove(&tile_index);
-            }
-            TileScheduler::note_tile_finished(&mut self.tile_scheduler, tile_index);
-        }
-        true
+        self.try_finish_gpu_whole_tile(tile_index, confirm.atlas_slot)
     }
 
     fn pause_active_and_begin_next_gpu_tile(&mut self) -> bool {
@@ -2334,28 +2415,7 @@ impl TileSession {
         if any_outside {
             TileScheduler::note_tile_has_outside(&mut self.tile_scheduler, tile_index);
         }
-        let needed = HeadgroupTpsSink::valid_seat_count(origin, self.screen_res);
-        let filled =
-            HeadgroupTpsSink::filled_for_origin(origin, self.screen_res, &self.screen_done);
-        if filled >= needed {
-            let count = TILE_SEAT_COUNT as u32;
-            let slot = work
-                .atlas_slot
-                .take()
-                .or_else(|| self.worker_state.gpu_resident_slot.take());
-            if let Some(slot) = slot {
-                let handle = HeadgroupTpsSink::whole_tile_handle(
-                    origin,
-                    self.screen_res,
-                    &self.location,
-                    slot,
-                    count,
-                );
-                self.headgroup_tps.ingest_gpu_handle(handle);
-            }
-            self.active_tile = None;
-            TileScheduler::note_tile_finished(&mut self.tile_scheduler, tile_index);
-        }
+        let _ = self.try_finish_gpu_whole_tile(tile_index, None);
         true
     }
 
@@ -2493,6 +2553,17 @@ impl TileSession {
     }
 
     fn advance_lookahead_work(&mut self) -> bool {
+        if self.lookahead_work.is_none() {
+            return false;
+        }
+        let progressed = self.advance_lookahead_work_inner();
+        if progressed && self.lookahead_work.is_some() {
+            self.enqueue_lookahead_wip();
+        }
+        progressed
+    }
+
+    fn advance_lookahead_work_inner(&mut self) -> bool {
         if self.lookahead_work.is_none() {
             return false;
         }

@@ -40,6 +40,28 @@ flat-black empty panes mid-wait.
 - [ ] Timed home fill headed verifies (time, non-black mid, settled quality)
   (`scripts/e2e_performance.sh`).
 
+r[cz.e2e.fill-first-tile-1s+1]
+
+**Normative summary.** After startup/home, at least one tile of Mandelbrot structure
+must be visible within **1s** (fitness ceiling — product target is much faster).
+
+**Acceptance criteria.**
+- [ ] Headed fitness poll: frame stdev ≥3000 within 1s of `home`
+  (`scripts/e2e_home_fill_fitness.sh`).
+- [x] Workgroup unit: all whole tiles emitted within 10s on 800×480 home
+  (`tile_session_tests::home_800x480_emits_all_whole_tiles_within_10s`).
+
+r[cz.e2e.fill-all-tiles-10s+1]
+
+**Normative summary.** Home view must complete **all** screen tiles (zero NORES-grey
+holes in the fitness crop) within **10s** of startup (fitness ceiling).
+
+**Acceptance criteria.**
+- [ ] Headed fitness poll: `e2e_count_gray_holes` ≤0 within 10s of `home`
+  (`scripts/e2e_home_fill_fitness.sh`).
+- [x] Workgroup unit: `headgroup_completed_whole_tiles` ≥ tile count at 100% host fill
+  (`tile_session_tests::home_800x480_emits_all_whole_tiles_within_10s`).
+
 r[cz.e2e.perf-zoom-simple+1]
 
 **Normative summary.** Zooming into simpler areas stays apparently perfect: keeps pace

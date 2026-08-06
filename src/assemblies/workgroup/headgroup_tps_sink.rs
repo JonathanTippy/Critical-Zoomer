@@ -25,6 +25,14 @@ impl HeadgroupTpsSink {
         self.completed_whole
     }
 
+    pub fn has_whole_at_key(&self, key: &(i32, i32, i32)) -> bool {
+        self.handle_filled
+            .get(key)
+            .copied()
+            .unwrap_or(0)
+            >= TILE_SEAT_COUNT as u32
+    }
+
     /// Fill percent from GPU-resident handle seat counts (not workgroup answer_tiles).
     pub fn gpu_resident_fill_percent(&self, seats_total: usize) -> f64 {
         if seats_total == 0 {

@@ -500,6 +500,10 @@ impl TileScheduler {
         state.tiles[tile_index].origin
     }
 
+    pub fn tile_count(state: &TileSchedulerState) -> usize {
+        state.tiles.len()
+    }
+
     pub fn tile_extent(state: &TileSchedulerState, tile_index: usize) -> (usize, usize) {
         state.tiles[tile_index].extent
     }

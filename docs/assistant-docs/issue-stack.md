@@ -25,10 +25,11 @@ Landing notes (assistant): NORES fallthrough + WIP proximate gate + location mag
 ## True bugs (open)
 
 ### B-DISP-1 — Phase 2 cutover display regressions (grey / ~15fps / no GPU escape)
-- **Symptom:** Immediate display grey; ~15fps; no escaper on GPU; settings open greys window; location UI misplaced / no input box.
+- **Symptom:** Immediate display grey; ~15fps; **tps:0** at home; no escaper on GPU; settings open greys window; location UI misplaced / no input box.
 - **Mechanism (PO):** Headgroup must own a GPU tile collection and run sampler → escape → edge → shade shaders.
-- **Status:** landing — shared-device grey fixed; shade/oracle parity; vsync Fifo; CPU Color32 view path removed (GPU sample→shade only). **Still open:** headed fps re-measure; full coloring_script edge cases. **Also open (GPU-resident fill):** probe can show ≥95% fill while the window stays NORES-grey — session completes into HeadgroupTpsSink only; missing bridge to publisher bypass / `pixels_in` / `sampling_context.ingest_gpu_handle` (D-PUB-4 / D-GPU-5). Tracked under speed work as note-only until TPS gate closes.
-- **Locus:** `headgroup/window/{mod,sampling,gpu_display}.rs`.
+- **Status:** **fix landing** — GPU-resident whole-tile completions were dead-ending in `HeadgroupTpsSink` (probe only); bridged to publisher bypass → `pixels_in` → `ingest_gpu_handle` (D-PUB-4). Headed re-measure + full coloring_script edge cases still open.
+- **Locus:** `tile_session.rs` (`emit_gpu_whole_tile`, `pending_gpu_bypass`); `tile_worker/mod.rs` (`flush_unsent_tiles`); `headgroup/window/{mod,sampling,gpu_display}.rs`.
+- **Guard:** `scripts/e2e_visual.sh` (gray-hole + structure oracles); unit `gpu_bypass_queues_once`.
 
 ### B-PER-2 — Period bands in deeper minibrots (regression / thought-fixed)
 - **Status:** landing — regular Inside answers emit `period == 0`; max-iter force-finish removed from perturbation bout. Deeper minibrot visual confirm still needed.

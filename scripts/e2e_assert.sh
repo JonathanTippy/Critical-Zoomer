@@ -98,6 +98,19 @@ e2e_assert_few_gray_holes() {
   fi
 }
 
+# B-DISP-1: flat NORES grey (tps:0 symptom) must not persist after home fill time.
+e2e_assert_not_flat_grey() {
+  local path="$1"
+  local min_stdev="${2:-5000}"
+  local stdev
+  stdev=$(e2e_stdev "$path" || echo 0)
+  if [ "$stdev" -ge "$min_stdev" ]; then
+    e2e_pass "not flat grey $path stdev=$stdev (>=$min_stdev)"
+  else
+    e2e_fail_msg "flat/grey screen B-DISP-1 $path stdev=$stdev (<$min_stdev)"
+  fi
+}
+
 # Left mid-viewport must show structure (set/boundary). Right crop sits on the
 # exterior banding (not the far-right escape-1 plateau, which under the default
 # sinus wash is the same mid-grey as NORES and is not a fill failure).

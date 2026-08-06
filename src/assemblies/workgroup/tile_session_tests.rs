@@ -807,3 +807,75 @@ mod mag_depth_tests {
         handle.join().expect("zoom-from-home test panicked");
     }
 }
+
+// r[verify cz.pub.gpu-native-work+1]
+mod gpu_bypass_tests {
+    use super::*;
+    use crate::assemblies::workgroup::headgroup_tps_sink::HeadgroupTpsSink;
+
+    #[test]
+    fn whole_tile_completion_queues_bypass_once() {
+        let location = ObjectivePosAndZoom {
+            pos: (IntExp::from(-2), IntExp::from(2)),
+            zoom_pot: -2,
+        };
+        let mut session = TileSession::new(location, (64, 64));
+        let handle = HeadgroupTpsSink::whole_tile_handle((0, 0), (64, 64), &session.location, 3, 4096);
+        session.emit_gpu_whole_tile(handle.clone());
+        assert!(session.has_pending_gpu_bypass());
+        let drained = session.drain_gpu_bypass_handles();
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].production_slot, Some(3));
+        assert!(!session.has_pending_gpu_bypass());
+        session.emit_gpu_whole_tile(handle);
+        assert!(
+            session.has_pending_gpu_bypass(),
+            "re-publish must re-queue bypass so display can recover a missed ingest"
+        );
+        let drained2 = session.drain_gpu_bypass_handles();
+        assert_eq!(drained2.len(), 1);
+    }
+
+    // r[verify cz.e2e.fill-all-tiles-10s+1]
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn home_800x480_emits_all_whole_tiles_within_10s() {
+        let handle = std::thread::Builder::new()
+            .stack_size(128 * 1024 * 1024)
+            .spawn(|| {
+                let location = ObjectivePosAndZoom {
+                    pos: (IntExp::from(HOME_POSITION.0), IntExp::from(HOME_POSITION.1)),
+                    zoom_pot: HOME_POSITION.2,
+                };
+                let mut session = TileSession::new(location, (800, 480));
+                session.set_mag_velocity(0);
+                let t0 = Instant::now();
+                let tile_count = TileScheduler::tile_count(&session.tile_scheduler) as u64;
+                while t0.elapsed().as_secs() < 10 {
+                    session.workshift();
+                    if session.percent_completed() >= 100.0
+                        && session.headgroup_completed_whole_tiles() >= tile_count
+                    {
+                        break;
+                    }
+                }
+                assert!(
+                    session.percent_completed() >= 100.0,
+                    "host fill {:.1}%",
+                    session.percent_completed()
+                );
+                assert!(
+                    session.headgroup_completed_whole_tiles() >= tile_count,
+                    "whole tiles {} < {tile_count}",
+                    session.headgroup_completed_whole_tiles()
+                );
+                assert!(
+                    t0.elapsed().as_secs() < 10,
+                    "took {:?}",
+                    t0.elapsed()
+                );
+            })
+            .expect("spawn");
+        handle.join().expect("whole-tile emit test panicked");
+    }
+}

@@ -294,7 +294,9 @@ async fn internal_behavior<A: SteadyActor>(
             }
 
             let complete_full = pct >= 100.0 && need_full_republish;
-            let has_work = session.has_unsent_publish() || !state.unsent_tiles.is_empty();
+            let has_work = session.has_unsent_publish()
+                || session.has_pending_gpu_bypass()
+                || !state.unsent_tiles.is_empty();
             let cadence_ok = complete_full || has_work || incomplete;
 
             let mut tiles = Vec::new();
@@ -385,7 +387,6 @@ fn flush_unsent_tiles<A: SteadyActor>(
     bypass_out: &mut Tx<GpuTileHandle>,
     state: &mut WorkerState,
 ) {
-    let pending = std::mem::take(&mut state.unsent_tiles);
     let prefer_bypass = state
         .tile_session
         .as_ref()
@@ -397,6 +398,26 @@ fn flush_unsent_tiles<A: SteadyActor>(
     let mut blocked = Vec::new();
     let mut sent_uploader = 0u32;
     let mut sent_bypass = 0u32;
+
+    // GPU-resident whole tiles: slot already on production atlas (D-PUB-4).
+    if production.is_some() {
+        if let Some(session) = state.tile_session.as_mut() {
+            let mut requeue = Vec::new();
+            for handle in session.drain_gpu_bypass_handles() {
+                match actor.try_send(bypass_out, handle) {
+                    SendOutcome::Success => sent_bypass += 1,
+                    SendOutcome::Blocked(h)
+                    | SendOutcome::Timeout(h)
+                    | SendOutcome::Closed(h) => requeue.push(h),
+                }
+            }
+            for h in requeue {
+                session.requeue_gpu_bypass(h);
+            }
+        }
+    }
+
+    let pending = std::mem::take(&mut state.unsent_tiles);
     let mut iter = pending.into_iter();
     while let Some(msg) = iter.next() {
         if use_bypass {

@@ -730,6 +730,8 @@ impl PerturbationGpuWorkerState {
         self.gpu = None;
         self.cpu_followup = false;
         self.clear_resident();
+        // Gear ladder is GPU-aware (D-GEAR-1); re-select for CPU-only tests.
+        self.refresh_selected_gear();
     }
 
     /// Refresh the numeric gear from the current stencil (D-GEAR-1).

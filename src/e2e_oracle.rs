@@ -133,6 +133,10 @@ pub fn center_zoom_pot_delta(before: i32, after: i32) -> i32 {
     after - before
 }
 
+/// Headed grey-screen regression floor (B-DISP-1): a settled home frame must
+/// exceed this ImageMagick stdev or it is flat NORES grey (tps:0 symptom).
+pub const HOME_MIN_FRAME_STDEV: u64 = 5_000;
+
 /// Pixel spacing at home (documentation check for PIXELS_PER_UNIT_POT + home pot).
 pub fn home_pixel_space_exp() -> i32 {
     let pot = HOME_POSITION.2;
@@ -179,7 +183,7 @@ mod oracle_proving_tests {
     }
 
     #[test]
-    fn home_fingerprint_stable() {
+    fn home_oracle_fingerprint_stable() {
         let a = home_oracle_fingerprint((32, 32), 8);
         let b = home_oracle_fingerprint((32, 32), 8);
         assert_eq!(a, b);
