@@ -13,4 +13,4 @@ Assistant-owned index for this folder. The developer's files speak for themselve
 
 ## Code baseline
 
-The live rust code is release **v0.0.9** (commit e6a0560). Tile-era code is preserved in git stash "tile-era code WIP before v0.0.9 revert".
+The live rust code is release **v0.0.9** (commit e6a0560), restored in commit 3bbba12. Tile-era code is preserved in git history (pre-revert commits, tip 3f877f3) and in git stash "tile-era code WIP before v0.0.9 revert".

@@ -1,5 +1,11 @@
 # Unit-test matrix (assistant-owned, non-authoritative)
 
+> **2026-08-06 REVERT: ALL ROWS RESET.** This matrix was earned on the tile machine, which is
+> no longer in the tree (codebase reverted to v0.0.9, e6a0560). Every `green` below is
+> historical record only — the tests it cites do not exist in the restored code. Rebuild this
+> matrix from the v0.0.9 unit surface; do not carry any status forward. The standing oracles
+> are the STANDS rules in `docs/tracey/` and the invariants in `docs/design/workgroup-virtues.md`.
+
 Phase gate: every row `green`. Soft-skip GPU ≠ green (DAT 2026-08-01 reopened unit phase). `D-*` decisions are oracles only when they do not contradict authoritative docs. D-PUB-1: [20, 100000] Hz + GPU publisher (idle when complete).
 
 Status: `green` | `in-progress` | `blocked-impl`

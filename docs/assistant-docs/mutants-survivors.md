@@ -1,5 +1,9 @@
 # Mutants campaign continuity (assistant-owned)
 
+> **2026-08-06 REVERT NOTE.** The campaign below ran against tile-machine code that is no
+> longer in the tree (reverted to v0.0.9). Its results are historical record; `mutants.out/`
+  > artifacts refer to the old tree. Any new campaign starts fresh against restored sources.
+
 **Do not kill or restart** the live scoped campaign unless the developer asks.
 Artifacts live in `mutants.out/`; lock in `mutants.out/lock.json`.
 

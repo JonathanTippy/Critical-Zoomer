@@ -1,5 +1,10 @@
 # Integration test matrix (assistant-owned)
 
+> **2026-08-06 REVERT: ALL ROWS RESET.** Earned on the tile machine; the cited assemblies are
+> gone (codebase at v0.0.9). The integration rules themselves were rewritten in v0.0.9 terms —
+> see `docs/tracey/integration-rules.md`; this matrix must be rebuilt against those, not
+> carried forward.
+
 Assembly contracts from `docs/tracey/integration-rules.md`. Phase gate: ≥3
 meaningfully different passing assembly verifies per `cz.int.*` id.
 

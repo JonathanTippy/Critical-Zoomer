@@ -1,89 +1,91 @@
-# Standards Tracey rules (assistant-owned mapping of docs/standards.md hard bars)
+# Standards Tracey rules (assistant-owned mapping of the standards hard bars)
 
 Not authoritative text. Hard asserts only — no ignore waives.
+Normative source: `docs/standards.md`, moved to `docs/stale/standards.md` in the 2026-08-06
+revert cleanup — the *bars* remain the product's standards; the file's new home reflects that
+its tile-era measurement classes (TPS etc.) were written for the old machine.
+
+> **2026-08-06 revert note.** Codebase is now v0.0.9 (e6a0560). Classes marked per rule:
+> - **STANDS** — a hard bar v0.0.9 already embodies; re-verify against restored symbols.
+> - **SUSPENDED** — a bar defined on tile-era machinery (TileSession workshifts, GPU compute,
+>   reference orbits, lookahead). It returns with the GPU/depth port and must then be met
+>   *without* breaking the v0.0.9 invariants (see `docs/design/workgroup-virtues.md`).
+> All checkboxes earned on the tile machine were cleared.
 
 r[cz.perf.foveation-half-time+1]
 
-**Normative summary.** Half of available working time fills the current stencil; half goes to lookahead.
+**Normative summary.** Half of available working time fills the current view; half goes to lookahead.
 
 **Acceptance criteria.**
-- [x] Scheduler/session accounts work time 50/50 current vs lookahead (±tolerance in verifies)
-- [x] Mag-velocity order policy still applies inside each half (`cz.seamless.foveated-mag-velocity+1`)
-- [x] ≥3 unit verifies
+- **SUSPENDED.** v0.0.9 has no lookahead — all working time fills the current screen, and the
+  "hoard" is the remap-restored previous screen. The 50/50 policy returns only if lookahead
+  returns, and then must extend the one-package discipline rather than fragment it.
 
 r[cz.perf.home-100tps+1]
 
-**Normative summary.** Home view at default resolution on CPU must average
-TPS ≥ 150 (`docs/standards.md` TPS addendum).
+**Normative summary.** Home view at default resolution must fill fast (the tile-era TPS
+addendum expressed this as tiles/sec).
 
 **Acceptance criteria.**
-- [x] Release hard-assert: ≥95% home fill within 5s
-- [x] Reported tile completion rate supports ≥150 TPS class
-- [x] Cross-linked with `cz.e2e.perf-home-fill+1`
+- [ ] STANDS as a fill bar, re-expressed for a tileless workgroup: home view reaches oracle
+  quality within 5s headed (cross-link the e2e home-fill rules), with no flat-black mid-wait.
+  A numeric seats/sec class can be re-derived if wanted; the headed bar is primary.
 
 r[cz.perf.min-300m-ips-cpu+2]
 
-**Normative summary.** ≥300M iterations/s on single-core CPU perturbation path in
-real plausible workgroup situations (TileSession workshifts), including all
-scheduling overhead. Also keep bout microbenches as a diagnostic suite (math vs
-scheduling).
+**Normative summary.** ≥300M iterations/s on single-core CPU in real workgroup conditions,
+scheduling overhead included.
 
 **Acceptance criteria.**
-- [x] Release hard-assert ≥300e6 IPS on ≥3 full-stack fixtures spanning both classes:
-  easy tiles outside r=2 (scheduling-worst) and longer work inside the set (iteration-best)
-- [x] Bout/microbench suite present and passing (diagnostic only; not a substitute for full-stack)
+- **SUSPENDED.** The verify harness measured TileSession workshifts, which no longer exist.
+  The bar itself returns when the CPU path is re-benchmarked; the *method* lesson stands:
+  measure full-stack (scheduling included), keep microbenches as diagnostics only.
 
 r[cz.perf.min-30b-ips-gpu+1]
 
-**Normative summary.** ≥30B iterations/s on GPU perturbation path in real plausible
-workgroup situations (TileSession workshifts), including all scheduling overhead.
-Also keep bout microbenches as a diagnostic suite (math vs scheduling).
-No adapter ⇒ fail.
+**Normative summary.** ≥30B iterations/s on GPU in real workgroup conditions. No adapter ⇒ fail.
 
 **Acceptance criteria.**
-- [x] Release hard-assert ≥30e9 IPS on ≥3 full-stack fixtures spanning both classes:
-  easy tiles outside r=2 (scheduling-worst) and longer work inside the set (iteration-best)
-- [x] Missing GPU adapter fails the verify
-- [x] Bout/microbench suite present and passing (diagnostic only; not a substitute for full-stack)
+- **SUSPENDED** until the GPU compute port exists.
 
 r[cz.perf.optimal-ipp+1]
 
 **Normative summary.** Iterations per point equal optimal (out → escape time; in → preperiod + period).
 
 **Acceptance criteria.**
-- [x] ≥3 loci: exterior escape IPP matches escape time
-- [x] Interior period-known IPP matches preperiod+period when available
+- [ ] STANDS — v0.0.9 is the reference: exterior points stop at bailout, interior points stop
+  at loop detection, and resumable points never redo finished iterations. Re-verify on sampled
+  loci. (Period *refinement* cost is §12 cleanup material, not a violation of this bar.)
 
 r[cz.perf.headgroup-shaders-2ms+1]
 
 **Normative summary.** Headgroup shaders together ≤2ms frametime at 1080p. No adapter ⇒ fail.
 
 **Acceptance criteria.**
-- [x] Release hard-assert sample+shade path ≤2ms @1080p (≥3 scripts/resolutions)
-- [x] Missing GPU adapter fails the verify
+- [ ] Re-verify on the restored shadergroup (escaper + colorer) at 1080p.
 
 r[cz.perf.headgroup-vsync+1]
 
 **Normative summary.** Vsync / PresentMode::Fifo enabled; no janky forced FPS cap.
 
 **Acceptance criteria.**
-- [x] Native/wgpu present path uses Fifo
-- [x] VSYNC const true; ≥3 verifies
+- [ ] Re-verify on the restored window path (no explicit present-mode code was found in the
+  v0.0.9 tree — confirm what the windowing framework defaults to and pin it).
 
 r[cz.ctrl.zoom-in-homothety+1]
 
 **Normative summary.** Zoom-in: magnification pot += 1; location ← (L − P)/2 + P (pointer-fixed).
 
 **Acceptance criteria.**
-- [x] Complex under pointer invariant across one zoom-in bump
-- [x] pot increases by 1; zoom-out inverse (≥3)
+- [ ] STANDS. `inputs.rs` shifts by zoom_pot around the pointer. Re-verify the
+  complex-under-pointer invariant per bump, zoom-out inverse.
 
 r[cz.ctrl.scroll-up-zooms-in+1]
 
 **Normative summary.** Scroll up ⇒ zoom in ⇒ magnification pot +1.
 
 **Acceptance criteria.**
-- [x] Scroll step polarity maps to pot +1 for zoom-in direction (≥3)
+- [ ] STANDS. Re-verify scroll polarity on restored `inputs.rs`.
 
 r[cz.perf.play-minimize+1]
 
@@ -91,10 +93,9 @@ r[cz.perf.play-minimize+1]
 phases; continuous delivery of work so far.
 
 **Acceptance criteria.**
-- [x] After retarget/gesture, publishable work appears without a long idle init
-  (`standards_perf` play_* verifies)
-- [x] Noop retarget does not invent a deferred play stall (≥3)
-- [x] Cross-linked with `cz.perf.play-8bump-100ms+1`
+- [ ] STANDS — v0.0.9 is the golden reference: publish begins with the first remapped package
+  and continues every shift. Known residual: WorkContext construction is one lump per pivot
+  (virtues §12 lists incremental construction as the remaining play reduction).
 
 r[cz.perf.play-8bump-100ms+1]
 
@@ -102,9 +103,8 @@ r[cz.perf.play-8bump-100ms+1]
 must be visible within 100ms of the last bump of the gesture.
 
 **Acceptance criteria.**
-- [x] Release hard-assert: visible publish within 100ms after 8 zoom-in bumps
-  (`standards_perf` play_eight_* verifies; home + exterior + per-bump)
-- [x] ≥3 unit verifies
+- [ ] STANDS as a bar. v0.0.9's mechanism: drain-to-newest makes the 8 bumps collapse to one
+  target, remap shows old work immediately, fresh work lands within shifts. Re-verify headed.
 
 r[cz.play.actor-poll+1]
 
@@ -112,37 +112,37 @@ r[cz.play.actor-poll+1]
 start of its loop.
 
 **Acceptance criteria.**
-- [ ] Actor loops re-check inputs before sleep/idle (≥3 actors / paths)
-- [ ] No long blocked wait that skips channel poll
+- [ ] STANDS — v0.0.9 embodies it: the worker returns to its loop head every ≤10ms shift;
+  controller/collector wake on messages or a 50ms pulse. Re-verify per actor.
 
 r[cz.play.actor-drain+1]
 
 **Normative summary.** Each actor fully drains its channel when anything is there.
 
 **Acceptance criteria.**
-- [ ] Nonempty channel ⇒ drain to empty before returning to idle (≥3)
-- [ ] Partial drain under load is a fail
+- [ ] STANDS — drain-to-newest on every workgroup input is the load-bearing pattern
+  (virtues §2). Re-verify per channel.
 
 r[cz.play.latest-wins+1]
 
 **Normative summary.** Actors immediately prioritize the most recent work over
-previous work. Exception: the headgroup must ingest all unique new tiles —
-neither dropping tiles nor getting behind are acceptable.
+previous work. The display side must still ingest every unique published snapshot —
+neither dropping work nor getting behind are acceptable.
 
 **Acceptance criteria.**
-- [ ] Non-headgroup actors apply latest-wins / preempt (≥3)
-- [ ] Headgroup ingest keeps all unique tiles (no drop / no behind); distinct from
-  `cz.int.hoard-ingest-sample+1` key/NORES rules
+- [ ] STANDS — v0.0.9 embodies both halves: latest-wins on inputs (coalescing), and the
+  collector applies every update in order with the pivot handshake guaranteeing none cross a
+  remap (virtues §6). Re-verify.
+- Revert note: the old headgroup exception clause ("ingest all unique tiles") is reworded for
+  a tileless pipeline; the intent — display never drops published work — is unchanged.
 
 r[cz.perf.home-10000tps-gpu+1]
 
-**Normative summary.** Home view at default resolution on GPU must average
-TPS ≥ 3000 (`docs/standards.md` TPS addendum; rule id retains historical name).
+**Normative summary.** Home view at default resolution on GPU must meet a high fill-rate class.
 
 **Acceptance criteria.**
-- [ ] Release hard-assert GPU home TPS ≥3000 (≥3)
-- [ ] No adapter ⇒ fail (same class as other GPU hard bars)
-- [ ] Cross-linked with `cz.perf.home-100tps+1` (CPU class)
+- **SUSPENDED** until the GPU compute port exists; then re-derive the number for the
+  view-based pipeline.
 
 r[cz.math.perturbation-naive-oracle+1]
 
@@ -151,10 +151,9 @@ oracle (doubling precision until stable) at home view and several well-known
 sites. Compare the entire Answer, not merely the result class.
 
 **Acceptance criteria.**
-- [ ] Naive doubling-precision oracle procedure implemented and proven
-- [ ] Exact Answer parity at home + ≥2 known sites (neck locus −0.75+0i useful
-  for period/infill stress — fixture, not a separate bar)
-- [ ] Distinct from headed visual `cz.e2e.visual-oracle+1`
+- **SUSPENDED** until perturbation returns. Note: at v0.0.9 the roles invert — the restored
+  f64 iterator *is* the trusted oracle for any future perturbation path. Also cross-link the
+  normalization NaN watchlist item (RecipLn = ln(1/x) is the golden behavior to match).
 
 r[cz.ref.zero-orbit-same-path+1]
 
@@ -163,9 +162,8 @@ orbit exists; when no better reference is available that const orbit is used on
 the same code path (no alternate algorithm branch).
 
 **Acceptance criteria.**
-- [ ] Const zero orbit present and used on fallback
-- [ ] Looping points handled correctly
-- [ ] Same per-point path with/without better reference (≥3)
+- **SUSPENDED** until reference orbits return. The single-path principle is recorded so it is
+  not re-lost.
 
 r[cz.pub.gpu-native-work+1]
 
@@ -173,8 +171,7 @@ r[cz.pub.gpu-native-work+1]
 path so easy full-screen cases keep throughput.
 
 **Acceptance criteria.**
-- [ ] GPU-native handoff / no forced CPU round-trip on publish path (≥3;
-  aligns with D-PUB-1 / `gpu_tile` handoff)
+- **SUSPENDED** until GPU compute exists. When it returns, applies to the view pipeline.
 
 r[cz.perf.headgroup-stable-path+1]
 
@@ -182,5 +179,5 @@ r[cz.perf.headgroup-stable-path+1]
 change when panning vs stationary; sampling shader always the same path.
 
 **Acceptance criteria.**
-- [ ] No branch that changes sample/shade work for pan vs idle (≥3)
-- [ ] Frametime class stable across pan vs stationary samples when measurable
+- [ ] STANDS as a bar; re-verify on the restored headgroup. v0.0.9's single publish path and
+  shared remap transform are the mechanism that makes this achievable.

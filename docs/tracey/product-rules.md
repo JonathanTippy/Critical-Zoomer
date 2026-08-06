@@ -2,15 +2,24 @@
 
 Derived from `docs/requirements.md` Central Differentiators / Display. Not authoritative text.
 
+> **2026-08-06 revert note.** Codebase is now v0.0.9 (e6a0560). Rules below fall into three
+> classes, marked per rule:
+> - **STANDS** — product rule the v0.0.9 design embodies; verify against restored symbols.
+> - **GAP** — product rule with no implementation at v0.0.9 (the feature arrived later);
+>   scheduling its port is a product decision.
+> - **SUSPENDED** — rule only makes sense for machinery (tiles, references, GPU compute,
+>   multi-mag hoards) that the revert removed; it returns with the GPU/depth port described in
+>   `docs/design/design-target.md` and must then follow `docs/design/workgroup-virtues.md`.
+> All checkboxes earned on the tile machine were cleared; nothing below is currently verified
+> against the restored tree.
+
 r[cz.seamless.perturbation-always-on+1]
 
 **Normative summary.** Perturbation must always be on; there is no user toggle.
 
 **Acceptance criteria.**
-- [x] Live work path uses perturbation (or equivalent always-on deep iteration), not a user-facing off switch.
-  `TileSession` drives batches through `PerturbationGpuWorker` (always perturbation math;
-  GPU preferred when an adapter exists, else CPU). There is no naive/perturbation branch
-  or user-facing perturbation/GPU toggle.
+- **SUSPENDED.** v0.0.9 iterates f64 directly; there is no perturbation path. Returns with the
+  depth port. When it returns: perturbation on the only path, no user-facing off switch.
 
 r[cz.seamless.gpu-preferred+1]
 
@@ -18,131 +27,143 @@ r[cz.seamless.gpu-preferred+1]
 exists it is preferred over CPU for tile work.
 
 **Acceptance criteria.**
-- [x] Preference selects GPU when a probe reports an adapter; falls back to CPU when not;
-  both paths remain perturbation-on (`perturbation_gpu_worker.rs`).
+- **SUSPENDED.** v0.0.9's GPU use is display-side only (shadergroup escaper/colorer); iteration
+  is CPU. Returns with the GPU compute port — as views-not-tiles, per the design target.
 
 r[cz.seamless.reference-background+1]
 
 **Normative summary.** Reference orbits are computed in the background without a progress bar or blocking the UI.
 
 **Acceptance criteria.**
-- [x] `ReferenceWorker` seeds/binds without UI; mag change keeps the previous bound orbit
-  until poll binds the new one; in-flight work on an old orbit blocks discard
-  (`reference_worker.rs`, wired from `TileSession`).
+- **SUSPENDED.** No reference orbits at v0.0.9. Returns with depth work; the binding constraint
+  that survives: reference computation must never block or gate the UI.
 
 r[cz.seamless.foveated-mag-velocity+1]
 
-**Normative summary.** Tile order follows magnification velocity: zoom-in and stationary prefer foveated begin-near-attention; zoom-out prefers scredge/low-res fill. Foveated spiral is from the mouse. Lookahead is a depth-first mag column (up to 8 bumps) then spiral.
+**Normative summary.** Work order follows the user's focus: foveated begin-near-attention;
+zoom-out prefers edge/low-res fill. Foveation is from the mouse.
 
 **Acceptance criteria.**
-- [x] Same-mag scheduler: mag_velocity ≥ 0 runs the DFS attention column (base+1..+8) before
-  screen spiral; mag_velocity < 0 takes scredge first (`tile_scheduler.rs` verifies).
-- [x] `TileSession` begins off-stencil lookahead work at the attention-containing tile for each
-  column bump and publishes with that deeper location (`tile_session.rs`).
+- [ ] STANDS (foveation half): the attention position biases scheduling — at v0.0.9 the Random
+  slot (one shift in five) samples ±50px around the cursor (`workshift.rs`). Re-verify headed.
+- **SUSPENDED** (mag-velocity half): depth-first lookahead columns are tile-era. v0.0.9's
+  answer to zoom-out is remap-restore of the hoard, which the virtues doc argues is the
+  better mechanism anyway.
 
 r[cz.tenacious.nores-not-flat-black+1]
 
-**Normative summary.** Unfinished pixels without proximate work must not be painted as set-black; use NORES / dynamic res stack.
+**Normative summary.** Unfinished pixels without proximate work must not be painted as set-black; use an outside-flavored placeholder.
 
 **Acceptance criteria.**
-- [x] `NORES_ANSWER` and publisher/headgroup fallback paths treat unknown as Outside-inf, not Inside.
-  Constants + GPU pack + `guess_biased` verifies (`constants.rs`, `gpu_display`, `structs/mod.rs`).
+- [ ] STANDS. v0.0.9 symbol: `CompletedPoint::Dummy{}` — collector initializes packages with
+  it (`work_collector.rs`), escaper paints it outside-looking (`escaper.rs`). Re-verify the
+  full sample→shade path never renders Dummy as Inside. (Principle record:
+  `assistant-docs/collected-wisdom.md`.)
 
 r[cz.fast.natural-zoom-2x+1]
 
 **Normative summary.** One mouse wheel bump zooms by 2× magnification (one POT step).
 
 **Acceptance criteria.**
-- [x] Scroll handling changes zoom_pot by ±1 per discrete bump under natural scroll
-  (`inputs.rs` scroll_zoom_tests; e2e_zoom_smoke exercises headed scroll).
+- [ ] STANDS. Scroll handling with debt thresholds lives in `headgroup/window/inputs.rs`
+  (verified present). Re-verify: one discrete bump ⇒ zoom_pot ±1.
 
 r[cz.fast.settings-100ms+1]
 
 **Normative summary.** Settings changes visible within 100ms (hoard recolor / shade path).
 
 **Acceptance criteria.**
-- [x] Release hard-assert shade/recolor ≤100ms for ≥3 setting deltas
+- [ ] STANDS in design: v0.0.9 `Animable` settings are timestamp+speed driven
+  (`settings.rs`), and cosmetics recolor from the hoard without recompute. Re-verify timing
+  on the restored shade path.
 
 r[cz.fast.cosmetic-17ms-1080p+1]
 
 **Normative summary.** Continuous cosmetics animable within 17ms at 1080p.
 
 **Acceptance criteria.**
-- [x] Release hard-assert shade path ≤17ms @1080p for ≥3 continuous params
+- [ ] STANDS in design (same Animable path). Re-verify frametime on restored shadergroup.
 
 r[cz.fast.scroll-10-in-300ms+1]
 
 **Normative summary.** Sustain 10 zoom bumps within 300ms (applied ticks, not harness wall alone).
 
 **Acceptance criteria.**
-- [x] Unit: 10 debt thresholds ⇒ Δpot ±10 within 300ms accounting
-- [x] ≥3 verifies; e2e must not waive product 300ms via 2000ms harness bound alone
+- [ ] STANDS. The scroll-debt accumulator (`inputs.rs`, with sign-reversal halving) exists at
+  v0.0.9. Re-verify 10 applied bumps in 300ms.
 
 r[cz.fast.shift-space-5bps+1]
 
 **Normative summary.** Shift/Space zoom hold rate about 5 bumps per second (center origin).
 
 **Acceptance criteria.**
-- [x] Hold-repeat ~5 bumps/s; ≥3 clocked verifies
+- [ ] Re-verify bindings and hold rate on restored `inputs.rs`.
 
 r[cz.fast.no-tick-backlog+1]
 
 **Normative summary.** Fast spinning neither skips nor backlogs scroll ticks (debt gaps).
 
 **Acceptance criteria.**
-- [x] N thresholds ⇒ N zooms; reverse-sign clears; no deferred burst (≥3)
+- [ ] STANDS. Scroll-debt with reverse-sign clearing is present at v0.0.9 (`inputs.rs`).
+  Re-verify N thresholds ⇒ N zooms, no deferred burst.
 
 r[cz.fast.input-next-frame-17ms+1]
 
 **Normative summary.** Movements/zooms visible this or next frame (≤17ms at 60Hz).
 
 **Acceptance criteria.**
-- [x] Same-turn transform/input apply; ≥3 verifies (headed latency hard-assert when measurable)
+- [ ] Re-verify on restored headgroup; v0.0.9's same-turn input apply is the design intent.
 
 r[cz.system.memory-default-1gb+1]
 
-**Normative summary.** Default memory limit is 1GB CPU + 1GB VRAM class (1gb settings default).
+**Normative summary.** Default memory limit is 1GB CPU + 1GB VRAM class.
 
 **Acceptance criteria.**
-- [x] Default const/settings == 1_000_000_000 class; ≥3 verifies
+- **SUSPENDED.** v0.0.9 has no memory-limit setting — the hoard is one screen package plus one
+  previous package, so there is nothing to budget. The product rule (user-settable limit,
+  floor from screen size) returns with any multi-package hoard; see collected-wisdom.
 
 r[cz.cosmetic.bailout-range-2-255+1]
 
 **Normative summary.** Bailout radius accepts at least [2, 255].
 
 **Acceptance criteria.**
-- [x] Accept/clamp verifies at 2, mid, 255 (≥3)
+- [ ] Re-verify on restored settings/worker. v0.0.9 had animated bailout working (developer
+  acceptance list), so the range clamp should exist; confirm the bounds.
 
 r[cz.deep.min-zoom-pot-capacity+1]
 
 **Normative summary.** Types/gears can represent magnification factor ≥ 2^3600000 (pot magnitude).
 
 **Acceptance criteria.**
-- [x] Capacity/property verifies — not a 100-hour zoom run (≥3)
+- [ ] STANDS as a capacity check. `IntExp` exists at v0.0.9 (`utils.rs`; locations are
+  (IntExp, IntExp, pot) in `assemblies/structs.rs`). Re-verify representable range — no long
+  zoom run needed.
 
 r[cz.hoarding.one-answer-per-point+1]
 
 **Normative summary.** There is one answer per point; cosmetic settings recolor from hoarded work.
 
 **Acceptance criteria.**
-- [x] Answer tiles persist across pans via absolute dyadic keys; sparser replacements rejected
-  (`sampling.rs` hoard_tests). Cosmetic-only recolor from hoard is headgroup shade responsibility.
+- [ ] STANDS in its purest form: v0.0.9 has exactly one package with one slot per seat —
+  competing answers are unrepresentable (virtues doc §7). Cosmetic recolor rides the same
+  package. Re-verify.
 
 r[cz.system.tile-manager-protect-current-lookahead+1]
 
-**Normative summary.** Tile manager never prunes on-screen or lookahead tiles for memory; if those alone exceed the limit, bump the limit.
+**Normative summary.** The work store never prunes on-screen or lookahead work for memory; if protected work alone exceeds the limit, bump the limit.
 
 **Acceptance criteria.**
-- [x] `plan_prunes` skips CurrentStencil/Lookahead; `required_limit_bump` returns protected sum when over budget
-  (`tile_manager.rs` verifies, including protected-only never pruned).
+- **SUSPENDED** (no tile manager, no pruning at v0.0.9). The protected-work principle is
+  recorded in collected-wisdom for any future hoard.
 
 r[cz.system.max-homotheties+1]
 
-**Normative summary.** At most ~8 magnifications/homotheties remain in play under the shared tile manager.
+**Normative summary.** At most ~8 magnifications/homotheties remain in play at once.
 
 **Acceptance criteria.**
-- [x] Prune plan reduces unprotected mags when more than 8 are present
-  (`tile_manager.rs` + live `SamplingContext::prune_distant_tiles` wires the shared manager).
+- **SUSPENDED.** v0.0.9 keeps exactly one magnification in play (plus one hoard slot), which
+  trivially satisfies the bound; the rule only bites when lookahead returns.
 
 r[cz.ui.coords-parse+1]
 
@@ -150,7 +171,10 @@ r[cz.ui.coords-parse+1]
 brackets, imag-leading) and rejects invalid input without user confusion.
 
 **Acceptance criteria.**
-- [x] ≥3 parse forms + reject path (`coords.rs` parse_* / REQ-CTRL-PARSE)
+- [ ] GAP. No coords parser exists at v0.0.9 (the tile-era `coords.rs` is gone; `widgetize.rs`
+  has the HUD but no parse field). Product rule stands; port is a product decision. Note the
+  developer acceptance requirement: goto Apply must accept the HUD's own readout format and
+  land identically from any view.
 
 r[cz.ui.coords-apply+1]
 
@@ -158,7 +182,7 @@ r[cz.ui.coords-apply+1]
 already at that location); applying moves viewport center; field is not cleared.
 
 **Acceptance criteria.**
-- [x] Apply enable D-UI-1 / REQ-CTRL-APPLY (`coords.rs` apply_button_enabled)
+- [ ] GAP (same as parse). Port together.
 
 r[cz.ui.location-readout+1]
 
@@ -166,17 +190,16 @@ r[cz.ui.location-readout+1]
 coordinates entry/display always includes magnification.
 
 **Acceptance criteria.**
-- [x] Center readout helpers (`viewport_center` / `ul_for_center` verifies)
-- [ ] Copy button / mag-in-field UI headed verify when present
+- [ ] Partial at v0.0.9: the HUD displays the location (developer acceptance list requires
+  intexp display and magnification in the readout — keep those). Copy button / full format
+  compliance unverified on the restored tree.
 
 r[cz.ui.viewport-fill+1]
 
 **Normative summary.** One viewport covers the entire window and resizes with it.
 
 **Acceptance criteria.**
-- [x] Default window res + viewport covers window class (`DEFAULT_WINDOW_RES` /
-  window layout verifies)
-- [ ] Dynamic resize headed verify when measurable
+- [ ] Re-verify on restored headgroup (default res constant + resize path).
 
 r[cz.cosmetic.layer-model+1]
 
@@ -185,7 +208,11 @@ functions (sin/modulo), ordered layers with per-layer color/opacity, and optiona
 highlights (in-filaments, out-filaments, nodes) in the script list.
 
 **Acceptance criteria.**
-- [x] Layer/highlight script model + D-COLOR-2/3/4 (`settings.rs` REQ-COSMETIC-LAYER)
+- [ ] STANDS. v0.0.9 `settings.rs` has the full instruction set: PaintEscapeTime /
+  PaintSmallTime / PaintSmallness / HighlightInFilaments / HighlightOutFilaments /
+  HighlightNodes / HighlightSmallTimeEdges, with per-layer opacity, color, shading
+  (Modular/Sinus), and Normalizing. (The tile era had *lost* most of these — the revert
+  restores them.) Re-verify each kind paints.
 
 r[cz.cosmetic.defaults+1]
 
@@ -193,7 +220,7 @@ r[cz.cosmetic.defaults+1]
 black, out-filaments as outside ∞-escape; may show other features subtly.
 
 **Acceptance criteria.**
-- [x] D-COLOR-1 / REQ-COSMETIC-DEFAULT exact three-layer default (`settings.rs`)
+- [ ] Re-verify the default layer list on restored `settings.rs`.
 
 r[cz.ctrl.drag-anchor+1]
 
@@ -201,8 +228,7 @@ r[cz.ctrl.drag-anchor+1]
 mouse drag there (drag-anchor preserved across zoom-out then zoom-in).
 
 **Acceptance criteria.**
-- [x] Drag-anchor / IntExp location storage path (≥3 transforms or window verifies)
-- [ ] Headed corroboration optional
+- [ ] Re-verify on restored `inputs.rs` (drag handling exists; anchor semantics unverified).
 
 r[cz.ctrl.hover-zoom-origin+1]
 
@@ -210,9 +236,7 @@ r[cz.ctrl.hover-zoom-origin+1]
 point under cursor stays fixed.
 
 **Acceptance criteria.**
-- [x] Hover-origin scroll zoom complex-under-pointer invariant (≥3; overlaps
-  `cz.ctrl.zoom-in-homothety+1` / inputs)
-- [x] Cross-linked with `cz.e2e.controls-bindings+1`
+- [ ] Re-verify the complex-under-pointer invariant on restored `inputs.rs`.
 
 r[cz.display.offscreen-arrows+1]
 
@@ -220,8 +244,8 @@ r[cz.display.offscreen-arrows+1]
 almost/fully too small; zooming out / going off-screen is not disallowed.
 
 **Acceptance criteria.**
-- [x] Classifier states from `cz.display.offscreen-r2-circle+1`
-- [ ] Arrow UI presentation verify (≥3 when present)
+- [ ] GAP. The classifier and arrow UI were tile-era; absent at v0.0.9. Product rule stands;
+  see the foundations rule of the same geometry.
 
 r[cz.tenacious.no-max-iter+1]
 
@@ -229,8 +253,8 @@ r[cz.tenacious.no-max-iter+1]
 completion while still visible.
 
 **Acceptance criteria.**
-- [x] Settings surface has no max-iter control; work path iterates to completion class
-  (≥3 session/settings verifies)
+- [ ] STANDS. v0.0.9 has no max-iter knob; the worker iterates each seat to bailout or loop
+  detection, resuming across bouts (virtues doc §4). Re-verify settings surface has no knob.
 
 r[cz.hoarding.no-compute-settings+1]
 
@@ -238,8 +262,8 @@ r[cz.hoarding.no-compute-settings+1]
 membership; cosmetics recolor from hoard only.
 
 **Acceptance criteria.**
-- [x] No compute knobs on settings; recolor-from-hoard path (`settings` / bailout
-  recolor-only membership D-BAIL-1)
+- [ ] STANDS. v0.0.9 settings are all cosmetic/animable; membership is never recomputed for a
+  settings change. Re-verify.
 
 r[cz.deep.snappy-at-depth+1]
 
@@ -247,8 +271,8 @@ r[cz.deep.snappy-at-depth+1]
 execute at framerate while browsing the answer hoard.
 
 **Acceptance criteria.**
-- [ ] Capacity path does not block headgroup framerate class (≥3 when measurable)
-- [ ] Cross-linked with `cz.deep.min-zoom-pot-capacity+1` and headgroup vsync/path rules
+- **SUSPENDED** until depth work lands. The standing part: browsing the hoard must never block
+  the headgroup — v0.0.9's one-package remap is the reference behavior.
 
 r[cz.calib.lowres-synthesis+1]
 
@@ -256,5 +280,6 @@ r[cz.calib.lowres-synthesis+1]
 is disproven by newer, synthesize without discarding either.
 
 **Acceptance criteria.**
-- [x] Calibrated bias / publisher proximate synthesis (≥3; REQ-CALIBRATED /
-  `cz.int.publisher-nores-bias+1` / `cz.range.guess-biased-nearest+1`)
+- [ ] STANDS in golden form: v0.0.9's remap *is* the low-res synthesis — zoom-in magnifies old
+  work honestly (nearest-neighbor), new work writes over it, and provisional edge answers fill
+  the frontier without being marked delivered (virtues doc §5, §7). Re-verify visually.

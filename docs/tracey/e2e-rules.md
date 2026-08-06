@@ -4,6 +4,13 @@ Atomic rules for headed interaction under the frozen `cz_ctl` harness.
 Normative product text: `docs/requirements.md` (including E2E Addendum).
 Unit/integration verifies alone do not satisfy these ids.
 
+> **2026-08-06 revert note.** Codebase is now v0.0.9 (e6a0560). The headed harness scripts
+> (`scripts/harness_selftest.sh`, `e2e_controls.sh`, `e2e_performance.sh`,
+> `e2e_home_fill_fitness.sh`, `e2e_visual.sh`) all exist in the restored tree and remain the
+> contract surface. Where a rule's unit-level checkbox cited tile-machine tests, that checkbox
+> is suspended (noted inline); the headed criteria are the live bar, and v0.0.9 is expected to
+> pass them — it was the build that never got behind and never stalled.
+
 r[cz.e2e.harness-stack+1]
 
 **Normative summary.** Input/screenshot stack (xvfb, fifo, xdotool, import/compare)
@@ -48,8 +55,9 @@ must be visible within **1s** (fitness ceiling — product target is much faster
 **Acceptance criteria.**
 - [ ] Headed fitness poll: frame stdev ≥3000 within 1s of `home`
   (`scripts/e2e_home_fill_fitness.sh`).
-- [x] Workgroup unit: all whole tiles emitted within 10s on 800×480 home
-  (`tile_session_tests::home_800x480_emits_all_whole_tiles_within_10s`).
+- ~~Workgroup unit: all whole tiles emitted within 10s on 800×480 home~~
+  **Suspended** (cited `tile_session_tests`, tile machine only). v0.0.9 equivalent: the
+  workgroup fills the single screen package; the headed poll above is the bar.
 
 r[cz.e2e.fill-all-tiles-10s+1]
 
@@ -59,8 +67,10 @@ holes in the fitness crop) within **10s** of startup (fitness ceiling).
 **Acceptance criteria.**
 - [ ] Headed fitness poll: `e2e_count_gray_holes` ≤0 within 10s of `home`
   (`scripts/e2e_home_fill_fitness.sh`).
-- [x] Workgroup unit: `headgroup_completed_whole_tiles` ≥ tile count at 100% host fill
-  (`tile_session_tests::home_800x480_emits_all_whole_tiles_within_10s`).
+- ~~Workgroup unit: `headgroup_completed_whole_tiles` ≥ tile count at 100% host fill~~
+  **Suspended** (tile machine only). v0.0.9 has no tiles or gray holes in that sense;
+  unfinished pixels are `Dummy` placeholders, so the headed poll checks for honest-incomplete
+  signal, not a specific pack format.
 
 r[cz.e2e.perf-zoom-simple+1]
 
@@ -84,7 +94,8 @@ r[cz.e2e.visual-oracle+1]
 known-good code, prove with tests, compare live captures/metrics against them.
 
 **Acceptance criteria.**
-- [x] Oracle proving unit tests (`src/e2e_oracle.rs`; CI)
+- [ ] Oracle proving unit tests — **suspended**: `src/e2e_oracle.rs` was tile-era and does not
+  exist at v0.0.9. Rebuild the oracle from the restored code (it is the known-good now).
 - [ ] Headed compares (`scripts/e2e_visual.sh`) — not CI-gated yet
 
 r[cz.e2e.visual-assistant-review+1]

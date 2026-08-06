@@ -1,5 +1,9 @@
 # QC — V2V evaluation (assistant-owned)
 
+> **2026-08-06 REVERT NOTE.** This evaluation scored the tile-machine tree and its docs.
+> Superseded by the revert to v0.0.9 — all scores are historical. A fresh evaluation should
+> measure the restored tree against the rewritten `docs/tracey/` rules.
+
 Evaluated under the V2V skill (strict). Evidence dated 2026-07-31 / 2026-08-01 tip after Tracey annotation repair + unit/e2e matrices green (GPU soft-skip).
 
 ## Dimension scores (0–10)

@@ -1,5 +1,10 @@
 # E2E-test matrix (assistant-owned, non-authoritative)
 
+> **2026-08-06 REVERT: ALL ROWS RESET.** Earned on the tile machine. The headed harness scripts
+> survive in the restored tree, but every status below predates the revert — re-run the suite
+> on v0.0.9 before any row may be called green. The e2e rules in `docs/tracey/e2e-rules.md`
+> carry the current annotations (which unit-level checks were suspended).
+
 Phase gate: every row `green` after a fresh suite run on current tree.
 Status: `green` | `in-progress` | `blocked-impl`
 

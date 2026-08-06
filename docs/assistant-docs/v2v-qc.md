@@ -1,5 +1,9 @@
 # V2V QC score (assistant-owned)
 
+> **2026-08-06 REVERT NOTE.** Scored the tile-machine tree on 2026-08-01; superseded by the
+> revert to v0.0.9. Historical record only — re-score the restored tree when the tracey
+> re-verification is done.
+
 Evaluated 2026-08-01 against V2V skill 1.4. Evidence-only.
 
 ## Dimension notes

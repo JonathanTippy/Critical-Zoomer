@@ -1,7 +1,7 @@
 # Why the v0.0.9 workgroup stayed golden
 
 Snapshot: commit `e6a0560` (“fix scroll bug”, 2026-06-22).
-This document mines the live workgroup at that commit in extreme detail — every actor, every queue, every constant — and explains not just *what* it does but *why it has to be this way*. This design was not dead-reckoned: the README’s own ledger records a year of releases each named after a failure it had to kill — “fix the jank”, “fix work cancellation”, “fix work skipping”, “work saving when zooming in”, “work saving when moving”, “flood fill out points”, “fix work noncomplete”. Every mechanism below is one of those scars, generalized. Nothing here is decorative; remove any piece and a named failure returns.
+This document mines the live workgroup at that commit in extreme detail — every actor, every queue, every constant — and explains not just *what* it does but *why it has to be this way*. This design was not dead-reckoned: the README’s own ledger records a year of releases each named after a failure it had to kill — “fix the jank”, “fix work cancellation”, “fix work skipping”, “work saving when zooming in”, “work saving when moving”, “flood fill out points”, “fix work noncomplete”. Most mechanisms below are those scars, generalized — remove one and a named failure returns. But honesty matters more than worship: a few pieces were experiments that merely beat nothing, and §12 names them so nobody mistakes them for pillars.
 
 The four behaviors this design guaranteed:
 
@@ -89,6 +89,8 @@ Note the queue entries carry a **cost estimate** (iterations of the neighbor tha
 
 Because context construction is *work the worker should never do*. Building a full screen of seeded points, a mixmap, and an edge list is O(pixels) of pure allocation and arithmetic. If the worker built it, the first shift after every pivot would be consumed by construction — a visible pause at exactly the moment the user most wants responsiveness (README: "fix zoom while drag", "fix work cancellation"). The controller builds the next world *concurrently* with the worker finishing its current shift, and the swap is instant. This is the pipelining that makes pivots feel free: construction and execution overlap, and the handoff is one message.
 
+One honest reservation: the construction is a single monolithic batch on the controller. It works — the controller has nothing else to do — but a small incremental generator could spread that load across the pivot window instead of doing it in one lump, an opportunity to reduce play even further. The *split* (builder vs runner) is the gold; the *batch size* of the build is a refinement left on the table.
+
 ---
 
 ## 4. The workshift: time-boxing as the foundation of everything
@@ -106,7 +108,7 @@ And the workshift itself:
 while elapsed() < 10 ms { one bout }
 ```
 
-Why a clock and not a token budget? The code keeps token accounting (iteration cost 2, bout cost 4, point cost 150, budget 16M) — but the loop condition is *wall time*. A token budget requires estimating costs per iteration across wildly different pixel costs; a hard pixel near the set boundary and an exterior pixel differ by orders of magnitude. **Time is the only quantity the user actually experiences**, so time is the quantity that is budgeted. The tokens remain as telemetry — but the guarantee is temporal.
+Why a clock and not a token budget? The code still carries token accounting (iteration cost 2, bout cost 4, point cost 150, budget 16M) — but the token condition in the shift loop is commented out and the loop condition is *wall time* alone. That is the honest history: token counting proved too hard to get right — estimating costs per iteration across wildly different pixel costs (a hard boundary pixel vs an exterior pixel differ by orders of magnitude) never converged — so the design settled on timeboxing and never looked back. **Time is the only quantity the user actually experiences**, so time is the quantity that is budgeted. The leftover token fields and the `spent_tokens_today` recomputation are dead weight, kept only as a fossil of the lesson; they should be deleted, not revived.
 
 Why ~10ms? Because the worker must return to its loop head often enough that:
 
@@ -128,7 +130,7 @@ Each bout picks one seat and calls `iterate_max_n_times(point, r²=4, epsilon, n
 
 Inside-set detection uses the classic doubling checkpoint (`update_loop_check_points`: when iterations ≥ 2× checkpoint, save `(z, iterations)`), with a spatial epsilon derived from the actual pixel pitch: `epsilon = |c[0] - c[1]| / 256` — the distance between neighboring pixels, divided by 256. This is a subtle and lovely choice: the loop tolerance scales with the *screen's own resolution in complex space*, so "near enough to be periodic" means "near relative to what the user can see", not an absolute magic number. Zoom changes, epsilon changes, correctness tracks.
 
-When a point repeats, `determine_period` refines the period by `timewarp_n_iterations(..., 100000)` — bulk-iterating in unrolled blocks of 4096 (a straight-line tight loop, branch-free, cache-friendly) — then stepping forward with an epsilon eight times tighter to find the true period. Speed is spent exactly where it buys precision: the rough detect is cheap, the refine is thorough, and it only happens once per inside point, ever.
+When a point repeats, `determine_period` tries to refine the period: `timewarp_n_iterations(..., 100000)` bulk-iterates in unrolled blocks of 4096, then steps forward one iteration at a time with an epsilon eight times tighter, looking for the true period within a 100000-step bound. Honest verdict on this whole stage: it was never that good. The timewarp never yielded great speed, the refinement step's results were never fully trusted either, and the cheap alternative (`period = iterations − loop_checkpoint`) sits commented out directly above the call, nearly as good in visible results. The newer period-determination theory — the one that includes the derivative — is more effective than anything in this file, though no fully working implementation of it has been seen yet. Treat the entire `determine_period` apparatus as a placeholder awaiting that theory; it is a cleanup candidate, not a virtue. (See §12.)
 
 ---
 
@@ -176,11 +178,13 @@ When a bout does *not* finish its seat:
 - **Out**: pop from front, push to back — rotate. A brutal escape pixel (the neck/butt regions, where iterations run to the bound repeatedly) yields the floor to every other out-queued seat before its next turn. One hard seat can never block the frontier behind it.
 - **In**: deliberately *not* rotated (the rotate is commented out) — a slow repeat keeps being probed. The asymmetry is intentional: an unfinished interior point's neighborhood benefits from persistent probing (period detection wants iteration depth), whereas an unfinished escape's neighbors are usually equally slow, so rotation wins there. These opposite treatments of the two queues are the kind of detail that only survives because it was tested by hand against real images.
 - **Scredge**: pushes a **provisional answer** — a `Repeats` with the loop-check delta as period and the running smallness/small-time — into the completion buffer, and moves on. This is the most audacious line in the file: an unfinished screen-edge pixel is published as a *best-effort guess* so the collector's package keeps filling at the motion boundary. The guess is honest about its evidence (period is "how long since my last checkpoint", smallness is real data), it is bounded in impact (edge seats only, and the seat remains undelivered so later shifts still try to finish it — provisional data never blocks true completion), and it eliminates the "blank frontier at the leading edge during pans" failure without inventing a special display state. The architecture's "active temporal dynamic resolution", realized as one `try_push`.
-- **Completion buffer full** (`Stec`, 100k entries): the point is **undelivered** (`point.delivered = false`) and the shift breaks. The seat is not lost; it will be re-attempted and re-delivered when the drain has capacity. Backpressure degrades into a re-queue, never into a dropped answer. (Stec itself — a fixed array stack — exists so the completion buffer is allocation-free and bounded; another small deliberate choice.)
+- **Completion buffer full** (`Stec`, 100k entries): the point is **undelivered** (`point.delivered = false`) and the shift breaks. The seat is not lost; it will be re-attempted and re-delivered when the drain has capacity. Backpressure degrades into a re-queue, never into a dropped answer. The *policy* is gold. The *structure* is not: `Stec` is a fixed inline array stack — `[T; 100000]` lives inside the context object — and a bounded stack can overflow, which is exactly the failure this branch exists to absorb. A `Vec` with allocation discipline (reserve once, reuse across contexts) is the better structure: same boundedness policy, no ceiling baked into the type. (See §12.)
 
 ### Attention: the user's gaze as a fifth queue
 
-The Random step jitters ±50 pixels around the attention position (clamped to screen), effectively sampling the neighborhood of the cursor. The user is usually looking near the cursor or drag origin; giving that neighborhood one shift in five is a cheap foveation that required no eye-tracking and no special data path — just an `(i32,i32)` on a channel, drained to newest. And if the jitter would fall off-screen, it clamps to the exact attention seat — the center of interest is always reachable.
+The Random step jitters ±50 pixels around the attention position (clamped to screen), effectively sampling the neighborhood of the cursor. The *idea* is right and cheap: the user is usually looking near the cursor or drag origin; giving that neighborhood one shift in five is a foveation that required no eye-tracking and no special data path — just an `(i32,i32)` on a channel, drained to newest. And if the jitter would fall off-screen, it clamps to the exact attention seat — the center of interest is always reachable.
+
+The *implementation* was an experiment that beat nothing but was not great: the random walk has no memory of delivered seats, so it keeps re-picking points that are already done and burning bouts on the no-op. A delivered-aware sampler (or a small frontier seeded from the attention seat, like the other queues) would keep the virtue without the waste. Keep "gaze is a queue"; replace "random" with something that knows what it has already seen. (See §12.)
 
 ---
 
@@ -200,7 +204,7 @@ The **order is the invariant**. Completions from the old frame are flushed *befo
 
 Writes never cross a remap. Old seats never land in a remapped package at wrong positions; new announcements never arrive while old seats are still in flight. Two messages and an ordering constraint replace any versioning, tagging, or reconciliation scheme. This is the exact mechanism that makes the storage rules unbreakable: the protocol makes the wrong sequence *unrepresentable*.
 
-`work_update` drains via `try_pop` — LIFO. Recent completions are sent first. During a pivot (the moment of maximum motion), the freshest work lands first, and it tends to be the edge/frontier work that matters most for the new frame. Even the drain order is tuned.
+`work_update` drains via `try_pop` — LIFO. Recent completions are sent first. During a pivot (the moment of maximum motion), the freshest work lands first, and it tends to be the edge/frontier work that matters most for the new frame. Even the drain order is tuned — though note the LIFO order is a free side effect of the `Stec` stack structure, which §12 argues should become a `Vec`; pop-from-end on a `Vec` preserves the same freshness order, so the virtue survives the cleanup.
 
 ---
 
@@ -270,20 +274,19 @@ Every output is the complete current package after the latest update, stamped wi
 Details that are easy to miss and were clearly earned:
 
 - **Epsilon from pixel pitch** — loop tolerance tied to visible resolution, not a constant.
-- **Timewarp in blocks of 4096** — unrolled branch-free interior iteration for period refinement.
 - **Cached products in `Point`** — iteration arithmetic minimized; smallness collected as a free side effect.
-- **LIFO completion drain** — freshest work publishes first.
+- **LIFO completion drain** — freshest work publishes first (ordering is the virtue; the stack structure underneath is §12 material).
 - **Edge neighbors pushed to queue front** — boundaries jump their own line.
 - **Difficulty/period carried in queue entries** — cost metadata captured free at the source.
 - **Shuffle-per-resolution mixmap** — anti-banding randomized traversal, rebuilt exactly when it must be.
 - **Scredge first only on shift 0** — motion edges proven at frame birth, then demoted.
 - **Out rotates, In doesn't** — asymmetric treatment of slow escapes vs slow repeats.
 - **Provisional answers never mark delivered** — guesses never block truth.
-- **Undeliver-and-break on full buffer** — backpressure degrades to re-queue, never to loss.
+- **Undeliver-and-break on full buffer** — backpressure degrades to re-queue, never to loss (policy gold; fixed-array structure replaceable, §12).
 - **Clamped remap as smear** — motion-fill and storage-remap are one operation.
 - **Controller builds, worker runs** — pivot construction overlaps current execution.
 - **Small channels** — the machine promises to consume toward the tip.
-- **Tokens kept as telemetry, wall-clock as law** — budget what the user feels.
+- **Wall-clock as law** — budget what the user feels (token accounting is vestigial, §12).
 - **Publish cadence emergent** — no timer to tune.
 - **Load proportional to ignorance** — busy exactly while incomplete.
 
@@ -301,3 +304,18 @@ v0.0.9's superiority is not any single mechanism — later designs copied the co
 - whole-package publishes, so nothing can be stale.
 
 Every added capability after v0.0.9 (tiles, mags, batches, orbits, GPU) re-opened one of these closures and then had to re-seal it with gates, carries, versions, and restores — each seal a place for a new bug. The golden design's lesson is not the list of mechanisms; it is that the mechanisms are cheap *because the contract is singular*. Keep "the current truth" a single object, and pivotability, storage sanity, stall-freedom, and freshness are defaults. Distribute it, and they become permanent projects.
+
+---
+
+## 12. What was only better than nothing (the honest 10%)
+
+The closures above are the gold. These six pieces are not — they were experiments that shipped because they beat the alternative of nothing, and each has a known better shape. None of the four guarantees depends on any of them; clean them up without fear, but keep the *need* each one was feeding.
+
+- **Random attention walk.** The idea — the user's gaze gets a scheduling class — is sound foveation for free. The implementation re-picks already-delivered seats because the random walk has no memory, wasting bouts on no-ops. Better shape: a delivered-aware sampler, or seed a small ordinary frontier from the attention seat and let the existing queue dynamics do the work.
+- **The `Stec` fixed array stack.** A stack is a fine discipline, but a `[T; 100000]` inline in the context object bakes a ceiling into the type and can overflow — the undeliver-and-break branch exists precisely to absorb that. A `Vec`, with allocations kept in mind (reserve once, reuse across contexts), gives the same boundedness policy and the same pop-from-end freshness order without the hard cap or the inline bulk.
+- **The completion staging buffer ("publish queue").** It is a second queue sitting in front of a queue — the `WorkUpdate` channel already stages and bounds messages. Its only distinct contributions are per-shift batching and the LIFO drain order, and both might be had from the channel directly. Possibly redundant; not obviously wrong. If it stays, it should stay *because* batching and freshness-order are demonstrably earning it, not by default.
+- **Monolithic WorkContext construction.** Building the next world in one O(pixels) lump on the controller is correct but crude. A small incremental generator could spread construction across the pivot window — one more turn of the play-reduction ratchet. The builder/runner split is gold; the batch size is the unfinished part.
+- **Timewarp *and* the period-refinement stage.** Wired up (every repeat completion calls `determine_period`), but the stage was never that good: the timewarp never yielded great speed, the tighter-epsilon re-search never earned full trust, and the one-line `iterations − checkpoint` period sits commented out directly above it, nearly as good in practice. The more effective period-determination theory is the recent one that includes the derivative — but no fully working implementation of it exists yet anywhere in the codebase. Keep "interior points get a period"; replace the whole apparatus when the derivative-based theory lands.
+- **Token accounting.** Too hard to get right, and the code already knows it: the token budget in the shift-loop condition is commented out; wall-clock is the only law. The surviving token fields and recomputation are a fossil. Delete them.
+
+The pattern in all six: the *policy* each served (foveation, boundedness, batching, overlapped construction, period precision, budgeting) was right, and the *mechanism* was the first thing that worked. That is exactly what "culmination of manual testing" means — the failures were killed for real, and a few of the weapons were provisional.
