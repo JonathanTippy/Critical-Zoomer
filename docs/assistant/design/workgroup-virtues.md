@@ -128,9 +128,13 @@ Each bout picks one seat and calls `iterate_max_n_times(point, r²=4, epsilon, n
 
 ### Loop detection and period refinement
 
-Inside-set detection uses the classic doubling checkpoint (`update_loop_check_points`: when iterations ≥ 2× checkpoint, save `(z, iterations)`), with a spatial epsilon derived from the actual pixel pitch: `epsilon = |c[0] - c[1]| / 256` — the distance between neighboring pixels, divided by 256. This is a subtle and lovely choice: the loop tolerance scales with the *screen's own resolution in complex space*, so "near enough to be periodic" means "near relative to what the user can see", not an absolute magic number. Zoom changes, epsilon changes, correctness tracks.
+Inside-set detection uses the classic doubling checkpoint (`update_loop_check_points`: when iterations ≥ 2× checkpoint, save `(z, iterations)`), with a spatial epsilon derived from the actual pixel pitch: `epsilon = |c[0] - c[1]| / 256` — the distance between neighboring pixels, divided by 256. This is a subtle and lovely choice: the loop tolerance scales with the *screen's own resolution in complex space*, so "near enough to be periodic" means "near relative to what the user can see", not an absolute magic number. Zoom changes, epsilon changes, correctness tracks. (The `/256` factor is still a hand-picked number, though — the non-arbitrary form of this tolerance is a design ideal, §13.)
 
-When a point repeats, `determine_period` tries to refine the period: `timewarp_n_iterations(..., 100000)` bulk-iterates in unrolled blocks of 4096, then steps forward one iteration at a time with an epsilon eight times tighter, looking for the true period within a 100000-step bound. Honest verdict on this whole stage: it was never that good. The timewarp never yielded great speed, the refinement step's results were never fully trusted either, and the cheap alternative (`period = iterations − loop_checkpoint`) sits commented out directly above the call, nearly as good in visible results. The newer period-determination theory — the one that includes the derivative — is more effective than anything in this file, though no fully working implementation of it has been seen yet. Treat the entire `determine_period` apparatus as a placeholder awaiting that theory; it is a cleanup candidate, not a virtue. (See §12.)
+The restored code originally refined repeats with a 100000-step timewarp and tighter-epsilon
+re-search. That provisional stage has now been replaced by the published atom-domain candidate
+→ Newton attractor → cycle-multiplier test (`verified_period`): the final period/interiority
+answer uses the derivative and exact unit-circle boundary, while pitch epsilon remains only the
+cheap provisional loop trigger. See §12's resolved note.
 
 ---
 
@@ -271,24 +275,26 @@ Every output is the complete current package after the latest update, stamped wi
 
 ## 10. The craftsmanship inventory
 
-Details that are easy to miss and were clearly earned:
+Details that are easy to miss and were clearly earned (each bound to its code site by a Tracey rule in `docs/assistant/tracey/craftsmanship-rules.md`):
 
-- **Epsilon from pixel pitch** — loop tolerance tied to visible resolution, not a constant.
-- **Cached products in `Point`** — iteration arithmetic minimized; smallness collected as a free side effect.
-- **LIFO completion drain** — freshest work publishes first (ordering is the virtue; the stack structure underneath is §12 material).
-- **Edge neighbors pushed to queue front** — boundaries jump their own line.
-- **Difficulty/period carried in queue entries** — cost metadata captured free at the source.
-- **Shuffle-per-resolution mixmap** — anti-banding randomized traversal, rebuilt exactly when it must be.
-- **Scredge first only on shift 0** — motion edges proven at frame birth, then demoted.
-- **Out rotates, In doesn't** — asymmetric treatment of slow escapes vs slow repeats.
-- **Provisional answers never mark delivered** — guesses never block truth.
-- **Undeliver-and-break on full buffer** — backpressure degrades to re-queue, never to loss (policy gold; fixed-array structure replaceable, §12).
-- **Clamped remap as smear** — motion-fill and storage-remap are one operation.
-- **Controller builds, worker runs** — pivot construction overlaps current execution.
-- **Small channels** — the machine promises to consume toward the tip.
-- **Wall-clock as law** — budget what the user feels (token accounting is vestigial, §12).
-- **Publish cadence emergent** — no timer to tune.
-- **Load proportional to ignorance** — busy exactly while incomplete.
+- **Epsilon from pixel pitch** — loop tolerance tied to visible resolution, not a constant. The `/256` factor is still arbitrary, though; the non-arbitrary form is a design ideal (§13). `r[cz.craft.epsilon-pixel-pitch+1]`
+- **Cached products in `Point`** — iteration arithmetic minimized; smallness collected as a free side effect. `r[cz.craft.cached-products+1]`
+- **LIFO completion drain** — freshest work publishes first (ordering is the virtue; the stack structure underneath is §12 material). `r[cz.craft.lifo-drain+1]`
+- **Edge neighbors pushed to queue front** — boundaries jump their own line. `r[cz.craft.edge-push-front+1]`
+- **Difficulty/period carried in queue entries** — cost metadata captured free at the source. `r[cz.craft.cost-metadata+1]`
+- **Shuffle-per-resolution mixmap** — anti-banding randomized traversal, rebuilt exactly when it must be. `r[cz.craft.mixmap-shuffle+1]`
+- **Scredge first only on shift 0** — motion edges proven at frame birth, then demoted. `r[cz.craft.scredge-first-shift0+1]`
+- **Out rotates, In doesn't** — asymmetric treatment of slow escapes vs slow repeats. `r[cz.craft.out-rotates-in-stays+1]`
+- **Provisional answers never mark delivered** — guesses never block truth. `r[cz.craft.provisional-not-delivered+1]`
+- **Undeliver-and-break on full buffer** — backpressure degrades to re-queue, never to loss (policy gold; fixed-array structure replaceable, §12). `r[cz.craft.undeliver-on-full+1]`
+- **Clamped remap as smear** — motion-fill and storage-remap are one operation. `r[cz.craft.clamped-remap-smear+1]`
+- **Controller builds, worker runs** — pivot construction overlaps current execution. `r[cz.craft.controller-builds+1]`
+- **Small channels** — the machine promises to consume toward the tip. `r[cz.craft.small-channels+1]`
+- **Wall-clock as law** — budget what the user feels (token accounting is vestigial, §12). `r[cz.craft.wall-clock-law+1]`
+- **Publish cadence emergent** — no timer to tune. `r[cz.craft.emergent-cadence+1]`
+- **Load proportional to ignorance** — busy exactly while incomplete. `r[cz.craft.load-proportional-ignorance+1]`
+
+Two protocol-level disciplines are likewise bound: drain-to-newest coalescing (`r[cz.craft.drain-to-newest+1]`, §2) and the pivot two-message ordering (`r[cz.craft.pivot-two-message-order+1]`, §6). The shared remap transform (§7) carries `r[cz.craft.shared-remap-transform+1]`.
 
 Each is a line or two. Together they are the difference between a machine that was designed and a machine that was *finished*.
 
@@ -309,13 +315,28 @@ Every added capability after v0.0.9 (tiles, mags, batches, orbits, GPU) re-opene
 
 ## 12. What was only better than nothing (the honest 10%)
 
-The closures above are the gold. These six pieces are not — they were experiments that shipped because they beat the alternative of nothing, and each has a known better shape. None of the four guarantees depends on any of them; clean them up without fear, but keep the *need* each one was feeding.
+The closures above are the gold. These five remaining pieces are not — they were experiments that shipped because they beat the alternative of nothing, and each has a known better shape. None of the four guarantees depends on any of them; clean them up without fear, but keep the *need* each one was feeding.
 
 - **Random attention walk.** The idea — the user's gaze gets a scheduling class — is sound foveation for free. The implementation re-picks already-delivered seats because the random walk has no memory, wasting bouts on no-ops. Better shape: a delivered-aware sampler, or seed a small ordinary frontier from the attention seat and let the existing queue dynamics do the work.
 - **The `Stec` fixed array stack.** A stack is a fine discipline, but a `[T; 100000]` inline in the context object bakes a ceiling into the type and can overflow — the undeliver-and-break branch exists precisely to absorb that. A `Vec`, with allocations kept in mind (reserve once, reuse across contexts), gives the same boundedness policy and the same pop-from-end freshness order without the hard cap or the inline bulk.
 - **The completion staging buffer ("publish queue").** It is a second queue sitting in front of a queue — the `WorkUpdate` channel already stages and bounds messages. Its only distinct contributions are per-shift batching and the LIFO drain order, and both might be had from the channel directly. Possibly redundant; not obviously wrong. If it stays, it should stay *because* batching and freshness-order are demonstrably earning it, not by default.
 - **Monolithic WorkContext construction.** Building the next world in one O(pixels) lump on the controller is correct but crude. A small incremental generator could spread construction across the pivot window — one more turn of the play-reduction ratchet. The builder/runner split is gold; the batch size is the unfinished part.
-- **Timewarp *and* the period-refinement stage.** Wired up (every repeat completion calls `determine_period`), but the stage was never that good: the timewarp never yielded great speed, the tighter-epsilon re-search never earned full trust, and the one-line `iterations − checkpoint` period sits commented out directly above it, nearly as good in practice. The more effective period-determination theory is the recent one that includes the derivative — but no fully working implementation of it exists yet anywhere in the codebase. Keep "interior points get a period"; replace the whole apparatus when the derivative-based theory lands.
 - **Token accounting.** Too hard to get right, and the code already knows it: the token budget in the shift-loop condition is commented out; wall-clock is the only law. The surviving token fields and recomputation are a fossil. Delete them.
 
-The pattern in all six: the *policy* each served (foveation, boundedness, batching, overlapped construction, period precision, budgeting) was right, and the *mechanism* was the first thing that worked. That is exactly what "culmination of manual testing" means — the failures were killed for real, and a few of the weapons were provisional.
+The pattern in all five: the *policy* each served (foveation, boundedness, batching, overlapped construction, budgeting) was right, and the *mechanism* was the first thing that worked. That is exactly what "culmination of manual testing" means — the failures were killed for real, and a few of the weapons were provisional.
+
+### Resolved since restoration
+
+- **Period refinement.** The timewarp and tighter-epsilon re-search were replaced by the
+  atom-domain → Newton → derivative pipeline. On the committed home-frame fitness workload,
+  full-frame time fell from 12.30 s to about 234 ms while counted Mandelbrot iterations stayed
+  exactly 10,302,563; known period oracles and generated main-cardioid points verify the result.
+
+---
+
+## 13. Design ideals
+
+Ideals, not defects: the preferred path toward elegance — solutions that are not arbitrary, that just work because they are the correct numbers. They may or may not be practical; they are recorded so that future work aims at them rather than at another tuned constant.
+
+- **Non-arbitrary tolerances.** The pitch-derived epsilon (`|c[0] − c[1]| / 256`) beats a constant because it tracks visible resolution — but the `/256` factor is still a hand-picked number, which just moves the arbitrariness from "what epsilon" to "what fraction of a pixel". The ideal is a loop tolerance that falls out of the correct numbers with no free parameter at all. Until such a form exists, the pitch-derived version stays.
+

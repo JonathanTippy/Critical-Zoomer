@@ -235,7 +235,9 @@ async fn internal_behavior<A: SteadyActor>(
     Ok(())
 }
 
-fn sample_old_values<T:Clone>(old_package: &ResultsPackage<T>, new_location: ObjectivePosAndZoom, new_res: (u32, u32)) -> ResultsPackage<T> {
+// r[impl cz.craft.clamped-remap-smear+1]
+// r[impl cz.craft.shared-remap-transform+1]
+pub(crate) fn sample_old_values<T:Clone>(old_package: &ResultsPackage<T>, new_location: ObjectivePosAndZoom, new_res: (u32, u32)) -> ResultsPackage<T> {
     let mut returned = ResultsPackage{
         results: vec!()
         , screen_res: new_res

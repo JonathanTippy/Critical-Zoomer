@@ -293,6 +293,8 @@ pub fn relative_location_i32_row_and_seat(seat: usize, row: usize) -> (i32, i32)
 }
 
 #[inline]
+// r[impl cz.craft.clamped-remap-smear+1]
+// r[impl cz.craft.shared-remap-transform+1]
 pub fn index_from_relative_location(l: (i32, i32), data_res: (u32, u32), data_length: usize) -> usize {
 
     let normalized_l = (

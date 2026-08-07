@@ -85,6 +85,7 @@ async fn internal_behavior<A: SteadyActor, T:Clone + From<f32> + From<f32> + Clo
 
         //info!("work controller alive");
         if actor.avail_units(&mut from_sampler) > 0 {
+            // r[impl cz.craft.drain-to-newest+1]
             while actor.avail_units(&mut from_sampler) > 1 {
                 let stuff = actor.try_take(&mut from_sampler).expect("internal error");
                 drop(stuff);
@@ -118,7 +119,7 @@ async fn internal_behavior<A: SteadyActor, T:Clone + From<f32> + From<f32> + Clo
 }
 
 use std::ops::*;
-fn get_points<T: From<f32> + Clone + From<IntExp> + Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + crate::assemblies::workgroup::screen_worker::workshift::Finite + crate::assemblies::workgroup::screen_worker::workshift::Gt + crate::assemblies::workgroup::screen_worker::workshift::Abs + From<f32> + Into<f64> + Copy>
+pub fn get_points<T: From<f32> + Clone + From<IntExp> + Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + crate::assemblies::workgroup::screen_worker::workshift::Finite + crate::assemblies::workgroup::screen_worker::workshift::Gt + crate::assemblies::workgroup::screen_worker::workshift::Abs + From<f32> + Into<f64> + Copy>
     (res: (u32, u32), loc:(IntExp, IntExp), zoom: i64) -> Vec<Point<T>> {
     let mut out:Vec<Point<T>> = Vec::with_capacity((res.0*res.1) as usize);
 
@@ -172,7 +173,8 @@ fn get_points<T: From<f32> + Clone + From<IntExp> + Sub<Output=T> + Add<Output=T
 }
 
 
-fn get_random_mixmap(size: usize) -> Vec<usize> {
+// r[impl cz.craft.mixmap-shuffle+1]
+pub(crate) fn get_random_mixmap(size: usize) -> Vec<usize> {
     let mut rng = rand::rng();
 
     let mut indices: Vec<usize> = (0..size).collect();
@@ -202,6 +204,7 @@ fn get_interlaced_mixmap(res:(u32, u32), size:usize) -> Vec<usize> {
 
 fn handle_sampler_stuff<T: Clone + From<f32> + From<f32> + Clone + From<IntExp> + Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + crate::assemblies::workgroup::screen_worker::workshift::Finite + crate::assemblies::workgroup::screen_worker::workshift::Gt + crate::assemblies::workgroup::screen_worker::workshift::Abs + From<f32> + Into<f64> + Copy>(state: &mut WorkControllerState, stuff: (ObjectivePosAndZoom, (u32, u32))) -> Option<WorkContext<T>> {
 
+    // r[impl cz.craft.controller-builds+1]
     let zoomed = stuff.0.zoom_pot > state.zoom_pot as i32;
 
     let obj = stuff.0;

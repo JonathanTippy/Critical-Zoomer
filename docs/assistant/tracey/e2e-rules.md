@@ -1,7 +1,7 @@
 # E2E Tracey rules (assistant-owned headed contracts)
 
 Atomic rules for headed interaction under the frozen `cz_ctl` harness.
-Normative product text: `docs/requirements.md` (including E2E Addendum).
+Normative product text: `docs/authoritative/requirements.md` (including E2E Addendum).
 Unit/integration verifies alone do not satisfy these ids.
 
 > **2026-08-06 revert note.** Codebase is now v0.0.9 (e6a0560). The headed harness scripts

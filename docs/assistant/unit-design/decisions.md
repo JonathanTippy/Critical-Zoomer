@@ -1,11 +1,11 @@
 # Unit-design decisions (developer Q&A)
 
-Recorded from the unit-design closing pass. These override assistant guesses in this tree. They do **not** override authoritative root/`docs/design` content; where they contradict authoritative text, flag and ask.
+Recorded from the unit-design closing pass. These override assistant guesses in this tree. They do **not** override authoritative `docs/authoritative/` content; where they contradict authoritative text, flag and ask.
 
 > **2026-08-06 post-revert status.** The codebase is back at v0.0.9 (e6a0560); the tile machine is gone from the live tree. Sections below split:
 > - **Standing (product/process, still binding):** Design fallbacks rule; Coloring & settings; Shading; D-UI-1; D-PER-3/4/6 as algorithm preferences (v0.0.9's every-iteration loop check is consistent with them); D-REF precision principles for when perturbation returns.
-> - **Suspended (tile-machine-specific):** Memory / tile manager; Scheduling (tile columns); D-STEN-1 fields beyond v0.0.9's PointStencil; D-WORK-1 (tile keys); Publisher topology D-PUB-2..6; the whole GPU-native completion block; D-PLAY-TICK as written (v0.0.9's ~10ms wall-clock workshift is the golden cadence — see `docs/design/workgroup-virtues.md`; re-derive any tick design from it).
-> - Any GPU/depth re-implementation must satisfy the seven invariants in `docs/design/workgroup-virtues.md` before its own design concerns.
+> - **Suspended (tile-machine-specific):** Memory / tile manager; Scheduling (tile columns); D-STEN-1 fields beyond v0.0.9's PointStencil; D-WORK-1 (tile keys); Publisher topology D-PUB-2..6; the whole GPU-native completion block; D-PLAY-TICK as written (v0.0.9's ~10ms wall-clock workshift is the golden cadence — see `docs/assistant/design/workgroup-virtues.md`; re-derive any tick design from it).
+> - Any GPU/depth re-implementation must satisfy the seven invariants in `docs/assistant/design/workgroup-virtues.md` before its own design concerns.
 
 ## Design fallbacks (standing rule — 2026-08-04 Jonathan)
 

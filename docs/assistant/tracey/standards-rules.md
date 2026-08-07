@@ -1,7 +1,7 @@
 # Standards Tracey rules (assistant-owned mapping of the standards hard bars)
 
 Not authoritative text. Hard asserts only — no ignore waives.
-Normative source: `docs/standards.md`, moved to `docs/stale/standards.md` in the 2026-08-06
+Normative source: the standards doc, moved to `docs/assistant/Trash/stale/standards.md` in the 2026-08-06
 revert cleanup — the *bars* remain the product's standards; the file's new home reflects that
 its tile-era measurement classes (TPS etc.) were written for the old machine.
 
@@ -9,7 +9,7 @@ its tile-era measurement classes (TPS etc.) were written for the old machine.
 > - **STANDS** — a hard bar v0.0.9 already embodies; re-verify against restored symbols.
 > - **SUSPENDED** — a bar defined on tile-era machinery (TileSession workshifts, GPU compute,
 >   reference orbits, lookahead). It returns with the GPU/depth port and must then be met
->   *without* breaking the v0.0.9 invariants (see `docs/design/workgroup-virtues.md`).
+>   *without* breaking the v0.0.9 invariants (see `docs/assistant/design/workgroup-virtues.md`).
 > All checkboxes earned on the tile machine were cleared.
 
 r[cz.perf.foveation-half-time+1]
@@ -30,6 +30,10 @@ addendum expressed this as tiles/sec).
 - [ ] STANDS as a fill bar, re-expressed for a tileless workgroup: home view reaches oracle
   quality within 5s headed (cross-link the e2e home-fill rules), with no flat-black mid-wait.
   A numeric seats/sec class can be re-derived if wanted; the headed bar is primary.
+- **Benchmark.** `time_to_full_frame` in `benches/workgroup_fitness.rs` tracks the wall-clock
+  home fill against the committed baseline in `docs/assistant/benchmarks.md`. (As of the
+  2026-08-06 baseline the full frame is ~12.4s — over the 5s headed bar, dominated by the §12
+  period-refinement apparatus; recorded, not waived.)
 
 r[cz.perf.min-300m-ips-cpu+2]
 
@@ -37,9 +41,11 @@ r[cz.perf.min-300m-ips-cpu+2]
 scheduling overhead included.
 
 **Acceptance criteria.**
-- **SUSPENDED.** The verify harness measured TileSession workshifts, which no longer exist.
-  The bar itself returns when the CPU path is re-benchmarked; the *method* lesson stands:
-  measure full-stack (scheduling included), keep microbenches as diagnostics only.
+- **SUSPENDED as a number.** The 300M figure was derived for the tile-era machine and awaits
+  re-derivation on the view pipeline.
+- **STANDS as a method.** IPS is measured full-stack by `full_stack_ips` in
+  `benches/workgroup_fitness.rs` (real workgroup loop, scheduling included) and tracked against
+  the committed baseline in `docs/assistant/benchmarks.md`; microbenches are diagnostics only.
 
 r[cz.perf.min-30b-ips-gpu+1]
 
@@ -96,6 +102,8 @@ phases; continuous delivery of work so far.
 - [ ] STANDS — v0.0.9 is the golden reference: publish begins with the first remapped package
   and continues every shift. Known residual: WorkContext construction is one lump per pivot
   (virtues §12 lists incremental construction as the remaining play reduction).
+- **Benchmark.** `time_to_first_publish` in `benches/workgroup_fitness.rs` tracks
+  first-work latency against the baseline (`docs/assistant/benchmarks.md`).
 
 r[cz.perf.play-8bump-100ms+1]
 
@@ -105,6 +113,8 @@ must be visible within 100ms of the last bump of the gesture.
 **Acceptance criteria.**
 - [ ] STANDS as a bar. v0.0.9's mechanism: drain-to-newest makes the 8 bumps collapse to one
   target, remap shows old work immediately, fresh work lands within shifts. Re-verify headed.
+  First-publish latency is tracked by `time_to_first_publish` vs baseline
+  (`docs/assistant/benchmarks.md`).
 
 r[cz.play.actor-poll+1]
 

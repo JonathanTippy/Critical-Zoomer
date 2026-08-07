@@ -9,6 +9,9 @@ use crate::assemblies::workgroup::screen_worker::workshift::*;
 
 pub mod workshift;
 
+#[cfg(test)]
+mod craftsmanship_tests;
+
 pub struct WorkUpdate<T> {
     pub frame_info: Option<(ObjectivePosAndZoom, (u32, u32))>,
     pub completed_points: (Vec<(CompletedPoint<T>, usize)>)
@@ -73,6 +76,7 @@ async fn internal_behavior<A: SteadyActor, T: Send + std::fmt::Debug + Sub<Outpu
         || i!(updates_out.mark_closed())
     ) {
 
+        // r[impl cz.craft.load-proportional-ignorance+1]
         let working = match &state.work_context {
             Some(ctx) => {ctx.0.percent_completed < 100.0}
             , None => {false}
@@ -98,6 +102,7 @@ async fn internal_behavior<A: SteadyActor, T: Send + std::fmt::Debug + Sub<Outpu
 
         if actor.avail_units(&mut commands_in) > 0 {
 
+            // r[impl cz.craft.drain-to-newest+1]
             while actor.avail_units(&mut commands_in) > 1 {
                 let stuff = actor.try_take(&mut commands_in).expect("internal error");
                 drop(stuff);
@@ -106,6 +111,7 @@ async fn internal_behavior<A: SteadyActor, T: Send + std::fmt::Debug + Sub<Outpu
             match actor.try_take(&mut commands_in).unwrap() {
 
                 WorkerCommand::Replace{frame_info: frame_info, context:ctx} => {
+                    // r[impl cz.craft.pivot-two-message-order+1]
                     if let Some((old_ctx, old_frame_info)) = &mut state.work_context {
                         let U = work_update(old_ctx);
 
@@ -150,6 +156,7 @@ async fn internal_behavior<A: SteadyActor, T: Send + std::fmt::Debug + Sub<Outpu
             if let Some(ctx) = &mut state.work_context {
                 let c = work_update(&mut ctx.0);
                 if c.len() > 0 {
+                    // r[impl cz.craft.emergent-cadence+1]
                     actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:c});
                 }
             }
@@ -160,6 +167,7 @@ async fn internal_behavior<A: SteadyActor, T: Send + std::fmt::Debug + Sub<Outpu
     Ok(())
 }
 
+// r[impl cz.craft.lifo-drain+1]
 fn work_update<T:Copy>(ctx: &mut WorkContext<T>) -> Vec<(CompletedPoint<T>, usize)> {
 
 

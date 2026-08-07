@@ -20,6 +20,19 @@ fn line_segment_a_is_subset_of_b(a: (IntExp, IntExp), b: (IntExp, IntExp)) -> bo
         && (a.1 > b.0 && a.1 < b.1)
 }
 
+fn int_exp_is_integer(value: &IntExp) -> bool {
+    if value.exp >= 0 {
+        true
+    } else {
+        let divisor = Integer::from(1) << (-value.exp as u32);
+        value.val.clone() % divisor == 0
+    }
+}
+
+fn int_exp_floor_to_isize(value: IntExp) -> isize {
+    value.set_precision(0).into()
+}
+
 
 impl PointStencil {
 
@@ -318,6 +331,60 @@ impl<T: Copy> View<T> {
                     // zooming in such that one pixel necessarily fills the entire screen.
                     // There are four cases, identified by whether the screen is split
                     // horizontally or vertically or both along pixel boundaries.
+                    //
+                    // Use absolute plane positions here.  The old four-case shortcut derived
+                    // source indices from a rounded bottom-right corner and was not associative:
+                    // A -> C could select a different source pixel than A -> B -> C.
+                    let self_space = self.stencil.space();
+                    let source_units = source.stencil.location.2 + PIXELS_PER_UNIT_POT;
+
+                    for row in 0..self.stencil.resolution.1 {
+                        for seat in 0..self.stencil.resolution.0 {
+                            let target = (
+                                self.stencil.location.0.clone()
+                                    + self_space.clone() * IntExp::from(seat as i32),
+                                self.stencil.location.1.clone()
+                                    - self_space.clone() * IntExp::from(row as i32),
+                            );
+                            let source_offset = (
+                                (target.0 - source.stencil.location.0.clone()).shift(source_units),
+                                (source.stencil.location.1.clone() - target.1).shift(source_units),
+                            );
+                            let aligned = int_exp_is_integer(&source_offset.0)
+                                && int_exp_is_integer(&source_offset.1);
+                            let preferred_source_seat_row = (
+                                int_exp_floor_to_isize(source_offset.0),
+                                int_exp_floor_to_isize(source_offset.1),
+                            );
+                            let clamped_source_seat_row = source
+                                .stencil
+                                .clamp_seat_and_row(preferred_source_seat_row);
+                            let represented =
+                                preferred_source_seat_row == clamped_source_seat_row;
+                            let source_index = source.stencil.index(clamped_source_seat_row);
+                            let self_index =
+                                self.stencil.index((seat as isize, row as isize));
+                            let source_old_alignment = source.bitmap[source_index];
+                            let est = represented
+                                && source_old_alignment & PROX == PROX;
+                            let exact = represented
+                                && aligned
+                                && source_old_alignment & EXACT == EXACT;
+                            let source_alignment =
+                                if exact { EXACT } else { 0 } + if est { PROX } else { 0 };
+                            let self_alignment = self.bitmap[self_index];
+
+                            if source_alignment > self_alignment
+                                || source_is_preferred
+                                    && source_alignment >= self_alignment
+                                || self_alignment == 0
+                            {
+                                self.data[self_index] = source.data[source_index];
+                                self.bitmap[self_index] = source_alignment;
+                            }
+                        }
+                    }
+                    return;
 
                     let self_bottom_right_corner = self.stencil.bottom_right_point();
 

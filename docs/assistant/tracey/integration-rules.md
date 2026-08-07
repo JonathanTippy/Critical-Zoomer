@@ -1,13 +1,13 @@
 # Integration Tracey rules (assistant-owned assembly contracts)
 
 Atomic rules for cross-unit / channel contracts. Normative product text remains in
-`docs/requirements.md` / design; these tags exist for Tracey linkage of assembly verifies.
+`docs/authoritative/requirements.md` / design; these tags exist for Tracey linkage of assembly verifies.
 Unit verifies alone do not satisfy these ids.
 
 > **2026-08-06 revert note.** Codebase is now v0.0.9 (e6a0560). Every acceptance block in this
 > file cited tile-machine machinery (tile sessions, tile publisher, GPU tile ingest, sampling
 > context); those symbols are gone. The **product intent** of each rule is restated in v0.0.9
-> terms below, with the golden-mechanism reference in `docs/design/workgroup-virtues.md`.
+> terms below, with the golden-mechanism reference in `docs/assistant/design/workgroup-virtues.md`.
 > Checked boxes from the tile era are cleared; each rule needs re-verification against the
 > restored assemblies (`workgroup/` = screen worker + work controller + work collector).
 
@@ -25,7 +25,7 @@ references; zoom rebuilds mag-sensitive state; attention and mag_velocity propag
 - [ ] Attention (click/drag point) reaches the worker's queue ordering.
 - Revert note: v0.0.9 has no per-mag reference binding; "zoom rebuilds mag-sensitive state"
   is just the remap + new iterate epsilon. Pan-keeps-references becomes a depth-era rule again
-  when perturbation returns (see suspended decisions in `assistant-docs/unit-design/decisions.md`).
+  when perturbation returns (see suspended decisions in `docs/assistant/unit-design/decisions.md`).
 
 r[cz.int.publish-cadence+1]
 
@@ -91,4 +91,4 @@ pan / zoom-in / zoom-out / resize.
 - [ ] Pan, zoom-in, zoom-out, and resize each leave the collector with exactly one coherent
   package id — no mixed-target output is ever publishable.
 - Revert note: this rule replaces the tile-era session pipeline contract wholesale; the
-  mechanisms cited above are the golden ones documented in `docs/design/workgroup-virtues.md`.
+  mechanisms cited above are the golden ones documented in `docs/assistant/design/workgroup-virtues.md`.

@@ -85,10 +85,9 @@ fn build_graph(graph: &mut Graph) {
         .with_avg_rate()
         .with_capacity(10);
 
-    // Channel capacities are set extremely large for high-throughput, batch-friendly operation.
-    // - Heartbeat channel: moderate size for timing signals
-    // - Generator and computer channels: 1,048,576 messages (1<<20) for massive batch processing
-
+    // r[impl cz.craft.small-channels+1]
+    // Channel capacities are deliberately small (10-50): the machine consumes toward the tip.
+    // (Stale comment below claims "extremely large" capacities — that era is gone.)
 
     let (
         colorer_tx_to_window

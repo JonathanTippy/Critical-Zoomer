@@ -1,7 +1,7 @@
 # Shade Tracey rules (assistant-owned mapping of the shaders design)
 
 Not authoritative text. Normative shading phases live in design — the source file moved to
-`docs/design/Stale/shaders.md` in the 2026-08-06 revert cleanup (it was written against the
+`docs/assistant/design/Stale/shaders.md` in the 2026-08-06 revert cleanup (it was written against the
 tile-era pipeline, but its shading *behavior* descriptions match what v0.0.9's shadergroup
 actually paints). These tags exist for Tracey linkage of shade verifies.
 

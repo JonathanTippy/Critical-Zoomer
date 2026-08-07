@@ -1,12 +1,12 @@
 # Assistant unit design (non-authoritative)
 
-This tree closes practical gaps in the NASA-V **unit design** phase so unit testing can proceed even though authoritative `docs/design/` is incomplete.
+This tree closes practical gaps in the NASA-V **unit design** phase so unit testing can proceed even though authoritative `docs/authoritative/` is incomplete.
 
-**Not authoritative.** Root docs and `docs/design/` win on conflict. These files only answer questions the authoritative unit docs leave open, or cover units that have no authoritative unit doc yet.
+**Not authoritative.** `docs/authoritative/` wins on conflict. These files only answer questions the authoritative unit docs leave open, or cover units that have no authoritative unit doc yet.
 
 > **2026-08-06 revert note.** Codebase reverted to v0.0.9 (e6a0560). The tile-era unit pack
 > (supplements, coverage matrix, actor graph, tile/GPU units) moved to
-> `../Stale/unit-design-tile-era/`. What remains below applies to the restored code.
+> `../Trash/unit-design-tile-era/`. What remains below applies to the restored code.
 > `decisions.md` carries a standing-vs-suspended banner distinguishing the two eras' rulings.
 
 ## Conventions

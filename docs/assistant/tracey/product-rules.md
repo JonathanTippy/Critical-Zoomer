@@ -1,6 +1,6 @@
 # Product Tracey rules (assistant-owned mapping of requirements)
 
-Derived from `docs/requirements.md` Central Differentiators / Display. Not authoritative text.
+Derived from `docs/authoritative/requirements.md` Central Differentiators / Display. Not authoritative text.
 
 > **2026-08-06 revert note.** Codebase is now v0.0.9 (e6a0560). Rules below fall into three
 > classes, marked per rule:
@@ -9,7 +9,7 @@ Derived from `docs/requirements.md` Central Differentiators / Display. Not autho
 >   scheduling its port is a product decision.
 > - **SUSPENDED** — rule only makes sense for machinery (tiles, references, GPU compute,
 >   multi-mag hoards) that the revert removed; it returns with the GPU/depth port described in
->   `docs/design/design-target.md` and must then follow `docs/design/workgroup-virtues.md`.
+>   `docs/assistant/design/design-target.md` and must then follow `docs/assistant/design/workgroup-virtues.md`.
 > All checkboxes earned on the tile machine were cleared; nothing below is currently verified
 > against the restored tree.
 
@@ -58,7 +58,7 @@ r[cz.tenacious.nores-not-flat-black+1]
 - [ ] STANDS. v0.0.9 symbol: `CompletedPoint::Dummy{}` — collector initializes packages with
   it (`work_collector.rs`), escaper paints it outside-looking (`escaper.rs`). Re-verify the
   full sample→shade path never renders Dummy as Inside. (Principle record:
-  `assistant-docs/collected-wisdom.md`.)
+  `docs/assistant/collected-wisdom.md`.)
 
 r[cz.fast.natural-zoom-2x+1]
 

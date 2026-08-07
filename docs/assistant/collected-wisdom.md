@@ -1,6 +1,8 @@
 # Collected wisdom (surviving content from stale docs)
 
-Harvested 2026-08-06 during the v0.0.9 revert cleanup. Each entry: the rule, its source, and whether v0.0.9 already honors it. Anything contradicted by the golden design was dropped; contradictions are resolved in favor of `docs/design/workgroup-virtues.md`.
+Harvested 2026-08-06 during the v0.0.9 revert cleanup. Each entry: the rule, its source, and whether v0.0.9 already honors it. Anything contradicted by the golden design was dropped; contradictions are resolved in favor of `docs/assistant/design/workgroup-virtues.md`.
+
+**Trust tier 1** — vetted against the v0.0.9 study. For unvetted material rescued from the Trash docs (tier 2, lower trust), see `salvage-from-trash.md`; promote entries here only after checking them against the v0.0.9 code and, where behavioral, the developer.
 
 ## Correctness rules (binding at any implementation)
 
@@ -39,5 +41,5 @@ Harvested 2026-08-06 during the v0.0.9 revert cleanup. Each entry: the rule, its
 
 ## Process
 
-- Keep a live bug/todo stack (`issue-stack.md`); developer quotes archive under `docs/stale/.../he-said/`.
+- Keep a live bug/todo stack (`issue-stack.md`); developer quotes archive under `docs/assistant/Trash/stale/less stale but still stale/grok-docs/he-said/`.
 - When the developer answers a design question with a name + mechanism (not just a value), record it verbatim in `unit-design/decisions.md` — bare defaults miss binding detail.

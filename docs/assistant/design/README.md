@@ -9,7 +9,7 @@ Assistant-owned index for this folder. The developer's files speak for themselve
 
 ## Stale
 
-- `Stale/` — the tile-era authoritative design set (architecture was likewise moved to `docs/Stale/`). Kept for reference only; the tile machine proved too complicated to get right (see `design-target.md`). Do not implement from these without an explicit developer request.
+- `Stale/` — the tile-era design set (the old architecture and standards docs live in `../Trash/`). Kept for reference only; the tile machine proved too complicated to get right (see `design-target.md`). Do not implement from these without an explicit developer request.
 
 ## Code baseline
 

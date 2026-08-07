@@ -1,6 +1,6 @@
 # Foundation Tracey rules (assistant-owned; not authoritative product spec)
 
-Atomic rules for bottom-up units: IntExp/homothety, Range/calibration bias, NORES, Mandelbrot symmetry, off-screen geometry. Normative product text remains in `docs/requirements.md` / design; these tags exist for Tracey linkage only.
+Atomic rules for bottom-up units: IntExp/homothety, Range/calibration bias, NORES, Mandelbrot symmetry, off-screen geometry. Normative product text remains in `docs/authoritative/requirements.md` / design; these tags exist for Tracey linkage only.
 
 > **2026-08-06 revert note.** Codebase is now v0.0.9 (e6a0560). Checked boxes earned on the tile machine must be re-earned against v0.0.9 symbols; per-rule notes below where the cited symbol changed. The product intent of every rule in this file still stands — these are foundation-level truths the golden design already embodies.
 
@@ -45,7 +45,7 @@ placeholder (escape after ~1 iteration, infinitely far), never as flat set-black
 - Revert note: the tile-era `NORES_ANSWER` constant is gone. The v0.0.9 symbol is
   `CompletedPoint::Dummy{}` (`workgroup/screen_worker/workshift.rs`), which the escaper
   (`shadergroup/escaper.rs`) paints as outside-looking. Principle unchanged; see
-  `docs/assistant-docs/collected-wisdom.md` ("Unknown is NORES, never black").
+  `docs/assistant/collected-wisdom.md` ("Unknown is NORES, never black").
 
 r[cz.display.window-default-800x480+1]
 

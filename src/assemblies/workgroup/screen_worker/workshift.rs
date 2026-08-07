@@ -139,6 +139,11 @@ impl Gt for f64 {
 }
 
 
+// r[impl cz.craft.epsilon-pixel-pitch+1]
+pub fn pitch_epsilon<T:Sub<Output=T> + Abs + From<f32> + Mul<Output=T> + Copy>(points: &Vec<Point<T>>) -> T {
+    (points[0].c.0 - points[1].c.0).abs() * (T::from(1.0 * (1.0/256.0)))
+}
+
 pub fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<Output=T> + Into<f64> + PartialOrd + Finite + Gt + Abs + From<f32> + Into<f64> + Copy>(
     day_token_allowance: u32
     , iteration_token_cost: u32
@@ -157,16 +162,19 @@ pub fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<Output=
 
 
 
-    let episilon = (context.points[0].c.0 - context.points[1].c.0).abs() * (T::from(1.0 * (1.0/256.0)));//0.0f32.into();//
+    // r[impl cz.craft.epsilon-pixel-pitch+1]
+    let episilon = pitch_epsilon(&context.points);//0.0f32.into();//
 
 
     let total_points = context.points.len();
     context.random_index = context.random_map[min(context.index, total_points-1)];
 
 
+    // r[impl cz.craft.wall-clock-law+1]
     while context.time_workshift_started.elapsed().as_millis()<10{//while context.index < total_points && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
 
 
+        // r[impl cz.craft.scredge-first-shift0+1]
         let (pos, step) = match context.workshifts%5 {
             0 => {
                 if context.workshifts == 0 {
@@ -332,9 +340,13 @@ pub fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<Output=
 
 
             let completed_point = if point.repeats {
-                //let raw_period = point.iterations-point.loop_detection_point.1;
-                //point.period = raw_period;
-                determine_period(point, episilon);
+                let raw_period = point.iterations-point.loop_detection_point.1;
+                // Point iteration zero already stores z₁=c, so small_time is zero-based.
+                let atom_domain_candidate = point.small_time.saturating_add(1);
+                point.period = verified_period(
+                    (point.c.0.into(), point.c.1.into()),
+                    atom_domain_candidate,
+                ).unwrap_or(raw_period);
                 let returned = CompletedPoint::Repeats{period: point.period, smallness: point.smallness_squared, small_time:point.small_time};
                 queue_incomplete_neighbors_in(&pos, context.res, &context.points, &mut context.in_queue);
                 returned
@@ -356,6 +368,7 @@ pub fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<Output=
             }
 
             if context.completed_points.try_push((completed_point, index)) {} else {
+                // r[impl cz.craft.undeliver-on-full+1]
                 let point = &mut context.points[index];
                 point.delivered=false;
                 break;
@@ -365,6 +378,7 @@ pub fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<Output=
             context.total_points_today += 1
         } else {
             match step {
+                // r[impl cz.craft.out-rotates-in-stays+1]
                 Step::Out => {
                     let pos = context.out_queue.pop_front().unwrap();
                     context.out_queue.push_back(pos);
@@ -378,6 +392,7 @@ pub fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<Output=
                 Step::Scredge => {
                     //let pos = context.scredge_poses.pop_front().unwrap();
                     //context.scredge_poses.push_back(pos);
+                    // r[impl cz.craft.provisional-not-delivered+1]
                     let completed_point = {
                         CompletedPoint::Repeats{period: point.iterations-point.loop_detection_point.1, smallness: point.smallness_squared, small_time:point.small_time}
                     };
@@ -429,47 +444,6 @@ impl Finite for f64 {
 }
 
 
-#[inline]
-pub fn timewarp_n_iterations<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + Into<f64>+ Finite + From<f32> + Gt + Copy> (point: &mut Point<T>, r_squared:T, n: u32) -> bool {
-
-
-    let c = point.c.clone();
-    let mut z = point.z.clone();
-
-    let blocks = n / 4096;
-    let change = n % 4096;
-
-    for _ in 0..blocks {
-        timewarp_4096(&mut z, c);
-    }
-    for _ in 0..change {
-        z = (
-            z.0 * z.0 - z.1 * z.1 + c.0
-            , T::from(2.0.into()) * z.0 * z.1 + c.1
-        );
-    }
-
-    let backup = point.clone();
-    point.z = z; update_point_results(point);
-
-    if bailout_point(point, r_squared) || (!point.real_squared.is_finite()) || (!point.imag_squared.is_finite()) {
-        *point = backup; false
-    } else {
-        point.iterations+=n;
-        true
-    }
-}
-
-#[inline(always)]
-fn timewarp_4096<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + From<f32> + Copy> ( z:&mut (T, T), c:(T,T)) {
-    for _ in 0..4096 {
-        *z = (
-            z.0 * z.0 - z.1 * z.1 + c.0
-            , T::from(2.0f32.into()) * z.0 * z.1 + c.1
-        );
-    }
-}
-
 use std::ops::*;
 
 #[inline(always)]
@@ -513,23 +487,88 @@ fn update_loop_check_points<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Co
 
 }
 
-fn determine_period<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Gt + Finite + PartialOrd + Into<f64> +From<f32> + Copy> (point: &mut Point<T>, epsilon:T) -> bool {
-    let max_period = 100000;
+fn iterate_complex(z: (f64, f64), c: (f64, f64)) -> (f64, f64) {
+    (z.0 * z.0 - z.1 * z.1 + c.0, 2.0 * z.0 * z.1 + c.1)
+}
 
-    timewarp_n_iterations(point, 4.0f32.into(), 100000);
-
-    point.loop_detection_point = (point.z, point.iterations);
-    for _ in 0..max_period {
-        update_point_results(point);
-        iterate(point);
-        if loop_check_point(point, epsilon*(1.0/8.0).into()) {
-            return true
-        }
+// r[impl cz.craft.period-derivative-test+1]
+pub fn verified_period(c: (f64, f64), period: u32) -> Option<u32> {
+    if period == 0 {
+        return None;
     }
-    return false
+
+    // F^p(0,c) is the published Newton starting point.
+    let mut w = (0.0, 0.0);
+    for _ in 0..period {
+        w = iterate_complex(w, c);
+    }
+
+    // Solve F^p(w,c)=w.  Stop only when another Newton step is exactly
+    // unrepresentable in f64; the mathematical acceptance test below has no epsilon.
+    let mut converged = false;
+    let mut previous = None;
+    for _ in 0..32 {
+        let mut z = w;
+        let mut dz = (1.0, 0.0);
+        for _ in 0..period {
+            dz = (
+                2.0 * (z.0 * dz.0 - z.1 * dz.1),
+                2.0 * (z.0 * dz.1 + z.1 * dz.0),
+            );
+            z = iterate_complex(z, c);
+        }
+
+        let numerator = (z.0 - w.0, z.1 - w.1);
+        let denominator = (dz.0 - 1.0, dz.1);
+        let denominator_norm = denominator.0 * denominator.0
+            + denominator.1 * denominator.1;
+        if denominator_norm == 0.0 || !denominator_norm.is_finite() {
+            return None;
+        }
+        let quotient = (
+            (numerator.0 * denominator.0 + numerator.1 * denominator.1)
+                / denominator_norm,
+            (numerator.1 * denominator.0 - numerator.0 * denominator.1)
+                / denominator_norm,
+        );
+        let next = (w.0 - quotient.0, w.1 - quotient.1);
+        if !next.0.is_finite() || !next.1.is_finite() {
+            return None;
+        }
+        let correction_norm = quotient.0 * quotient.0 + quotient.1 * quotient.1;
+        let scale = (w.0 * w.0 + w.1 * w.1).max(1.0);
+        if next == w
+            || previous == Some(next)
+            || correction_norm <= f64::EPSILON * f64::EPSILON * scale
+        {
+            converged = true;
+            w = next;
+            break;
+        }
+        previous = Some(w);
+        w = next;
+    }
+    if !converged {
+        return None;
+    }
+
+    // The cycle multiplier is exact in the mathematical model: attracting iff |b| <= 1.
+    let mut z = w;
+    let mut multiplier = (1.0, 0.0);
+    for _ in 0..period {
+        multiplier = (
+            2.0 * (z.0 * multiplier.0 - z.1 * multiplier.1),
+            2.0 * (z.0 * multiplier.1 + z.1 * multiplier.0),
+        );
+        z = iterate_complex(z, c);
+    }
+    let multiplier_norm =
+        multiplier.0 * multiplier.0 + multiplier.1 * multiplier.1;
+    (multiplier_norm <= 1.0).then_some(period)
 }
 
 #[inline]
+// r[impl cz.craft.cached-products+1]
 pub fn update_point_results<T:Sub<Output=T> + Add<Output=T> + Into<f64> + Gt + Mul<Output=T> + Copy>(point: &mut Point<T>) {
     // update values
     point.real_squared = point.z.0 * point.z.0;
@@ -542,6 +581,7 @@ pub fn update_point_results<T:Sub<Output=T> + Add<Output=T> + Into<f64> + Gt + M
 
 
 
+// r[impl cz.craft.cost-metadata+1]
 pub fn queue_incomplete_neighbors<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Copy>(pos:&(i32, i32), res: (u32, u32), points: &Vec<Point<T>>, queue: &mut VecDeque<((i32, i32), u32)>) {
 
     let difficulty = points[index_from_pos(pos, res.0)].iterations;
@@ -704,6 +744,7 @@ pub fn queue_incomplete_neighbors_of_edge<T:Sub<Output=T> + Add<Output=T> + Mul<
         ) {
             let index = index_from_pos(&n, wid);
             if !points[index].delivered {
+                // r[impl cz.craft.edge-push-front+1]
                 queue.push_front((n, difficulty));
             }
         }
