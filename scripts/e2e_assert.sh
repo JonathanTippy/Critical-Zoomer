@@ -185,6 +185,111 @@ e2e_assert_center_structure() {
   fi
 }
 
+# Quiet readiness probe (exit 0 = structured home; does not touch e2e_fail).
+# Flat purple / HUD-only / strip-only frames return 1 — gray-hole count alone is
+# not enough (a solid purple frame has zero gray holes).
+e2e_home_structure_ready() {
+  local path="$1"
+  local min_center="${2:-2500}"
+  local min_left="${3:-1200}"
+  local min_full="${4:-3000}"
+  local tmp center left right full
+  [ -s "$path" ] || return 1
+  full=$(e2e_stdev "$path" || echo 0)
+  [ "${full:-0}" -ge "$min_full" ] || return 1
+  tmp=$(mktemp -d)
+  convert "$path" -gravity Center -crop 400x300+0+0 +repage "$tmp/center.png" 2>/dev/null || {
+    rm -rf "$tmp"
+    return 1
+  }
+  convert "$path" -crop 160x200+80+140 +repage "$tmp/left.png" 2>/dev/null || {
+    rm -rf "$tmp"
+    return 1
+  }
+  convert "$path" -crop 160x200+420+140 +repage "$tmp/right.png" 2>/dev/null || {
+    rm -rf "$tmp"
+    return 1
+  }
+  center=$(identify -format '%[standard-deviation]' "$tmp/center.png" 2>/dev/null | awk '{print int($1+0)}')
+  left=$(identify -format '%[standard-deviation]' "$tmp/left.png" 2>/dev/null | awk '{print int($1+0)}')
+  right=$(identify -format '%[standard-deviation]' "$tmp/right.png" 2>/dev/null | awk '{print int($1+0)}')
+  rm -rf "$tmp"
+  [ -n "$center" ] && [ "$center" -ge "$min_center" ] || return 1
+  [ -n "$left" ] && [ "$left" -ge "$min_left" ] || return 1
+  # Right may be exterior banding; require some structure, not a flat wash.
+  [ -n "$right" ] && [ "$right" -ge 300 ] || return 1
+  return 0
+}
+
+# Poll captures until structured home is ready on two consecutive frames.
+# Optional baseline crop RMSE gate when baseline path is provided and exists.
+# Args: out_png [max_attempts] [baseline_png] [max_rmse]
+e2e_wait_home_ready() {
+  local out_path="$1"
+  local max_attempts="${2:-40}"
+  local baseline="${3:-}"
+  local max_rmse="${4:-12000}"
+  local root prev stable i holes_n
+  root="$(e2e_root)"
+  prev=""
+  stable=0
+  for i in $(seq 1 "$max_attempts"); do
+    rm -f "$out_path"
+    e2e_send "capture $(basename "$out_path")"
+    e2e_wait_file "$out_path" 20 || {
+      echo "home_ready_probe attempt=$i missing_file"
+      sleep 0.25
+      continue
+    }
+    holes_n=$(e2e_count_gray_holes "$out_path")
+    if ! e2e_home_structure_ready "$out_path"; then
+      echo "home_ready_probe attempt=$i not_ready holes=$holes_n (structure gate)"
+      prev=""
+      stable=0
+      sleep 0.25
+      continue
+    fi
+    if [ -n "$baseline" ] && [ -f "$baseline" ]; then
+      local crop_dir r
+      crop_dir=$(mktemp -d)
+      convert "$baseline" -gravity Center -crop 720x340+0+0 +repage "$crop_dir/baseline_crop.png"
+      convert "$out_path" -gravity Center -crop 720x340+0+0 +repage "$crop_dir/current_crop.png"
+      r=$(e2e_rmse_num "$crop_dir/baseline_crop.png" "$crop_dir/current_crop.png")
+      rm -rf "$crop_dir"
+      if ! awk -v r="$r" -v m="$max_rmse" 'BEGIN{exit !(r+0 <= m+0)}'; then
+        echo "home_ready_probe attempt=$i structure_ok but baseline_rmse=$r (max $max_rmse)"
+        prev=""
+        stable=0
+        sleep 0.25
+        continue
+      fi
+      echo "home_ready_probe attempt=$i structure_ok baseline_rmse=$r holes=$holes_n"
+    else
+      echo "home_ready_probe attempt=$i structure_ok holes=$holes_n"
+    fi
+    if [ -n "$prev" ] && [ -s "$prev" ]; then
+      local stab
+      stab=$(e2e_rmse_num "$prev" "$out_path")
+      if awk -v r="$stab" 'BEGIN{exit !(r+0 < 2500)}'; then
+        stable=$((stable + 1))
+      else
+        stable=0
+      fi
+      echo "home_ready_probe stability_rmse=$stab stable_hits=$stable"
+    fi
+    rm -f "${out_path}.prev.png"
+    cp -f "$out_path" "${out_path}.prev.png"
+    prev="${out_path}.prev.png"
+    if [ "$stable" -ge 1 ]; then
+      rm -f "$prev"
+      return 0
+    fi
+    sleep 0.25
+  done
+  rm -f "${out_path}.prev.png"
+  return 1
+}
+
 # Start isolated headed session. Sets E2E_PREFIX, E2E_OUT, exports CZ_SESSION_PREFIX.
 e2e_start_session() {
   local name="$1"

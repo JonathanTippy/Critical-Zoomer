@@ -201,6 +201,38 @@ else
   pass "settle: near-black rejected"
 fi
 
+# --- Facet: home readiness rejects flat purple (gray holes alone are insufficient) ---
+# shellcheck source=scripts/e2e_assert.sh
+source "$ROOT/scripts/e2e_assert.sh"
+if command -v convert >/dev/null 2>&1; then
+  convert -size 900x500 xc:'#800080' "$PREFIX/capture/flat_purple.png"
+elif command -v magick >/dev/null 2>&1; then
+  magick -size 900x500 xc:'#800080' "$PREFIX/capture/flat_purple.png"
+else
+  fail_msg "readiness: ImageMagick required for purple synthetic"
+fi
+PURPLE_HOLES=$(e2e_count_gray_holes "$PREFIX/capture/flat_purple.png")
+echo "flat_purple_gray_holes=$PURPLE_HOLES"
+if [ "${PURPLE_HOLES:-99}" -le 2 ]; then
+  pass "readiness: flat purple has few/zero gray holes (false ready signal)"
+else
+  fail_msg "readiness: unexpected gray holes on solid purple ($PURPLE_HOLES)"
+fi
+if e2e_home_structure_ready "$PREFIX/capture/flat_purple.png"; then
+  fail_msg "readiness: flat purple incorrectly marked structured"
+else
+  pass "readiness: flat purple rejected by structure gate"
+fi
+if [ -f "$ROOT/scripts/baseline_home_final.png" ]; then
+  if e2e_home_structure_ready "$ROOT/scripts/baseline_home_final.png"; then
+    pass "readiness: known-good baseline accepted by structure gate"
+  else
+    fail_msg "readiness: known-good baseline rejected by structure gate"
+  fi
+else
+  echo "WARN: scripts/baseline_home_final.png missing; skipped positive readiness check" >&2
+fi
+
 # Quit primary cleanly, keep its env/out on disk for isolation compare.
 ENV_A_SAVED="$PREFIX/ctl.env.saved"
 if [ -f "$PREFIX/ctl.env" ]; then
