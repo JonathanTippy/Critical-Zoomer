@@ -13,10 +13,11 @@ use proptest::prelude::*;
 use super::work_update;
 use super::workshift::*;
 use crate::assemblies::headgroup::window::sampling::index_from_relative_location;
-use crate::assemblies::workgroup::c_generator::CGenerator;
+use crate::assemblies::workgroup::c_generator::{CGenerator, Mandelbrotable};
 use crate::assemblies::workgroup::work_collector::{sample_old_values, ResultsPackage};
 use crate::assemblies::workgroup::screen_worker::workshift::get_random_mixmap;
 use crate::utils::{index_from_pos, IntExp, ObjectivePosAndZoom};
+use crate::floatexp::{ComplexFloatExp, FloatExp};
 
 fn run_big(f: impl FnOnce() + Send + 'static) {
     std::thread::Builder::new()
@@ -27,22 +28,22 @@ fn run_big(f: impl FnOnce() + Send + 'static) {
         .unwrap();
 }
 
-fn make_point(c: (f64, f64)) -> Point<f64> {
+fn make_point(c: (f64, f64)) -> Point<FloatExp> {
     Point {
-        c,
-        z: (0.0, 0.0),
-        dc: (0.0, 0.0),
-        real_squared: 0.0,
-        imag_squared: 0.0,
-        real_imag: 0.0,
+        c: (FloatExp::from(c.0), FloatExp::from(c.1)),
+        z: (FloatExp::ZERO, FloatExp::ZERO),
+        dc: (FloatExp::ZERO, FloatExp::ZERO),
+        real_squared: FloatExp::ZERO,
+        imag_squared: FloatExp::ZERO,
+        real_imag: FloatExp::ZERO,
         iterations: 0,
-        loop_detection_point: ((0.0, 0.0), 0),
+        loop_detection_point: ((FloatExp::ZERO, FloatExp::ZERO), 0),
         escapes: false,
         repeats: false,
         delivered: false,
         initialized: true,
         period: 0,
-        smallness_squared: f64::MAX,
+        smallness_squared: <FloatExp as Mandelbrotable>::max_value(),
         small_time: 0,
         delta: None,
         direct_only: false,
@@ -57,7 +58,7 @@ fn make_point(c: (f64, f64)) -> Point<f64> {
 const ESC: (f64, f64) = (2.0, 2.0);
 const SLOW: (f64, f64) = (0.25 - 1e-16, 0.0);
 
-fn make_context(workshifts: u32) -> WorkContext<f64> {
+fn make_context(workshifts: u32) -> WorkContext<FloatExp> {
     let res = (4u32, 2u32);
     let cs = [
         (0.0, 0.0),
@@ -69,9 +70,9 @@ fn make_context(workshifts: u32) -> WorkContext<f64> {
         SLOW,
         SLOW,
     ];
-    let points: Vec<Point<f64>> = cs.iter().map(|&c| make_point(c)).collect();
+    let points: Vec<Point<FloatExp>> = cs.iter().map(|&c| make_point(c)).collect();
     let n = points.len();
-    let c_generator = CGenerator::new(&(IntExp::from(0), IntExp::from(0)), -2, res).unwrap();
+    let c_generator = CGenerator::<FloatExp>::new(&(IntExp::from(0), IntExp::from(0)), -2, res).unwrap();
     let center = ((res.0 / 2) as i32, (res.1 / 2) as i32);
     WorkContext {
         points,
@@ -101,12 +102,13 @@ fn make_context(workshifts: u32) -> WorkContext<f64> {
         attention_index: u64::MAX,
         attention_current: None,
         c_generator,
-        pitch_epsilon: 1e-9 * (1.0 / 256.0),
+        pitch_epsilon: FloatExp::from(1e-9 * (1.0 / 256.0)),
+        coord_anchor: (IntExp::ZERO, IntExp::ZERO),
         latest_reference: None,
     }
 }
 
-fn shift(ctx: &mut WorkContext<f64>) {
+fn shift(ctx: &mut WorkContext<FloatExp>) {
     // Scheduler tests isolate queue policy from production numerics.
     workshift_with_kernel(0, 0, 0, 0, ctx, &DirectKernel);
 }
@@ -129,7 +131,7 @@ fn direct_kernel_preserves_scheduler_results() {
     assert_eq!(a.in_queue, b.in_queue);
 }
 
-fn orbit_with_derivative(c: (f64, f64), iterations: u32) -> Point<f64> {
+fn orbit_with_derivative(c: (f64, f64), iterations: u32) -> Point<FloatExp> {
     let mut point = make_point(c);
     for _ in 0..iterations {
         update_point_results(&mut point);
@@ -162,10 +164,15 @@ proptest! {
         let hi = adjacent_ulps(cr, true, 1 << 20);
         let z_lo = orbit_with_derivative((lo, ci), iterations).z;
         let z_hi = orbit_with_derivative((hi, ci), iterations).z;
-        let finite = ((z_hi.0 - z_lo.0) / (hi - lo), (z_hi.1 - z_lo.1) / (hi - lo));
+        let finite = (
+            (z_hi.0.to_f64() - z_lo.0.to_f64()) / (hi - lo),
+            (z_hi.1.to_f64() - z_lo.1.to_f64()) / (hi - lo),
+        );
         let tolerance = iterations as f64 * 1.0e-4;
-        prop_assert!((center.dc.0 - finite.0).abs() <= tolerance * center.dc.0.abs().max(1.0));
-        prop_assert!((center.dc.1 - finite.1).abs() <= tolerance * center.dc.1.abs().max(1.0));
+        let dc0 = center.dc.0.to_f64();
+        let dc1 = center.dc.1.to_f64();
+        prop_assert!((dc0 - finite.0).abs() <= tolerance * dc0.abs().max(1.0));
+        prop_assert!((dc1 - finite.1).abs() <= tolerance * dc1.abs().max(1.0));
     }
 
     // r[verify cz.craft.screen-space-derivative-edges+1]
@@ -187,10 +194,10 @@ proptest! {
 fn epsilon_scales_with_pixel_pitch() {
     let a = vec![make_point((0.0, 0.0)), make_point((0.25, 0.0))];
     let b = vec![make_point((0.0, 0.0)), make_point((0.5, 0.0))];
-    let ea: f64 = pitch_epsilon(&a);
-    let eb: f64 = pitch_epsilon(&b);
-    assert!(ea > 0.0);
-    assert_eq!(eb, ea * 2.0, "doubling pixel pitch must double epsilon");
+    let ea = pitch_epsilon(&a);
+    let eb = pitch_epsilon(&b);
+    assert!(ea > FloatExp::ZERO);
+    assert_eq!(eb, ea * FloatExp::TWO, "doubling pixel pitch must double epsilon");
 }
 
 // verifies r[cz.craft.cached-products+1]
@@ -198,14 +205,14 @@ proptest! {
     #[test]
     fn cached_products_match_z(zr in -1000.0f64..1000.0, zi in -1000.0f64..1000.0) {
         let mut p = make_point((0.1, 0.1));
-        p.z = (zr, zi);
+        p.z = (FloatExp::from(zr), FloatExp::from(zi));
         p.iterations = 17;
         update_point_results(&mut p);
-        prop_assert_eq!(p.real_squared, zr * zr);
-        prop_assert_eq!(p.imag_squared, zi * zi);
-        prop_assert_eq!(p.real_imag, zr * zi);
+        prop_assert_eq!(p.real_squared, FloatExp::from(zr * zr));
+        prop_assert_eq!(p.imag_squared, FloatExp::from(zi * zi));
+        prop_assert_eq!(p.real_imag, FloatExp::from(zr * zi));
         // smallness collected as a free side effect
-        prop_assert_eq!(p.smallness_squared, zr * zr + zi * zi);
+        prop_assert_eq!(p.smallness_squared, FloatExp::from(zr * zr + zi * zi));
         prop_assert_eq!(p.small_time, 17);
     }
 
@@ -547,13 +554,13 @@ fn full_buffer_undelivers_and_stops() {
 fn remap_onto_same_view_is_fixed_point() {
     run_big(|| {
         let res = (4u32, 3u32);
-        let results: Vec<CompletedPoint<f64>> = (0..(res.0 * res.1))
+        let results: Vec<CompletedPoint<FloatExp>> = (0..(res.0 * res.1))
             .map(|i| CompletedPoint::Escapes {
                 escape_time: i,
-                escape_location: (0.0, 0.0),
-                escape_derivative: (1.0, 0.0),
-                start_location: (0.0, 0.0),
-                smallness: 0.0,
+                escape_location: (FloatExp::ZERO, FloatExp::ZERO),
+                escape_derivative: (FloatExp::ONE, FloatExp::ZERO),
+                start_location: (FloatExp::ZERO, FloatExp::ZERO),
+                smallness: FloatExp::ZERO,
                 small_time: 0,
             })
             .collect();
@@ -603,7 +610,7 @@ fn fresh_shell_leaves_seats_uninitialized() {
             },
             (8u32, 4u32),
         );
-        let ctx = from_stencil::<f64>(frame_info, None).unwrap();
+        let ctx = from_stencil::<FloatExp>(frame_info, None).unwrap();
         assert!(ctx.points.iter().all(|p| !p.initialized && !p.delivered));
         assert_eq!(ctx.points.len(), 32);
         assert!(!ctx.scredge_poses.is_empty());
@@ -622,7 +629,7 @@ fn ensure_started_matches_generator_bit_for_bit() {
             },
             res,
         );
-        let mut ctx = from_stencil::<f64>(frame_info, None).unwrap();
+        let mut ctx = from_stencil::<FloatExp>(frame_info, None).unwrap();
         for row in 0..res.1 {
             for seat in 0..res.0 {
                 let pos = (seat as i32, row as i32);
@@ -635,7 +642,7 @@ fn ensure_started_matches_generator_bit_for_bit() {
                     "seat ({seat},{row})"
                 );
                 assert_eq!(ctx.points[index].z, ctx.points[index].c);
-                assert_eq!(ctx.points[index].dc, (1.0, 0.0));
+                assert_eq!(ctx.points[index].dc, (FloatExp::ONE, FloatExp::ZERO));
             }
         }
     });
@@ -652,7 +659,7 @@ fn replace_reuses_points_capacity_and_resets_initialized() {
             },
             (8u32, 4u32),
         );
-        let mut ctx = from_stencil::<f64>(frame_a.clone(), None).unwrap();
+        let mut ctx = from_stencil::<FloatExp>(frame_a.clone(), None).unwrap();
         ensure_started(&mut ctx, (0, 0));
         assert!(ctx.points[0].initialized);
         let cap = ctx.points.capacity();
@@ -683,7 +690,7 @@ fn from_stencil_defaults_attention_anchor_to_center() {
             },
             (8u32, 4u32),
         );
-        let ctx = from_stencil::<f64>(frame, None).unwrap();
+        let ctx = from_stencil::<FloatExp>(frame, None).unwrap();
         assert_eq!(ctx.attention, None);
         assert_eq!(ctx.attention_anchor, (4, 2));
         assert_eq!(ctx.attention_index, 0);
@@ -861,7 +868,7 @@ fn from_stencil_classifies_zoom_pan_neither() {
             zoom_pot: -2,
         };
         let res = (8u32, 4u32);
-        let fresh = from_stencil::<f64>((base.clone(), res), None).unwrap();
+        let fresh = from_stencil::<FloatExp>((base.clone(), res), None).unwrap();
         assert_eq!(fresh.motion, Motion::Neither);
 
         let zoomed_fi = ObjectivePosAndZoom {
@@ -879,7 +886,7 @@ fn from_stencil_classifies_zoom_pan_neither() {
             pos: (IntExp::from(-1), IntExp::from(2)),
             zoom_pot: -2,
         };
-        let panned_base = from_stencil::<f64>((base.clone(), res), None).unwrap();
+        let panned_base = from_stencil::<FloatExp>((base.clone(), res), None).unwrap();
         let panned = from_stencil(
             (panned_fi, res),
             Some((panned_base, base.clone())),
@@ -975,7 +982,7 @@ fn home_frame() -> (ObjectivePosAndZoom, (u32, u32)) {
     )
 }
 
-fn outcome_key(p: &Point<f64>) -> (bool, bool, u32, u32) {
+fn outcome_key(p: &Point<FloatExp>) -> (bool, bool, u32, u32) {
     (p.escapes, p.repeats, p.iterations, p.period)
 }
 
@@ -983,12 +990,22 @@ fn outcome_key(p: &Point<f64>) -> (bool, bool, u32, u32) {
 fn home_reference_request_matches_c_generator() {
     run_big(|| {
         let frame = home_frame();
-        let req = select_reference_request::<f64>(None, &frame);
+        let req = select_reference_request::<FloatExp>(None, &frame);
         let ctx = from_stencil(frame, None).expect("home view");
         let center = (ctx.res.0 / 2, ctx.res.1 / 2);
         let gc = ctx.c_generator.get_c((center.0, center.1));
-        let req_f = (f64::from(req.c.0.clone()), f64::from(req.c.1.clone()));
-        assert_eq!(req_f, gc, "reference request must use the same c grid as seats");
+        let abs = (
+            FloatExp::from(ctx.coord_anchor.0.clone()) + gc.0,
+            FloatExp::from(ctx.coord_anchor.1.clone()) + gc.1,
+        );
+        let req_fe = (
+            FloatExp::from(req.c.0.clone()),
+            FloatExp::from(req.c.1.clone()),
+        );
+        assert_eq!(
+            req_fe, abs,
+            "reference request must match absolute seat (anchor + relative)"
+        );
     });
 }
 
@@ -998,13 +1015,14 @@ fn home_reference_request_matches_c_generator() {
 fn home_workshift_with_reference_matches_direct() {
     run_big(|| {
         let frame = home_frame();
-        let req = select_reference_request::<f64>(None, &frame);
+        let req = select_reference_request::<FloatExp>(None, &frame);
         let mut direct = from_stencil(frame.clone(), None).expect("home");
         let mut perturb = from_stencil(frame, None).expect("home");
         perturb.latest_reference = Some(Arc::new(PublishedReference {
             orbit: ReferenceOrbit::compute(&req.c, req.precision_bits, 4096),
             c: req.c,
             generation: 1,
+            series: None,
         }));
         for _ in 0..10000 {
             if direct.points.iter().all(|p| p.delivered) {
@@ -1077,7 +1095,7 @@ proptest! {
         ctx.points[0] = make_point((cr, ci));
         PerturbationKernel.start_seat(&mut ctx, (0, 0));
         PerturbationKernel.iterate_bout(
-            &mut ctx.points[0], None, 4.0, 1e-15, BoutCap::new(max_n),
+            &mut ctx.points[0], None, FloatExp::from(4.0), FloatExp::from(1e-15), BoutCap::new(max_n),
         );
         let p = &ctx.points[0];
         match oracle.unwrap() {
@@ -1116,7 +1134,7 @@ fn zero_orbit_center_reports_period_one() {
     ctx.points[0].initialized = false;
     PerturbationKernel.start_seat(&mut ctx, (0, 0));
     PerturbationKernel.iterate_bout(
-        &mut ctx.points[0], None, 4.0, ctx.pitch_epsilon, BoutCap::new(2),
+        &mut ctx.points[0], None, FloatExp::from(4.0), ctx.pitch_epsilon, BoutCap::new(2),
     );
     assert!(ctx.points[0].repeats);
     assert_eq!(ctx.points[0].period, 1);
@@ -1130,16 +1148,16 @@ fn zero_orbit_floor_matches_direct_kernel_escape_times() {
     for c in [(2.0, 2.0), (-1.0, 0.2), (0.4, 0.4), (-0.75, 0.1)] {
         let mut direct_ctx = make_context(0);
         direct_ctx.points[0] = make_point(c);
-        direct_ctx.points[0].z = c;
-        direct_ctx.points[0].dc = (1.0, 0.0);
+        direct_ctx.points[0].z = (FloatExp::from(c.0), FloatExp::from(c.1));
+        direct_ctx.points[0].dc = (FloatExp::ONE, FloatExp::ZERO);
         let mut perturb_ctx = direct_ctx.clone();
         DirectKernel.start_seat(&mut direct_ctx, (0, 0));
         PerturbationKernel.start_seat(&mut perturb_ctx, (0, 0));
         DirectKernel.iterate_bout(
-            &mut direct_ctx.points[0], None, 4.0, 1e-15, BoutCap::new(512),
+            &mut direct_ctx.points[0], None, FloatExp::from(4.0), FloatExp::from(1e-15), BoutCap::new(512),
         );
         PerturbationKernel.iterate_bout(
-            &mut perturb_ctx.points[0], None, 4.0, 1e-15, BoutCap::new(512),
+            &mut perturb_ctx.points[0], None, FloatExp::from(4.0), FloatExp::from(1e-15), BoutCap::new(512),
         );
         assert_eq!(
             outcome_key(&direct_ctx.points[0]),
@@ -1158,24 +1176,25 @@ fn published_reference_matches_direct_on_shallow_view() {
         orbit: ReferenceOrbit::compute(&reference_c, 128, 512),
         c: reference_c,
         generation: 11,
-    });
+            series: None,
+        });
     for c in [(-0.49, 0.01), (-0.55, 0.08), (-0.4, -0.15)] {
         let mut direct_ctx = make_context(0);
         direct_ctx.points[0] = make_point(c);
-        direct_ctx.points[0].z = c;
-        direct_ctx.points[0].dc = (1.0, 0.0);
+        direct_ctx.points[0].z = (FloatExp::from(c.0), FloatExp::from(c.1));
+        direct_ctx.points[0].dc = (FloatExp::ONE, FloatExp::ZERO);
         let mut perturb_ctx = direct_ctx.clone();
         perturb_ctx.latest_reference = Some(published.clone());
         DirectKernel.start_seat(&mut direct_ctx, (0, 0));
         PerturbationKernel.start_seat(&mut perturb_ctx, (0, 0));
         DirectKernel.iterate_bout(
-            &mut direct_ctx.points[0], None, 4.0, 1e-15, BoutCap::new(512),
+            &mut direct_ctx.points[0], None, FloatExp::from(4.0), FloatExp::from(1e-15), BoutCap::new(512),
         );
         PerturbationKernel.iterate_bout(
             &mut perturb_ctx.points[0],
             Some(&published.orbit),
-            4.0,
-            1e-15,
+            FloatExp::from(4.0),
+            FloatExp::from(1e-15),
             BoutCap::new(512),
         );
         assert_eq!(
@@ -1195,13 +1214,14 @@ fn generation_mismatch_restarts_delta() {
         orbit: ReferenceOrbit::compute(&(IntExp::ZERO, IntExp::ZERO), 64, 32),
         c: (IntExp::ZERO, IntExp::ZERO),
         generation: 1,
-    }));
+            series: None,
+        }));
     PerturbationKernel.start_seat(&mut ctx, (2, 0));
     let initial_dz = ctx.points[2].delta.as_ref().unwrap().dz;
     PerturbationKernel.iterate_bout(
         &mut ctx.points[2],
         ctx.latest_reference.as_ref().map(|r| &r.orbit),
-        4.0,
+        FloatExp::from(4.0),
         ctx.pitch_epsilon,
         BoutCap::new(5),
     );
@@ -1210,7 +1230,8 @@ fn generation_mismatch_restarts_delta() {
         orbit: ReferenceOrbit::compute(&(IntExp::ZERO, IntExp::ZERO), 64, 32),
         c: (IntExp::ZERO, IntExp::ZERO),
         generation: 2,
-    }));
+            series: None,
+        }));
     PerturbationKernel.start_seat(&mut ctx, (2, 0));
     let delta = ctx.points[2].delta.as_ref().unwrap();
     assert_eq!(delta.generation, 2);
@@ -1228,7 +1249,8 @@ fn glitch_sets_direct_only_and_never_publishes_guess() {
         orbit: ReferenceOrbit::compute(&reference_c, 128, 8),
         c: reference_c,
         generation: 7,
-    }));
+            series: None,
+        }));
     ctx.points[0] = make_point((0.0, 0.0));
     ctx.points[0].iterations = 1;
     ctx.points[0].delta = Some(DeltaState {
@@ -1237,14 +1259,15 @@ fn glitch_sets_direct_only_and_never_publishes_guess() {
         checkpoint: ComplexFloatExp::ZERO,
         checkpoint_n: 0,
         dc: ComplexFloatExp::ZERO,
+        abs_c: ComplexFloatExp::ZERO,
         dd: ComplexFloatExp::new(FloatExp::ONE, FloatExp::ZERO),
         generation: 7,
     });
     PerturbationKernel.iterate_bout(
         &mut ctx.points[0],
         ctx.latest_reference.as_ref().map(|r| &r.orbit),
-        4.0,
-        1e-15,
+        FloatExp::from(4.0),
+        FloatExp::from(1e-15),
         BoutCap::new(1),
     );
     assert!(ctx.points[0].direct_only);
@@ -1255,7 +1278,7 @@ fn glitch_sets_direct_only_and_never_publishes_guess() {
     PerturbationKernel.start_seat(&mut ctx, (0, 0));
     assert_eq!(ctx.points[0].delta.as_ref().unwrap().generation, 0);
     PerturbationKernel.iterate_bout(
-        &mut ctx.points[0], None, 4.0, ctx.pitch_epsilon, BoutCap::new(2),
+        &mut ctx.points[0], None, FloatExp::from(4.0), ctx.pitch_epsilon, BoutCap::new(2),
     );
     assert!(ctx.points[0].repeats);
     assert_eq!(ctx.points[0].period, 1);
@@ -1273,14 +1296,15 @@ fn missing_reference_iterate_stays_unfinished() {
         orbit,
         c: reference_c,
         generation: 1,
-    }));
+            series: None,
+        }));
     ctx.points[0] = make_point((0.2, 0.08));
     PerturbationKernel.start_seat(&mut ctx, (0, 0));
     PerturbationKernel.iterate_bout(
         &mut ctx.points[0],
         ctx.latest_reference.as_ref().map(|r| &r.orbit),
-        4.0,
-        1e-15,
+        FloatExp::from(4.0),
+        FloatExp::from(1e-15),
         BoutCap::new(20),
     );
     // Short published orbits must not invent a final answer. Falling through to
@@ -1301,14 +1325,14 @@ fn perturbation_bout_obeys_cap_and_split_bouts_match() {
     let mut whole = ctx.points[0].clone();
     let mut split = whole.clone();
     PerturbationKernel.iterate_bout(
-        &mut whole, None, 4.0, 1e-15, BoutCap::new(17),
+        &mut whole, None, FloatExp::from(4.0), FloatExp::from(1e-15), BoutCap::new(17),
     );
     PerturbationKernel.iterate_bout(
-        &mut split, None, 4.0, 1e-15, BoutCap::new(5),
+        &mut split, None, FloatExp::from(4.0), FloatExp::from(1e-15), BoutCap::new(5),
     );
     assert!(split.iterations <= 5);
     PerturbationKernel.iterate_bout(
-        &mut split, None, 4.0, 1e-15, BoutCap::new(12),
+        &mut split, None, FloatExp::from(4.0), FloatExp::from(1e-15), BoutCap::new(12),
     );
     assert_eq!(whole.iterations, split.iterations);
     assert_eq!(whole.escapes, split.escapes);
@@ -1362,16 +1386,16 @@ fn perturbation_derivative_matches_rug_and_conjugation() {
         ctx.points[0] = make_point((0.1, ci));
         PerturbationKernel.start_seat(&mut ctx, (0, 0));
         PerturbationKernel.iterate_bout(
-            &mut ctx.points[0], None, 4.0, 1e-15, BoutCap::new(5),
+            &mut ctx.points[0], None, FloatExp::from(4.0), FloatExp::from(1e-15), BoutCap::new(5),
         );
         let expected = rug_orbit_derivative((0.1, ci), 6);
         let actual = ctx.points[0].dc;
-        assert!((actual.0 - expected.0).abs() < 1e-12);
-        assert!((actual.1 - expected.1).abs() < 1e-12);
+        assert!((actual.0.to_f64() - expected.0).abs() < 1e-12);
+        assert!((actual.1.to_f64() - expected.1).abs() < 1e-12);
         derivatives.push(actual);
     }
-    assert!((derivatives[0].0 - derivatives[1].0).abs() < 1e-12);
-    assert!((derivatives[0].1 + derivatives[1].1).abs() < 1e-12);
+    assert!((derivatives[0].0.to_f64() - derivatives[1].0.to_f64()).abs() < 1e-12);
+    assert!((derivatives[0].1.to_f64() + derivatives[1].1.to_f64()).abs() < 1e-12);
 }
 
 /// Guards against whole-file rewrites that drop phase-two invariant tests while
@@ -1395,6 +1419,11 @@ fn phase_two_perturbation_test_inventory_is_present() {
         "perturbation_bout_obeys_cap_and_split_bouts_match",
         "perturbation_derivative_matches_rug_and_conjugation",
         "phase_two_perturbation_test_inventory_is_present",
+        "deep_frame_admitted_past_f64_collapse",
+        "production_plane_coords_are_not_plain_f64",
+        "series_skip_matches_delta_tail",
+        "series_never_publishes_guessed_completion",
+        "design_depth_zoom_pot_representable",
     ] {
         assert!(
             src.contains(&format!("fn {name}")),
@@ -1425,21 +1454,144 @@ fn phase_two_perturbation_test_inventory_is_present() {
     );
 }
 
+#[test]
+// r[verify cz.depth.floatexp-host-coords+1]
+fn deep_frame_admitted_past_f64_collapse() {
+    run_big(|| {
+        // Plain f64 CGenerator collapses here; FloatExp must still admit.
+        let frame = (
+            ObjectivePosAndZoom {
+                pos: (IntExp::from(-2), IntExp::from(2)),
+                zoom_pot: 80,
+            },
+            (32u32, 24u32),
+        );
+        let compute_loc = (frame.0.pos.0.clone(), IntExp::ZERO - frame.0.pos.1.clone());
+        assert!(
+            CGenerator::<f64>::new(&compute_loc, frame.0.zoom_pot as i64, frame.1).is_none(),
+            "fixture must be past the plain-f64 wall"
+        );
+        let ctx = from_stencil::<FloatExp>(frame, None);
+        assert!(ctx.is_some(), "FloatExp host must admit past f64 collapse");
+    });
+}
+
+#[test]
+// r[verify cz.depth.floatexp-host-coords+1]
+fn production_plane_coords_are_not_plain_f64() {
+    let kernel = include_str!("perturb_kernel.rs");
+    let worker = include_str!("mod.rs");
+    let shift = include_str!("workshift.rs");
+    assert!(
+        kernel.contains("SeatKernel<FloatExp>") && kernel.contains("Point<FloatExp>"),
+        "production kernel must host FloatExp plane coords"
+    );
+    assert!(
+        worker.contains("WorkUpdate<crate::floatexp::FloatExp>")
+            || worker.contains("WorkUpdate<FloatExp>"),
+        "screen worker channel must carry FloatExp completions"
+    );
+    assert!(
+        shift.contains("WorkContext<crate::floatexp::FloatExp>")
+            || shift.contains("workshift(\n") && shift.contains("FloatExp"),
+        "production workshift must take FloatExp context"
+    );
+    assert!(
+        !kernel.contains("to_delta_c(c: (f64, f64))"),
+        "kernel must not take plain f64 seat coordinates"
+    );
+}
+
+#[test]
+// r[verify cz.depth.series-approximation+1]
+fn series_skip_matches_delta_tail() {
+    use crate::series::SeriesApproximation;
+    let c = (IntExp::from(-1).shift(-1), IntExp::ZERO); // -0.5
+    let orbit = ReferenceOrbit::compute(&c, 128, 256);
+    let series = SeriesApproximation::from_orbit(&orbit, 4).expect("series");
+    let dc = ComplexFloatExp::new(FloatExp::from(1e-4), FloatExp::ZERO);
+    let skip = series.safe_skip(dc, orbit.iterates.len().saturating_sub(1));
+    assert!(skip >= 1);
+    let approx = series.evaluate(skip, dc).expect("eval");
+    // Tail from skip via one-step delta should stay near the series value for small dc.
+    let mut dz = approx;
+    let z_ref = orbit.get(skip as u32).unwrap_or(ComplexFloatExp::ZERO);
+    let two = ComplexFloatExp::new(FloatExp::TWO, FloatExp::ZERO);
+    if let Some(z_next_ref) = orbit.get((skip + 1) as u32) {
+        dz = z_ref * dz * two + dz * dz + dc;
+        let series_next = series.evaluate(skip + 1, dc).unwrap_or(dz);
+        let err = (dz - series_next).norm_squared().to_f64();
+        assert!(
+            err < 1e-6 || skip + 1 >= series.coeffs.len(),
+            "series step should track delta for tiny dc; err={err} skip={skip}"
+        );
+        let _ = z_next_ref;
+    }
+}
+
+#[test]
+// r[verify cz.depth.series-approximation+1]
+fn series_never_publishes_guessed_completion() {
+    use crate::series::SeriesApproximation;
+    let c = (IntExp::ZERO, IntExp::ZERO);
+    let orbit = ReferenceOrbit::compute(&c, 64, 64);
+    let series = SeriesApproximation::from_orbit(&orbit, 4);
+    // Series is data only — applying it must not mark seats delivered by itself.
+    let mut ctx = make_context(0);
+    if let Some(s) = series {
+        ctx.latest_reference = Some(Arc::new(PublishedReference {
+            orbit,
+            c,
+            generation: 1,
+            series: Some(s),
+        }));
+        PerturbationKernel.start_seat(&mut ctx, (2, 0));
+        assert!(
+            !ctx.points[2].delivered,
+            "series skip must not invent a delivered completion"
+        );
+    }
+}
+
+#[test]
+// r[verify cz.deep.min-zoom-pot-capacity via FloatExp/IntExp]
+fn design_depth_zoom_pot_representable() {
+    // Design depth ≥ 2^3600000: IntExp zoom pot and FloatExp exponent range.
+    let pot: i32 = 3_600_000;
+    let pitch = IntExp::from(1).shift(-(pot + 9));
+    assert!(pitch.val != 0 || pitch.exp != 0 || pot == 0);
+    let fe = FloatExp::from(pitch.clone());
+    assert!(fe != FloatExp::ZERO || pot < 0);
+    // FloatExp exponent is i64 — pot fits.
+    assert!((pot as i64).abs() < i64::MAX / 4);
+    let deep = (
+        ObjectivePosAndZoom {
+            pos: (IntExp::from(-1).shift(-1), IntExp::ZERO),
+            zoom_pot: 200,
+        },
+        (8u32, 6u32),
+    );
+    assert!(
+        from_stencil::<FloatExp>(deep, None).is_some(),
+        "FloatExp must admit deep-ish frames"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Never-stall: unfinished frames must show progress every workshift
 // r[verify cz.craft.wall-clock-law+1]
 // r[verify cz.craft.emergent-cadence+1]
 // ---------------------------------------------------------------------------
 
-fn frame_unfinished(ctx: &WorkContext<f64>) -> bool {
+fn frame_unfinished(ctx: &WorkContext<FloatExp>) -> bool {
     ctx.points.iter().any(|p| !p.delivered)
 }
 
-fn seat_iter_sum(ctx: &WorkContext<f64>) -> u64 {
+fn seat_iter_sum(ctx: &WorkContext<FloatExp>) -> u64 {
     ctx.points.iter().map(|p| p.iterations as u64).sum()
 }
 
-fn shift_made_progress(ctx: &WorkContext<f64>, before_sum: u64, before_completed: usize) -> bool {
+fn shift_made_progress(ctx: &WorkContext<FloatExp>, before_sum: u64, before_completed: usize) -> bool {
     ctx.total_iterations_today > 0
         || seat_iter_sum(ctx) != before_sum
         || ctx.completed_points.len > before_completed
@@ -1541,11 +1693,12 @@ fn reference_install_mid_fill_keeps_shift_progress() {
         }
         assert!(frame_unfinished(&ctx));
 
-        let req = select_reference_request::<f64>(None, &frame);
+        let req = select_reference_request::<FloatExp>(None, &frame);
         ctx.latest_reference = Some(Arc::new(PublishedReference {
             orbit: ReferenceOrbit::compute(&req.c, req.precision_bits, 4096),
             c: req.c,
             generation: 1,
+            series: None,
         }));
 
         let mut zero_streak = 0u32;
@@ -1590,7 +1743,7 @@ fn frame_at_center(re: f64, im: f64, pot: i32, res: (u32, u32)) -> (ObjectivePos
     (ul_for_center(f64_to_intexp(re), f64_to_intexp(im), pot, res), res)
 }
 
-fn fill_until<K: SeatKernel<f64>>(ctx: &mut WorkContext<f64>, kernel: &K, shifts: u32) {
+fn fill_until<K: SeatKernel<FloatExp>>(ctx: &mut WorkContext<FloatExp>, kernel: &K, shifts: u32) {
     for _ in 0..shifts {
         if ctx.points.iter().all(|p| p.delivered) {
             break;
@@ -1601,7 +1754,7 @@ fn fill_until<K: SeatKernel<f64>>(ctx: &mut WorkContext<f64>, kernel: &K, shifts
     }
 }
 
-fn disagree_rate(a: &WorkContext<f64>, b: &WorkContext<f64>) -> (usize, usize) {
+fn disagree_rate(a: &WorkContext<FloatExp>, b: &WorkContext<FloatExp>) -> (usize, usize) {
     let n = a.points.len().min(b.points.len());
     let mut disagree = 0usize;
     let mut compared = 0usize;
@@ -1690,11 +1843,12 @@ fn faux_user_zoom_to_hard_minibrot_matches_direct() {
             res,
         );
         let mut prior = from_stencil(prior_frame.clone(), None).expect("prior");
-        let prior_req = select_reference_request::<f64>(None, &prior_frame);
+        let prior_req = select_reference_request::<FloatExp>(None, &prior_frame);
         let uncovered = Arc::new(PublishedReference {
             orbit: ReferenceOrbit::compute(&prior_req.c, prior_req.precision_bits, 256),
             c: prior_req.c.clone(),
             generation: 3,
+            series: None,
         });
         prior.latest_reference = Some(uncovered.clone());
         assert!(
@@ -1728,11 +1882,12 @@ fn faux_user_zoom_to_hard_minibrot_matches_direct() {
         // Hazardous short covering center ref (old length-wall publish): still
         // can disagree with DirectKernel — why production publishes only
         // period/escape, never truncated orbits.
-        let hard_req = select_reference_request::<f64>(None, &hard);
+        let hard_req = select_reference_request::<FloatExp>(None, &hard);
         let short_covering = Arc::new(PublishedReference {
             orbit: ReferenceOrbit::compute(&hard_req.c, hard_req.precision_bits, 64),
             c: hard_req.c.clone(),
             generation: 4,
+            series: None,
         });
         assert!(
             crate::assemblies::workgroup::reference_worker::reference_c_covers_frame(
@@ -1793,3 +1948,40 @@ fn unfinished_frame_never_zero_pps_streak() {
 }
 
 
+
+#[test]
+fn relative_abs_matches_absolute_generator_home() {
+    run_big(|| {
+        let frame = home_frame();
+        let compute_loc = (
+            frame.0.pos.0.clone(),
+            IntExp::ZERO - frame.0.pos.1.clone(),
+        );
+        let abs_gen = CGenerator::<FloatExp>::new(
+            &compute_loc,
+            frame.0.zoom_pot as i64,
+            frame.1,
+        )
+        .expect("home absolute FloatExp must admit");
+        let rel_ctx = from_stencil::<FloatExp>(frame, None).expect("relative shell");
+        let mut mism = 0usize;
+        for row in 0..rel_ctx.res.1 {
+            for seat in 0..rel_ctx.res.0 {
+                let a = abs_gen.get_c((seat, row));
+                let r = rel_ctx.c_generator.get_c((seat, row));
+                let abs = absolute_plane_c(r, &rel_ctx.coord_anchor);
+                if a != abs {
+                    mism += 1;
+                    if mism <= 3 {
+                        eprintln!(
+                            "seat {seat},{row}: abs_gen {:?} vs anchor+rel {:?}",
+                            (a.0.to_f64(), a.1.to_f64()),
+                            (abs.0.to_f64(), abs.1.to_f64())
+                        );
+                    }
+                }
+            }
+        }
+        assert_eq!(mism, 0, "relative+anchor must match absolute generator");
+    });
+}

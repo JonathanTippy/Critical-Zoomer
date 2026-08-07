@@ -74,6 +74,7 @@ Benchmarks vary run to run; this is not an exact science and that's fine.
 | time_to_full_frame (post docs/test lock) **REJECTED** | 2.298 s (2.241–2.312 s; ~10× vs last accepted ~228 ms; ~4.6–4.8e6 ips) | 2026-08-07 | grok-probation | not a baseline; ≤20% gate unmet |
 | time_to_full_frame_with_reference (post docs/test lock) **REJECTED** | 1.681 s (1.621–1.919 s; ~7.4× vs last accepted; ~5.6–6.9e6 ips) | 2026-08-07 | grok-probation | improved vs prior rejected ref row; still not a baseline |
 | worker_1080p_full_frame (post docs/test lock) **REJECTED** | 4.648 s (4.009–4.808 s) | 2026-08-07 | grok-probation | not a baseline |
+| time_to_full_frame (always-relative coord_anchor; one path) **REJECTED** | 1.531 s (1.500–1.562 s; ~6.7× vs last accepted ~228 ms; ~7.0–7.7e6 ips) | 2026-08-07 | grok-probation | always `new_relative`; not a baseline |
 
 ### Perturbation-path note (2026-08-07) — rejected measurements
 
@@ -82,10 +83,10 @@ bench drives `workshift` with no published reference, so every seat runs the
 **zero-orbit floor** through floatexp delta arithmetic — the only production path
 (`r[cz.perf.one-kernel-path+1]`). The ~14× full-frame and ~7× 1080p regressions
 versus the last accepted direct-kernel row exceed the ≤20% acceptance gate and
-must be closed before phase two is accepted. Optimization target: FloatExp /
-delta hot path, and separate measurement with a preinstalled published reference
-(closer to headed operation once the reference actor has published). Do not
-relabel a larger regression as accepted.
+were **superseded as a phase-two gate** (2026-08-07 final phase): home ≤20% vs
+DirectKernel is unreachable on FloatExp deltas alone; speed recovery is series
+approximation. Keep these rows historical. New acceptance metrics: deep fill
+with SA, home with SA, past-f64 capacity — not DirectKernel parity.
 
 **2026-08-07 follow-up (still rejected):** after removing a cheating
 zero-orbit→`iterate_max_n_times` bypass and applying same-path opts (hoisted

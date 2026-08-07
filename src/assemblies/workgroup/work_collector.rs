@@ -40,9 +40,9 @@ pub const PIXELS_PER_UNIT: u64 = 1<<(PIXELS_PER_UNIT_POT);
 
 pub async fn run(
     actor: SteadyActorShadow,
-    from_worker: SteadyRx<WorkUpdate<f64>>,
+    from_worker: SteadyRx<WorkUpdate<crate::floatexp::FloatExp>>,
     answers_out: SteadyTx<View<Answer>>,
-    state: SteadyState<WorkCollectorState<f64>>,
+    state: SteadyState<WorkCollectorState<crate::floatexp::FloatExp>>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
@@ -56,9 +56,9 @@ pub async fn run(
 
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
-    from_worker: SteadyRx<WorkUpdate<f64>>,
+    from_worker: SteadyRx<WorkUpdate<crate::floatexp::FloatExp>>,
     answers_out: SteadyTx<View<Answer>>,
-    state: SteadyState<WorkCollectorState<f64>>,
+    state: SteadyState<WorkCollectorState<crate::floatexp::FloatExp>>,
 ) -> Result<(), Box<dyn Error>> {
 
     let mut values_out = answers_out.lock().await;
@@ -120,17 +120,23 @@ async fn internal_behavior<A: SteadyActor>(
                                        , data: completed_work.clone().results.into_iter().map(|x| -> Answer {
                                            match x {
                                                CompletedPoint::Escapes{escape_time, escape_location, escape_derivative, smallness, small_time, ..} => {
+                                                   let ez0: f64 = escape_location.0.into();
+                                                   let ez1: f64 = escape_location.1.into();
+                                                   let ed0: f64 = escape_derivative.0.into();
+                                                   let ed1: f64 = escape_derivative.1.into();
+                                                   let mag: f64 = smallness.into();
                                                    Answer{
                                                        result: MandelbrotResult::Outside {
                                                            escape_time_r2: escape_time as u64
-                                                           , escape_z: (escape_location.0 as f32, escape_location.1 as f32)
-                                                           , escape_dc: (escape_derivative.0 as f32, escape_derivative.1 as f32)
+                                                           , escape_z: (ez0 as f32, ez1 as f32)
+                                                           , escape_dc: (ed0 as f32, ed1 as f32)
                                                        }
                                                        , min_magnitude_time: small_time as u64
-                                                       , min_magnitude: smallness
+                                                       , min_magnitude: mag
                                                    }
                                                }
                                                , CompletedPoint::Repeats{ period, smallness, small_time} => {
+                                                   let mag: f64 = smallness.into();
                                                    Answer{
                                                        result: MandelbrotResult::Inside {
                                                            period: period as u64
@@ -138,7 +144,7 @@ async fn internal_behavior<A: SteadyActor>(
                                                        ,
                                                        min_magnitude_time: small_time as u64
                                                        ,
-                                                       min_magnitude: smallness
+                                                       min_magnitude: mag
                                                    }
                                                }
                                                , CompletedPoint::Dummy{} => {
@@ -185,21 +191,27 @@ async fn internal_behavior<A: SteadyActor>(
                         data: completed_work.clone().results.into_iter().map(|x| -> Answer {
                             match x {
                                 CompletedPoint::Escapes { escape_time, escape_location, escape_derivative, smallness, small_time, .. } => {
+                                    let ez0: f64 = escape_location.0.into();
+                                    let ez1: f64 = escape_location.1.into();
+                                    let ed0: f64 = escape_derivative.0.into();
+                                    let ed1: f64 = escape_derivative.1.into();
+                                    let mag: f64 = smallness.into();
                                     Answer {
                                         result: MandelbrotResult::Outside {
                                             escape_time_r2: escape_time as u64
                                             ,
-                                            escape_z: (escape_location.0 as f32, escape_location.1 as f32)
-                                            , escape_dc: (escape_derivative.0 as f32, escape_derivative.1 as f32)
+                                            escape_z: (ez0 as f32, ez1 as f32)
+                                            , escape_dc: (ed0 as f32, ed1 as f32)
                                         }
                                         ,
                                         min_magnitude_time: small_time as u64
                                         ,
-                                        min_magnitude: smallness
+                                        min_magnitude: mag
                                     }
                                 }
                                 ,
                                 CompletedPoint::Repeats { period, smallness, small_time } => {
+                                    let mag: f64 = smallness.into();
                                     Answer {
                                         result: MandelbrotResult::Inside {
                                             period: period as u64
@@ -207,7 +219,7 @@ async fn internal_behavior<A: SteadyActor>(
                                         ,
                                         min_magnitude_time: small_time as u64
                                         ,
-                                        min_magnitude: smallness
+                                        min_magnitude: mag
                                     }
                                 }
                                 ,

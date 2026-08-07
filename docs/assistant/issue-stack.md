@@ -39,8 +39,7 @@ Developer acceptance test failed on the tile machine. Most items were tile-era i
 
 ## Design gaps (open)
 
-- **Depth integration — phase two (delta kernel) implemented but not accepted.** `PerturbationKernel` is the sole production numerical path (zero-orbit floor when no reference / post-glitch); `DirectKernel` is test-only; published references install into `WorkContext` with generation-guarded delta restarts. Open gates before acceptance: ≤20% performance vs the last accepted direct-kernel baseline (honest same-path opts reached ~5.9× / ~1.33 s — still rejected; a DirectKernel zero-orbit bypass was attempted and reverted as cheating). Settled visual readiness harness and rug-oracle inventory are in place. **Phase three / NEXT after acceptance:** `WorkContext<FloatExp>` when `CGenerator::<f64>` fails closed, plus consumer audit of `CompletedPoint` through escaper/colorer. Design: `design/depth-design.md`, grounded in `mandelbrot-library/`.
-- **Perturbation performance design decision (blocking ≤20% gate).** Same-path FloatExp delta iteration on f64-valid home is still above the ≤20% gate after FloatExp add hot-path + coverage fixes. Closing without a second production kernel needs further representation/codegen discipline; worse-than-naive is not acceptable. Measure zero-orbit and published-reference benches separately.
+- **Depth integration — final phase (FloatExp host + series) landed (2026-08-07).** Phase two closed for correctness; home ≤20% vs DirectKernel superseded. Live path: `WorkContext<FloatExp>`, seats always relative to view-center (`coord_anchor` + δ; one path, no absolute FloatExp branch), simple series approximation published with reference orbits and applied as a safe skip on seat start. Design depth capacity checks and past-f64 admission tests green. Remaining: SA order/heuristic tuning, biseries/nucleus deferrals, headed deep corroboration, SA-aware bench baselines.
 - **First reference job length still = `MAX_BOUT` (1000); no mid-view extend.** **Closed (2026-08-07):** publish only on period/escape; no length wall. Intermediate snapshots before done remain an open question (see depth-design).
 - **Reference fallback cache / pin / coverage chain only partially implemented.** Coverage gate + sticky drop are in; byte-budgeted cache and pin/evict are not.
 - **Display-path latency profiling.** The high-res lag is a *display pipeline* problem (see Known issues): measure per-stage per-frame cost at 1920×1080 — escaper, colorer, window sampling, texture allocation/upload, repaint cadence — to find where backlog accumulates. Do not assume view/remap is the dominant contributor. Defer until after the deep-zoom type-switch milestone (or run in parallel if headed profiling is available).
@@ -69,10 +68,11 @@ Not bugs; provisional mechanisms that shipped because they beat nothing. None is
 
 ## Done (recent)
 
-- Perturbation delta kernel (milestone 2) — code landed, **not accepted**:
+- Perturbation delta kernel (milestone 2) — **closed for correctness** (final phase
+  supersedes home ≤20% gate):
   `PerturbationKernel` is the only production path; zero-orbit floor; glitch →
   `direct_only` via same code; generation-guarded restarts; `DirectKernel` test-only.
-  See Design gaps for the open correctness/performance gates.
+  Final phase continues: FloatExp host coords + series approximation.
 - In-filament detection now carries the Mandelbrot derivative through remap and extrapolates
   the escape field across the four screen neighbors before applying the existing one-pixel
   peak test. Derivative, convergence, and 2x/4x ridge-survival tests are green. Pending headed

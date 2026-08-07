@@ -1,8 +1,7 @@
 # Depth core rules
 
-These rules cover the perturbation core through the delta-kernel milestone.
-Deep-zoom (`WorkContext<FloatExp>`) remains milestone 3; see
-`../design/depth-design.md` and `../issue-stack.md`.
+These rules cover the perturbation core through the final FloatExp-host + series
+phase. See `../design/depth-design.md` and `../issue-stack.md`.
 
 r[cz.depth.c-generator-fails-closed+1]
 
@@ -206,3 +205,36 @@ generation restarts its delta at zero. Stale deltas never survive a retarget.
 **Implementation.** `perturb_kernel.rs` — `start_seat` generation guard.
 
 **Verification.** `generation_mismatch_restarts_delta`.
+
+r[cz.depth.floatexp-host-coords+1]
+
+**Rule.** Production Mandelbrot plane coordinates are never plain `f64`. Live
+`WorkContext` / `Point` / `CompletedPoint` / `CGenerator` use `FloatExp` (and
+`IntExp` for objective/request locations). Seat samples are **always** relative
+to the view-center IntExp `coord_anchor` (one path — no absolute FloatExp seat
+mode). Absolute plane c for perturbation/reference is `anchor + relative`.
+`FloatExp.mantissa` remains f64 by design. Render/`Answer`/`ScreenValue` may
+narrow at the collector only.
+
+**Implementation.** `from_stencil` / controller always `CGenerator::new_relative`
+to view center; `absolute_plane_c` for δ / reference abs; screen worker
+monomorphized to FloatExp; `work_collector` narrows for shaders.
+
+**Verification.** `deep_frame_admitted_past_f64_collapse`,
+`production_plane_coords_are_not_plain_f64`,
+`objective_c_matches_relative_generator_plus_anchor`,
+`home_reference_request_matches_c_generator`.
+
+r[cz.depth.series-approximation+1]
+
+**Rule.** When a reference publishes, it may include simple series-approximation
+coefficients (FloatExp) derived only from that orbit. Seats may skip a safe
+prefix of iterations by evaluating the series in Δc, then resume ordinary delta
+iteration. Skip never invents a final answer; unsafe skip leaves the seat
+unfinished or falls back to less skip / glitch honesty. Coeff build is
+bout-sliced like reference extension.
+
+**Implementation.** `reference_worker` publish snapshot; `perturb_kernel` skip.
+
+**Verification.** `series_skip_matches_delta_tail`,
+`series_never_publishes_guessed_completion`.

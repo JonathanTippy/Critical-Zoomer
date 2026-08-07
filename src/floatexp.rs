@@ -140,6 +140,18 @@ impl From<f64> for FloatExp {
     }
 }
 
+impl From<f32> for FloatExp {
+    fn from(value: f32) -> Self {
+        Self::from(value as f64)
+    }
+}
+
+impl From<FloatExp> for f64 {
+    fn from(value: FloatExp) -> Self {
+        value.to_f64()
+    }
+}
+
 impl From<IntExp> for FloatExp {
     fn from(value: IntExp) -> Self {
         if value.val == 0 {

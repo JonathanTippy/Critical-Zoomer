@@ -1,14 +1,16 @@
 # Depth design: perturbation with a background reference worker
 
-Status: **milestone 2 (delta kernel) implemented but not accepted.**
-The floatexp, fail-closed c generator, resumable reference orbit, perturbed iterator,
-differential oracle, worker/kernel seam, background reference actor, and
-`PerturbationKernel` (one production path, zero-orbit floor) live in `src/`;
-see `../tracey/depth-rules.md`. Phase-two gates: settled visual readiness and
-rug-oracle inventory are in place; the ≤20% performance gate is **not** met
-(~5.9× full-frame after honest same-path opts; a DirectKernel zero-orbit bypass
-was rejected). Deep-zoom `WorkContext<FloatExp>` type switch is milestone 3 / phase
-three and is not started. Grounded in `../mandelbrot-library/`
+Status: **final perturbation phase in progress (FloatExp host + series).**
+Milestone 2 (delta kernel) is closed for correctness: one production
+`PerturbationKernel`, zero-orbit floor, coverage gate, missing≠glitch,
+reference-until-done. The phase-two home ≤20% vs DirectKernel gate is
+**superseded** — unreachable on FloatExp deltas alone; speed recovery is
+**series approximation**. This phase: (A) no plain `f64` Mandelbrot
+coordinates (`WorkContext`/`Point`/`CGenerator` as FloatExp + IntExp;
+seat samples always relative to view-center IntExp anchor — one path;
+FloatExp mantissa and render narrowing stay); (B) simple series
+approximation published with the reference; (C) live path past the f64
+depth wall to design capacity ≥2^3600000. Grounded in `../mandelbrot-library/`
 (`perturbation.md`, `series-approximation.md`, `numerics-and-precision.md`,
 `reference-orbit-strategy.md`, `period-and-interiority.md`) and constrained by
 `workgroup-virtues.md` and the authoritative requirements. Nothing here may re-break the
@@ -16,7 +18,7 @@ v0.0.9 invariants (issue-stack standing rule).
 
 ## What this buys
 
-f64 pixel iteration dies around zoom 2^-50-ish of pixel spacing and absolutely near 2^-1022.
+Plain f64 pixel coordinates die around zoom 2^-50-ish of pixel spacing and absolutely near 2^-1022.
 The executive target is 2^3600000 (`r[cz.deep.min-zoom-pot-capacity+1]`). The only published
 way there: iterate one **reference orbit** at full precision, and iterate every pixel as a
 low-precision **delta** against it (`numerics-and-precision.md`: "the reference orbit is the
@@ -31,7 +33,7 @@ Perturbation is always on — no toggle, no reference input (`r[cz.seamless.pert
 - **Delta orbit**: per-pixel, z = Z_n + Δz_n with Z_n the stored reference iterate; Δz and Δc
   are tiny and carry the depth in their exponents.
 - **Floatexp**: f64 (or f32) mantissa + wide integer exponent. The storage type for reference
-  iterates and the compute type for deltas. Range, not mantissa, is what depth demands.
+  iterates and the compute type for deltas **and** live seat coordinates. Range, not mantissa, is what depth demands. Plain f64 is not used for Mandelbrot plane coordinates.
 - **Reference worker**: a new actor that computes/extends reference orbits in the background.
   Not "rebasing" — that word means a mid-orbit numerical fold (z ← z+Δz), a different,
   smaller technique; this design contains no world-stopping recomputation.
@@ -171,11 +173,12 @@ then, seats use the zero-orbit floor.
 
 ## Series approximation (the actual speedup)
 
-Follow-on, designed-for but not in v1: from a reference orbit, build a polynomial in Δc that
+In this final phase: from a reference orbit, build a polynomial in Δc that
 skips the first N iterations of every pixel, with an error bound deciding safe N
 (`series-approximation.md`). This is routinely the largest single speedup at depth (half to
-most iterations skipped). It belongs to the reference worker (coefficients are computed once
-per reference, published alongside the orbit) and requires no new user-facing anything.
+most iterations skipped). Coefficients are computed once per reference (bout-sliced),
+published alongside the orbit in the same generation snapshot. Simple series only;
+biseries / nucleus seek / multi-ref remain named deferrals.
 
 ## Deferrals (named, not smuggled)
 

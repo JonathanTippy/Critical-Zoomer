@@ -19,6 +19,7 @@ use critical_zoomer::assemblies::workgroup::screen_worker::workshift::*;
 use critical_zoomer::constants::{DEFAULT_WINDOW_RES, HOME_POSITION};
 use critical_zoomer::reference::ReferenceOrbit;
 use critical_zoomer::utils::{IntExp, ObjectivePosAndZoom};
+use critical_zoomer::floatexp::FloatExp;
 
 // WorkContext build still uses run_big for headroom with the rest of the
 // workgroup fixtures.
@@ -33,7 +34,7 @@ fn run_big<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> R {
 
 /// Builds the home-view context the same way the worker does on Replace:
 /// controller frame_info → from_stencil → lazy seat init on start.
-fn home_context_res(res: (u32, u32)) -> WorkContext<f64> {
+fn home_context_res(res: (u32, u32)) -> WorkContext<FloatExp> {
     // Live path: window flips imag into the stencil, controller flips again into
     // frame_info — for HOME that lands frame_info.pos == HOME (real, imag, zoom).
     // from_stencil flips once more to recover the compute-grid origin.
@@ -47,10 +48,10 @@ fn home_context_res(res: (u32, u32)) -> WorkContext<f64> {
         },
         res,
     );
-    from_stencil(frame_info, None).expect("home view must admit an f64 grid")
+    from_stencil(frame_info, None).expect("home view must admit a FloatExp grid")
 }
 
-fn home_context() -> WorkContext<f64> {
+fn home_context() -> WorkContext<FloatExp> {
     home_context_res(DEFAULT_WINDOW_RES)
 }
 
@@ -69,19 +70,20 @@ fn home_frame() -> (ObjectivePosAndZoom, (u32, u32)) {
 
 /// Home view with a preinstalled published reference (headed operation once the
 /// reference actor has published).
-fn home_context_with_reference() -> WorkContext<f64> {
+fn home_context_with_reference() -> WorkContext<FloatExp> {
     let frame = home_frame();
-    let req = select_reference_request::<f64>(None, &frame);
-    let mut ctx = from_stencil(frame, None).expect("home view must admit an f64 grid");
+    let req = select_reference_request::<FloatExp>(None, &frame);
+    let mut ctx = from_stencil(frame, None).expect("home view must admit a FloatExp grid");
     ctx.latest_reference = Some(Arc::new(PublishedReference {
         orbit: ReferenceOrbit::compute(&req.c, req.precision_bits, 4096),
         c: req.c,
         generation: 1,
-    }));
+            series: None,
+        }));
     ctx
 }
 
-fn drain(ctx: &mut WorkContext<f64>) -> usize {
+fn drain(ctx: &mut WorkContext<FloatExp>) -> usize {
     let mut n = 0;
     while ctx.completed_points.try_pop().is_some() {
         n += 1;
@@ -89,7 +91,7 @@ fn drain(ctx: &mut WorkContext<f64>) -> usize {
     n
 }
 
-fn frame_complete(ctx: &WorkContext<f64>) -> bool {
+fn frame_complete(ctx: &WorkContext<FloatExp>) -> bool {
     ctx.points.iter().all(|p| p.delivered)
 }
 

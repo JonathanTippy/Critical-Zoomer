@@ -50,11 +50,11 @@ pub struct LiveTarget<T: Mandelbrotable> {
 pub async fn run(
     actor: SteadyActorShadow,
     commands_in: SteadyRx<WorkerCommand>,
-    updates_out: SteadyTx<WorkUpdate<f64>>,
+    updates_out: SteadyTx<WorkUpdate<crate::floatexp::FloatExp>>,
     attention_in: SteadyRx<Option<(i32, i32)>>,
     reference_requests_out: SteadyTx<ReferenceRequest>,
     references_in: SteadyRx<PublishedReference>,
-    state: SteadyState<WorkerState<f64>>,
+    state: SteadyState<WorkerState<crate::floatexp::FloatExp>>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
@@ -75,11 +75,11 @@ pub async fn run(
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
     commands_in: SteadyRx<WorkerCommand>,
-    updates_out: SteadyTx<WorkUpdate<f64>>,
+    updates_out: SteadyTx<WorkUpdate<crate::floatexp::FloatExp>>,
     attention_in: SteadyRx<Option<(i32, i32)>>,
     reference_requests_out: SteadyTx<ReferenceRequest>,
     references_in: SteadyRx<PublishedReference>,
-    state: SteadyState<WorkerState<f64>>,
+    state: SteadyState<WorkerState<crate::floatexp::FloatExp>>,
 ) -> Result<(), Box<dyn Error>> {
 
     //actor.loglevel(LogLevel::Debug);

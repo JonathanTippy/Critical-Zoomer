@@ -145,6 +145,9 @@ pub struct WorkContext<T: Mandelbrotable> {
     , pub attention_current: Option<(i32, i32)>
     , pub c_generator: CGenerator<T>
     , pub pitch_epsilon: T
+    // Always relative to view center. Absolute plane c = anchor + seat sample.
+    // r[impl cz.depth.floatexp-host-coords+1]
+    , pub coord_anchor: (IntExp, IntExp)
     // Newest published reference for the live shell. Shared so the clone-happy
     // context type does not deep-copy rug Float state on every shell clone.
     , pub latest_reference: Option<Arc<PublishedReference>>
@@ -181,6 +184,8 @@ pub struct DeltaState {
     pub checkpoint_n: u32,
     /// δc = c_pixel − c_reference, fixed for this generation.
     pub dc: ComplexFloatExp,
+    /// Absolute plane c (anchor + seat) used when rebinding to the zero orbit.
+    pub abs_c: ComplexFloatExp,
     /// ∂δ/∂c so escape_derivative stays meaningful for filament detection.
     pub dd: ComplexFloatExp,
     /// Reference generation this delta belongs to (0 = zero-orbit floor).
@@ -232,6 +237,11 @@ impl Abs for f64 {
         self.abs()
     }
 }
+impl Abs for crate::floatexp::FloatExp {
+    fn abs(self) -> Self {
+        self.abs()
+    }
+}
 pub trait Gt {
     fn gt(self, a:Self) -> bool;
 }
@@ -243,6 +253,11 @@ impl Gt for f32 {
 }
 impl Gt for f64 {
     fn gt(self, a:Self) -> bool {
+        self > a
+    }
+}
+impl Gt for crate::floatexp::FloatExp {
+    fn gt(self, a: Self) -> bool {
         self > a
     }
 }
@@ -284,6 +299,22 @@ pub(crate) fn get_random_mixmap(size: usize) -> Vec<usize> {
     indices
 }
 
+/// Compute-space center of a viewport (half-res seat), exact IntExp pitch.
+pub fn view_center_compute(
+    compute_loc: &(IntExp, IntExp),
+    zoom_pot: i32,
+    res: (u32, u32),
+) -> (IntExp, IntExp) {
+    let exponent = zoom_pot.saturating_add(crate::constants::PIXELS_PER_UNIT_POT);
+    let pitch = IntExp::from(1).shift(exponent.saturating_neg());
+    // Use i32/isize From (exp 0). `From<usize>` historically sets exp 1 and
+    // would double the seat offset.
+    (
+        compute_loc.0.clone() + pitch.clone() * IntExp::from((res.0 / 2) as i32),
+        compute_loc.1.clone() - pitch * IntExp::from((res.1 / 2) as i32),
+    )
+}
+
 /// Build an O(1)-coordinate shell from a stencil. Reuses the previous context's
 /// point/mixmap buffers when present so steady-zoom pivots avoid large reallocs.
 ///
@@ -306,7 +337,17 @@ pub fn from_stencil<T: Mandelbrotable + From<f32>>(
 
     let (obj, res) = frame_info;
     let compute_loc = (obj.pos.0.clone(), IntExp::ZERO - obj.pos.1.clone());
-    let c_generator = CGenerator::<T>::new(&compute_loc, obj.zoom_pot as i64, res)?;
+    // One path: always relative to view center. Absolute FloatExp seats are
+    // not a separate mode — perturbation recovers abs via coord_anchor + δ.
+    // r[impl cz.depth.floatexp-host-coords+1]
+    // r[impl cz.perf.one-kernel-path+1]
+    let coord_anchor = view_center_compute(&compute_loc, obj.zoom_pot, res);
+    let c_generator = CGenerator::<T>::new_relative(
+        &compute_loc,
+        &coord_anchor,
+        obj.zoom_pot as i64,
+        res,
+    )?;
     let (_, space) = c_generator.origin_and_space();
     let pitch_epsilon = space.abs() * T::from(1.0 / 256.0);
 
@@ -401,8 +442,23 @@ pub fn from_stencil<T: Mandelbrotable + From<f32>>(
         attention_current: None,
         c_generator,
         pitch_epsilon,
+        coord_anchor,
         latest_reference: carried_reference,
     })
+}
+
+/// Absolute plane coordinate = IntExp anchor + relative FloatExp seat sample.
+/// Live seats always store relative-to-center samples; perturbation recovers abs here.
+// r[impl cz.depth.floatexp-host-coords+1]
+#[inline]
+pub fn absolute_plane_c(
+    relative: (crate::floatexp::FloatExp, crate::floatexp::FloatExp),
+    anchor: &(IntExp, IntExp),
+) -> (crate::floatexp::FloatExp, crate::floatexp::FloatExp) {
+    (
+        crate::floatexp::FloatExp::from(anchor.0.clone()) + relative.0,
+        crate::floatexp::FloatExp::from(anchor.1.clone()) + relative.1,
+    )
 }
 
 /// Materialize seat coordinates from the generator on first start.
@@ -570,29 +626,39 @@ where
 pub struct DirectKernel;
 
 #[cfg(test)]
-impl<T> SeatKernel<T> for DirectKernel
-where
-    T: Mandelbrotable + std::fmt::Debug + Finite + Gt + Abs + From<f32> + Into<f64>,
-{
+impl SeatKernel<crate::floatexp::FloatExp> for DirectKernel {
     #[inline]
-    fn start_seat(&self, context: &mut WorkContext<T>, pos: (i32, i32)) {
+    fn start_seat(&self, context: &mut WorkContext<crate::floatexp::FloatExp>, pos: (i32, i32)) {
+        // Convert relative→absolute once when the seat is first materialized.
+        // Every bout calls start_seat; re-adding the anchor would corrupt c.
+        let index = index_from_pos(&pos, context.res.0);
+        let first = !context.points[index].initialized;
         ensure_started(context, pos);
+        if first {
+            let abs = absolute_plane_c(context.points[index].c, &context.coord_anchor);
+            let point = &mut context.points[index];
+            point.c = abs;
+            point.z = abs;
+        }
     }
 
     #[inline]
     fn iterate_bout(
         &self,
-        point: &mut Point<T>,
+        point: &mut Point<crate::floatexp::FloatExp>,
         _reference: Option<&ReferenceOrbit>,
-        r_squared: T,
-        epsilon: T,
+        r_squared: crate::floatexp::FloatExp,
+        epsilon: crate::floatexp::FloatExp,
         cap: BoutCap,
     ) {
         iterate_max_n_times(point, r_squared, epsilon, cap);
     }
 
     #[inline]
-    fn completion(&self, point: &mut Point<T>) -> CompletedPoint<T> {
+    fn completion(
+        &self,
+        point: &mut Point<crate::floatexp::FloatExp>,
+    ) -> CompletedPoint<crate::floatexp::FloatExp> {
         direct_completion(point)
     }
 }
@@ -631,7 +697,7 @@ pub fn workshift(
     iteration_token_cost: u32,
     point_token_cost: u32,
     bout_token_cost: u32,
-    context: &mut WorkContext<f64>,
+    context: &mut WorkContext<crate::floatexp::FloatExp>,
 ) {
     workshift_with_kernel(
         day_token_allowance,
@@ -947,6 +1013,11 @@ impl Finite for f32 {
 impl Finite for f64 {
     fn is_finite(self) -> bool {
         self.is_finite()
+    }
+}
+impl Finite for crate::floatexp::FloatExp {
+    fn is_finite(self) -> bool {
+        self.mantissa.is_finite()
     }
 }
 
