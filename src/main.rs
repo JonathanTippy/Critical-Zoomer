@@ -69,6 +69,7 @@ const NAME_SETTINGS_WINDOW: &str = "settings";
 const NAME_COLORER: &str = "colorer";
 const NAME_WORK_CONTROLLER: &str = "work controller";
 const NAME_SCREEN_WORKER:&str = "screen worker";
+const NAME_REFERENCE_WORKER:&str = "reference worker";
 const NAME_WORK_COLLECTOR: &str = "work collector";
 const NAME_ESCAPER: &str = "point escaper";
 
@@ -122,6 +123,17 @@ fn build_graph(graph: &mut Graph) {
         work_controller_tx_to_screen_worker
         , screen_worker_rx_from_work_controller
     ) = channel_builder.with_capacity(10).build();
+
+    // Screen worker requests one sticky reference per pivot; the reference
+    // worker publishes whole snapshots back without blocking screen work.
+    let (
+        screen_worker_tx_to_reference_worker,
+        reference_worker_rx_from_screen_worker,
+    ) = channel_builder.with_capacity(10).build();
+    let (
+        reference_worker_tx_to_screen_worker,
+        screen_worker_rx_from_reference_worker,
+    ) = channel_builder.with_capacity(1).build();
 
     // worker to work collector responses channel
 
@@ -192,9 +204,29 @@ fn build_graph(graph: &mut Graph) {
     let state = new_state();
     actor_builder.with_name(NAME_SCREEN_WORKER)
         .build(move |context|
-                   workgroup::screen_worker::run(context, screen_worker_rx_from_work_controller.clone(), screen_worker_tx_to_work_collector.clone(), worker_rx_from_window.clone(), state.clone()) //#!#//
+                   workgroup::screen_worker::run(
+                       context,
+                       screen_worker_rx_from_work_controller.clone(),
+                       screen_worker_tx_to_work_collector.clone(),
+                       worker_rx_from_window.clone(),
+                       screen_worker_tx_to_reference_worker.clone(),
+                       screen_worker_rx_from_reference_worker.clone(),
+                       state.clone(),
+                   ) //#!#//
                //, MemberOf(&mut responsive_team));
                , SoloAct);
+
+    let state = new_state();
+    actor_builder.with_name(NAME_REFERENCE_WORKER)
+        .build(move |context|
+            workgroup::reference_worker::run(
+                context,
+                reference_worker_rx_from_screen_worker.clone(),
+                reference_worker_tx_to_screen_worker.clone(),
+                state.clone(),
+            ),
+            SoloAct,
+        );
 
     let state = new_state();
     actor_builder.with_name(NAME_WORK_COLLECTOR)

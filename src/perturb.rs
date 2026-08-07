@@ -89,19 +89,25 @@ pub fn iterate_pixel(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+pub(crate) mod oracle {
     use crate::utils::IntExp;
-    use proptest::prelude::*;
     use rug::Float;
 
+    /// Ground-truth answer class for one pixel, computed at arbitrary precision.
+    /// This is the oracle; f64 direct iteration is *not* ground truth (it can be
+    /// wrong at the bailout circle or lose a deep bit), so correctness is always
+    /// judged against this, not against the f64 kernel.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    enum OracleOutcome {
+    pub enum OracleOutcome {
         Escapes(u32),
         Unfinished,
     }
 
-    fn naive(c: &(IntExp, IntExp), precision: u32, max_n: u32) -> OracleOutcome {
+    /// Naive arbitrary-precision iteration of z' = z² + c from z₀ = 0.
+    ///
+    /// Matches the production convention: this codebase's orbit starts at z₁ = c,
+    /// so "escape at n" means |z_n|² > 4 with z_n the n-th iterate from z₀ = 0.
+    pub fn naive(c: &(IntExp, IntExp), precision: u32, max_n: u32) -> OracleOutcome {
         let to_float = |v: &IntExp| {
             let mut f = Float::with_val(precision, &v.val);
             if v.exp >= 0 {
@@ -135,10 +141,9 @@ mod tests {
         OracleOutcome::Unfinished
     }
 
-    fn doubling_oracle(c: &(IntExp, IntExp), max_n: u32) -> Option<OracleOutcome> {
-        // Starting below the dyadic input's own significand can produce two
-        // identical *wrong* answers: both precisions merely erase the same
-        // low bit. Represent c exactly first, then seek stability by doubling.
+    /// Double rug precision until two consecutive answers agree, starting from
+    /// enough bits to represent the (dyadic) input exactly.
+    pub fn doubling_oracle(c: &(IntExp, IntExp), max_n: u32) -> Option<OracleOutcome> {
         let input_bits = c.0.val.significant_bits().max(c.1.val.significant_bits()) as u32;
         let mut bits = input_bits.saturating_add(32).max(64);
         let mut previous = None;
@@ -152,6 +157,14 @@ mod tests {
         }
         None
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::oracle::{doubling_oracle, naive, OracleOutcome};
+    use super::*;
+    use crate::utils::IntExp;
+    use proptest::prelude::*;
 
     proptest! {
         // r[verify cz.depth.oracle-doubling+1 cz.depth.perturb-never-wrong+1]

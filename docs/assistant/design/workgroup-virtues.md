@@ -166,6 +166,15 @@ This is the heart of the design, and the most imitated-least-understood piece. E
 
 Read what this rotation *is*: **timeslicing between scheduling queues**. Each of the five shifts grants the CPU to a different scheduling class, in a fixed round-robin. No class monopolizes; no class starves; the classes interleave at 10ms granularity, so over any 50ms window all five have run. Slot 0 is the one exception that adapts: after a zoom (or neither), attention leads for direct navigation; after a pan, scredge leads so the smearing screen border resolves first.
 
+The scheduler is deliberately separated from the numerical kernel it runs
+(`r[cz.craft.kernel-seam+1]`). `SeatKernel` owns only three operations:
+materialize one seat, run one `BoutCap`-bounded numerical bout, and map a
+finished seat to its answer. Production runs `PerturbationKernel` exclusively
+(`r[cz.perf.one-kernel-path+1]`); `DirectKernel` is the test-only parity oracle.
+The slot rotation, queues, attention hold, neighbor discovery, delivery
+backpressure, and wall-clock law remain outside the kernel. Swapping arithmetic
+does not rewrite any of the empirically proven scheduling machinery.
+
 Why five classes and not a single priority queue? Because each queue encodes a *different theory of what matters most*, and the theories disagree:
 
 - **scredge** says: the newly exposed screen edge matters most (motion continuity).
@@ -307,14 +316,14 @@ Details that are easy to miss and were clearly earned (each bound to its code si
 - **Scredge first on shift-0 fallthrough** — motion edges proven at frame birth when attention yields nothing. `r[cz.craft.scredge-first-shift0+1]`
 - **Attention spiral first** — foveated square-ring walk owns slot 0; tenacity held in `attention_current`, bouts capped. `r[cz.craft.attention-spiral+1]`
 - **Pan/zoom slot 0** — attention leads on Zoomed/Neither; scredge leads on the first shift of a pan. `r[cz.craft.pan-zoom-slot0+1]`
-- **Bout cap** — no unbounded call; every bout bounded by `BoutCap`/`MAX_BOUT`. `r[cz.craft.bout-cap+1]`
+- **Bout cap** — no unbounded call; every bout bounded by `BoutCap`/`MAX_BOUT` (type-enforced). `r[cz.craft.bout-cap+1]`
 - **Screen-space derivative edges** — `is_in_filament` extrapolates the escape field; flat and ±1 raw neighborhoods stay dark. `r[cz.craft.screen-space-derivative-edges+1]`
 - **Period derivative test** — verified periods via atom-domain candidate → Newton → multiplier. `r[cz.craft.period-derivative-test+1]`
 - **Out rotates, In doesn't** — asymmetric treatment of slow escapes vs slow repeats. `r[cz.craft.out-rotates-in-stays+1]`
-- **Provisional answers never mark delivered** — guesses never block truth. `r[cz.craft.provisional-not-delivered+1]`
-- **Undeliver-and-break on full buffer** — backpressure degrades to re-queue, never to loss (policy gold; fixed-array structure replaceable, §12). `r[cz.craft.undeliver-on-full+1]`
+- **Provisional answers never mark delivered** — guesses never block truth (type-enforced: only `Delivery::Final` may set `delivered`, via `push_delivery`). `r[cz.craft.provisional-not-delivered+1]`
+- **Undeliver-and-break on full buffer** — backpressure degrades to re-queue, never to loss (type-enforced: `push_delivery` owns the buffer slot and `delivered` flag atomically, `#[must_use]` on the outcome; fixed-array structure replaceable, §12). `r[cz.craft.undeliver-on-full+1]`
 - **Clamped remap as smear** — motion-fill and storage-remap are one operation. `r[cz.craft.clamped-remap-smear+1]`
-- **Stencil-only Replace, lazy seat init** — no seeded context crosses the channel; seats materialize at first start. `r[cz.craft.stencil-only-replace+2]`
+- **Stencil-only Replace, lazy seat init** — no seeded context crosses the channel; seats materialize at first start; the single live target is structural (`LiveTarget` pairs context + `frame_info`). `r[cz.craft.stencil-only-replace+2]`
 - **Small channels** — the machine promises to consume toward the tip. `r[cz.craft.small-channels+1]`
 - **Wall-clock as law** — budget what the user feels (token accounting is vestigial, §12). `r[cz.craft.wall-clock-law+1]`
 - **Publish cadence emergent** — no timer to tune. `r[cz.craft.emergent-cadence+1]`

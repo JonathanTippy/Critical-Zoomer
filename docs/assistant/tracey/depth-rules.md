@@ -1,7 +1,8 @@
 # Depth core rules
 
-These rules cover the isolated perturbation core. Actor/workgroup integration remains a
-design gap; see `../design/depth-design.md` and `../issue-stack.md`.
+These rules cover the perturbation core through the delta-kernel milestone.
+Deep-zoom (`WorkContext<FloatExp>`) remains milestone 3; see
+`../design/depth-design.md` and `../issue-stack.md`.
 
 r[cz.depth.c-generator-fails-closed+1]
 
@@ -34,9 +35,11 @@ arbitrarily small positive/negative values.
 r[cz.depth.reference-low-storage+1]
 
 **Rule.** Reference iterates are computed in depth-appropriate rug precision but stored as
-floatexp. Exactly one high-precision tail state is retained so extension never recomputes.
-Proven periodic/preperiodic references index indefinitely by wrapping their finite cycle;
-escaping/nonperiodic references refuse unknown indices.
+floatexp. Only constant-size high-precision state is retained: the tail and Brent
+cycle-detector cursors, so extension and exact cycle detection resume across bouts without
+an unbounded full-precision history. Proven periodic/preperiodic references index
+indefinitely by wrapping their finite cycle; escaping/nonperiodic references refuse unknown
+indices.
 
 **Implementation.** `src/reference.rs` — `ReferenceOrbit::{compute,extend,get}`,
 `bits_for_zoom`.
@@ -49,12 +52,18 @@ r[cz.depth.perturb-never-wrong+1]
 
 **Rule.** Delta iteration implements Δz' = 2ZΔz + Δz² + Δc. Missing reference work,
 loss-of-significance at the bailout circle, and Pauldelbrot glitches return
-`Unfinished`/`Glitch`; they never become guessed Mandelbrot answers.
+`Unfinished`/`Glitch`; they never become guessed Mandelbrot answers. At the
+scheduler level the same honesty holds: a glitched seat is reset unfinished and
+rebound to the zero-orbit floor; nothing wrong is published.
 
-**Implementation.** `src/perturb.rs` — `iterate_pixel`, `PerturbedOutcome`.
+**Implementation.** `src/perturb.rs` — `iterate_pixel`, `PerturbedOutcome`;
+`src/assemblies/workgroup/screen_worker/perturb_kernel.rs` — glitch reset and
+missing-iterate early return.
 
 **Verification.** `perturbation_matches_precision_doubling_oracle_for_exteriors`,
-`missing_reference_is_unfinished_not_wrong`, `exact_reference_matches_naive_escape_time`.
+`missing_reference_is_unfinished_not_wrong`, `exact_reference_matches_naive_escape_time`,
+`glitch_sets_direct_only_and_never_publishes_guess`,
+`missing_reference_iterate_stays_unfinished`.
 
 r[cz.depth.oracle-doubling+1]
 
@@ -67,3 +76,91 @@ honestly incomplete.
 **Implementation/verification.** `src/perturb.rs` test module —
 `doubling_oracle`, `perturbation_matches_precision_doubling_oracle_for_exteriors`,
 `deep_delta_runs_without_f64_underflow`.
+
+r[cz.depth.reference-bout-law+1]
+
+**Rule.** Arbitrary-precision reference extension is resumable and checked
+against a wall-clock budget between individual iterations. A newer request
+therefore gets control after at most the current arithmetic iteration; no
+multi-iteration unbounded call is made by the actor.
+
+**Implementation.** `src/reference.rs` — `ReferenceOrbit::extend_for`;
+`src/assemblies/workgroup/reference_worker.rs` — `work_for` and the 10ms actor
+bout.
+
+**Verification.** `bout_sliced_extension_matches_one_shot`,
+`one_step_bouts_preserve_period_and_preperiod_detection`,
+`zero_budget_does_no_work`.
+
+r[cz.depth.reference-latest-wins+1]
+
+**Rule.** Reference requests are drained to newest before work starts. Replacing
+a request discards the in-progress target; there is exactly one live reference
+job and no backlog of stale computation.
+
+**Implementation.** `reference_worker.rs` — `ReferenceWorkerState::replace`
+and the input drain loop.
+
+**Verification.** `newer_request_replaces_in_progress_job`.
+
+r[cz.depth.reference-sticky-selection+1]
+
+**Rule.** Reference selection happens exactly once per screen pivot. It chooses
+the deepest delivered non-escaped interior seat known from the prior live view,
+or the new view center when none exists. Progress within a view never
+reselects. Precision is computed once from the new view depth.
+
+**Implementation.** `reference_worker.rs` — `select_reference_request`;
+`screen_worker/mod.rs` — the `Replace` arm is the sole caller.
+
+**Verification.**
+`selection_uses_deepest_completed_interior_then_center_fallback`,
+`precision_is_chosen_once_from_new_view_depth`.
+
+r[cz.depth.reference-whole-snapshot+1]
+
+**Rule.** A reference publication owns one complete `ReferenceOrbit`, its exact
+objective c, and a monotonically advancing generation. The screen worker installs
+the latest snapshot into the live `WorkContext` for the delta kernel; the worker
+never blocks waiting for a reference (the zero-orbit floor always runs).
+
+**Implementation.** `reference_worker.rs` — `PublishedReference` and
+`ReferenceWorkerState::work_for`; `screen_worker/mod.rs` — pending/live install;
+`WorkContext::latest_reference`.
+
+**Verification.**
+`publication_moves_one_complete_snapshot_and_increments_generation`.
+
+r[cz.depth.delta-kernel+1]
+
+**Rule.** Delta iteration lives behind the `SeatKernel` seam as
+`PerturbationKernel`. The golden scheduler (queues, attention, backpressure,
+publish protocol) is untouched. Per-seat state (`DeltaState`) is resumable
+across `BoutCap` bouts.
+
+**Implementation.** `screen_worker/perturb_kernel.rs`; `workshift.rs` —
+`DeltaState`, `Point::{delta,direct_only}`, `WorkContext::latest_reference`.
+
+**Verification.** `zero_orbit_floor_matches_direct_kernel_escape_times`,
+`published_reference_matches_direct_on_shallow_view`,
+`random_shallow_pixels_agree_when_both_conclude`,
+`perturbation_bout_obeys_cap`.
+
+r[cz.depth.glitch-is-unfinished+1]
+
+**Rule.** A Pauldelbrot glitch permanently rebinds that seat to the zero-orbit
+floor (`direct_only`) through the same delta code path. The seat is reset
+unfinished; it never publishes a guessed answer from the glitched delta.
+
+**Implementation.** `perturb_kernel.rs` — `reset_for_glitch`.
+
+**Verification.** `glitch_sets_direct_only_and_never_publishes_guess`.
+
+r[cz.depth.reference-generation-restart+1]
+
+**Rule.** A seat whose `delta.generation` differs from the installed reference's
+generation restarts its delta at zero. Stale deltas never survive a retarget.
+
+**Implementation.** `perturb_kernel.rs` — `start_seat` generation guard.
+
+**Verification.** `generation_mismatch_restarts_delta`.

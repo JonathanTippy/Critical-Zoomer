@@ -44,6 +44,8 @@ fn make_point(c: (f64, f64)) -> Point<f64> {
         period: 0,
         smallness_squared: f64::MAX,
         small_time: 0,
+        delta: None,
+        direct_only: false,
     }
 }
 
@@ -99,11 +101,31 @@ fn make_context(workshifts: u32) -> WorkContext<f64> {
         attention_current: None,
         c_generator,
         pitch_epsilon: 1e-9 * (1.0 / 256.0),
+        latest_reference: None,
     }
 }
 
 fn shift(ctx: &mut WorkContext<f64>) {
-    workshift(0, 0, 0, 0, ctx);
+    // Scheduler tests isolate queue policy from production numerics.
+    workshift_with_kernel(0, 0, 0, 0, ctx, &DirectKernel);
+}
+
+#[test]
+// r[verify cz.craft.kernel-seam+1]
+fn direct_kernel_preserves_scheduler_results() {
+    let mut a = make_context(1);
+    a.edge_queue.push_back(((2, 0), 0));
+    let mut b = a.clone();
+    workshift_with_kernel(0, 0, 0, 0, &mut a, &DirectKernel);
+    workshift_with_kernel(0, 0, 0, 0, &mut b, &DirectKernel);
+    assert_eq!(a.completed_points.len, b.completed_points.len);
+    assert_eq!(a.points[2].iterations, b.points[2].iterations);
+    assert_eq!(a.points[2].escapes, b.points[2].escapes);
+    assert_eq!(a.points[2].repeats, b.points[2].repeats);
+    assert_eq!(a.points[2].delivered, b.points[2].delivered);
+    assert_eq!(a.edge_queue, b.edge_queue);
+    assert_eq!(a.out_queue, b.out_queue);
+    assert_eq!(a.in_queue, b.in_queue);
 }
 
 fn orbit_with_derivative(c: (f64, f64), iterations: u32) -> Point<f64> {
@@ -925,5 +947,354 @@ fn zoom_slot0_prefers_attention_over_scredge() {
             "zoom slot0 must start the attention seat"
         );
     });
+}
+
+// ---------------------------------------------------------------------------
+// Home view regression (reference c must match CGenerator; workshift parity)
+// ---------------------------------------------------------------------------
+
+use crate::assemblies::workgroup::reference_worker::{PublishedReference, select_reference_request};
+use crate::assemblies::workgroup::screen_worker::perturb_kernel::PerturbationKernel;
+use crate::constants::{DEFAULT_WINDOW_RES, HOME_POSITION};
+use crate::reference::ReferenceOrbit;
+use std::sync::Arc;
+
+fn home_frame() -> (ObjectivePosAndZoom, (u32, u32)) {
+    (
+        ObjectivePosAndZoom {
+            pos: (
+                IntExp::from(HOME_POSITION.0),
+                IntExp::ZERO - IntExp::from(HOME_POSITION.1),
+            ),
+            zoom_pot: HOME_POSITION.2,
+        },
+        DEFAULT_WINDOW_RES,
+    )
+}
+
+fn outcome_key(p: &Point<f64>) -> (bool, bool, u32, u32) {
+    (p.escapes, p.repeats, p.iterations, p.period)
+}
+
+#[test]
+fn home_reference_request_matches_c_generator() {
+    run_big(|| {
+        let frame = home_frame();
+        let req = select_reference_request::<f64>(None, &frame);
+        let ctx = from_stencil(frame, None).expect("home view");
+        let center = (ctx.res.0 / 2, ctx.res.1 / 2);
+        let gc = ctx.c_generator.get_c((center.0, center.1));
+        let req_f = (f64::from(req.c.0.clone()), f64::from(req.c.1.clone()));
+        assert_eq!(req_f, gc, "reference request must use the same c grid as seats");
+    });
+}
+
+#[test]
+fn home_workshift_with_reference_matches_direct() {
+    run_big(|| {
+        let frame = home_frame();
+        let req = select_reference_request::<f64>(None, &frame);
+        let mut direct = from_stencil(frame.clone(), None).expect("home");
+        let mut perturb = from_stencil(frame, None).expect("home");
+        perturb.latest_reference = Some(Arc::new(PublishedReference {
+            orbit: ReferenceOrbit::compute(&req.c, req.precision_bits, req.max_iterations),
+            c: req.c,
+            generation: 1,
+        }));
+        for _ in 0..10000 {
+            if direct.points.iter().all(|p| p.delivered) {
+                break;
+            }
+            direct.attention_index = 0;
+            workshift_with_kernel(0, 0, 0, 0, &mut direct, &DirectKernel);
+            work_update(&mut direct);
+        }
+        for _ in 0..10000 {
+            if perturb.points.iter().all(|p| p.delivered) {
+                break;
+            }
+            perturb.attention_index = 0;
+            workshift(0, 0, 0, 0, &mut perturb);
+            work_update(&mut perturb);
+        }
+        let mut mismatches = 0usize;
+        for i in 0..direct.points.len() {
+            let d = &direct.points[i];
+            let p = &perturb.points[i];
+            if d.delivered && p.delivered && outcome_key(d) != outcome_key(p) {
+                mismatches += 1;
+            }
+        }
+        assert_eq!(mismatches, 0, "perturbation path must match direct on home");
+        assert!(
+            direct.points.iter().all(|p| p.delivered),
+            "direct oracle must finish the home shell"
+        );
+    });
+}
+
+fn exact_f64_as_intexp(value: f64) -> IntExp {
+    assert!(value.is_finite());
+    if value == 0.0 {
+        return IntExp::ZERO;
+    }
+    let bits = value.to_bits();
+    let biased = ((bits >> 52) & 0x7ff) as i32;
+    let fraction = bits & ((1u64 << 52) - 1);
+    let (significand, exp) = if biased == 0 {
+        (fraction, -1074)
+    } else {
+        ((1u64 << 52) | fraction, biased - 1023 - 52)
+    };
+    let mut val = rug::Integer::from(significand);
+    if bits >> 63 != 0 {
+        val = -val;
+    }
+    IntExp { val, exp }
+}
+
+proptest! {
+    // r[verify cz.depth.delta-kernel+1 cz.depth.oracle-doubling+1]
+    #[test]
+    fn perturbation_kernel_matches_rug_doubling_oracle(
+        cr in -2.0f64..1.0,
+        ci in -1.5f64..1.5,
+    ) {
+        use crate::perturb::oracle::{doubling_oracle, OracleOutcome};
+        let target = (exact_f64_as_intexp(cr), exact_f64_as_intexp(ci));
+        let max_n = 512;
+        let oracle = doubling_oracle(&target, max_n);
+        prop_assume!(oracle.is_some());
+        let mut ctx = make_context(0);
+        ctx.points[0] = make_point((cr, ci));
+        PerturbationKernel.start_seat(&mut ctx, (0, 0));
+        PerturbationKernel.iterate_bout(
+            &mut ctx.points[0], None, 4.0, 1e-15, BoutCap::new(max_n),
+        );
+        let p = &ctx.points[0];
+        match oracle.unwrap() {
+            OracleOutcome::Escapes(expected) if p.escapes => {
+                prop_assert_eq!(p.iterations + 1, expected);
+            }
+            OracleOutcome::Escapes(_) => {
+                prop_assert!(p.direct_only || !p.repeats);
+            }
+            OracleOutcome::Unfinished => {
+                prop_assert!(!p.escapes || p.iterations + 1 > max_n);
+            }
+        }
+    }
+}
+
+#[test]
+fn exact_f64_conversion_round_trips_representative_values() {
+    for value in [
+        0.0,
+        -0.0,
+        1.0,
+        -2.5,
+        f64::MIN_POSITIVE,
+        f64::from_bits(1),
+        f64::MAX,
+    ] {
+        assert_eq!(f64::from(exact_f64_as_intexp(value)), value);
+    }
+}
+
+#[test]
+// r[verify cz.ref.zero-orbit-same-path+1]
+fn zero_orbit_center_reports_period_one() {
+    let mut ctx = make_context(0);
+    ctx.points[0].initialized = false;
+    PerturbationKernel.start_seat(&mut ctx, (0, 0));
+    PerturbationKernel.iterate_bout(
+        &mut ctx.points[0], None, 4.0, ctx.pitch_epsilon, BoutCap::new(2),
+    );
+    assert!(ctx.points[0].repeats);
+    assert_eq!(ctx.points[0].period, 1);
+}
+
+#[test]
+// r[verify cz.depth.reference-generation-restart+1]
+fn generation_mismatch_restarts_delta() {
+    let mut ctx = make_context(0);
+    ctx.points[2] = make_point((0.3, 0.1));
+    ctx.latest_reference = Some(Arc::new(PublishedReference {
+        orbit: ReferenceOrbit::compute(&(IntExp::ZERO, IntExp::ZERO), 64, 32),
+        c: (IntExp::ZERO, IntExp::ZERO),
+        generation: 1,
+    }));
+    PerturbationKernel.start_seat(&mut ctx, (2, 0));
+    let initial_dz = ctx.points[2].delta.as_ref().unwrap().dz;
+    PerturbationKernel.iterate_bout(
+        &mut ctx.points[2],
+        ctx.latest_reference.as_ref().map(|r| &r.orbit),
+        4.0,
+        ctx.pitch_epsilon,
+        BoutCap::new(5),
+    );
+    assert!(ctx.points[2].iterations > 0);
+    ctx.latest_reference = Some(Arc::new(PublishedReference {
+        orbit: ReferenceOrbit::compute(&(IntExp::ZERO, IntExp::ZERO), 64, 32),
+        c: (IntExp::ZERO, IntExp::ZERO),
+        generation: 2,
+    }));
+    PerturbationKernel.start_seat(&mut ctx, (2, 0));
+    let delta = ctx.points[2].delta.as_ref().unwrap();
+    assert_eq!(delta.generation, 2);
+    assert_eq!(delta.dz, initial_dz);
+    assert_eq!(ctx.points[2].iterations, 0);
+}
+
+#[test]
+// r[verify cz.depth.glitch-is-unfinished+1 cz.depth.perturb-never-wrong+1]
+fn glitch_sets_direct_only_and_never_publishes_guess() {
+    use crate::floatexp::{ComplexFloatExp, FloatExp};
+    let mut ctx = make_context(0);
+    let reference_c = (IntExp::from(-1).shift(-1), IntExp::ZERO);
+    ctx.latest_reference = Some(Arc::new(PublishedReference {
+        orbit: ReferenceOrbit::compute(&reference_c, 128, 8),
+        c: reference_c,
+        generation: 7,
+    }));
+    ctx.points[0] = make_point((0.0, 0.0));
+    ctx.points[0].iterations = 1;
+    ctx.points[0].delta = Some(DeltaState {
+        // For c=-1/2, standard Z₂=-1/4. δ=+1/4 cancels it exactly.
+        dz: ComplexFloatExp::new(FloatExp::from(0.25), FloatExp::ZERO),
+        checkpoint: ComplexFloatExp::ZERO,
+        checkpoint_n: 0,
+        dc: ComplexFloatExp::ZERO,
+        dd: ComplexFloatExp::new(FloatExp::ONE, FloatExp::ZERO),
+        generation: 7,
+    });
+    PerturbationKernel.iterate_bout(
+        &mut ctx.points[0],
+        ctx.latest_reference.as_ref().map(|r| &r.orbit),
+        4.0,
+        1e-15,
+        BoutCap::new(1),
+    );
+    assert!(ctx.points[0].direct_only);
+    assert!(ctx.points[0].delta.is_none());
+    assert!(!ctx.points[0].initialized);
+    assert!(!ctx.points[0].escapes && !ctx.points[0].repeats);
+    assert!(!ctx.points[0].delivered);
+    PerturbationKernel.start_seat(&mut ctx, (0, 0));
+    assert_eq!(ctx.points[0].delta.as_ref().unwrap().generation, 0);
+    PerturbationKernel.iterate_bout(
+        &mut ctx.points[0], None, 4.0, ctx.pitch_epsilon, BoutCap::new(2),
+    );
+    assert!(ctx.points[0].repeats);
+    assert_eq!(ctx.points[0].period, 1);
+}
+
+#[test]
+fn missing_reference_iterate_stays_unfinished() {
+    let reference_c = (IntExp::from(3).shift(-4), IntExp::from(1).shift(-4));
+    let mut orbit = ReferenceOrbit::start(&reference_c, 64);
+    orbit.extend(2);
+    assert_eq!(orbit.iterates.len(), 3);
+    assert!(orbit.period.is_none());
+    let mut ctx = make_context(0);
+    ctx.latest_reference = Some(Arc::new(PublishedReference {
+        orbit,
+        c: reference_c,
+        generation: 1,
+    }));
+    ctx.points[0] = make_point((0.2, 0.08));
+    PerturbationKernel.start_seat(&mut ctx, (0, 0));
+    PerturbationKernel.iterate_bout(
+        &mut ctx.points[0],
+        ctx.latest_reference.as_ref().map(|r| &r.orbit),
+        4.0,
+        1e-15,
+        BoutCap::new(20),
+    );
+    assert!(ctx.points[0].iterations > 0 && ctx.points[0].iterations < 20);
+    assert!(!ctx.points[0].escapes && !ctx.points[0].repeats);
+    assert!(!ctx.points[0].delivered);
+    assert!(ctx.points[0].delta.is_some());
+}
+
+#[test]
+fn perturbation_bout_obeys_cap_and_split_bouts_match() {
+    let mut ctx = make_context(0);
+    ctx.points[0] = make_point((-0.1, 0.65));
+    PerturbationKernel.start_seat(&mut ctx, (0, 0));
+    let mut whole = ctx.points[0].clone();
+    let mut split = whole.clone();
+    PerturbationKernel.iterate_bout(
+        &mut whole, None, 4.0, 1e-15, BoutCap::new(17),
+    );
+    PerturbationKernel.iterate_bout(
+        &mut split, None, 4.0, 1e-15, BoutCap::new(5),
+    );
+    assert!(split.iterations <= 5);
+    PerturbationKernel.iterate_bout(
+        &mut split, None, 4.0, 1e-15, BoutCap::new(12),
+    );
+    assert_eq!(whole.iterations, split.iterations);
+    assert_eq!(whole.escapes, split.escapes);
+    assert_eq!(whole.repeats, split.repeats);
+    assert_eq!(whole.z, split.z);
+    assert_eq!(whole.dc, split.dc);
+    assert_eq!(whole.delta.as_ref().unwrap().dz, split.delta.as_ref().unwrap().dz);
+    assert_eq!(whole.delta.as_ref().unwrap().dd, split.delta.as_ref().unwrap().dd);
+}
+
+fn rug_orbit_derivative(c: (f64, f64), standard_n: u32) -> (f64, f64) {
+    use rug::Float;
+    let precision = 256;
+    let (cr, ci) = (Float::with_val(precision, c.0), Float::with_val(precision, c.1));
+    let (mut zr, mut zi) = (Float::with_val(precision, 0), Float::with_val(precision, 0));
+    let (mut dr, mut di) = (Float::with_val(precision, 0), Float::with_val(precision, 0));
+    for _ in 0..standard_n {
+        let next_dr = Float::with_val(
+            precision,
+            Float::with_val(precision, 2)
+                * (Float::with_val(precision, &zr * &dr)
+                    - Float::with_val(precision, &zi * &di))
+                + 1,
+        );
+        let next_di = Float::with_val(
+            precision,
+            Float::with_val(precision, 2)
+                * (Float::with_val(precision, &zr * &di)
+                    + Float::with_val(precision, &zi * &dr)),
+        );
+        let next_zr = Float::with_val(
+            precision,
+            Float::with_val(precision, &zr * &zr)
+                - Float::with_val(precision, &zi * &zi)
+                + &cr,
+        );
+        let next_zi = Float::with_val(
+            precision,
+            Float::with_val(precision, 2) * Float::with_val(precision, &zr * &zi) + &ci,
+        );
+        (zr, zi, dr, di) = (next_zr, next_zi, next_dr, next_di);
+    }
+    (dr.to_f64(), di.to_f64())
+}
+
+#[test]
+fn perturbation_derivative_matches_rug_and_conjugation() {
+    let mut derivatives = Vec::new();
+    for ci in [0.2, -0.2] {
+        let mut ctx = make_context(0);
+        ctx.points[0] = make_point((0.1, ci));
+        PerturbationKernel.start_seat(&mut ctx, (0, 0));
+        PerturbationKernel.iterate_bout(
+            &mut ctx.points[0], None, 4.0, 1e-15, BoutCap::new(5),
+        );
+        let expected = rug_orbit_derivative((0.1, ci), 6);
+        let actual = ctx.points[0].dc;
+        assert!((actual.0 - expected.0).abs() < 1e-12);
+        assert!((actual.1 - expected.1).abs() < 1e-12);
+        derivatives.push(actual);
+    }
+    assert!((derivatives[0].0 - derivatives[1].0).abs() < 1e-12);
+    assert!((derivatives[0].1 + derivatives[1].1).abs() < 1e-12);
 }
 

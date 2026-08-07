@@ -1,10 +1,14 @@
 
 use rand::prelude::SliceRandom;
 
+use std::sync::Arc;
 use std::time::Instant;
 use std::collections::*;
 use std::cmp::*;
 use crate::assemblies::workgroup::c_generator::{CGenerator, Mandelbrotable};
+use crate::assemblies::workgroup::reference_worker::PublishedReference;
+use crate::floatexp::ComplexFloatExp;
+use crate::reference::ReferenceOrbit;
 use crate::utils::*;
 pub const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
 
@@ -44,6 +48,55 @@ impl<T: Copy> Stec<T> {
             Some(self.stuff[self.len])
         } else {
             None
+        }
+    }
+}
+
+
+/// A completion staged for the buffer. `Provisional` answers (period-0 scredge
+/// guesses) publish data but must never mark a seat delivered; only a `Final`
+/// answer may. The type makes "guess blocks truth" unrepresentable.
+// r[impl cz.craft.provisional-not-delivered+1]
+#[derive(Clone, Copy, Debug)]
+pub enum Delivery<T> {
+    Provisional(T),
+    Final(T),
+}
+
+/// Result of attempting to stage a delivery. `#[must_use]` so backpressure
+/// (buffer full) cannot be silently dropped.
+// r[impl cz.craft.undeliver-on-full+1]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[must_use = "BufferFull must be handled: the seat must stay undelivered and the shift break"]
+pub enum PushOutcome {
+    Published,
+    BufferFull,
+}
+
+impl<T: Mandelbrotable> WorkContext<T> {
+    /// Atomically stage a delivery into the completion buffer and update the
+    /// seat's `delivered` flag. The two can never disagree:
+    /// - `Final` + room -> delivered = true, Published
+    /// - `Final` + full -> delivered = false, BufferFull (backpressure re-queue)
+    /// - `Provisional` + room -> delivered unchanged, Published
+    /// - `Provisional` + full -> delivered unchanged, BufferFull
+    // r[impl cz.craft.provisional-not-delivered+1]
+    // r[impl cz.craft.undeliver-on-full+1]
+    pub fn push_delivery(&mut self, delivery: Delivery<CompletedPoint<T>>, index: usize) -> PushOutcome {
+        let (point, is_final) = match delivery {
+            Delivery::Provisional(p) => (p, false),
+            Delivery::Final(p) => (p, true),
+        };
+        if self.completed_points.try_push((point, index)) {
+            if is_final {
+                self.points[index].delivered = true;
+            }
+            PushOutcome::Published
+        } else {
+            if is_final {
+                self.points[index].delivered = false;
+            }
+            PushOutcome::BufferFull
         }
     }
 }
@@ -92,6 +145,9 @@ pub struct WorkContext<T: Mandelbrotable> {
     , pub attention_current: Option<(i32, i32)>
     , pub c_generator: CGenerator<T>
     , pub pitch_epsilon: T
+    // Newest published reference for the live shell. Shared so the clone-happy
+    // context type does not deep-copy rug Float state on every shell clone.
+    , pub latest_reference: Option<Arc<PublishedReference>>
 }
 
 
@@ -114,6 +170,23 @@ pub enum CompletedPoint<T> {
 }
 
 
+/// Per-seat perturbation state, resumable across bounded bouts.
+///
+/// Deltas are concretely `ComplexFloatExp` (floatexp). They are the kernel's
+/// internal representation; `Point<T>` stays generic over the view math only.
+#[derive(Clone, Debug)]
+pub struct DeltaState {
+    pub dz: ComplexFloatExp,
+    pub checkpoint: ComplexFloatExp,
+    pub checkpoint_n: u32,
+    /// δc = c_pixel − c_reference, fixed for this generation.
+    pub dc: ComplexFloatExp,
+    /// ∂δ/∂c so escape_derivative stays meaningful for filament detection.
+    pub dd: ComplexFloatExp,
+    /// Reference generation this delta belongs to (0 = zero-orbit floor).
+    pub generation: u64,
+}
+
 //pub const SpeedTestPoint
 #[derive(Clone, Debug)]
 
@@ -134,6 +207,10 @@ pub struct Point<T> {
     , pub period: u32
     , pub smallness_squared: T
     , pub small_time: u32
+    , pub delta: Option<DeltaState>
+    // After a Pauldelbrot glitch: permanently bound to the zero-orbit floor.
+    // r[impl cz.depth.glitch-is-unfinished+1]
+    , pub direct_only: bool
 }
 
 
@@ -190,6 +267,8 @@ pub fn placeholder_point<T: From<f32> + Copy>() -> Point<T> {
         period: 0,
         smallness_squared: 100.0.into(),
         small_time: 0,
+        delta: None,
+        direct_only: false,
     }
 }
 
@@ -232,6 +311,9 @@ pub fn from_stencil<T: Mandelbrotable + From<f32>>(
     };
 
     let new_len = (res.0 * res.1) as usize;
+    let carried_reference = previous
+        .as_ref()
+        .and_then(|(old, _)| old.latest_reference.clone());
     let (mut points, mut random_map, old_res, mut completed_points) = match previous {
         Some((old, _)) => {
             let WorkContext {
@@ -307,6 +389,7 @@ pub fn from_stencil<T: Mandelbrotable + From<f32>>(
         attention_current: None,
         c_generator,
         pitch_epsilon,
+        latest_reference: carried_reference,
     })
 }
 
@@ -443,13 +526,123 @@ fn queue_fallback_pos<T: Mandelbrotable>(
     None
 }
 
-pub fn workshift<T: Mandelbrotable + Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<Output=T> + Into<f64> + PartialOrd + Finite + Gt + Abs + From<f32> + Into<f64> + Copy>(
-    day_token_allowance: u32
-    , iteration_token_cost: u32
-    , point_token_cost: u32
-    , bout_token_cost: u32
-    , context: &mut WorkContext<T>
+/// The swappable numerical implementation run by the golden scheduler.
+///
+/// Queue choice, attention, backpressure, and wall-clock policy remain in
+/// `workshift_with_kernel`; a kernel may only start one seat, run one bounded
+/// bout, and turn a finished seat into its answer.
+// r[impl cz.craft.kernel-seam+1]
+pub trait SeatKernel<T>
+where
+    T: Mandelbrotable + std::fmt::Debug + Finite + Gt + Abs + From<f32> + Into<f64>,
+{
+    fn start_seat(&self, context: &mut WorkContext<T>, pos: (i32, i32));
+    fn iterate_bout(
+        &self,
+        point: &mut Point<T>,
+        reference: Option<&ReferenceOrbit>,
+        r_squared: T,
+        epsilon: T,
+        cap: BoutCap,
+    );
+    fn completion(&self, point: &mut Point<T>) -> CompletedPoint<T>;
+}
+
+/// Direct Mandelbrot iteration — test-only parity oracle.
+///
+/// Production always runs [`PerturbationKernel`] (including the zero-orbit floor).
+/// Oracles live in test code; the production path never branches on them.
+// r[impl cz.perf.one-kernel-path+1]
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DirectKernel;
+
+#[cfg(test)]
+impl<T> SeatKernel<T> for DirectKernel
+where
+    T: Mandelbrotable + std::fmt::Debug + Finite + Gt + Abs + From<f32> + Into<f64>,
+{
+    #[inline]
+    fn start_seat(&self, context: &mut WorkContext<T>, pos: (i32, i32)) {
+        ensure_started(context, pos);
+    }
+
+    #[inline]
+    fn iterate_bout(
+        &self,
+        point: &mut Point<T>,
+        _reference: Option<&ReferenceOrbit>,
+        r_squared: T,
+        epsilon: T,
+        cap: BoutCap,
+    ) {
+        iterate_max_n_times(point, r_squared, epsilon, cap);
+    }
+
+    #[inline]
+    fn completion(&self, point: &mut Point<T>) -> CompletedPoint<T> {
+        direct_completion(point)
+    }
+}
+
+/// Shared period / escape completion used by both kernels.
+pub fn direct_completion<T>(point: &mut Point<T>) -> CompletedPoint<T>
+where
+    T: Mandelbrotable + Into<f64> + Copy,
+{
+    if point.repeats {
+        let c64 = (point.c.0.into(), point.c.1.into());
+        let (partials, tail) = period_partials(c64, point.iterations);
+        point.period = partials
+            .into_iter()
+            .find_map(|p| verified_period_from(c64, p, tail))
+            .unwrap_or(0);
+        CompletedPoint::Repeats {
+            period: point.period,
+            smallness: point.smallness_squared,
+            small_time: point.small_time,
+        }
+    } else {
+        CompletedPoint::Escapes {
+            escape_time: point.iterations,
+            escape_location: (point.z.0, point.z.1),
+            escape_derivative: point.dc,
+            start_location: (point.c.0, point.c.1),
+            smallness: point.smallness_squared,
+            small_time: point.small_time,
+        }
+    }
+}
+
+pub fn workshift(
+    day_token_allowance: u32,
+    iteration_token_cost: u32,
+    point_token_cost: u32,
+    bout_token_cost: u32,
+    context: &mut WorkContext<f64>,
 ) {
+    workshift_with_kernel(
+        day_token_allowance,
+        iteration_token_cost,
+        point_token_cost,
+        bout_token_cost,
+        context,
+        &super::perturb_kernel::PerturbationKernel,
+    );
+}
+
+pub fn workshift_with_kernel<T, K>(
+    day_token_allowance: u32,
+    iteration_token_cost: u32,
+    point_token_cost: u32,
+    bout_token_cost: u32,
+    context: &mut WorkContext<T>,
+    kernel: &K,
+)
+where
+    T: Mandelbrotable + Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<Output=T> + Into<f64> + PartialOrd + Finite + Gt + Abs + From<f32> + Copy,
+    K: SeatKernel<T>,
+{
 
     context.time_workshift_started = Instant::now();
 
@@ -569,28 +762,41 @@ pub fn workshift<T: Mandelbrotable + Sub<Output=T> + std::fmt::Debug + Add<Outpu
         }
 
         // r[impl cz.craft.stencil-only-replace+2]
-        ensure_started(context, pos);
-        let point = &mut context.points[index];
+        kernel.start_seat(context, pos);
 
-        let old_iterations = point.iterations;
+        // Disjoint fields: take the reference so we can mutably borrow the seat.
+        let held_reference = context.latest_reference.take();
+        let orbit = if context.points[index].direct_only {
+            None
+        } else {
+            held_reference.as_ref().map(|r| &r.orbit)
+        };
 
+        let old_iterations = context.points[index].iterations;
 
         // r[impl cz.craft.attention-spiral+1]
         // Every bout is bounded — the worker may never make an unbounded call.
         // Attention tenacity is carried by `attention_current` across bouts,
         // not by an uncapped iteration count inside a single bout.
-        iterate_max_n_times(point, 4.0f32.into(), episilon, BoutCap::STANDARD);
+        kernel.iterate_bout(
+            &mut context.points[index],
+            orbit,
+            4.0f32.into(),
+            episilon,
+            BoutCap::STANDARD,
+        );
+        context.latest_reference = held_reference;
 
 
 
-        context.total_iterations_today += point.iterations - old_iterations;
+        context.total_iterations_today += context.points[index].iterations - old_iterations;
 
 
-        if point.repeats || point.escapes {
+        if context.points[index].repeats || context.points[index].escapes {
 
             //context.already_done.push(context.index);
             //context.already_done_hashset.insert(context.index);
-            context.total_iterations += point.iterations;
+            context.total_iterations += context.points[index].iterations;
 
 
 
@@ -614,47 +820,26 @@ pub fn workshift<T: Mandelbrotable + Sub<Output=T> + std::fmt::Debug + Add<Outpu
                 }
             }
 
-            point.delivered = true;
-
-
-
-            let completed_point = if point.repeats {
-                // Candidate periods are the atom-domain partials, tried ascending;
-                // the first that survives Newton + the multiplier test is the true
-                // period. 0 means "repeats, period unknown" — never a guessed number.
-                let c64 = (point.c.0.into(), point.c.1.into());
-                let (partials, tail) = period_partials(c64, point.iterations);
-                point.period = partials
-                    .into_iter()
-                    .find_map(|p| verified_period_from(c64, p, tail))
-                    .unwrap_or(0);
-                let returned = CompletedPoint::Repeats{period: point.period, smallness: point.smallness_squared, small_time:point.small_time};
+            // Candidate periods are verified inside the kernel; scheduler
+            // side effects (neighbor discovery and queue policy) stay here.
+            let completed_point = kernel.completion(&mut context.points[index]);
+            if context.points[index].repeats {
                 queue_incomplete_neighbors_in(&pos, context.res, &context.points, &mut context.in_queue);
-                returned
-
             } else {
-                let result = CompletedPoint::Escapes {
-                    escape_time: point.iterations
-                    , escape_location: (point.z.0, point.z.1)
-                    , escape_derivative: point.dc
-                    , start_location: (point.c.0, point.c.1)
-                    , smallness: point.smallness_squared
-                    , small_time:point.small_time
-                };
                 queue_incomplete_neighbors(&pos, context.res, &context.points, &mut context.out_queue);
-                result
-            };
+            }
+
             if let Some(e) = point_is_edge(&pos, context.res, &context.points) {
                 //context.edge_queue.clear();
                 queue_incomplete_neighbors_of_edge(&e.0, &e.1, context.res, &context.points, &mut context.edge_queue);
             }
 
-            if context.completed_points.try_push((completed_point, index)) {} else {
-                // r[impl cz.craft.undeliver-on-full+1]
-                let point = &mut context.points[index];
-                point.delivered=false;
-                break;
-            };
+            // r[impl cz.craft.provisional-not-delivered+1]
+            // r[impl cz.craft.undeliver-on-full+1]
+            match context.push_delivery(Delivery::Final(completed_point), index) {
+                PushOutcome::Published => {}
+                PushOutcome::BufferFull => { break; }
+            }
 
 
             context.total_points_today += 1
@@ -675,18 +860,16 @@ pub fn workshift<T: Mandelbrotable + Sub<Output=T> + std::fmt::Debug + Add<Outpu
                     //let pos = context.scredge_poses.pop_front().unwrap();
                     //context.scredge_poses.push_back(pos);
                     // r[impl cz.craft.provisional-not-delivered+1]
-                    let completed_point = {
-                        // This point has not completed and its checkpoint gap is
-                        // not a verified period. Publish 0 ("unknown") so the
-                        // provisional frame remains current without inventing
-                        // period edges. Completion replaces it with a period
-                        // verified by Newton and the cycle multiplier.
-                        CompletedPoint::Repeats{period: 0, smallness: point.smallness_squared, small_time:point.small_time}
+                    // Provisional: publishes data but cannot mark the seat delivered.
+                    let provisional = CompletedPoint::Repeats{
+                        period: 0,
+                        smallness: context.points[index].smallness_squared,
+                        small_time: context.points[index].small_time,
                     };
-                    if context.completed_points.try_push((completed_point, index)) {} else {
-                        break;
-                    };
-                    continue;
+                    match context.push_delivery(Delivery::Provisional(provisional), index) {
+                        PushOutcome::Published => { continue; }
+                        PushOutcome::BufferFull => { break; }
+                    }
                 }
                 _ => {}
             }

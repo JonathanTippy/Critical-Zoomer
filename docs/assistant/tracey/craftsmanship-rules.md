@@ -11,6 +11,28 @@ Tracey linkage.
 > a deliberate, developer-approved redesign happened — update the rule and the virtues doc
 > together in that case.
 
+## Protecting the lineage
+
+Prevention beats detection. Two disciplines keep these rules from being undone by
+accident:
+
+- **Prefer a type over a comment.** Where an invariant can be made unrepresentable
+  in the type system, make it unrepresentable. `r[cz.craft.bout-cap+1]` is the
+  pattern: the unbounded-call rule held only as prose until `BoutCap` made an
+  over-limit cap impossible to express. When touching any rule below, ask first
+  whether it is still prose-only and could be a type instead.
+- **The change protocol.** A deliberate redesign updates the rule here, the prose
+  in `workgroup-virtues.md`, and the pinned test *together*, in one change.
+- **The pre-edit hook.** `.cursor/hooks.json` runs `.cursor/hooks/workgroup-rules.sh` on
+  every `Write`/`Edit`/`StrReplace`. When the target file is under
+  `src/assemblies/workgroup/screen_worker/` or `src/assemblies/shadergroup/colorer/`, it
+  injects that file's rule summaries (below) as agent context at the moment of the edit —
+  the forcing function the docs alone cannot provide. It fails open (never blocks an edit).
+
+The always-on summary for editing sessions is `.cursor/rules/critical-zoomer-invariants.mdc`;
+the agent-facing entry point is `AGENTS.md`. Detection (the periodic tracey-link audit and
+the full test suite) catches what prevention misses.
+
 r[cz.craft.epsilon-pixel-pitch+1]
 
 **Normative summary.** The provisional loop-detection trigger derives its epsilon from the
@@ -262,12 +284,13 @@ r[cz.craft.provisional-not-delivered+1]
 (checkpoint delta as period, real smallness data) and remains undelivered so later shifts still
 finish it. Guesses never block truth.
 
-**Code site.** `workshift.rs` — the `Step::Scredge` unfinished branch pushing a provisional
-`CompletedPoint::Repeats` without setting `delivered`.
+**Code site.** `workshift.rs` — `Delivery::Provisional` (cannot set `delivered`) pushed via
+`WorkContext::push_delivery`; the `Step::Scredge` unfinished branch stages a provisional
+`CompletedPoint::Repeats`.
 
 **Acceptance criteria.**
-- [ ] Provisional pushes never set `delivered`; the seat is later completed and its true answer
-  overwrites the provisional one.
+- [ ] Provisional pushes never set `delivered` — now type-enforced: only `Delivery::Final`
+  may flip the flag, and only inside `push_delivery`.
 
 **Test.** `provisional_answer_never_marks_delivered` (craftsmanship_tests.rs) — after a shift
 of scredge work on a slow seat: provisional answers exist, `delivered` is still false.
@@ -277,11 +300,15 @@ r[cz.craft.undeliver-on-full+1]
 **Normative summary.** When the completion buffer is full, the seat is marked undelivered and
 the shift breaks: backpressure degrades to re-queue, never to a dropped answer.
 
-**Code site.** `workshift.rs` — the `try_push … else { delivered = false; break; }` branch.
+**Code site.** `workshift.rs` — `WorkContext::push_delivery` (the only method that touches
+`delivered`), returning `#[must_use] PushOutcome`; the `BufferFull` arm breaks the shift.
 
 **Acceptance criteria.**
 - [ ] Full-buffer simulation: no completed point is lost; affected seats complete on a later
   shift.
+- [ ] The buffer slot and `delivered` flag are updated atomically — now type-enforced:
+  `push_delivery` owns both, and `#[must_use]` on `PushOutcome` makes dropped backpressure a
+  compile error.
 
 **Test.** `full_buffer_undelivers_and_stops` (craftsmanship_tests.rs) — buffer pinned at
 100000, completing seat flips back to undelivered, nothing lost.
@@ -354,14 +381,17 @@ worker builds an uninitialized context shell from that stencil and materializes 
 channel; construction cost is amortized across the frame's natural start pattern.
 
 **Code site.** `work_controller.rs` — fail-closed stencil pass-through;
-`screen_worker/mod.rs` — shell install on Replace; `workshift.rs` — `from_stencil` /
-`ensure_started`.
+`screen_worker/mod.rs` — shell install on Replace (context + `frame_info` paired in the
+`LiveTarget` struct, so a second live target cannot exist by construction); `workshift.rs` —
+`from_stencil` / `ensure_started`.
 
 **Acceptance criteria.**
 - [ ] `WorkerCommand::Replace` contains no `WorkContext`.
 - [ ] A fresh shell leaves every seat `initialized == false`.
 - [ ] `ensure_started` produces bit-identical `c` to the generator grid.
 - [ ] Steady-zoom Replace reuses the previous points vec capacity.
+- [ ] The one live target is structural: `WorkContext` and its `frame_info` move together in
+  `LiveTarget`, never a bare tuple.
 
 **Test.** `fresh_shell_leaves_seats_uninitialized`,
 `ensure_started_matches_generator_bit_for_bit`,
@@ -451,3 +481,28 @@ corresponding None-write / Some-remap handling in `work_collector.rs`.
   remapped to frame B; the collector observes no other message interleaving.
 
 **Test.** None — cross-actor message ordering; acceptance by code review + e2e.
+
+r[cz.craft.kernel-seam+1]
+
+**Normative summary.** The proven screen scheduler is independent of the
+numerical implementation it runs. Slot rotation, queues, attention,
+neighbor-discovery policy, `Delivery` backpressure, and the wall-clock loop
+remain scheduler-owned. A `SeatKernel` may only materialize one seat, run one
+`BoutCap`-bounded bout, and map a finished seat to a `CompletedPoint`.
+
+**Code site.** `screen_worker/workshift.rs` — `SeatKernel`, `DirectKernel`,
+the compatibility `workshift` wrapper, and generic `workshift_with_kernel`.
+
+**Acceptance criteria.**
+- [ ] The restored direct arithmetic lives behind `DirectKernel` without a
+  numerical or scheduling change.
+- [ ] The scheduler contains no Mandelbrot iteration recurrence or
+  period-verification implementation.
+- [ ] A second kernel can reuse the same slot/queue/attention/backpressure
+  machinery by implementing `SeatKernel`.
+- [ ] Kernel dispatch does not regress first-publish or full-frame fitness.
+
+**Test.** `direct_kernel_preserves_scheduler_results`
+(`craftsmanship_tests.rs`) compares the compatibility path with explicit
+`DirectKernel` dispatch; the full craftsmanship suite pins all scheduler
+policies.

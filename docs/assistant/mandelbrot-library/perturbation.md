@@ -57,9 +57,9 @@ representative (Heiland-Allen, "Perturbation glitches", 2014):
   end and reproduces the v0.0.9 grid bit-for-bit; relative Δc subtracts exact IntExp first.
 - `src/floatexp.rs`: normalized f64 mantissa + i64 exponent for deep deltas and low-precision
   reference storage; tested nonzero at 2^-5000 and against rug arithmetic.
-- `src/reference.rs`: rug-computed/floatexp-stored resumable references; one high-precision
-  tail state; periodic and preperiodic cycles index indefinitely; escaping references remain
-  finite and honest.
+- `src/reference.rs`: rug-computed/floatexp-stored resumable references; constant-size
+  high-precision tail/cycle-detector state; periodic and preperiodic cycles index
+  indefinitely; escaping references remain finite and honest.
 - `src/perturb.rs`: the delta recurrence, bailout-circle loss-of-significance handling,
   Pauldelbrot glitch/unfinished outcomes, and differential tests against a precision-doubling
   rug oracle at depths through 2^-1500. The oracle must first represent the dyadic input

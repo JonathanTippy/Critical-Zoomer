@@ -1,4 +1,5 @@
 use rug::Float;
+use std::time::{Duration, Instant};
 
 use crate::floatexp::ComplexFloatExp;
 use crate::utils::IntExp;
@@ -32,6 +33,26 @@ fn stored(z: &(Float, Float)) -> ComplexFloatExp {
     )
 }
 
+enum CycleDetector {
+    Seeking {
+        tortoise: (Float, Float),
+        power: u32,
+        lam: u32,
+    },
+    AdvanceHare {
+        period: u32,
+        hare: (Float, Float),
+        remaining: u32,
+    },
+    FindPreperiod {
+        period: u32,
+        tortoise: (Float, Float),
+        hare: (Float, Float),
+        preperiod: u32,
+    },
+    Done,
+}
+
 /// A high-precision-computed, low-precision-stored reference orbit.
 ///
 /// `state` is the sole retained high-precision iterate, making extension
@@ -44,11 +65,11 @@ pub struct ReferenceOrbit {
     pub period: Option<u32>,
     pub preperiod: u32,
     pub escaped: bool,
+    cycle_detector: CycleDetector,
 }
 
 impl ReferenceOrbit {
-    // r[impl cz.depth.reference-low-storage+1]
-    pub fn compute(c: &(IntExp, IntExp), precision_bits: u32, max_iterations: u32) -> Self {
+    pub fn start(c: &(IntExp, IntExp), precision_bits: u32) -> Self {
         let precision_bits = precision_bits.max(53);
         let c = (
             intexp_to_float(&c.0, precision_bits),
@@ -58,7 +79,7 @@ impl ReferenceOrbit {
             Float::with_val(precision_bits, 0),
             Float::with_val(precision_bits, 0),
         );
-        let mut out = Self {
+        Self {
             c,
             iterates: vec![stored(&state)],
             state,
@@ -66,38 +87,74 @@ impl ReferenceOrbit {
             period: None,
             preperiod: 0,
             escaped: false,
-        };
+            cycle_detector: CycleDetector::Seeking {
+                tortoise: (
+                    Float::with_val(precision_bits, 0),
+                    Float::with_val(precision_bits, 0),
+                ),
+                power: 1,
+                lam: 0,
+            },
+        }
+    }
+
+    // r[impl cz.depth.reference-low-storage+1]
+    pub fn compute(c: &(IntExp, IntExp), precision_bits: u32, max_iterations: u32) -> Self {
+        let mut out = Self::start(c, precision_bits);
         out.extend(max_iterations);
         out
     }
 
     pub fn extend(&mut self, additional_iterations: u32) {
+        self.extend_inner(additional_iterations, None);
+    }
+
+    /// Extend for at most `additional_iterations`, yielding once the wall-clock
+    /// budget expires. The retained tail makes the next call resume exactly
+    /// where this one stopped.
+    // r[impl cz.depth.reference-bout-law+1]
+    pub fn extend_for(
+        &mut self,
+        additional_iterations: u32,
+        budget: Duration,
+    ) -> u32 {
+        self.extend_inner(additional_iterations, Some((Instant::now(), budget)))
+    }
+
+    fn extend_inner(
+        &mut self,
+        additional_iterations: u32,
+        deadline: Option<(Instant, Duration)>,
+    ) -> u32 {
         if self.period.is_some() || self.escaped {
-            return;
+            return 0;
         }
 
-        // Full-precision history is temporary and only needed to prove an
-        // exact preperiod/cycle during this bout. Stored history remains low.
-        let mut exact = Vec::with_capacity(additional_iterations as usize + 1);
-        exact.push((self.state.0.clone(), self.state.1.clone()));
-
+        let mut completed = 0;
         for _ in 0..additional_iterations {
-            let next = iterate(&self.state, &self.c, self.precision_bits);
-            let absolute_index = self.iterates.len() as u32;
-
-            if let Some(local_first) = exact.iter().position(|z| z.0 == next.0 && z.1 == next.1) {
-                let exact_start_index = absolute_index - exact.len() as u32 + local_first as u32;
-                self.preperiod = exact_start_index;
-                self.period = Some(absolute_index - exact_start_index);
-                self.state = next;
-                // The repeated endpoint is not stored; indexing wraps to the
-                // first identical value.
-                return;
+            if let Some((start, budget)) = deadline {
+                if start.elapsed() >= budget {
+                    break;
+                }
+            }
+            if !matches!(&self.cycle_detector, CycleDetector::Seeking { .. }) {
+                let finished = self.resolve_cycle_step();
+                completed += 1;
+                if finished {
+                    return completed;
+                }
+                continue;
             }
 
-            self.iterates.push(stored(&next));
+            let next = iterate(&self.state, &self.c, self.precision_bits);
+            let repeated = self.observe_cycle(&next);
             self.state = (next.0.clone(), next.1.clone());
-            exact.push(next);
+            if repeated {
+                completed += 1;
+                continue;
+            }
+            self.iterates.push(stored(&next));
+            completed += 1;
 
             let norm = Float::with_val(
                 self.precision_bits,
@@ -106,7 +163,95 @@ impl ReferenceOrbit {
             );
             if norm > 4 {
                 self.escaped = true;
-                return;
+                return completed;
+            }
+        }
+        completed
+    }
+
+    /// Advance the constant-memory exact cycle detector after one orbit step.
+    /// Returns true once Brent has found a candidate period; preperiod
+    /// resolution then continues in later bounded work units.
+    fn observe_cycle(&mut self, next: &(Float, Float)) -> bool {
+        let CycleDetector::Seeking {
+            tortoise,
+            power,
+            lam,
+        } = &mut self.cycle_detector
+        else {
+            return true;
+        };
+
+        *lam = lam.saturating_add(1);
+        if tortoise.0 == next.0 && tortoise.1 == next.1 {
+            let period = *lam;
+            self.cycle_detector = CycleDetector::AdvanceHare {
+                period,
+                hare: (
+                    Float::with_val(self.precision_bits, 0),
+                    Float::with_val(self.precision_bits, 0),
+                ),
+                remaining: period,
+            };
+            return true;
+        }
+        if *lam == *power {
+            *tortoise = (next.0.clone(), next.1.clone());
+            *power = power.saturating_mul(2);
+            *lam = 0;
+        }
+        false
+    }
+
+    /// Performs at most one constant-memory cycle-resolution work unit.
+    fn resolve_cycle_step(&mut self) -> bool {
+        match &mut self.cycle_detector {
+            CycleDetector::Seeking { .. } | CycleDetector::Done => false,
+            CycleDetector::AdvanceHare {
+                period,
+                hare,
+                remaining,
+            } => {
+                if *remaining > 0 {
+                    *hare = iterate(hare, &self.c, self.precision_bits);
+                    *remaining -= 1;
+                }
+                if *remaining == 0 {
+                    let tortoise = (
+                        Float::with_val(self.precision_bits, 0),
+                        Float::with_val(self.precision_bits, 0),
+                    );
+                    if tortoise.0 == hare.0 && tortoise.1 == hare.1 {
+                        self.period = Some(*period);
+                        self.preperiod = 0;
+                        self.cycle_detector = CycleDetector::Done;
+                        return true;
+                    }
+                    self.cycle_detector = CycleDetector::FindPreperiod {
+                        period: *period,
+                        tortoise,
+                        hare: (hare.0.clone(), hare.1.clone()),
+                        preperiod: 0,
+                    };
+                }
+                false
+            }
+            CycleDetector::FindPreperiod {
+                period,
+                tortoise,
+                hare,
+                preperiod,
+            } => {
+                *tortoise = iterate(tortoise, &self.c, self.precision_bits);
+                *hare = iterate(hare, &self.c, self.precision_bits);
+                *preperiod = preperiod.saturating_add(1);
+                if tortoise.0 == hare.0 && tortoise.1 == hare.1 {
+                    self.period = Some(*period);
+                    self.preperiod = *preperiod;
+                    self.cycle_detector = CycleDetector::Done;
+                    return true;
+                }
+                false
             }
         }
     }
@@ -123,6 +268,20 @@ impl ReferenceOrbit {
             return self.iterates.get(index as usize).copied();
         }
         self.iterates.get(n as usize).copied()
+    }
+
+    /// The floor reference: Z_n = 0 for all n, period 1.
+    ///
+    /// Delta iteration against this orbit is ordinary Mandelbrot arithmetic
+    /// in floatexp (`δz' = δz² + δc`). Same code path as any other reference.
+    // r[impl cz.ref.zero-orbit-same-path+1]
+    pub fn zero_orbit() -> Self {
+        let mut orbit = Self::start(&(IntExp::ZERO, IntExp::ZERO), 53);
+        orbit.period = Some(1);
+        orbit.preperiod = 0;
+        debug_assert_eq!(orbit.get(0), Some(ComplexFloatExp::ZERO));
+        debug_assert_eq!(orbit.get(1), Some(ComplexFloatExp::ZERO));
+        orbit
     }
 }
 
@@ -158,6 +317,49 @@ mod tests {
         let whole = ReferenceOrbit::compute(&c, 192, 18);
         assert_eq!(split.iterates, whole.iterates);
         assert_eq!(split.escaped, whole.escaped);
+    }
+
+    #[test]
+    // r[verify cz.depth.reference-bout-law+1]
+    fn bout_sliced_extension_matches_one_shot() {
+        let c = (IntExp::from(3).shift(-4), IntExp::from(1).shift(-3));
+        let mut split = ReferenceOrbit::start(&c, 192);
+        let mut remaining = 18;
+        while remaining > 0 {
+            let advanced = split.extend_for(remaining.min(3), Duration::from_secs(1));
+            assert!(advanced > 0);
+            remaining -= advanced;
+        }
+        let whole = ReferenceOrbit::compute(&c, 192, 18);
+        assert_eq!(split.iterates, whole.iterates);
+        assert_eq!(split.escaped, whole.escaped);
+    }
+
+    #[test]
+    fn zero_budget_does_no_work() {
+        let c = (IntExp::from(-1), IntExp::ZERO);
+        let mut orbit = ReferenceOrbit::start(&c, 128);
+        assert_eq!(orbit.extend_for(100, Duration::ZERO), 0);
+        assert_eq!(orbit.iterates.len(), 1);
+    }
+
+    #[test]
+    // r[verify cz.depth.reference-bout-law+1]
+    fn one_step_bouts_preserve_period_and_preperiod_detection() {
+        for c in [-1, -2] {
+            let coordinate = (IntExp::from(c), IntExp::ZERO);
+            let whole = ReferenceOrbit::compute(&coordinate, 128, 32);
+            let mut sliced = ReferenceOrbit::start(&coordinate, 128);
+            for _ in 0..32 {
+                sliced.extend_for(1, Duration::from_secs(1));
+                if sliced.period.is_some() {
+                    break;
+                }
+            }
+            assert_eq!(sliced.period, whole.period);
+            assert_eq!(sliced.preperiod, whole.preperiod);
+            assert_eq!(sliced.iterates, whole.iterates);
+        }
     }
 
     #[test]

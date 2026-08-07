@@ -165,6 +165,8 @@ pub fn get_points<
                 period: 0,
                 smallness_squared: 100.0.into(),
                 small_time: 0,
+                delta: None,
+                direct_only: false,
             })
         }
     }

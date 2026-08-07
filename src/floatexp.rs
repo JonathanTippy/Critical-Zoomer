@@ -39,19 +39,33 @@ impl FloatExp {
         if mantissa == 0.0 {
             return Self::ZERO;
         }
-        let mut m = mantissa;
-        let mut e = exponent;
-        while m.abs() >= 2.0 {
-            m *= 0.5;
-            e = e.checked_add(1).expect("FloatExp exponent overflow");
-        }
-        while m.abs() < 1.0 {
-            m *= 2.0;
-            e = e.checked_sub(1).expect("FloatExp exponent underflow");
-        }
+        // Extract the binary exponent directly. This is exactly the loop
+        // normalization below expressed in O(1): preserve sign/fraction, set
+        // the f64 exponent to zero, and carry its old exponent into `exponent`.
+        let bits = mantissa.to_bits();
+        let biased = ((bits >> 52) & 0x7ff) as i64;
+        let (m, adjustment) = if biased == 0 {
+            // A nonzero subnormal becomes normal after an exact 2^64 scale.
+            let scaled = mantissa * 18_446_744_073_709_551_616.0;
+            let scaled_bits = scaled.to_bits();
+            let scaled_biased = ((scaled_bits >> 52) & 0x7ff) as i64;
+            (
+                f64::from_bits(
+                    (scaled_bits & !(0x7ffu64 << 52)) | (1023u64 << 52),
+                ),
+                scaled_biased - 1023 - 64,
+            )
+        } else {
+            (
+                f64::from_bits((bits & !(0x7ffu64 << 52)) | (1023u64 << 52)),
+                biased - 1023,
+            )
+        };
         Self {
             mantissa: m,
-            exponent: e,
+            exponent: exponent
+                .checked_add(adjustment)
+                .expect("FloatExp exponent overflow"),
         }
     }
 
@@ -96,21 +110,31 @@ impl FloatExp {
         if self.exponent < i32::MIN as i64 {
             return 0.0_f64.copysign(self.mantissa);
         }
-        self.mantissa * 2.0f64.powi(self.exponent as i32)
+        let biased = self.exponent + 1023;
+        if biased >= 0x7ff {
+            return if self.mantissa.is_sign_negative() {
+                f64::NEG_INFINITY
+            } else {
+                f64::INFINITY
+            };
+        }
+        if biased <= 0 {
+            if self.exponent < -1074 {
+                return 0.0_f64.copysign(self.mantissa);
+            }
+            // Keep the scale normal until the final multiply so `powi` cannot
+            // underflow before the mantissa participates.
+            return (self.mantissa
+                * 2.0f64.powi((self.exponent + 1022) as i32))
+                * f64::MIN_POSITIVE;
+        }
+        self.mantissa * f64::from_bits((biased as u64) << 52)
     }
 }
 
 impl From<f64> for FloatExp {
     fn from(value: f64) -> Self {
-        if value == 0.0 {
-            return Self::ZERO;
-        }
-        assert!(
-            value.is_finite(),
-            "FloatExp cannot represent non-finite values"
-        );
-        let exponent = value.abs().log2().floor() as i64;
-        Self::new(value / 2.0f64.powi(exponent as i32), exponent)
+        Self::new(value, 0)
     }
 }
 
@@ -189,8 +213,9 @@ impl Add for FloatExp {
             if shift > 54 {
                 return self;
             }
+            let scale = f64::from_bits(((1023 - shift) as u64) << 52);
             Self::new(
-                self.mantissa + rhs.mantissa * 2.0f64.powi(-(shift as i32)),
+                self.mantissa + rhs.mantissa * scale,
                 self.exponent,
             )
         } else {
@@ -222,12 +247,20 @@ impl Mul for FloatExp {
         if self.mantissa == 0.0 || rhs.mantissa == 0.0 {
             return Self::ZERO;
         }
-        Self::new(
-            self.mantissa * rhs.mantissa,
-            self.exponent
-                .checked_add(rhs.exponent)
-                .expect("FloatExp exponent overflow"),
-        )
+        let product = self.mantissa * rhs.mantissa;
+        let mut exponent = self
+            .exponent
+            .checked_add(rhs.exponent)
+            .expect("FloatExp exponent overflow");
+        let mantissa = if product.abs() >= 2.0 {
+            exponent = exponent
+                .checked_add(1)
+                .expect("FloatExp exponent overflow");
+            product * 0.5
+        } else {
+            product
+        };
+        Self { mantissa, exponent }
     }
 }
 
@@ -303,7 +336,45 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
 
+    fn slow_normalize(mantissa: f64, exponent: i64) -> FloatExp {
+        assert!(mantissa.is_finite());
+        if mantissa == 0.0 {
+            return FloatExp::ZERO;
+        }
+        let mut m = mantissa;
+        let mut e = exponent;
+        while m.abs() >= 2.0 {
+            m *= 0.5;
+            e += 1;
+        }
+        while m.abs() < 1.0 {
+            m *= 2.0;
+            e -= 1;
+        }
+        FloatExp {
+            mantissa: m,
+            exponent: e,
+        }
+    }
+
     proptest! {
+        #[test]
+        fn constant_time_normalization_matches_loop(
+            mantissa in any::<f64>().prop_filter("finite", |v| v.is_finite()),
+            exponent in -10_000i64..10_000,
+        ) {
+            prop_assert_eq!(FloatExp::new(mantissa, exponent), slow_normalize(mantissa, exponent));
+        }
+
+        #[test]
+        fn f64_round_trip_is_exact(value in any::<f64>().prop_filter("finite", |v| v.is_finite())) {
+            if value == 0.0 {
+                prop_assert_eq!(FloatExp::from(value), FloatExp::ZERO);
+            } else {
+                prop_assert_eq!(FloatExp::from(value).to_f64().to_bits(), value.to_bits());
+            }
+        }
+
         // r[verify cz.depth.floatexp-range+1]
         #[test]
         fn add_and_multiply_agree_with_rug(

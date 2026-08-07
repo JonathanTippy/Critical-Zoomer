@@ -1,8 +1,11 @@
 # Depth design: perturbation with a background reference worker
 
-Status: **core implemented and isolated; actor/workgroup integration not started.** The
-floatexp, fail-closed c generator, resumable reference orbit, perturbed iterator, and
-differential oracle live in `src/`; see `../tracey/depth-rules.md`. Grounded in `../mandelbrot-library/`
+Status: **milestone 2 (delta kernel) implemented in f64-valid views.**
+The floatexp, fail-closed c generator, resumable reference orbit, perturbed iterator,
+differential oracle, worker/kernel seam, background reference actor, and
+`PerturbationKernel` (one production path, zero-orbit floor) live in `src/`;
+see `../tracey/depth-rules.md`. Deep-zoom `WorkContext<FloatExp>` type switch is
+milestone 3. Grounded in `../mandelbrot-library/`
 (`perturbation.md`, `series-approximation.md`, `numerics-and-precision.md`,
 `reference-orbit-strategy.md`, `period-and-interiority.md`) and constrained by
 `workgroup-virtues.md` and the authoritative requirements. Nothing here may re-break the
@@ -89,10 +92,13 @@ The orbit is *computed* at full precision but each iterate is **stored rounded t
 (~16 bytes per iterate, constant regardless of depth). The deltas only read the reference at
 low precision; depth lives in the delta exponents.
 
-The worker retains exactly **one high-precision value**: the current iterate. That buys
-**resumability** — the orbit can be extended later (tenacious: deeper iteration on demand,
-`r[cz.tenacious.no-max-iter+1]`) without recomputing from scratch. Discarding the
-high-precision tail would make every extension a full recompute.
+The worker retains a **constant-size high-precision state**: the current
+iterate plus Brent cycle-detector cursors. That buys resumability — including
+exact period/preperiod detection across 10ms bout boundaries — without keeping
+an unbounded full-precision orbit history. The orbit can be extended later
+(tenacious: deeper iteration on demand, `r[cz.tenacious.no-max-iter+1]`) without
+recomputing from scratch. Discarding the high-precision tail would make every
+extension a full recompute.
 
 A 1M-iterate reference is ~16 MB stored. Reference *count* is therefore not the scarce
 resource; orbit *length* (worker compute time) is.
@@ -136,6 +142,10 @@ workgroup keeps it honest (virtues §5: provisional answers never masquerade as 
 
 ## What the workgroup changes look like
 
+- The proven scheduler calls a narrow `SeatKernel` interface. `DirectKernel`
+  preserves the restored arithmetic; the perturbation path lands as a second
+  kernel, not a rewrite of slots, queues, attention, delivery, or wall-clock
+  policy.
 - `Point` gains delta-orbit state (Δz as floatexp pair, reference generation id); c remains
   the IntExp-derived truth. Points iterate as deltas against the currently published
   reference; the per-pixel path stays f64-speed or faster.
@@ -213,6 +223,10 @@ finds, as with the views and craftsmanship suites.
   fitness workloads).
 - Whether reference *extension* (longer orbit, same location) should preempt a pending
   retarget or queue behind it — leaning preempt, since tenacity outranks speculation.
+- **Mid-view reference extension** is not yet requested: seats deeper than the published
+  orbit rotate unfinished until the next pivot re-requests. Decide whether the screen
+  worker should emit an extend request when unfinished seats accumulate past the orbit
+  length (milestone 3 adjacency).
 
 ## Traceability
 

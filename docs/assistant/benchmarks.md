@@ -58,6 +58,25 @@ Benchmarks vary run to run; this is not an exact science and that's fine.
 | time_to_first_publish (attention-first spiral) | 52.50 ms (51.01–53.95 ms; +27% vs stencil-only — attention fills center before easy perimeter) | 2026-08-07 | post-feature working tree | same |
 | time_to_full_frame (attention-first spiral) | 227.36 ms (225.59–229.16 ms; −29% vs stencil-only) | 2026-08-07 | post-feature working tree | same |
 | full_stack_ips (attention-first spiral) | ~5.4e7 (10,302,563 iterations, 18–19 typical shifts) | 2026-08-07 | post-feature working tree | same |
+| time_to_first_publish (kernel seam + reference actor) | 39.30 ms (39.09–39.51 ms; −5.8% vs prior sample) | 2026-08-07 | post-feature working tree | same |
+| time_to_full_frame (kernel seam + reference actor) | 227.87 ms (226.17–229.37 ms; unchanged vs attention-first) | 2026-08-07 | post-feature working tree | same |
+| full_stack_ips (kernel seam + reference actor) | ~5.0–5.4e7 (10,302,563 iterations, 19–20 shifts) | 2026-08-07 | post-feature working tree | same |
+| worker_1080p_full_frame (isolated direct worker) | 688.09 ms (681.07–694.68 ms) | 2026-08-07 | post-feature working tree | 1920×1080 home view; excludes remap and shaders |
+| time_to_first_publish (perturbation path / zero-orbit floor) | 83.28 ms (80.81–85.78 ms; +112% vs last direct-kernel row) | 2026-08-07 | post-feature working tree | same |
+| time_to_full_frame (perturbation path / zero-orbit floor) | 3.260 s (3.230–3.289 s; ~14× vs last direct-kernel row) | 2026-08-07 | post-feature working tree | same |
+| full_stack_ips (perturbation path / zero-orbit floor) | ~3.2e6 (10,302,566 iterations, ~300–310 shifts) | 2026-08-07 | post-feature working tree | same |
+| worker_1080p_full_frame (perturbation path / zero-orbit floor) | 4.898 s (4.767–5.043 s; ~7× vs direct) | 2026-08-07 | post-feature working tree | 1920×1080 home view |
+
+### Perturbation-path note (2026-08-07)
+
+The fitness bench drives `workshift` with no published reference, so every seat runs
+the **zero-orbit floor** through floatexp delta arithmetic — the only production path
+(`r[cz.perf.one-kernel-path+1]`). The ~14× full-frame regression versus the last
+direct-kernel row is therefore the measured floatexp overhead on f64-valid views, not a
+scheduler regression (same iteration count). That overhead is the optimization target:
+there is no faster hidden path to retreat to. Next levers: FloatExp hot-path work, and
+measuring the same bench with a preinstalled published reference (closer to headed
+operation once the reference actor has published).
 
 Pre-change test baseline: `cargo test` ran 39 tests; 38 passed and only the known
 `assemblies::views::zoom_in_associativity_test` failed, reproducing
@@ -85,3 +104,14 @@ Attention-first spiral makes slot 0 foveate from screen center (home bench has `
 None`). First publish is ~27% slower than stencil-only (center seats are harder than the old
 scredge perimeter) but still well under the pre-stencil baseline; full-frame improves ~29%
 as the spiral + queue mix finishes the home view in fewer shifts.
+
+The statically dispatched `SeatKernel` seam adds no measurable cost: full-frame remains at
+the attention-first baseline and first publish improved in this sample. The background
+reference actor is not active in the isolated workgroup fitness harness, as intended; its
+wiring does not alter direct-kernel scheduling.
+
+The isolated 1920×1080 worker takes ~688ms versus ~228ms at the default
+854×480 resolution: about 3.0× wall time for 5.1× pixels. Worker catch-up is
+therefore one real contributor to the reported sluggishness, but the
+sub-linear scaling does not support blaming the scheduler or view/remap design.
+The remap and shader portions still require separate headed profiling.

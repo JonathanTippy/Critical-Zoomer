@@ -172,8 +172,11 @@ orbit exists; when no better reference is available that const orbit is used on
 the same code path (no alternate algorithm branch).
 
 **Acceptance criteria.**
-- **SUSPENDED** until reference orbits return. The single-path principle is recorded so it is
-  not re-lost.
+- [x] `ReferenceOrbit::zero_orbit` is the floor reference (Z_n = 0, period 1).
+- [x] `PerturbationKernel` uses it when no published reference exists and for
+  `direct_only` (post-glitch) seats — same delta recurrence, never `DirectKernel`.
+- [x] `zero_orbit_center_reports_period_one`,
+  `zero_orbit_floor_matches_direct_kernel_escape_times`.
 
 r[cz.pub.gpu-native-work+1]
 
@@ -191,3 +194,15 @@ change when panning vs stationary; sampling shader always the same path.
 **Acceptance criteria.**
 - [ ] STANDS as a bar; re-verify on the restored headgroup. v0.0.9's single publish path and
   shared remap transform are the mechanism that makes this achievable.
+
+r[cz.perf.one-kernel-path+1]
+
+**Normative summary.** Exactly one numerical kernel is constructed on the
+production path. Easier conditions (no published reference, shallow zoom,
+post-glitch seats) change the *reference* (current → previous → zero orbit),
+never the algorithm. `DirectKernel` is test-only.
+
+**Acceptance criteria.**
+- [x] `workshift` constructs `PerturbationKernel` only; `DirectKernel` is `#[cfg(test)]`.
+- [x] Zero-orbit floor and `direct_only` seats run the same delta code.
+- [x] Parity proptest vs the test-only oracle; benches measure the shipping path.

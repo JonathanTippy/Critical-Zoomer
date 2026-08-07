@@ -25,17 +25,19 @@ Developer acceptance test failed on the tile machine. Most items were tile-era i
 
 ## True bugs (open)
 
-- Re-verify headed: home render, scroll zoom, drag, resize, settings layers, bailout slider.
+- Re-verify headed: resize, settings layers, bailout slider. (2026-08-07: home render, scroll zoom, and drag verified normal headed after the kernel-seam + reference-actor wiring.)
 
 ## Known issues (open)
 
 - **Resolution changes not handled well.** v0.0.9 responds poorly to screen resolution changes — mostly going fullscreen / to a larger window. Suspected capacity issue somewhere (possibly channel capacities; never diagnosed). The stencil-only Replace + lazy seat init removes the ~47 MB per-pivot context transfer that was a plausible contributor; leave open pending headed verify that resize behavior improved. Channel capacities may still need attention. Does not break the four guarantees or the design.
+- **High-res viewport lag (1080p) — display path, not worker fill speed.** Developer clarification (2026-08-07): the symptom is that everything under the viewport *feels sluggish and gets behind* — the pipeline accumulates lag — not that the worker fills the frame too slowly. Worker fill speed is at most a separate issue (isolated 1080p home frame: **688 ms** vs **228 ms** at 854×480; sub-linear vs pixel count). Prime suspects are per-frame repeated costs on the display path, each multiplied by 2.07M pixels at 1080p: the escaper's full-frame CPU pass (~8ms cadence, incl. neighbor scans + extra iterations), the colorer's multiple full-image passes plus frame-sized clone/allocation, and the window's full sampling pass plus pixel-buffer allocation, texture recreation/upload, and forced repaint. Per-pivot remapping also a candidate. None measured yet; profile each stage at 1920×1080 (escaper / colorer / sampler / texture upload / final frame time) before any redesign. Channel capacity and view/remap are not established causes. App otherwise verified working normally headed (2026-08-07).
 - **Out-filament highlighting absent where verification is difficult.** After period correctness fixes, cloudy false positives are gone, but difficult areas can remain period 0 (unknown); unknown periods correctly create no out-filaments, so highlighting is absent there. Do not fix by publishing guessed periods. The resolution is stronger verification/continuation so difficult interior points eventually get verified periods.
 
 ## Design gaps (open)
 
+- **Depth integration — NEXT is deep-zoom type switch** (milestone 3): Milestone 2 is live — `PerturbationKernel` is the sole production numerical path (zero-orbit floor when no reference / post-glitch); `DirectKernel` is test-only; published references install into `WorkContext` with generation-guarded delta restarts. Parity vs the direct oracle holds on f64-valid views. Next: `WorkContext<FloatExp>` when `CGenerator::<f64>` fails closed, plus consumer audit of `CompletedPoint` through escaper/colorer. Design: `design/depth-design.md`, grounded in `mandelbrot-library/`.
+- **Display-path latency profiling.** The high-res lag is a *display pipeline* problem (see Known issues): measure per-stage per-frame cost at 1920×1080 — escaper, colorer, window sampling, texture allocation/upload, repaint cadence — to find where backlog accumulates. Do not assume view/remap is the dominant contributor. Defer until after the deep-zoom type-switch milestone (or run in parallel if headed profiling is available).
 - **GPU port of the golden design** (`docs/assistant/design/design-target.md`): views not tiles, full remap of old work, v0.0.9 semantics on GPU. Not started; design must follow `docs/assistant/design/workgroup-virtues.md`.
-- **Depth integration** (perturbation, reference orbits, arbitrary precision): the isolated core now exists (`floatexp.rs`, `reference.rs`, `perturb.rs`, fail-closed `c_generator.rs`) and is differential-tested past f64 depth, but is not wired into actors or the workgroup. Design: `design/depth-design.md` (background reference worker, fallback chain, series approximation follow-on), grounded in `mandelbrot-library/`. Next: reference worker actor with one live target and small interruptible bouts; then Point delta state/fallback-chain integration without changing the golden queues or publish protocol.
 - **Certified `Boundary` completion state.** Dyadic pixel centers can only hit algebraically certifiable boundary parameters: exact parabolic points via rational cycle/multiplier checks, and Misiurewicz points via exact preperiodic repetition. Add a third completion state and separate coloring; do not impose an app effort cap. Explicitly deferred from the perturbation-core round, not forgotten.
 - **Lookahead/hoard across mags**: v0.0.9 remaps one screen only. The tile era's thin-tower lookahead failed by fragmenting the truth store; any future lookahead must extend the remap discipline, not replace it (virtues §3, §11).
 - **Headgroup/shadergroup test strategy** (open problem): the workgroup now has property tests bound to its craftsmanship rules; the headgroup does not. The screenshot harness is the only net for visual bugs but needs use on every edit and image-description trust is imperfect; oracles can rot when output legitimately changes; the only known visual property so far is real-axis reflection symmetry. Needs a stronger strategy before the GPU shade port — the shadergroup was cut back last time partly for lack of tests.
@@ -61,6 +63,9 @@ Not bugs; provisional mechanisms that shipped because they beat nothing. None is
 
 ## Done (recent)
 
+- Perturbation delta kernel (milestone 2): `PerturbationKernel` is the only production
+  path; zero-orbit floor; glitch → `direct_only` via same code; generation-guarded
+  restarts; `DirectKernel` test-only. Parity tests green on f64-valid views.
 - In-filament detection now carries the Mandelbrot derivative through remap and extrapolates
   the escape field across the four screen neighbors before applying the existing one-pixel
   peak test. Derivative, convergence, and 2x/4x ridge-survival tests are green. Pending headed

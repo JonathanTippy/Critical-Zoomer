@@ -111,6 +111,17 @@ e2e_assert_not_flat_grey() {
   fi
 }
 
+e2e_assert_rmse_below() {
+  local a="$1" b="$2" max="$3" label="${4:-baseline}"
+  local r
+  r=$(e2e_rmse_num "$a" "$b")
+  if awk -v r="$r" -v m="$max" 'BEGIN{exit !(r+0 <= m+0)}'; then
+    e2e_pass "$label RMSE=$r (<=$max)"
+  else
+    e2e_fail_msg "$label RMSE=$r (max $max)"
+  fi
+}
+
 # Left mid-viewport must show structure (set/boundary). Right crop sits on the
 # exterior banding (not the far-right escape-1 plateau, which under the default
 # sinus wash is the same mid-grey as NORES and is not a fill failure).

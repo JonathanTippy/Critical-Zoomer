@@ -28,8 +28,7 @@ fn run_big<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> R {
 
 /// Builds the home-view context the same way the worker does on Replace:
 /// controller frame_info → from_stencil → lazy seat init on start.
-fn home_context() -> WorkContext<f64> {
-    let res = DEFAULT_WINDOW_RES;
+fn home_context_res(res: (u32, u32)) -> WorkContext<f64> {
     // Live path: window flips imag into the stencil, controller flips again into
     // frame_info — for HOME that lands frame_info.pos == HOME (real, imag, zoom).
     // from_stencil flips once more to recover the compute-grid origin.
@@ -44,6 +43,10 @@ fn home_context() -> WorkContext<f64> {
         res,
     );
     from_stencil(frame_info, None).expect("home view must admit an f64 grid")
+}
+
+fn home_context() -> WorkContext<f64> {
+    home_context_res(DEFAULT_WINDOW_RES)
 }
 
 fn drain(ctx: &mut WorkContext<f64>) -> usize {
@@ -118,5 +121,36 @@ fn time_to_full_frame(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, time_to_first_publish, time_to_full_frame);
+/// Diagnostic for the open 1080p issue: isolates worker scaling from remap and
+/// shader costs, so the issue is not attributed to view/remap by assumption.
+fn worker_1080p_full_frame(c: &mut Criterion) {
+    let mut group = c.benchmark_group("workgroup_resolution");
+    group.sample_size(10);
+    group.bench_function("worker_1080p_full_frame", |b| {
+        b.iter(|| {
+            run_big(|| {
+                let mut ctx = home_context_res((1920, 1080));
+                let start = Instant::now();
+                let mut shifts = 0u32;
+                while !frame_complete(&ctx) {
+                    workshift(0, 0, 0, 0, &mut ctx);
+                    drain(&mut ctx);
+                    shifts += 1;
+                    if shifts > 1_000_000 {
+                        panic!("1080p frame did not complete");
+                    }
+                }
+                black_box((start.elapsed(), shifts))
+            })
+        });
+    });
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    time_to_first_publish,
+    time_to_full_frame,
+    worker_1080p_full_frame
+);
 criterion_main!(benches);

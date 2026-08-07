@@ -49,6 +49,15 @@ else
   e2e_fail_msg "home lacks structure stdev=$HOME_STDEV"
 fi
 e2e_assert_few_gray_holes "$E2E_OUT/vis_home_final.png" 2
+# Product oracle: cropped viewport must match the known-good home baseline.
+BASELINE="$ROOT/scripts/baseline_home_final.png"
+if [ -f "$BASELINE" ]; then
+  CROP_DIR=$(mktemp -d)
+  convert "$BASELINE" -gravity Center -crop 720x340+0+0 +repage "$CROP_DIR/baseline_crop.png"
+  convert "$E2E_OUT/vis_home_final.png" -gravity Center -crop 720x340+0+0 +repage "$CROP_DIR/current_crop.png"
+  e2e_assert_rmse_below "$CROP_DIR/baseline_crop.png" "$CROP_DIR/current_crop.png" 12000 "home-baseline-crop"
+  rm -rf "$CROP_DIR"
+fi
 e2e_assert_center_structure "$E2E_OUT/vis_home_final.png" 2500
 e2e_assert_side_structure "$E2E_OUT/vis_home_final.png" 1200
 
