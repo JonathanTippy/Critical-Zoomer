@@ -501,6 +501,7 @@ pub fn workshift<T: Mandelbrotable + Sub<Output=T> + std::fmt::Debug + Add<Outpu
                     context.attention_current = Some(pos);
                     (pos, Step::Attention)
                 } else if let Some(p) = queue_fallback_pos(context, context.workshifts == 0) {
+                    // r[impl cz.craft.scredge-first-shift0+1]
                     p
                 } else {
                     context.index = total_points-1; break;

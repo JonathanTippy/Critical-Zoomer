@@ -82,7 +82,7 @@ When a stencil changes, the worker builds the next world from `frame_info` alone
 - **Four queues** — `scredge_poses`, `edge_queue`, `out_queue`, `in_queue`. All seeded empty except scredge. Queues are `VecDeque`s of `(position, difficulty-or-period)`.
 - **`attention`** — `Option<(i32, i32)>` from the pointer channel; `None` when the mouse is off the fractal screen. Spiral anchor defaults to screen center.
 - **`attention_anchor` / `attention_index`** — square-ring spiral state for slot 0.
-- **`motion`** — `Zoomed` / `Panned` / `Neither`; decides whether slot 0 leads with attention or edge.
+- **`motion`** — `Zoomed` / `Panned` / `Neither`; decides whether slot 0 leads with attention or scredge.
 - **counters** — tokens, iterations, bouts, workshifts, percent.
 
 Note the queue entries carry a **cost estimate** (iterations of the neighbor that spawned them, or period for interior floods). The current scheduling order does not sort by it — but it is captured at the source, for free, as a byproduct of having just iterated the neighbor. The design leaves hooks without paying for them.
@@ -202,11 +202,14 @@ When a bout does *not* finish its seat:
 Slot 0 runs an **attention spiral**: a square-ring walk outward from the live
 cursor (`Option<(i32,i32)>` on the attention channel). `Some` restarts the spiral
 at that seat; `None` (pointer off the fractal screen) anchors at screen center.
-Each attention bout advances a persistent index, skipping delivered and
-off-screen seats, so the fovea fills deterministically instead of re-picking
-finished seats. When the spiral is exhausted (or the per-bout scan budget is
-spent), the slot falls through to the ordinary queues — with scredge preferred
-on the context's first shift. `r[cz.craft.attention-spiral+1]`
+Tenacity is *state*, not call depth: the seat under work is held in
+`attention_current`, and each attention bout is bounded by `BoutCap` like every
+other phase — the worker may never make an unbounded call. When the held seat
+completes (or is found delivered), the hold releases and the spiral advances,
+skipping delivered and off-screen seats, so the fovea fills deterministically
+instead of re-picking finished seats. When the spiral is exhausted, the slot
+falls through to the ordinary queues — with scredge preferred on the context's
+first shift. `r[cz.craft.attention-spiral+1]` `r[cz.craft.bout-cap+1]`
 
 ---
 
@@ -302,7 +305,11 @@ Details that are easy to miss and were clearly earned (each bound to its code si
 - **Difficulty/period carried in queue entries** — cost metadata captured free at the source. `r[cz.craft.cost-metadata+1]`
 - **Shuffle-per-resolution mixmap** — anti-banding randomized traversal, rebuilt exactly when it must be. `r[cz.craft.mixmap-shuffle+1]`
 - **Scredge first on shift-0 fallthrough** — motion edges proven at frame birth when attention yields nothing. `r[cz.craft.scredge-first-shift0+1]`
-- **Attention spiral first** — foveated square-ring walk owns slot 0. `r[cz.craft.attention-spiral+1]`
+- **Attention spiral first** — foveated square-ring walk owns slot 0; tenacity held in `attention_current`, bouts capped. `r[cz.craft.attention-spiral+1]`
+- **Pan/zoom slot 0** — attention leads on Zoomed/Neither; scredge leads on the first shift of a pan. `r[cz.craft.pan-zoom-slot0+1]`
+- **Bout cap** — no unbounded call; every bout bounded by `BoutCap`/`MAX_BOUT`. `r[cz.craft.bout-cap+1]`
+- **Screen-space derivative edges** — `is_in_filament` extrapolates the escape field; flat and ±1 raw neighborhoods stay dark. `r[cz.craft.screen-space-derivative-edges+1]`
+- **Period derivative test** — verified periods via atom-domain candidate → Newton → multiplier. `r[cz.craft.period-derivative-test+1]`
 - **Out rotates, In doesn't** — asymmetric treatment of slow escapes vs slow repeats. `r[cz.craft.out-rotates-in-stays+1]`
 - **Provisional answers never mark delivered** — guesses never block truth. `r[cz.craft.provisional-not-delivered+1]`
 - **Undeliver-and-break on full buffer** — backpressure degrades to re-queue, never to loss (policy gold; fixed-array structure replaceable, §12). `r[cz.craft.undeliver-on-full+1]`
@@ -337,7 +344,8 @@ Every added capability after v0.0.9 (tiles, mags, batches, orbits, GPU) re-opene
 The closures above are the gold. These five remaining pieces are not — they were experiments that shipped because they beat the alternative of nothing, and each has a known better shape. None of the four guarantees depends on any of them; clean them up without fear, but keep the *need* each one was feeding.
 
 - **Attention spiral.** The user's gaze gets a scheduling class that walks outward from the
-  cursor (or screen center when the pointer is off-screen), skipping finished seats.
+  cursor (or screen center when the pointer is off-screen), skipping finished seats, and holds
+  the current seat in `attention_current` until it completes.
   `r[cz.craft.attention-spiral+1]`
 - **The `Stec` fixed array stack.** A stack is a fine discipline, but a `[T; 100000]` inline in the context object bakes a ceiling into the type and can overflow — the undeliver-and-break branch exists precisely to absorb that. A `Vec`, with allocations kept in mind (reserve once, reuse across contexts), gives the same boundedness policy and the same pop-from-end freshness order without the hard cap or the inline bulk.
 - **The completion staging buffer ("publish queue").** It is a second queue sitting in front of a queue — the `WorkUpdate` channel already stages and bounds messages. Its only distinct contributions are per-shift batching and the LIFO drain order, and both might be had from the channel directly. Possibly redundant; not obviously wrong. If it stays, it should stay *because* batching and freshness-order are demonstrably earning it, not by default.

@@ -194,6 +194,7 @@ attention drain; `inputs.rs` sends `Option`.
 `attention_holds_seat_across_bouts_until_complete`,
 `attention_releases_held_seat_delivered_elsewhere`,
 `spiral_skips_delivered_and_falls_through_when_exhausted`,
+`spiral_skips_offscreen_seats`,
 `set_attention_none_restores_center_anchor`.
 
 r[cz.craft.bout-cap+1]
@@ -210,7 +211,7 @@ iteration bout therefore takes a `BoutCap`, whose only constructor clamps to `MA
 - [ ] `BoutCap::new(u32::MAX)` equals `BoutCap::STANDARD`.
 - [ ] The sole production caller of `iterate_max_n_times` passes `BoutCap::STANDARD`.
 
-**Test.** `bout_cap_clamps_above_max`.
+**Test.** `bout_cap_clamps_above_max`, `attention_bout_on_hard_seat_never_exceeds_max_bout`.
 
 r[cz.craft.pan-zoom-slot0+1]
 
@@ -235,7 +236,8 @@ precedence when both change.
 **Test.** `from_stencil_classifies_zoom_pan_neither`,
 `pan_slot0_prefers_scredge_over_attention`,
 `pan_scredge_lead_only_on_first_shift`,
-`zoom_slot0_prefers_attention_over_scredge`.
+`zoom_slot0_prefers_attention_over_scredge`,
+`slots_one_to_four_ignore_motion`.
 
 r[cz.craft.out-rotates-in-stays+1]
 

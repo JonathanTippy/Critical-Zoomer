@@ -399,6 +399,50 @@ fn scredge_first_only_on_shift_zero() {
     });
 }
 
+// r[verify cz.craft.pan-zoom-slot0+1]
+#[test]
+fn slots_one_to_four_ignore_motion() {
+    run_big(|| {
+        // Motion only affects slot 0. For each of slots 1..=4, Panned and
+        // Zoomed contexts must make the same leading pick.
+        // Slot 1..=3 lead edge; slot 4 leads scredge.
+        for slot in 1u32..=4 {
+            let lead = if slot == 4 { (3, 1) } else { (2, 0) };
+            let lead_index = index_from_pos(&lead, (4u32, 2u32).0);
+            for motion in [Motion::Panned, Motion::Zoomed] {
+                let mut ctx = make_context(slot); // workshifts % 5 == slot
+                ctx.motion = motion;
+                ctx.scredge_poses.push_back((3, 1));
+                ctx.edge_queue.push_back(((2, 0), 0));
+                shift(&mut ctx);
+                assert!(
+                    ctx.points[lead_index].delivered || ctx.points[lead_index].iterations > 0,
+                    "slot {slot} with {:?} must start its queue lead seat", motion
+                );
+            }
+        }
+    });
+}
+
+// r[verify cz.craft.attention-spiral+1]
+#[test]
+fn spiral_skips_offscreen_seats() {
+    run_big(|| {
+        let mut ctx = make_context(0);
+        // Anchor at the corner; ring 1 walks off-screen on the negative side.
+        set_attention(&mut ctx, Some((0, 0)));
+        ctx.attention_index = 0;
+        // First on-screen seat the spiral returns must be in-bounds.
+        for _ in 0..16 {
+            if let Some(pos) = next_attention_spiral_pos(&mut ctx) {
+                assert!(pos.0 >= 0 && pos.1 >= 0
+                    && pos.0 < ctx.res.0 as i32 && pos.1 < ctx.res.1 as i32,
+                    "spiral returned off-screen {:?}", pos);
+            }
+        }
+    });
+}
+
 // verifies r[cz.craft.out-rotates-in-stays+1]
 // Note: the In arm's rotation is commented out in workshift.rs; the asymmetry
 // is currently latent (In seats are re-selected in place). This test pins the
@@ -462,6 +506,16 @@ fn full_buffer_undelivers_and_stops() {
         assert_eq!(ctx.completed_points.len, 100000, "nothing is lost");
         assert!(!ctx.points[index_from_pos(&(2, 0), ctx.res.0)].delivered,
             "backpressure degrades to re-queue: the point is un-delivered for a later shift");
+        // Drain one slot and confirm the re-queued seat completes later.
+        // The first completion flooded out_queue with (2,0)'s neighbors; use a
+        // fresh edge-first slot and clear out_queue so (2,0) is the lead again.
+        ctx.completed_points.len -= 1;
+        ctx.out_queue.clear();
+        ctx.workshifts = 1; // edge-first slot
+        ctx.edge_queue.push_back(((2, 0), 0));
+        shift(&mut ctx);
+        assert!(ctx.points[index_from_pos(&(2, 0), ctx.res.0)].delivered,
+            "the affected seat completes once the buffer has room");
     });
 }
 
@@ -730,10 +784,12 @@ fn set_attention_none_restores_center_anchor() {
         assert_eq!(ctx.attention_anchor, (3, 1));
         assert_eq!(ctx.attention_index, 0);
         ctx.attention_index = 17;
+        ctx.attention_current = Some((3, 1));
         set_attention(&mut ctx, None);
         assert_eq!(ctx.attention, None);
         assert_eq!(ctx.attention_anchor, (2, 1)); // 4x2 center
         assert_eq!(ctx.attention_index, 0, "anchor change restarts the spiral");
+        assert_eq!(ctx.attention_current, None, "anchor change drops the hold");
     });
 }
 
@@ -745,6 +801,32 @@ fn bout_cap_clamps_above_max() {
     assert_eq!(BoutCap::new(MAX_BOUT + 1).get(), MAX_BOUT);
     assert_eq!(BoutCap::new(u32::MAX).get(), MAX_BOUT);
     assert_eq!(BoutCap::STANDARD.get(), MAX_BOUT);
+}
+
+// r[verify cz.craft.bout-cap+1]
+#[test]
+fn attention_bout_on_hard_seat_never_exceeds_max_bout() {
+    run_big(|| {
+        // SLOW never completes inside a shift; the held-seat tenacity must
+        // still bound each bout to MAX_BOUT iterations (no unbounded call).
+        let mut ctx = make_context(0);
+        let hard = (3, 0); // SLOW
+        let idx = index_from_pos(&hard, ctx.res.0);
+        assert!(!ctx.points[idx].repeats && !ctx.points[idx].escapes);
+        set_attention(&mut ctx, Some(hard));
+        ctx.attention_index = 0;
+        ctx.attention_current = Some(hard);
+
+        // Drive many bouts directly (bypass the 10ms wall) and check the cap.
+        for _ in 0..5 {
+            let before = ctx.points[idx].iterations;
+            let mut p = ctx.points[idx].clone();
+            iterate_max_n_times(&mut p, 4.0f32.into(), ctx.pitch_epsilon, BoutCap::STANDARD);
+            let delta = p.iterations - before;
+            assert!(delta <= MAX_BOUT, "bout ran {delta} iterations (> {MAX_BOUT})");
+            ctx.points[idx] = p;
+        }
+    });
 }
 
 // r[verify cz.craft.pan-zoom-slot0+1]
