@@ -47,9 +47,7 @@ pub struct LiveTarget<T: Mandelbrotable> {
     pub frame_info: (ObjectivePosAndZoom, (u32, u32)),
 }
 
-/// Reopen seats delivered against an older reference generation. Live actors
-/// publish references asynchronously; without this, delivered=true seats never
-/// revisit start_seat after generation advances (B-SCH-3 black columns).
+/// Reopen seats delivered against an older reference generation (craftsmanship tests).
 // r[impl cz.depth.reference-generation-restart+1]
 pub fn invalidate_stale_deliveries<T: Mandelbrotable>(
     ctx: &mut WorkContext<T>,
@@ -76,11 +74,11 @@ pub fn invalidate_stale_deliveries<T: Mandelbrotable>(
 pub async fn run(
     actor: SteadyActorShadow,
     commands_in: SteadyRx<WorkerCommand>,
-    updates_out: SteadyTx<WorkUpdate<crate::floatexp::FloatExp>>,
+    updates_out: SteadyTx<WorkUpdate<f64>>,
     attention_in: SteadyRx<Option<(i32, i32)>>,
     reference_requests_out: SteadyTx<ReferenceRequest>,
     references_in: SteadyRx<PublishedReference>,
-    state: SteadyState<WorkerState<crate::floatexp::FloatExp>>,
+    state: SteadyState<WorkerState<f64>>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
@@ -101,11 +99,11 @@ pub async fn run(
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
     commands_in: SteadyRx<WorkerCommand>,
-    updates_out: SteadyTx<WorkUpdate<crate::floatexp::FloatExp>>,
+    updates_out: SteadyTx<WorkUpdate<f64>>,
     attention_in: SteadyRx<Option<(i32, i32)>>,
     reference_requests_out: SteadyTx<ReferenceRequest>,
     references_in: SteadyRx<PublishedReference>,
-    state: SteadyState<WorkerState<crate::floatexp::FloatExp>>,
+    state: SteadyState<WorkerState<f64>>,
 ) -> Result<(), Box<dyn Error>> {
 
     //actor.loglevel(LogLevel::Debug);
@@ -169,8 +167,7 @@ async fn internal_behavior<A: SteadyActor>(
             if !newest.orbit.escaped {
                 state.pending_reference = Some(newest.clone());
                 if let Some(live) = &mut state.work_context {
-                    live.context.latest_reference = Some(newest.clone());
-                    invalidate_stale_deliveries(&mut live.context, newest.generation);
+                    live.context.latest_reference = Some(newest);
                 }
             }
         }
@@ -186,9 +183,6 @@ async fn internal_behavior<A: SteadyActor>(
             match actor.try_take(&mut commands_in).unwrap() {
 
                 WorkerCommand::Replace{frame_info} => {
-                    if !stencil_admits_frame::<crate::floatexp::FloatExp>(&frame_info) {
-                        continue;
-                    }
                     // r[impl cz.craft.pivot-two-message-order+1]
                     // r[impl cz.craft.stencil-only-replace+2]
                     let request = select_reference_request(
@@ -205,30 +199,8 @@ async fn internal_behavior<A: SteadyActor>(
                         Some(mut live) => {
                             let old_zoom = live.frame_info.0.clone();
                             let U = work_update(&mut live.context);
-                            if !U.is_empty() {
-                                match actor.try_send(
-                                    &mut updates_out,
-                                    WorkUpdate {
-                                        frame_info: None,
-                                        completed_points: U,
-                                    },
-                                ) {
-                                    SendOutcome::Success => {}
-                                    SendOutcome::Blocked(WorkUpdate {
-                                        completed_points: batch,
-                                        ..
-                                    })
-                                    | SendOutcome::Timeout(WorkUpdate {
-                                        completed_points: batch,
-                                        ..
-                                    })
-                                    | SendOutcome::Closed(WorkUpdate {
-                                        completed_points: batch,
-                                        ..
-                                    }) => {
-                                        requeue_completions(&mut live.context, batch);
-                                    }
-                                }
+                            if U.len() > 0 {
+                                actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:U});
                             }
                             Some((live.context, old_zoom))
                         }
@@ -279,31 +251,12 @@ async fn internal_behavior<A: SteadyActor>(
         }
 
 
-        if let Some(live) = &mut state.work_context {
-            let batch = work_update(&mut live.context);
-            if !batch.is_empty() {
-                match actor.try_send(
-                    &mut updates_out,
-                    WorkUpdate {
-                        frame_info: None,
-                        completed_points: batch,
-                    },
-                ) {
-                    SendOutcome::Success => {}
-                    SendOutcome::Blocked(WorkUpdate {
-                        completed_points: batch,
-                        ..
-                    })
-                    | SendOutcome::Timeout(WorkUpdate {
-                        completed_points: batch,
-                        ..
-                    })
-                    | SendOutcome::Closed(WorkUpdate {
-                        completed_points: batch,
-                        ..
-                    }) => {
-                        requeue_completions(&mut live.context, batch);
-                    }
+        if state.total_workshifts % 1 == 0 {
+            if let Some(live) = &mut state.work_context {
+                let c = work_update(&mut live.context);
+                if c.len() > 0 {
+                    // r[impl cz.craft.emergent-cadence+1]
+                    actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:c});
                 }
             }
         }
@@ -318,6 +271,7 @@ fn work_update<T: Mandelbrotable>(ctx: &mut WorkContext<T>) -> Vec<(CompletedPoi
 
 
     //ctx.completed_points
+    let update_start = ctx.last_update;
     let mut returned = vec!();
     for _ in 0..ctx.completed_points.len {
         returned.push(ctx.completed_points.try_pop().unwrap())
@@ -326,22 +280,6 @@ fn work_update<T: Mandelbrotable>(ctx: &mut WorkContext<T>) -> Vec<(CompletedPoi
     ctx.completed_points = vec!();
     ctx.last_update = ctx.index;*/
     returned
-}
-
-/// Re-stage completions when the worker→collector channel is full. Draining
-/// before send without this requeue permanently orphans delivered seats as
-/// Dummy in the collector (B-SCH-3 rectangular black bands).
-// r[impl cz.craft.undeliver-on-full+1]
-fn requeue_completions<T: Mandelbrotable>(
-    ctx: &mut WorkContext<T>,
-    batch: Vec<(CompletedPoint<T>, usize)>,
-) {
-    for (point, index) in batch.into_iter().rev() {
-        ctx.points[index].delivered = false;
-        if !ctx.completed_points.try_push((point, index)) {
-            break;
-        }
-    }
 }
 
 #[inline]

@@ -8,11 +8,10 @@ use std::time::Duration;
 
 use steady_state::*;
 
-use crate::assemblies::workgroup::c_generator::Mandelbrotable;
 use crate::assemblies::workgroup::screen_worker::workshift::WorkContext;
+use crate::assemblies::workgroup::c_generator::{CGenerator, Mandelbrotable};
 use crate::constants::PIXELS_PER_UNIT_POT;
 use crate::reference::ReferenceOrbit;
-use crate::series::SeriesApproximation;
 use crate::utils::{IntExp, ObjectivePosAndZoom};
 
 #[derive(Clone)]
@@ -25,9 +24,6 @@ pub struct PublishedReference {
     pub orbit: ReferenceOrbit,
     pub c: (IntExp, IntExp),
     pub generation: u64,
-    /// Simple series coeffs for this orbit (same generation snapshot).
-    // r[impl cz.depth.series-approximation+1]
-    pub series: Option<SeriesApproximation>,
 }
 
 impl std::fmt::Debug for PublishedReference {
@@ -86,25 +82,11 @@ impl ReferenceWorkerState {
 
         let job = self.job.take().expect("completed job exists");
         self.generation = self.generation.wrapping_add(1);
-        let series = SeriesApproximation::from_orbit(&job.orbit, series_order_for(&job.orbit));
         Some(PublishedReference {
             orbit: job.orbit,
             c: job.request.c,
             generation: self.generation,
-            series,
         })
-    }
-}
-
-fn series_order_for(orbit: &ReferenceOrbit) -> usize {
-    // Plateau heuristic: modest order; grow slightly with orbit length, capped.
-    let len = orbit.iterates.len();
-    if len < 16 {
-        2
-    } else if len < 256 {
-        4
-    } else {
-        8
     }
 }
 
@@ -114,25 +96,50 @@ impl Default for ReferenceWorkerState {
     }
 }
 
+fn f64_to_intexp(value: f64) -> IntExp {
+    assert!(value.is_finite());
+    if value == 0.0 {
+        return IntExp::ZERO;
+    }
+    let bits = value.to_bits();
+    let negative = bits >> 63 != 0;
+    let biased = ((bits >> 52) & 0x7ff) as i32;
+    let fraction = bits & ((1u64 << 52) - 1);
+    let (significand, exponent) = if biased == 0 {
+        (fraction, -1074)
+    } else {
+        ((1u64 << 52) | fraction, biased - 1023 - 52)
+    };
+    let mut val = rug::Integer::from(significand);
+    if negative {
+        val = -val;
+    }
+    IntExp { val, exp: exponent }
+}
+
 fn objective_c(
     frame: &(ObjectivePosAndZoom, (u32, u32)),
     seat: u32,
     row: u32,
 ) -> (IntExp, IntExp) {
-    // Exact IntExp pitch for absolute plane locations (reference requests).
-    // Seat FloatExp samples are always relative to view center; this stays absolute.
-    // r[impl cz.depth.floatexp-host-coords+1]
     let compute_loc = (
         frame.0.pos.0.clone(),
         IntExp::ZERO - frame.0.pos.1.clone(),
     );
+    // Bit-identical to `CGenerator::get_c` on f64-valid grids (the live path).
+    if let Some(generator) = CGenerator::<f64>::new(
+        &compute_loc,
+        frame.0.zoom_pot as i64,
+        frame.1,
+    ) {
+        let (re, im) = generator.get_c((seat, row));
+        return (f64_to_intexp(re), f64_to_intexp(im));
+    }
     let exponent = frame.0.zoom_pot.saturating_add(PIXELS_PER_UNIT_POT);
     let pitch = IntExp::from(1).shift(exponent.saturating_neg());
-    // Seat/row counts must use exp-0 IntExp (`From<i32>`). `From<usize>` sets
-    // exp 1 and would double the pitch offset.
     (
-        compute_loc.0.clone() + pitch.clone() * IntExp::from(seat as i32),
-        compute_loc.1.clone() - pitch * IntExp::from(row as i32),
+        compute_loc.0.clone() + pitch.clone() * IntExp::from(seat as usize),
+        compute_loc.1.clone() - pitch * IntExp::from(row as usize),
     )
 }
 
@@ -327,22 +334,15 @@ mod tests {
     }
 
     #[test]
-    fn objective_c_matches_relative_generator_plus_anchor() {
+    fn objective_c_matches_c_generator_on_grid() {
         let f = frame();
-        let ctx = from_stencil::<crate::floatexp::FloatExp>(f.clone(), None).unwrap();
+        let ctx = from_stencil::<f64>(f.clone(), None).unwrap();
         for row in 0..f.1.1 {
             for seat in 0..f.1.0 {
                 let oc = objective_c(&f, seat, row);
                 let gc = ctx.c_generator.get_c((seat, row));
-                let abs = (
-                    crate::floatexp::FloatExp::from(ctx.coord_anchor.0.clone()) + gc.0,
-                    crate::floatexp::FloatExp::from(ctx.coord_anchor.1.clone()) + gc.1,
-                );
-                let oc_fe = (
-                    crate::floatexp::FloatExp::from(oc.0.clone()),
-                    crate::floatexp::FloatExp::from(oc.1.clone()),
-                );
-                assert_eq!(abs, oc_fe, "seat {seat} row {row}");
+                let oc_f = (f64::from(oc.0), f64::from(oc.1));
+                assert_eq!(oc_f, gc, "seat {seat} row {row}");
             }
         }
     }
@@ -351,7 +351,7 @@ mod tests {
     // r[verify cz.depth.reference-sticky-selection+1]
     fn selection_uses_deepest_completed_interior_then_center_fallback() {
         let f = frame();
-        let mut context = from_stencil::<crate::floatexp::FloatExp>(f.clone(), None).unwrap();
+        let mut context = from_stencil::<f64>(f.clone(), None).unwrap();
         context.points[1].delivered = true;
         context.points[1].repeats = true;
         context.points[1].iterations = 12;
@@ -362,7 +362,7 @@ mod tests {
         let selected = select_reference_request(Some((&context, &f)), &f);
         assert_eq!(selected.c, objective_c(&f, 3, 1));
 
-        let fallback = select_reference_request::<crate::floatexp::FloatExp>(None, &f);
+        let fallback = select_reference_request::<f64>(None, &f);
         assert_eq!(fallback.c, objective_c(&f, 2, 1));
     }
 
@@ -370,7 +370,7 @@ mod tests {
     // r[verify cz.depth.reference-coverage+1]
     fn sticky_selection_drops_interior_outside_new_view() {
         let old = frame();
-        let mut context = from_stencil::<crate::floatexp::FloatExp>(old.clone(), None).unwrap();
+        let mut context = from_stencil::<f64>(old.clone(), None).unwrap();
         context.points[7].delivered = true;
         context.points[7].repeats = true;
         context.points[7].iterations = 80;
@@ -408,7 +408,7 @@ mod tests {
     fn precision_is_chosen_once_from_new_view_depth() {
         let mut f = frame();
         f.0.zoom_pot = 1500;
-        let selected = select_reference_request::<crate::floatexp::FloatExp>(None, &f);
+        let selected = select_reference_request::<f64>(None, &f);
         assert_eq!(
             selected.precision_bits,
             crate::reference::bits_for_zoom(1500, PIXELS_PER_UNIT_POT)

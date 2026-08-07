@@ -10,6 +10,7 @@ use std::collections::VecDeque;
 
 use proptest::prelude::*;
 
+use super::perturb_kernel::PerturbationKernel;
 use super::work_update;
 use super::{invalidate_stale_deliveries, workshift::*};
 use crate::assemblies::headgroup::window::sampling::index_from_relative_location;
@@ -111,6 +112,23 @@ fn make_context(workshifts: u32) -> WorkContext<FloatExp> {
 fn shift(ctx: &mut WorkContext<FloatExp>) {
     // Scheduler tests isolate queue policy from production numerics.
     workshift_with_kernel(0, 0, 0, 0, ctx, &DirectKernel);
+}
+
+fn perturb_workshift(
+    day_token_allowance: u32,
+    iteration_token_cost: u32,
+    bout_token_cost: u32,
+    point_token_cost: u32,
+    context: &mut WorkContext<FloatExp>,
+) {
+    workshift_with_kernel(
+        day_token_allowance,
+        iteration_token_cost,
+        point_token_cost,
+        bout_token_cost,
+        context,
+        &PerturbationKernel,
+    );
 }
 
 #[test]
@@ -962,7 +980,6 @@ fn zoom_slot0_prefers_attention_over_scredge() {
 // ---------------------------------------------------------------------------
 
 use crate::assemblies::workgroup::reference_worker::{PublishedReference, select_reference_request};
-use crate::assemblies::workgroup::screen_worker::perturb_kernel::PerturbationKernel;
 use crate::constants::{DEFAULT_WINDOW_RES, HOME_POSITION};
 use crate::reference::ReferenceOrbit;
 use std::sync::Arc;
@@ -1037,7 +1054,7 @@ fn home_workshift_with_reference_matches_direct() {
                 break;
             }
             perturb.attention_index = 0;
-            workshift(0, 0, 0, 0, &mut perturb);
+            perturb_workshift(0, 0, 0, 0, &mut perturb);
             work_update(&mut perturb);
         }
         let mut mismatches = 0usize;
@@ -1471,7 +1488,7 @@ fn deep_frame_admitted_past_f64_collapse() {
             CGenerator::<f64>::new(&compute_loc, frame.0.zoom_pot as i64, frame.1).is_none(),
             "fixture must be past the plain-f64 wall"
         );
-        let ctx = from_stencil::<FloatExp>(frame, None);
+        let ctx = from_stencil_relative::<FloatExp>(frame, None);
         assert!(ctx.is_some(), "FloatExp host must admit past f64 collapse");
     });
 }
@@ -1483,22 +1500,24 @@ fn production_plane_coords_are_not_plain_f64() {
     let worker = include_str!("mod.rs");
     let shift = include_str!("workshift.rs");
     assert!(
-        kernel.contains("SeatKernel<FloatExp>") && kernel.contains("Point<FloatExp>"),
-        "production kernel must host FloatExp plane coords"
+        kernel.contains("SeatKernel<f64>") && kernel.contains("Point<f64>"),
+        "live actors must use f64 plane coords"
     );
     assert!(
-        worker.contains("WorkUpdate<crate::floatexp::FloatExp>")
-            || worker.contains("WorkUpdate<FloatExp>"),
-        "screen worker channel must carry FloatExp completions"
+        kernel.contains("mod floatexp_host") && kernel.contains("SeatKernel<FloatExp>"),
+        "depth tests must still exercise FloatExp host coords"
     );
     assert!(
-        shift.contains("WorkContext<crate::floatexp::FloatExp>")
-            || shift.contains("workshift(\n") && shift.contains("FloatExp"),
-        "production workshift must take FloatExp context"
+        worker.contains("WorkUpdate<f64>"),
+        "screen worker channel must carry f64 completions"
     );
     assert!(
-        !kernel.contains("to_delta_c(c: (f64, f64))"),
-        "kernel must not take plain f64 seat coordinates"
+        shift.contains("WorkContext<f64>"),
+        "production workshift must take f64 context"
+    );
+    assert!(
+        kernel.contains("to_delta_c(c: (f64, f64))"),
+        "live kernel must use plain f64 seat coordinates"
     );
 }
 
@@ -1572,7 +1591,7 @@ fn design_depth_zoom_pot_representable() {
         (8u32, 6u32),
     );
     assert!(
-        from_stencil::<FloatExp>(deep, None).is_some(),
+        from_stencil_relative::<FloatExp>(deep, None).is_some(),
         "FloatExp must admit deep-ish frames"
     );
 }
@@ -1627,7 +1646,7 @@ fn unfinished_synthetic_workshift_never_stalls() {
             }
             let before = seat_iter_sum(&ctx);
             let before_done = ctx.completed_points.len;
-            workshift(0, 0, 0, 0, &mut ctx);
+            perturb_workshift(0, 0, 0, 0, &mut ctx);
             if shift_made_progress(&ctx, before, before_done) {
                 zero_streak = 0;
             } else {
@@ -1665,7 +1684,7 @@ fn unfinished_home_workshift_never_stalls() {
             assert!(frame_unfinished(&ctx), "home must still be unfinished early");
             let before = seat_iter_sum(&ctx);
             let before_done = ctx.completed_points.len;
-            workshift(0, 0, 0, 0, &mut ctx);
+            perturb_workshift(0, 0, 0, 0, &mut ctx);
             if shift_made_progress(&ctx, before, before_done) {
                 zero_streak = 0;
             } else {
@@ -1688,7 +1707,7 @@ fn reference_install_mid_fill_keeps_shift_progress() {
         let frame = home_frame();
         let mut ctx = from_stencil(frame.clone(), None).expect("home");
         for _ in 0..3 {
-            workshift(0, 0, 0, 0, &mut ctx);
+            perturb_workshift(0, 0, 0, 0, &mut ctx);
             let _ = work_update(&mut ctx);
         }
         assert!(frame_unfinished(&ctx));
@@ -1709,7 +1728,7 @@ fn reference_install_mid_fill_keeps_shift_progress() {
             }
             let before = seat_iter_sum(&ctx);
             let before_done = ctx.completed_points.len;
-            workshift(0, 0, 0, 0, &mut ctx);
+            perturb_workshift(0, 0, 0, 0, &mut ctx);
             if shift_made_progress(&ctx, before, before_done) {
                 zero_streak = 0;
             } else {
@@ -1931,7 +1950,7 @@ fn unfinished_frame_never_zero_pps_streak() {
             if !frame_unfinished(&ctx) {
                 break;
             }
-            workshift(0, 0, 0, 0, &mut ctx);
+            perturb_workshift(0, 0, 0, 0, &mut ctx);
             let ppsish = ctx.total_points_today + ctx.total_iterations_today;
             if ppsish == 0 {
                 zero_pps += 1;
@@ -1963,7 +1982,7 @@ fn relative_abs_matches_absolute_generator_home() {
             frame.1,
         )
         .expect("home absolute FloatExp must admit");
-        let rel_ctx = from_stencil::<FloatExp>(frame, None).expect("relative shell");
+        let rel_ctx = from_stencil_relative::<FloatExp>(frame, None).expect("relative shell");
         let mut mism = 0usize;
         for row in 0..rel_ctx.res.1 {
             for seat in 0..rel_ctx.res.0 {
@@ -2047,7 +2066,7 @@ fn home_reference_arrival_reopens_stale_deliveries() {
             if ctx.percent_completed >= 35.0 {
                 break;
             }
-            workshift(16_000_000, 2, 4, 150, &mut ctx);
+            perturb_workshift(16_000_000, 2, 4, 150, &mut ctx);
             let _ = work_update(&mut ctx);
         }
         assert!(ctx.percent_completed > 10.0, "need partial zero-orbit fill");
@@ -2069,7 +2088,7 @@ fn home_reference_arrival_reopens_stale_deliveries() {
             if ctx.points.iter().all(|p| p.delivered) {
                 break;
             }
-            workshift(16_000_000, 2, 4, 150, &mut ctx);
+            perturb_workshift(16_000_000, 2, 4, 150, &mut ctx);
             let _ = work_update(&mut ctx);
         }
         assert!(
@@ -2098,7 +2117,7 @@ fn home_worker_no_vertical_repeat_columns() {
                 break;
             }
             ctx.attention_index = 0;
-            workshift(0, 0, 0, 0, &mut ctx);
+            perturb_workshift(0, 0, 0, 0, &mut ctx);
             work_update(&mut ctx);
         }
         assert!(
@@ -2150,7 +2169,7 @@ fn home_zero_orbit_floor_pipeline_no_vertical_black_columns() {
             if ctx.percent_completed >= 100.0 {
                 break;
             }
-            workshift(16_000_000, 2, 4, 150, &mut ctx);
+            perturb_workshift(16_000_000, 2, 4, 150, &mut ctx);
             let _ = work_update(&mut ctx);
         }
         assert!(
@@ -2344,7 +2363,7 @@ fn home_production_budget_pipeline_no_vertical_black_columns() {
             if ctx.percent_completed >= 100.0 {
                 break;
             }
-            workshift(TOKEN_BUDGET, ITER_COST, BOUT_COST, POINT_COST, &mut ctx);
+            perturb_workshift(TOKEN_BUDGET, ITER_COST, BOUT_COST, POINT_COST, &mut ctx);
             let _ = work_update(&mut ctx);
         }
         assert!(
@@ -2397,7 +2416,7 @@ fn home_incremental_collector_matches_worker_delivery() {
             if ctx.percent_completed >= 100.0 {
                 break;
             }
-            workshift(16_000_000, 2, 4, 150, &mut ctx);
+            perturb_workshift(16_000_000, 2, 4, 150, &mut ctx);
             for (point, index) in work_update(&mut ctx) {
                 collector_results[index] = point;
             }
@@ -2458,7 +2477,7 @@ fn home_pipeline_with_live_series_no_vertical_black_columns() {
             if ctx.percent_completed >= 100.0 {
                 break;
             }
-            workshift(16_000_000, 2, 4, 150, &mut ctx);
+            perturb_workshift(16_000_000, 2, 4, 150, &mut ctx);
             let _ = work_update(&mut ctx);
         }
         assert!(ctx.percent_completed >= 100.0);
@@ -2620,7 +2639,7 @@ fn home_pipeline_no_vertical_black_columns() {
                 break;
             }
             ctx.attention_index = 0;
-            workshift(0, 0, 0, 0, &mut ctx);
+            perturb_workshift(0, 0, 0, 0, &mut ctx);
             work_update(&mut ctx);
         }
         assert!(ctx.points.iter().all(|p| p.delivered));

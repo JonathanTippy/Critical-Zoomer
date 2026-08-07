@@ -174,10 +174,9 @@ pub fn get_points<
     out
 }
 
-/// Fail-closed stencil gate: unchanged views are suppressed; views whose
-/// FloatExp grid would collapse are suppressed. The worker builds the world
-/// from the stencil alone. Plain f64 is not used for live plane coordinates.
-// r[impl cz.depth.floatexp-host-coords+1]
+/// Fail-closed stencil gate: unchanged views are suppressed; views whose f64
+/// grid would collapse are suppressed. The worker builds the world from the
+/// stencil alone.
 fn should_send_replace(
     state: &mut WorkControllerState,
     frame_info: &(ObjectivePosAndZoom, (u32, u32)),
@@ -193,17 +192,8 @@ fn should_send_replace(
 
     // Compute-grid loc matches get_points / CGenerator: frame_info imag is
     // already display-flipped once; flip again for the arithmetic origin.
-    // One path: relative-to-center FloatExp only (same as from_stencil).
     let compute_loc = (obj.pos.0.clone(), IntExp::ZERO - obj.pos.1.clone());
-    let zoom = obj.zoom_pot as i64;
-    let center = crate::assemblies::workgroup::screen_worker::workshift::view_center_compute(
-        &compute_loc,
-        obj.zoom_pot,
-        res,
-    );
-    if CGenerator::<crate::floatexp::FloatExp>::new_relative(&compute_loc, &center, zoom, res)
-        .is_none()
-    {
+    if CGenerator::<f64>::new(&compute_loc, obj.zoom_pot as i64, res).is_none() {
         return false;
     }
 

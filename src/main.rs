@@ -20,7 +20,6 @@ pub mod range;
 pub mod constants;
 pub mod floatexp;
 pub mod reference;
-pub mod series;
 pub mod perturb;
 pub mod assemblies;
 
