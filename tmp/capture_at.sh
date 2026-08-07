@@ -15,8 +15,8 @@ cleanup() {
   # Belt-and-braces: kill any leftover app/Xvfb from this session so repeated
   # captures cannot leave zombie processes behind.
   pkill -f "critical_zoomer" 2>/dev/null || true
-  pkill -f "Xvfb.*capture_" 2>/dev/null || true
-  pkill -f "xvfb-run.*$(basename "$E2E_PREFIX")" 2>/dev/null || true
+  pkill -f "Xvfb" 2>/dev/null || true
+  pkill -f "xvfb-run" 2>/dev/null || true
 }
 trap cleanup EXIT
 taskset -c 4-11 xvfb-run -a -s "-screen 0 900x500x24" \
