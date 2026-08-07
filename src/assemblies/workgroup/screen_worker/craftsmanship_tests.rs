@@ -989,6 +989,8 @@ fn home_reference_request_matches_c_generator() {
     });
 }
 
+/// Shallow f64-valid data-flow check only: DirectKernel is not a deep-zoom
+/// oracle. Ground truth at depth is the rug precision-doubling oracle.
 #[test]
 fn home_workshift_with_reference_matches_direct() {
     run_big(|| {
@@ -1025,10 +1027,13 @@ fn home_workshift_with_reference_matches_direct() {
                 mismatches += 1;
             }
         }
-        assert_eq!(mismatches, 0, "perturbation path must match direct on home");
+        assert_eq!(
+            mismatches, 0,
+            "perturbation path must match direct on shallow home (data-flow)"
+        );
         assert!(
             direct.points.iter().all(|p| p.delivered),
-            "direct oracle must finish the home shell"
+            "direct shallow comparator must finish the home shell"
         );
     });
 }
@@ -1112,6 +1117,70 @@ fn zero_orbit_center_reports_period_one() {
     );
     assert!(ctx.points[0].repeats);
     assert_eq!(ctx.points[0].period, 1);
+}
+
+#[test]
+// r[verify cz.ref.zero-orbit-same-path+1 cz.depth.delta-kernel+1]
+fn zero_orbit_floor_matches_direct_kernel_escape_times() {
+    // Shallow f64-valid comparator only; deep truth is the rug doubling oracle.
+    // Start both seats at production z₀=c (not classical z=0).
+    for c in [(2.0, 2.0), (-1.0, 0.2), (0.4, 0.4), (-0.75, 0.1)] {
+        let mut direct_ctx = make_context(0);
+        direct_ctx.points[0] = make_point(c);
+        direct_ctx.points[0].z = c;
+        direct_ctx.points[0].dc = (1.0, 0.0);
+        let mut perturb_ctx = direct_ctx.clone();
+        DirectKernel.start_seat(&mut direct_ctx, (0, 0));
+        PerturbationKernel.start_seat(&mut perturb_ctx, (0, 0));
+        DirectKernel.iterate_bout(
+            &mut direct_ctx.points[0], None, 4.0, 1e-15, BoutCap::new(512),
+        );
+        PerturbationKernel.iterate_bout(
+            &mut perturb_ctx.points[0], None, 4.0, 1e-15, BoutCap::new(512),
+        );
+        assert_eq!(
+            outcome_key(&direct_ctx.points[0]),
+            outcome_key(&perturb_ctx.points[0]),
+            "zero-orbit floor must match direct on shallow c={c:?}"
+        );
+    }
+}
+
+#[test]
+// r[verify cz.depth.delta-kernel+1]
+fn published_reference_matches_direct_on_shallow_view() {
+    // Shallow f64-valid comparator only; deep truth is the rug doubling oracle.
+    let reference_c = (IntExp::from(-1).shift(-1), IntExp::ZERO);
+    let published = Arc::new(PublishedReference {
+        orbit: ReferenceOrbit::compute(&reference_c, 128, 512),
+        c: reference_c,
+        generation: 11,
+    });
+    for c in [(-0.49, 0.01), (-0.55, 0.08), (-0.4, -0.15)] {
+        let mut direct_ctx = make_context(0);
+        direct_ctx.points[0] = make_point(c);
+        direct_ctx.points[0].z = c;
+        direct_ctx.points[0].dc = (1.0, 0.0);
+        let mut perturb_ctx = direct_ctx.clone();
+        perturb_ctx.latest_reference = Some(published.clone());
+        DirectKernel.start_seat(&mut direct_ctx, (0, 0));
+        PerturbationKernel.start_seat(&mut perturb_ctx, (0, 0));
+        DirectKernel.iterate_bout(
+            &mut direct_ctx.points[0], None, 4.0, 1e-15, BoutCap::new(512),
+        );
+        PerturbationKernel.iterate_bout(
+            &mut perturb_ctx.points[0],
+            Some(&published.orbit),
+            4.0,
+            1e-15,
+            BoutCap::new(512),
+        );
+        assert_eq!(
+            outcome_key(&direct_ctx.points[0]),
+            outcome_key(&perturb_ctx.points[0]),
+            "published reference must match direct on shallow c={c:?}"
+        );
+    }
 }
 
 #[test]
@@ -1296,5 +1365,45 @@ fn perturbation_derivative_matches_rug_and_conjugation() {
     }
     assert!((derivatives[0].0 - derivatives[1].0).abs() < 1e-12);
     assert!((derivatives[0].1 + derivatives[1].1).abs() < 1e-12);
+}
+
+/// Guards against whole-file rewrites that drop phase-two invariant tests while
+/// documentation still cites them. Fixture field names are included so a silent
+/// revert of `Point`/`WorkContext` initialization also fails.
+#[test]
+fn phase_two_perturbation_test_inventory_is_present() {
+    let src = include_str!("craftsmanship_tests.rs");
+    for name in [
+        "direct_kernel_preserves_scheduler_results",
+        "home_reference_request_matches_c_generator",
+        "home_workshift_with_reference_matches_direct",
+        "perturbation_kernel_matches_rug_doubling_oracle",
+        "exact_f64_conversion_round_trips_representative_values",
+        "zero_orbit_center_reports_period_one",
+        "zero_orbit_floor_matches_direct_kernel_escape_times",
+        "published_reference_matches_direct_on_shallow_view",
+        "generation_mismatch_restarts_delta",
+        "glitch_sets_direct_only_and_never_publishes_guess",
+        "missing_reference_iterate_stays_unfinished",
+        "perturbation_bout_obeys_cap_and_split_bouts_match",
+        "perturbation_derivative_matches_rug_and_conjugation",
+        "phase_two_perturbation_test_inventory_is_present",
+    ] {
+        assert!(
+            src.contains(&format!("fn {name}")),
+            "missing phase-two inventory test `{name}`"
+        );
+    }
+    for needle in [
+        "delta: None",
+        "direct_only: false",
+        "latest_reference: None",
+        "workshift_with_kernel(0, 0, 0, 0, ctx, &DirectKernel)",
+    ] {
+        assert!(
+            src.contains(needle),
+            "missing phase-two fixture state `{needle}`"
+        );
+    }
 }
 

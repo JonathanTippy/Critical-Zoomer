@@ -143,8 +143,11 @@ across `BoutCap` bouts.
 
 **Verification.** `zero_orbit_floor_matches_direct_kernel_escape_times`,
 `published_reference_matches_direct_on_shallow_view`,
-`random_shallow_pixels_agree_when_both_conclude`,
-`perturbation_bout_obeys_cap`.
+`perturbation_kernel_matches_rug_doubling_oracle`,
+`perturbation_bout_obeys_cap_and_split_bouts_match`,
+`phase_two_perturbation_test_inventory_is_present`.
+Shallow DirectKernel comparisons are data-flow checks only; deep truth is the
+rug precision-doubling oracle.
 
 r[cz.depth.glitch-is-unfinished+1]
 
