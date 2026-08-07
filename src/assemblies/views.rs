@@ -137,9 +137,10 @@ impl<T: Copy + Clone> View<T> {
             ,
             data: vec!(fill_value; stencil.resolution.0 * stencil.resolution.1)
             ,
-            bitmap: vec!(0u8; stencil.resolution.0 * stencil.resolution.1)
+            bitmap: vec!(0u8; stencil.resolution.0 * stencil.resolution.1),
 
-        };
+                    hud: Default::default()
+};
         returned.assert_validity();
         returned
     }
@@ -641,7 +642,8 @@ fn invalid_test_bad_data() {
         ,
         bitmap: vec!()
         ,
-    };
+            hud: Default::default()
+        };
     let b: View<i32> = View {
         stencil: PointStencil {
             location: (
@@ -658,7 +660,8 @@ fn invalid_test_bad_data() {
         bitmap: vec!()
 
         ,
-    };
+            hud: Default::default()
+        };
     a.fill_from(&b);
 }
 
@@ -681,8 +684,8 @@ fn invalid_test_misaligned() {
         bitmap: vec!()
 
         ,
-        
-    };
+            hud: Default::default()
+        };
     let b: View<i32> = View {
         stencil: PointStencil {
             location: (
@@ -698,8 +701,8 @@ fn invalid_test_misaligned() {
         ,
         bitmap: vec!()
         ,
-        
-    };
+            hud: Default::default()
+        };
     a.fill_from(&b);
 }
 
@@ -721,8 +724,8 @@ fn identity_test() {
         bitmap: vec!(EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX)
 
         ,
-        
-    };
+            hud: Default::default()
+        };
     let b: View<i32> = View {
         stencil: PointStencil {
             location: (
@@ -736,8 +739,8 @@ fn identity_test() {
         ,
         data: vec!(1, 2, 3, 4),
         bitmap: vec!(EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX),
-
-    };
+            hud: Default::default()
+        };
     a.fill_from(&b);
     if a.data != b.data {
         eprintln!("actual: {:?}", a.data);
@@ -762,8 +765,8 @@ fn improve_test() {
         data: vec!(0, 0, 0, 0)
         ,
         bitmap: vec!(PROX, PROX, PROX, PROX),
-        
-    };
+            hud: Default::default()
+        };
     let b: View<i32> = View {
         stencil: PointStencil {
             location: (
@@ -777,8 +780,8 @@ fn improve_test() {
         ,
         data: vec!(1, 2, 3, 4),
         bitmap: vec!(EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX),
-        
-    };
+            hud: Default::default()
+        };
     a.fill_from(&b);
     if a.data != b.data {
         eprintln!("actual: {:?}", a.data);
@@ -803,8 +806,8 @@ fn zoom_in_test() {
         data: vec!(0, 0, 0, 0)
         ,
         bitmap: vec!(0, 0, 0, 0),
-        
-    };
+            hud: Default::default()
+        };
     let b: View<i32> = View {
         stencil: PointStencil {
             location: (
@@ -818,8 +821,8 @@ fn zoom_in_test() {
         ,
         data: vec!(1, 2, 3, 4),
         bitmap: vec!(EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX),
-        
-    };
+            hud: Default::default()
+        };
 
     let expect: View<i32> = View {
         stencil: PointStencil {
@@ -834,8 +837,8 @@ fn zoom_in_test() {
         ,
         data: vec!(1, 1, 1, 1),
         bitmap: vec!(EXACT + PROX, PROX, PROX, PROX),
-        
-    };
+            hud: Default::default()
+        };
     a.fill_from(&b);
     if a.data != expect.data {
         eprintln!("actual: {:?}", a.data);
@@ -861,8 +864,8 @@ fn zoom_in_test_3() {
         data: vec!(0, 0, 0, 0, 0, 0, 0, 0, 0)
         ,
         bitmap: vec!(0, 0, 0, 0, 0, 0, 0, 0, 0),
-
-    };
+            hud: Default::default()
+        };
     let b: View<i32> = View {
         stencil: PointStencil {
             location: (
@@ -877,8 +880,8 @@ fn zoom_in_test_3() {
         ,
         data: vec!(1, 2, 3, 4, 5, 6, 7, 8, 9),
         bitmap: vec!(EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX,),
-
-    };
+            hud: Default::default()
+        };
 
     let expect: View<i32> = View {
         stencil: PointStencil {
@@ -894,8 +897,8 @@ fn zoom_in_test_3() {
         ,
         data: vec!(1, 1, 2, 1, 1, 2, 4, 4, 5),
         bitmap: vec!(EXACT + PROX, PROX, EXACT + PROX, PROX, PROX, PROX, PROX, EXACT + PROX, PROX, EXACT + PROX),
-
-    };
+            hud: Default::default()
+        };
     a.fill_from(&b);
     if a.data != expect.data {
         eprintln!("actual: {:?}", a.data);
@@ -921,8 +924,8 @@ fn zoom_out_test() {
         data: vec!(0, 0, 0, 0)
         ,
         bitmap: vec!(0, 0, 0, 0),
-        
-    };
+            hud: Default::default()
+        };
     let b: View<i32> = View {
         stencil: PointStencil {
             location: (
@@ -936,8 +939,8 @@ fn zoom_out_test() {
         ,
         data: vec!(1, 2, 3, 4),
         bitmap: vec!(EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX),
-        
-    };
+            hud: Default::default()
+        };
 
     let expect: View<i32> = View {
         stencil: PointStencil {
@@ -952,8 +955,8 @@ fn zoom_out_test() {
         ,
         data: vec!(1, 2, 3, 4),
         bitmap: vec!(EXACT + PROX, 0, 0, 0),
-        
-    };
+            hud: Default::default()
+        };
     a.fill_from(&b);
     if a.data != expect.data {
         eprintln!("actual: {:?}", a.data);
@@ -978,8 +981,8 @@ fn pan_one_test() {
         data: vec!(0, 0, 0, 0)
         ,
         bitmap: vec!(0, 0, 0, 0),
-        
-    };
+            hud: Default::default()
+        };
     let b: View<i32> = View {
         stencil: PointStencil {
             location: (
@@ -993,8 +996,8 @@ fn pan_one_test() {
         ,
         data: vec!(1, 2, 3, 4),
         bitmap: vec!(EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX),
-        
-    };
+            hud: Default::default()
+        };
 
     let expect: View<i32> = View {
         stencil: PointStencil {
@@ -1010,8 +1013,8 @@ fn pan_one_test() {
         data: vec!(2, 2, 2, 2)
         ,
         bitmap: vec!(0, 0, EXACT + PROX, 0),
-        
-    };
+            hud: Default::default()
+        };
     a.fill_from(&b);
     if a.data != expect.data {
         eprintln!("actual: {:?}", a.data);
@@ -1036,8 +1039,8 @@ fn nonzero_phase_test() {
         data: vec!(0, 0, 0, 0)
         ,
         bitmap: vec!(0, 0, 0, 0),
-        
-    };
+            hud: Default::default()
+        };
     let b: View<i32> = View {
         stencil: PointStencil {
             location: (
@@ -1051,8 +1054,8 @@ fn nonzero_phase_test() {
         ,
         data: vec!(1, 2, 3, 4),
         bitmap: vec!(EXACT + PROX, EXACT + PROX, EXACT + PROX, EXACT + PROX),
-        
-    };
+            hud: Default::default()
+        };
 
     let expect: View<i32> = View {
         stencil: PointStencil {
@@ -1067,8 +1070,8 @@ fn nonzero_phase_test() {
         ,
         data: vec!(1, 2, 3, 4),
         bitmap: vec!(PROX, PROX, PROX, EXACT + PROX),
-        
-    };
+            hud: Default::default()
+        };
     a.fill_from(&b);
     if a.data != expect.data {
         eprintln!("actual: {:?}", a.data);

@@ -216,7 +216,11 @@ impl SeatKernel<FloatExp> for FloatExpPerturbationKernel {
             Some(d) => d.generation != generation,
         };
         if needs_restart {
-            let abs_c = absolute_plane_c(context.points[index].c, &context.coord_anchor);
+            let abs_c = if context.coords_are_relative {
+                absolute_plane_c(context.points[index].c, &context.coord_anchor)
+            } else {
+                context.points[index].c
+            };
             init_delta(&mut context.points[index], orbit, generation, abs_c);
             apply_series_skip(
                 &mut context.points[index],

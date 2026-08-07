@@ -642,7 +642,8 @@ mod tests {
                 pos: (crate::utils::IntExp::ZERO, crate::utils::IntExp::ZERO),
                 zoom_pot: 0,
             },
-        }
+        hud: Default::default()
+    }
     }
 
     // verifies r[cz.craft.period-derivative-test+1]
@@ -696,7 +697,8 @@ mod tests {
                 pos: (crate::utils::IntExp::ZERO, crate::utils::IntExp::ZERO),
                 zoom_pot: 0,
             },
-        };
+        hud: Default::default()
+    };
         for y in 0..3 {
             for x in 0..3 {
                 let pos = (x, y);
@@ -742,7 +744,8 @@ mod tests {
                 pos: (crate::utils::IntExp::ZERO, crate::utils::IntExp::ZERO),
                 zoom_pot: 0,
             },
-        };
+        hud: Default::default()
+    };
         for x in 1..8 {
             assert!(!is_in_filament(&values, (x, 2)),
                 "conjugation-axis tendril lit at ({x}, 2)");
@@ -767,7 +770,8 @@ mod tests {
                 pos: (crate::utils::IntExp::ZERO, crate::utils::IntExp::ZERO),
                 zoom_pot: 2,
             },
-        };
+        hud: Default::default()
+    };
         for y in 1..4 {
             for x in 1..6 {
                 assert!(!is_in_filament(&values, (x, y)),
@@ -793,7 +797,8 @@ mod tests {
                 pos: (crate::utils::IntExp::ZERO, crate::utils::IntExp::ZERO),
                 zoom_pot: 0,
             },
-        };
+        hud: Default::default()
+    };
         assert!(!is_in_filament(&values, (1, 1)),
             "±1 escape-time bump must not light as a filament");
     }
@@ -826,7 +831,8 @@ mod tests {
                     pos: (crate::utils::IntExp::ZERO, crate::utils::IntExp::ZERO),
                     zoom_pot: if width == 8 { 1 } else { 2 },
                 },
-            };
+                            hud: Default::default()
+};
             let lit: Vec<i32> = (1..width - 1)
                 .filter(|x| is_in_filament(&values, (*x, 1)))
                 .collect();
@@ -863,7 +869,8 @@ mod tests {
                 pos: (crate::utils::IntExp::ZERO, crate::utils::IntExp::ZERO),
                 zoom_pot: 1,
             },
-        };
+        hud: Default::default()
+    };
         let lit: Vec<i32> = (1..5)
             .filter(|x| is_in_filament(&values, (*x, 1)))
             .collect();

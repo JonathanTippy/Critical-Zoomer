@@ -20,6 +20,8 @@ pub struct ResultsPackage<T> {
     pub results: Vec<CompletedPoint<T>>
     , pub screen_res: (u32, u32)
     , pub location: ObjectivePosAndZoom
+    // r[impl cz.depth.gear-hud+1]
+    , pub hud: crate::assemblies::structs::ViewHud
 }
 
 pub struct WorkCollectorState<T> {
@@ -96,6 +98,11 @@ async fn internal_behavior<A: SteadyActor>(
             if let Some(completed_work) = &mut state.completed_work {
                 if let Some(f) = U.frame_info {
                     *completed_work = sample_old_values(&completed_work, f.0, f.1);
+                    completed_work.hud = crate::assemblies::structs::ViewHud {
+                        gear: U.active_gear,
+                        points_delta: 0,
+                        iterations_delta: U.iterations_delta,
+                    };
                 } else {
                     //let j = U.completed_points;
                     let l = U.completed_points.len();
@@ -110,6 +117,11 @@ async fn internal_behavior<A: SteadyActor>(
                         let W = vs[i].clone();
                         completed_work.results[W.1] = W.0;
                     }
+                    completed_work.hud = crate::assemblies::structs::ViewHud {
+                        gear: U.active_gear,
+                        points_delta: l as u64,
+                        iterations_delta: U.iterations_delta,
+                    };
                     actor.try_send(&mut values_out,
                                    View{
                                        stencil: PointStencil{
@@ -154,8 +166,9 @@ async fn internal_behavior<A: SteadyActor>(
                                                }
                                            }
                                        }).collect()
-                                       , bitmap: vec!(0;completed_work.results.len())
-                                   });
+                                       , bitmap: vec!(0;completed_work.results.len()),
+                                       hud: completed_work.hud,
+});
                 }
             } else {
                 let f = U.frame_info.expect("work collector recieved an initial work update without any info");
@@ -164,6 +177,11 @@ async fn internal_behavior<A: SteadyActor>(
                         results: vec![CompletedPoint::Dummy{}; (f.1.0 * f.1.1) as usize]
                         , screen_res: f.1
                         , location: f.0
+                        , hud: crate::assemblies::structs::ViewHud {
+                            gear: U.active_gear,
+                            points_delta: U.completed_points.len() as u64,
+                            iterations_delta: U.iterations_delta,
+                        }
                     }
                 );
                 if let Some(completed_work) = &mut state.completed_work {
@@ -225,8 +243,9 @@ async fn internal_behavior<A: SteadyActor>(
                             }
                         }).collect()
                         ,
-                        bitmap: vec!(0; completed_work.results.len())
-                    });
+                        bitmap: vec!(0; completed_work.results.len()),
+                        hud: completed_work.hud
+});
                 }
 
             }
@@ -244,6 +263,7 @@ pub(crate) fn sample_old_values<T:Clone>(old_package: &ResultsPackage<T>, new_lo
         results: vec!()
         , screen_res: new_res
         , location: new_location.clone()
+        , hud: old_package.hud
     };
 
     let old_size = old_package.screen_res.0 * old_package.screen_res.1;

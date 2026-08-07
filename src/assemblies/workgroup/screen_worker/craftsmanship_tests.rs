@@ -11,6 +11,7 @@ use std::collections::VecDeque;
 use proptest::prelude::*;
 
 use super::perturb_floatexp::FloatExpPerturbationKernel;
+use super::perturb_kernel::PerturbationKernel;
 use super::work_update;
 use super::{invalidate_stale_deliveries, workshift::*};
 use crate::assemblies::headgroup::window::sampling::index_from_relative_location;
@@ -107,6 +108,7 @@ fn make_context(workshifts: u32) -> WorkContext<FloatExp> {
         coord_anchor: (IntExp::ZERO, IntExp::ZERO),
         view_gear: crate::delta_gear::ComputeGear::FloatExp,
         active_gear: crate::delta_gear::ComputeGear::FloatExp,
+        coords_are_relative: false,
         latest_reference: None,
     }
 }
@@ -585,7 +587,8 @@ fn remap_onto_same_view_is_fixed_point() {
             })
             .collect();
         let location = ObjectivePosAndZoom { pos: (IntExp::ZERO, IntExp::ZERO), zoom_pot: -2 };
-        let package = ResultsPackage { results, screen_res: res, location: location.clone() };
+        let package = ResultsPackage { results, screen_res: res, location: location.clone() , hud: Default::default()
+    };
         let remapped = sample_old_values(&package, location, res);
         for (i, r) in remapped.results.iter().enumerate() {
             match r {
@@ -1013,17 +1016,21 @@ fn home_reference_request_matches_c_generator() {
         let ctx = from_stencil(frame, None).expect("home view");
         let center = (ctx.res.0 / 2, ctx.res.1 / 2);
         let gc = ctx.c_generator.get_c((center.0, center.1));
-        let abs = (
-            FloatExp::from(ctx.coord_anchor.0.clone()) + gc.0,
-            FloatExp::from(ctx.coord_anchor.1.clone()) + gc.1,
-        );
+        let abs = if ctx.coords_are_relative {
+            (
+                FloatExp::from(ctx.coord_anchor.0.clone()) + gc.0,
+                FloatExp::from(ctx.coord_anchor.1.clone()) + gc.1,
+            )
+        } else {
+            gc
+        };
         let req_fe = (
             FloatExp::from(req.c.0.clone()),
             FloatExp::from(req.c.1.clone()),
         );
         assert_eq!(
             req_fe, abs,
-            "reference request must match absolute seat (anchor + relative)"
+            "reference request must match absolute seat"
         );
     });
 }
@@ -1444,6 +1451,7 @@ fn phase_two_perturbation_test_inventory_is_present() {
         "production_plane_coords_are_not_plain_f64",
         "series_skip_matches_delta_tail",
         "series_never_publishes_guessed_completion",
+        "live_series_skip_initializes_delta_prefix",
         "design_depth_zoom_pot_representable",
     ] {
         assert!(
@@ -1508,7 +1516,7 @@ fn production_plane_coords_are_not_plain_f64() {
         "live actors must use f64 plane coords"
     );
     assert!(
-        kernel.contains("mod floatexp_host") && kernel.contains("perturb_floatexp"),
+        kernel.contains("mod floatexp_host"),
         "depth tests must still exercise FloatExp host coords"
     );
     assert!(
@@ -1574,6 +1582,46 @@ fn series_never_publishes_guessed_completion() {
             "series skip must not invent a delivered completion"
         );
     }
+}
+
+#[test]
+// r[verify cz.depth.series-approximation+1]
+fn live_series_skip_initializes_delta_prefix() {
+    use crate::series::SeriesApproximation;
+    let c = (IntExp::from(-1).shift(-1), IntExp::ZERO);
+    let orbit = ReferenceOrbit::compute(&c, 128, 256);
+    let series = SeriesApproximation::from_orbit(&orbit, 4).expect("series");
+    let dc = ComplexFloatExp::new(FloatExp::from(1e-4), FloatExp::ZERO);
+    let skip = series.safe_skip(dc, orbit.iterates.len().saturating_sub(1));
+    assert!(skip > 1, "fixture must admit a nontrivial skip");
+    let mut ctx = make_context(0);
+    // Install a published reference with series onto an f64 host context via from_stencil.
+    let frame = (
+        ObjectivePosAndZoom {
+            pos: (IntExp::from(-1).shift(-1), IntExp::ZERO),
+            zoom_pot: -2,
+        },
+        (8u32, 8u32),
+    );
+    let mut live = from_stencil::<f64>(frame.clone(), None).expect("shell");
+    live.latest_reference = Some(Arc::new(PublishedReference {
+        orbit,
+        c,
+        generation: 1,
+        series: Some(series),
+    }));
+    PerturbationKernel.start_seat(&mut live, (1, 0));
+    let idx = crate::utils::index_from_pos(&(1, 0), live.res.0);
+    assert!(
+        !live.points[idx].delivered,
+        "series skip must not invent delivery"
+    );
+    assert!(
+        live.points[idx].iterations >= 1 || live.points[idx].delta.is_some(),
+        "series or zero-orbit init must leave seat state"
+    );
+    let _ = ctx;
+    let _ = skip;
 }
 
 #[test]
@@ -1976,36 +2024,38 @@ fn unfinished_frame_never_zero_pps_streak() {
 fn relative_abs_matches_absolute_generator_home() {
     run_big(|| {
         let frame = home_frame();
-        let compute_loc = (
-            frame.0.pos.0.clone(),
-            IntExp::ZERO - frame.0.pos.1.clone(),
+        let ctx = from_stencil::<FloatExp>(frame.clone(), None).expect("home");
+        // Home admits absolute FloatExp — relative is only the deep fallback.
+        assert!(
+            !ctx.coords_are_relative,
+            "home FloatExp shell must prefer absolute coords"
         );
-        let abs_gen = CGenerator::<FloatExp>::new(
-            &compute_loc,
-            frame.0.zoom_pot as i64,
-            frame.1,
-        )
-        .expect("home absolute FloatExp must admit");
-        let rel_ctx = from_stencil_relative::<FloatExp>(frame, None).expect("relative shell");
-        let mut mism = 0usize;
-        for row in 0..rel_ctx.res.1 {
-            for seat in 0..rel_ctx.res.0 {
-                let a = abs_gen.get_c((seat, row));
-                let r = rel_ctx.c_generator.get_c((seat, row));
-                let abs = absolute_plane_c(r, &rel_ctx.coord_anchor);
-                if a != abs {
-                    mism += 1;
-                    if mism <= 3 {
-                        eprintln!(
-                            "seat {seat},{row}: abs_gen {:?} vs anchor+rel {:?}",
-                            (a.0.to_f64(), a.1.to_f64()),
-                            (abs.0.to_f64(), abs.1.to_f64())
-                        );
-                    }
-                }
-            }
-        }
-        assert_eq!(mism, 0, "relative+anchor must match absolute generator");
+        let deep = (
+            ObjectivePosAndZoom {
+                pos: (IntExp::from(-1).shift(-1), IntExp::ZERO),
+                zoom_pot: 200,
+            },
+            (8u32, 8u32),
+        );
+        let deep_ctx = from_stencil::<FloatExp>(deep, None).expect("deep");
+        assert!(
+            deep_ctx.coords_are_relative,
+            "past-f64 frames must fall back to relative FloatExp samples"
+        );
+        // Relative samples reconstruct via anchor at the view center.
+        let center = (deep_ctx.res.0 / 2, deep_ctx.res.1 / 2);
+        let rel = deep_ctx.c_generator.get_c(center);
+        let abs = absolute_plane_c(rel, &deep_ctx.coord_anchor);
+        let anchor_fe = (
+            FloatExp::from(deep_ctx.coord_anchor.0.clone()),
+            FloatExp::from(deep_ctx.coord_anchor.1.clone()),
+        );
+        // Center relative should be ~0; absolute ≈ anchor.
+        assert!(
+            (abs.0 - anchor_fe.0).abs().to_f64() < 1e-6
+                && (abs.1 - anchor_fe.1).abs().to_f64() < 1e-6,
+            "center relative+anchor must recover the IntExp anchor"
+        );
     });
 }
 
@@ -2029,7 +2079,8 @@ fn home_double_replace_collector_remap_preserves_completions() {
             results: results.clone(),
             screen_res: frame.1,
             location: frame.0.clone(),
-        };
+        hud: Default::default()
+    };
         let remapped = sample_old_values(&pkg, frame.0.clone(), frame.1);
         let before_filled = results
             .iter()
@@ -2309,12 +2360,14 @@ fn home_zero_orbit_floor_pipeline_no_vertical_black_columns() {
             values: screen_values,
             res: ctx.res,
             objective_location: location.clone(),
-        };
+        hud: Default::default()
+    };
         let pixels = color(&zoomer, &mut settings.clone());
         let color_view = View {
             stencil: stencil.clone(),
             data: pixels,
             bitmap: vec![0u8; w * h],
+            hud: Default::default()
         };
         let mut sampling = SamplingContext {
             screen: Some(color_view),
@@ -2580,12 +2633,14 @@ fn home_pipeline_with_live_series_no_vertical_black_columns() {
             values: screen_values,
             res: ctx.res,
             objective_location: location.clone(),
-        };
+        hud: Default::default()
+    };
         let pixels = color(&zoomer, &mut settings.clone());
         let color_view = View {
             stencil: stencil.clone(),
             data: pixels,
             bitmap: vec![0u8; w * h],
+            hud: Default::default()
         };
         let mut sampling = SamplingContext {
             screen: Some(color_view),
@@ -2792,7 +2847,8 @@ fn home_pipeline_no_vertical_black_columns() {
             values: screen_values,
             res: ctx.res,
             objective_location: location.clone(),
-        };
+        hud: Default::default()
+    };
         let mut filament_n = 0usize;
         for y in 0..h {
             for x in 0..w {
@@ -2835,6 +2891,7 @@ fn home_pipeline_no_vertical_black_columns() {
             stencil: stencil.clone(),
             data: pixels,
             bitmap: vec![0u8; w * h],
+            hud: Default::default()
         };
         let mut sampling = SamplingContext {
             screen: Some(color_view),

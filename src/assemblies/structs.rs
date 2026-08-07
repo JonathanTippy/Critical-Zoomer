@@ -1,6 +1,7 @@
 use crate::utils::IntExp;
 use rug::Integer;
 use crate::constants::*;
+use crate::delta_gear::ComputeGear;
 use std::cmp::*;
 use std::time::Instant;
 
@@ -12,6 +13,15 @@ pub struct PointStencil {
     , pub serial_number: u64
 }
 
+/// Worker → display telemetry for HUD (gear + rate counters).
+// r[impl cz.depth.gear-hud+1]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct ViewHud {
+    pub gear: ComputeGear,
+    pub points_delta: u64,
+    pub iterations_delta: u64,
+}
+
 #[derive(PartialEq, Clone, Debug)]
 pub struct View<T> {
     pub stencil: PointStencil
@@ -21,6 +31,7 @@ pub struct View<T> {
     // 7: exact
     // , 6: representative / estimate from parent pixel
     // , 5: result is final/done/complete
+    , pub hud: ViewHud
 }
 
 

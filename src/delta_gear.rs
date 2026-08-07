@@ -134,47 +134,57 @@ pub fn scaled_scale_from_dz(dz: ComplexFloatExp) -> FloatExp {
     }
 }
 
-/// One scaled-f64 step: w' = 2·Z·w + S·w² + d; returns (new_w, new_d, maybe new_scale).
+/// One scaled-f64 step: w' = 2·Z·w + S·w² + d  (d = δc/S).
+/// Returns (new_w, new_scale, next_gear). Mathematical δz = S·w is reconstructed by caller.
 pub fn scaled_f64_step(
     z_ref: (f64, f64),
     w: (f64, f64),
     d: (f64, f64),
     scale: FloatExp,
-    dc_fe: ComplexFloatExp,
     is_zero_ref: bool,
-) -> (
-    (f64, f64),
-    (f64, f64),
-    FloatExp,
-    ComputeGear,
-) {
+) -> ((f64, f64), FloatExp, ComputeGear) {
     let s = scale.to_f64();
     if !s.is_finite() || s == 0.0 {
-        return (w, d, scale, ComputeGear::FloatExp);
+        return (w, scale, ComputeGear::FloatExp);
     }
     let two_zw = if is_zero_ref {
         (0.0, 0.0)
     } else {
         cscale(cmul(z_ref, w), 2.0)
     };
-    let w2 = cmul(w, w);
-    let sw2 = (w2.0 * s, w2.1 * s);
-    let w_next = cadd(cadd(two_zw, sw2), d);
-    let z = if is_zero_ref {
-        w_next
+    // When S underflows in f64, skip S·w² (dead term decided at rescale time).
+    let sw2 = if s.abs() < F64_UNDERFLOW_FLOOR {
+        (0.0, 0.0)
     } else {
-        cadd(z_ref, (w_next.0 * s, w_next.1 * s))
+        let w2 = cmul(w, w);
+        (w2.0 * s, w2.1 * s)
     };
-    let d_next = cadd(cscale(cmul(z, d), 2.0), (1.0, 0.0));
+    let w_next = cadd(cadd(two_zw, sw2), d);
     let mag = w_next.0.abs().max(w_next.1.abs());
-    if mag > F64_OVERFLOW_CEIL || !mag.is_finite() {
-        return (w_next, d_next, scale, ComputeGear::FloatExp);
+    if !mag.is_finite() {
+        return (w_next, scale, ComputeGear::FloatExp);
     }
-  if mag < F64_UNDERFLOW_FLOOR && mag > 0.0 {
-        return (w_next, d_next, scale, ComputeGear::FloatExp);
+    if mag > F64_OVERFLOW_CEIL {
+        // Rescale: pick new S' so |w'| ≈ 1, promote only if new scale cannot help.
+        let new_scale = FloatExp::from(mag) * scale;
+        let inv = 1.0 / mag;
+        let w_rescaled = (w_next.0 * inv, w_next.1 * inv);
+        if !f64_delta_admitted(w_rescaled.0, w_rescaled.1) {
+            return (w_next, scale, ComputeGear::FloatExp);
+        }
+        return (w_rescaled, new_scale, ComputeGear::ScaledF64);
     }
-    let _ = dc_fe;
-    (w_next, d_next, scale, ComputeGear::ScaledF64)
+    if mag > 0.0 && mag < 1e-8 {
+        // Bring |w| back near 1 when it drifts too small.
+        let new_scale = FloatExp::from(mag) * scale;
+        let inv = 1.0 / mag;
+        return (
+            (w_next.0 * inv, w_next.1 * inv),
+            new_scale,
+            ComputeGear::ScaledF64,
+        );
+    }
+    (w_next, scale, ComputeGear::ScaledF64)
 }
 
 /// One f64-hardware step. Returns promoted gear if f64 cannot continue.
@@ -242,4 +252,64 @@ pub fn floatexp_from_f64_pair(v: (f64, f64)) -> ComplexFloatExp {
 
 pub fn f64_from_fe(z: ComplexFloatExp) -> (f64, f64) {
     (fe_to_f64_or_zero(z.re), fe_to_f64_or_zero(z.im))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // r[verify cz.depth.compute-gear+1]
+    #[test]
+    fn gear_promotes_at_f64_underflow_floor() {
+        assert!(!f64_delta_admitted(1e-301, 0.0));
+        let tiny = ComplexFloatExp::new(FloatExp::from(1e-320), FloatExp::ZERO);
+        assert_ne!(gear_for_delta(tiny, tiny), ComputeGear::F64);
+    }
+
+    // r[verify cz.depth.compute-gear+1]
+    #[test]
+    fn zero_orbit_f64_skips_two_z_term() {
+        let (dz, dd, gear) = f64_step((0.0, 0.0), (0.1, 0.0), (0.1, 0.0), (1.0, 0.0), true);
+        // δz' = δz² + δc = 0.01 + 0.1 = 0.11 when Z=0 (no 2Zδz).
+        assert!((dz.0 - 0.11).abs() < 1e-12);
+        assert_eq!(gear, ComputeGear::F64);
+        let _ = dd;
+    }
+
+    // r[verify cz.depth.compute-gear+1]
+    #[test]
+    fn scaled_f64_matches_floatexp_on_moderate_delta() {
+        let z_ref = (0.25, 0.0);
+        let dz0 = ComplexFloatExp::new(FloatExp::from(1e-40), FloatExp::ZERO);
+        let dc = dz0;
+        let scale = scaled_scale_from_dz(dz0);
+        let s = scale.to_f64();
+        let w = (dz0.re.to_f64() / s, 0.0);
+        let d = (dc.re.to_f64() / s, 0.0);
+        let (w1, scale1, gear) = scaled_f64_step(z_ref, w, d, scale, false);
+        assert_eq!(gear, ComputeGear::ScaledF64);
+        let dz1 = w1.0 * scale1.to_f64();
+        // FloatExp reference step: δz' = 2 Z δz + δz² + δc
+        let z_fe = ComplexFloatExp::new(FloatExp::from(z_ref.0), FloatExp::ZERO);
+        let two = ComplexFloatExp::new(FloatExp::TWO, FloatExp::ZERO);
+        let dz_fe = z_fe * dz0 * two + dz0 * dz0 + dc;
+        let expected = dz_fe.re.to_f64();
+        assert!(
+            (dz1 - expected).abs() / expected.abs().max(1e-300) < 1e-6,
+            "scaled {dz1} vs fe {expected}"
+        );
+    }
+
+    // r[verify cz.depth.compute-gear+1]
+    #[test]
+    fn aggregate_seat_gears_reports_mixed() {
+        assert_eq!(
+            aggregate_seat_gears(&[ComputeGear::F64, ComputeGear::ScaledF64]),
+            ComputeGear::Mixed
+        );
+        assert_eq!(
+            aggregate_seat_gears(&[ComputeGear::F64, ComputeGear::F64]),
+            ComputeGear::F64
+        );
+    }
 }

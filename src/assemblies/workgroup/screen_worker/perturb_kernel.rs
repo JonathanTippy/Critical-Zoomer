@@ -324,7 +324,11 @@ impl SeatKernel<f64> for PerturbationKernel {
             Some(d) => d.generation != generation,
         };
         if needs_restart {
-            let abs_c = abs_plane_f64(context.points[index].c, &context.coord_anchor);
+            let abs_c = if context.coords_are_relative {
+                abs_plane_f64(context.points[index].c, &context.coord_anchor)
+            } else {
+                context.points[index].c
+            };
             init_delta(&mut context.points[index], orbit, generation, abs_c);
             apply_series_skip(
                 &mut context.points[index],
@@ -401,24 +405,30 @@ impl SeatKernel<f64> for PerturbationKernel {
                         let dz = fe_pair(delta.dz);
                         let dc = fe_pair(delta.dc);
                         let dd = fe_pair(delta.dd);
-                        let (dz_next, dd_next, next_gear) =
-                            f64_step(z_ref, dz, dc, dd, is_zero_ref);
-                        if next_gear == ComputeGear::ScaledF64 {
-                            delta.gear = ComputeGear::ScaledF64;
-                            delta.scale = scaled_scale_from_dz(delta.dz);
-                        }
-                        delta.dz = floatexp_from_f64_pair(dz_next);
-                        delta.dd = floatexp_from_f64_pair(dd_next);
-                        let z = (z_ref.0 + dz_next.0, z_ref.1 + dz_next.1);
-                        if z.0 * z.0 + z.1 * z.1 > r_squared {
+                        let z = (z_ref.0 + dz.0, z_ref.1 + dz.1);
+                        let z_norm = z.0 * z.0 + z.1 * z.1;
+                        let z_ref_norm = z_ref.0 * z_ref.0 + z_ref.1 * z_ref.1;
+                        if z_norm > r_squared {
                             StepOutcome::Escaped
                         } else if !is_zero_ref
                             && point.iterations > 0
-                            && (z.0 * z.0 + z.1 * z.1)
-                                < (z_ref.0 * z_ref.0 + z_ref.1 * z_ref.1) * 1e-6
+                            && z_norm < z_ref_norm * 1e-6
                         {
                             StepOutcome::Glitch
                         } else {
+                            if z_norm < point.smallness_squared {
+                                point.smallness_squared = z_norm;
+                                point.small_time = point.iterations;
+                            }
+                            let (dz_next, dd_next, next_gear) =
+                                f64_step(z_ref, dz, dc, dd, is_zero_ref);
+                            if next_gear == ComputeGear::ScaledF64 {
+                                delta.gear = ComputeGear::ScaledF64;
+                                delta.scale =
+                                    scaled_scale_from_dz(floatexp_from_f64_pair(dz_next));
+                            }
+                            delta.dz = floatexp_from_f64_pair(dz_next);
+                            delta.dd = floatexp_from_f64_pair(dd_next);
                             point.iterations = point.iterations.saturating_add(1);
                             let z_next_ref = if is_zero_ref {
                                 (0.0, 0.0)
@@ -437,11 +447,6 @@ impl SeatKernel<f64> for PerturbationKernel {
                             {
                                 StepOutcome::Repeats
                             } else {
-                                let rad = z.0 * z.0 + z.1 * z.1;
-                                if rad < point.smallness_squared {
-                                    point.smallness_squared = rad;
-                                    point.small_time = point.iterations - 1;
-                                }
                                 if point.iterations
                                     >= delta.checkpoint_n.saturating_mul(2).max(1)
                                 {
@@ -470,46 +475,55 @@ impl SeatKernel<f64> for PerturbationKernel {
                                 delta.dz.re.to_f64() / s,
                                 delta.dz.im.to_f64() / s,
                             );
-                            let d = (
-                                delta.dd.re.to_f64() / s,
-                                delta.dd.im.to_f64() / s,
-                            );
-                            let (w_next, d_next, scale, next_gear) = scaled_f64_step(
-                                z_ref,
-                                w,
-                                d,
-                                delta.scale,
-                                delta.dc,
-                                is_zero_ref,
-                            );
-                            if next_gear == ComputeGear::FloatExp {
-                                delta.gear = ComputeGear::FloatExp;
-                                fe_iterate_step(
-                                    point,
-                                    orbit,
-                                    &mut delta,
-                                    is_zero_ref,
-                                    z_ref_fe,
-                                    r_squared,
-                                    epsilon,
-                                )
+                            let dz = (w.0 * s, w.1 * s);
+                            let z = (z_ref.0 + dz.0, z_ref.1 + dz.1);
+                            let z_norm = z.0 * z.0 + z.1 * z.1;
+                            let z_ref_norm = z_ref.0 * z_ref.0 + z_ref.1 * z_ref.1;
+                            if z_norm > r_squared {
+                                StepOutcome::Escaped
+                            } else if !is_zero_ref
+                                && point.iterations > 0
+                                && z_norm < z_ref_norm * 1e-6
+                            {
+                                StepOutcome::Glitch
                             } else {
-                                delta.scale = scale;
-                                delta.dz = floatexp_from_f64_pair((
-                                    w_next.0 * scale.to_f64(),
-                                    w_next.1 * scale.to_f64(),
-                                ));
-                                delta.dd = floatexp_from_f64_pair((
-                                    d_next.0 * scale.to_f64(),
-                                    d_next.1 * scale.to_f64(),
-                                ));
-                                let z = (
-                                    z_ref.0 + w_next.0 * scale.to_f64(),
-                                    z_ref.1 + w_next.1 * scale.to_f64(),
+                                if z_norm < point.smallness_squared {
+                                    point.smallness_squared = z_norm;
+                                    point.small_time = point.iterations;
+                                }
+                                let d = (
+                                    delta.dc.re.to_f64() / s,
+                                    delta.dc.im.to_f64() / s,
                                 );
-                                if z.0 * z.0 + z.1 * z.1 > r_squared {
-                                    StepOutcome::Escaped
+                                let (w_next, scale, next_gear) = scaled_f64_step(
+                                    z_ref,
+                                    w,
+                                    d,
+                                    delta.scale,
+                                    is_zero_ref,
+                                );
+                                if next_gear == ComputeGear::FloatExp {
+                                    delta.gear = ComputeGear::FloatExp;
+                                    fe_iterate_step(
+                                        point,
+                                        orbit,
+                                        &mut delta,
+                                        is_zero_ref,
+                                        z_ref_fe,
+                                        r_squared,
+                                        epsilon,
+                                    )
                                 } else {
+                                    let s_next = scale.to_f64();
+                                    delta.scale = scale;
+                                    let dz_next = (w_next.0 * s_next, w_next.1 * s_next);
+                                    delta.dz = floatexp_from_f64_pair(dz_next);
+                                    let dd = fe_pair(delta.dd);
+                                    let dd_next = (
+                                        2.0 * (z.0 * dd.0 - z.1 * dd.1) + 1.0,
+                                        2.0 * (z.0 * dd.1 + z.1 * dd.0),
+                                    );
+                                    delta.dd = floatexp_from_f64_pair(dd_next);
                                     point.iterations = point.iterations.saturating_add(1);
                                     StepOutcome::Continue
                                 }

@@ -141,8 +141,9 @@ async fn internal_behavior<A: SteadyActor>(
                         , v.objective_location.clone().zoom_pot
                     )
                     , serial_number: 0
-                }
-            });
+                },
+                hud: v.hud,
+});
             //info!("sent colors to window");
         }
         state.settings = settings;

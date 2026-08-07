@@ -370,7 +370,8 @@ pub fn update_sampling_context(context: &mut SamplingContext, screen: View<Color
             location:(screen.stencil.location.0, IntExp::ZERO-screen.stencil.location.1, screen.stencil.location.2)
             , resolution: screen.stencil.resolution
             , serial_number: screen.stencil.serial_number
-        }
-    });
+        },
+                hud: screen.hud
+});
 
 }

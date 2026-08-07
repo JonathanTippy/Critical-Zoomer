@@ -42,6 +42,8 @@ pub struct ZoomerValuesScreen {
     pub values: Vec<ScreenValue>
     , pub res: (u32, u32)
     , pub objective_location: ObjectivePosAndZoom
+    // r[impl cz.depth.gear-hud+1]
+    , pub hud: crate::assemblies::structs::ViewHud
 }
 
 
@@ -163,6 +165,7 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
                             pos: (v.stencil.location.0, IntExp::ZERO-v.stencil.location.1)
                             , zoom_pot: v.stencil.location.2
                         }
+                        , hud: v.hud
                     });
                 }
                 None => {}
@@ -189,6 +192,7 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
                 values: output
                 , res: v.screen_res
                 , objective_location:  v.location.clone()
+                , hud: v.hud
             });
             //info!("sent colors to window");
         }

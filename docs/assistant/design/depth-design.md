@@ -1,29 +1,23 @@
 # Depth design: perturbation with a background reference worker
 
-Status: **final perturbation phase in progress (FloatExp host + series).**
+Status: **final perturbation push — compute gear ladder + live series.**
 Milestone 2 (delta kernel) is closed for correctness: one production
 `PerturbationKernel`, zero-orbit floor, coverage gate, missing≠glitch,
-reference-until-done. The phase-two home ≤20% vs DirectKernel gate is
-**superseded** — unreachable on FloatExp deltas alone; speed recovery is
-**series approximation**. This phase: (A) no plain `f64` Mandelbrot
-coordinates (`WorkContext`/`Point`/`CGenerator` as FloatExp + IntExp;
-seat samples always relative to view-center IntExp anchor — one path;
-FloatExp mantissa and render narrowing stay); (B) simple series
-approximation published with the reference; (C) live path past the f64
-depth wall to design capacity ≥2^3600000. Grounded in `../mandelbrot-library/`
-(`perturbation.md`, `series-approximation.md`, `numerics-and-precision.md`,
-`reference-orbit-strategy.md`, `period-and-interiority.md`) and constrained by
-`workgroup-virtues.md` and the authoritative requirements. Nothing here may re-break the
-v0.0.9 invariants (issue-stack standing rule).
+reference-until-done. Speed recovery is **not** all-FloatExp arithmetic:
+the per-pixel path uses the **fastest compute gear whose range admits the
+delta**, with series approximation skipping prefixes. Research digests live
+in the private sister repo `Critical-Zoomer-Math-Library` (not published with
+CZ). This design is constrained by `workgroup-virtues.md` and must not
+re-break the v0.0.9 invariants (issue-stack standing rule).
 
 ## What this buys
 
-Plain f64 pixel coordinates die around zoom 2^-50-ish of pixel spacing and absolutely near 2^-1022.
-The executive target is 2^3600000 (`r[cz.deep.min-zoom-pot-capacity+1]`). The only published
-way there: iterate one **reference orbit** at full precision, and iterate every pixel as a
-low-precision **delta** against it (`numerics-and-precision.md`: "the reference orbit is the
-only thing that needs full precision; everything per-pixel is low-precision deltas").
-Perturbation is always on — no toggle, no reference input (`r[cz.seamless.perturbation-always-on+1]`,
+Plain f64 pixel coordinates die around zoom 2^-50-ish of pixel spacing and
+absolutely near 2^-1022. The executive target is 2^3600000
+(`r[cz.deep.min-zoom-pot-capacity+1]`). The only workable way there: iterate
+one **reference orbit** at full precision, and iterate every pixel as a
+low-precision **delta** against it. Perturbation is always on — no toggle,
+no reference input (`r[cz.seamless.perturbation-always-on+1]`,
 `r[cz.seamless.reference-background+1]`).
 
 ## Vocabulary
@@ -32,8 +26,11 @@ Perturbation is always on — no toggle, no reference input (`r[cz.seamless.pert
   (MPFR/rug), stored low-precision. Singular, current, owned by the reference worker.
 - **Delta orbit**: per-pixel, z = Z_n + Δz_n with Z_n the stored reference iterate; Δz and Δc
   are tiny and carry the depth in their exponents.
-- **Floatexp**: f64 (or f32) mantissa + wide integer exponent. The storage type for reference
-  iterates and the compute type for deltas **and** live seat coordinates. Range, not mantissa, is what depth demands. Plain f64 is not used for Mandelbrot plane coordinates.
+- **Floatexp**: f64 mantissa + wide integer exponent. The **storage** type for reference
+  iterates and mathematical deltas. Range, not mantissa, is what depth demands.
+- **Compute gear**: the hardware representation used for the hot delta recurrence
+  (f64, scaled-f64, or full FloatExp). Storage stays FloatExp; compute picks the
+  fastest safe gear.
 - **Reference worker**: a new actor that computes/extends reference orbits in the background.
   Not "rebasing" — that word means a mid-orbit numerical fold (z ← z+Δz), a different,
   smaller technique; this design contains no world-stopping recomputation.
@@ -80,22 +77,39 @@ reference are that it escaped (proven bad) or that it has been published and is 
 ### Precision policy
 
 Precision is a per-reference decision, computed once when a job starts, never per pixel:
-bits ≈ zoom pot + pixels-per-unit + safety margin (`numerics-and-precision.md`). The formula
-lives in the reference worker's contract. No user-visible setting
-(`r[cz.hoarding.no-compute-settings+1]`).
+bits ≈ zoom pot + pixels-per-unit + safety margin. The formula lives in the reference
+worker's contract. No user-visible setting (`r[cz.hoarding.no-compute-settings+1]`).
 
-### Storage: floatexp, not the compute precision
+### Storage: floatexp; compute: gear ladder
 
-Floatexp is primarily the type of the **per-pixel deltas** (Δz, Δc): those numbers are tiny
-by construction and carry the entire zoom depth in their exponents — f64's ~1e-308 floor
-would flush them to zero long before the depth target. The reference orbit's own iterates
-are O(1)-magnitude in most of the set, but they too can get exponentially small in the deep
-needle, so the *stored* orbit is floatexp as well: one type everywhere, no silent underflow
-anywhere. (f64-with-rescaling is a performance trick for delta arithmetic, not a storage type.)
+Floatexp is the **storage** type for per-pixel deltas (Δz, Δc) and for the
+published reference orbit. Those numbers are tiny by construction and carry
+zoom depth in their exponents — f64's ~1e-308 floor would flush them to zero.
+The *stored* orbit is floatexp: one storage type, no silent underflow.
 
-The orbit is *computed* at full precision but each iterate is **stored rounded to floatexp**
-(~16 bytes per iterate, constant regardless of depth). The deltas only read the reference at
-low precision; depth lives in the delta exponents.
+The orbit is *computed* at full precision but each iterate is **stored rounded
+to floatexp** (~16 bytes per iterate). Depth lives in the delta exponents.
+
+### Compute gear ladder (`r[cz.depth.compute-gear+1]`)
+
+Per-pixel recurrence uses the fastest gear whose range admits the current
+delta. Selection is automatic from exact view spacing / delta magnitude — no
+user-visible setting (`r[cz.hoarding.no-compute-settings+1]`). Legal promotions
+only: **F64 → ScaledF64 → FloatExp**. A value at a gear's underflow floor is
+handed off, never flushed to zero.
+
+1. **F64** — hardware complex doubles for δz, δc, δd when magnitudes stay in
+   ~[1e-300, 1e300]. Zero-orbit floor skips the `2Z·δz` term at bind time
+   (Z=0 known): that *is* the naive/direct shortest path, same recurrence.
+2. **ScaledF64** — unevaluated product δz = S·w, δc = S·d with S a FloatExp
+   scale and w,d hardware f64. Inner step `w ← 2·Z·w + S·w² + d`. Re-scale
+   rarely; dead terms decided at rescale time. The deep workhorse.
+3. **FloatExp** — full software recurrence when the reference iterate itself
+   cannot narrow safely, or after scaled-f64 cannot continue (deep needle).
+
+Seats may promote mid-orbit independently. The HUD reports the aggregate
+active gear (`F64` / `S-F64` / `FE` / `MIXED`) plus rolling IPS and PPS
+(`r[cz.depth.gear-hud+1]`). f32 remains a typed extension point, deferred.
 
 The worker retains a **constant-size high-precision state**: the current
 iterate plus Brent cycle-detector cursors. That buys resumability — including
@@ -138,10 +152,10 @@ Each rung is rarer and slower than the one above; none is a user-visible stall
 
 ## Glitch handling (v1)
 
-**Pauldelbrot glitch** (library `perturbation.md` / `src/perturb.rs`): when
-|Z_n + Δz_n| becomes small relative to |Z_n|, the approximation has failed for
-that pixel. That seat is *unfinished*: rebind to fallback rung 3 (zero orbit)
-and reset — do not publish a guessed answer (`r[cz.depth.glitch-is-unfinished+1]`).
+**Pauldelbrot glitch** (`src/perturb.rs`): when |Z_n + Δz_n| becomes small relative
+to |Z_n|, the approximation has failed for that pixel. That seat is *unfinished*:
+rebind to fallback rung 3 (zero orbit) and reset — do not publish a guessed answer
+(`r[cz.depth.glitch-is-unfinished+1]`).
 
 **Missing reference iterate is not a glitch.** If the published orbit has no
 `Z_n` yet (`orbit.get(n) == None`), that is unfinished / short coverage — the
@@ -171,14 +185,24 @@ then, seats use the zero-orbit floor.
 - Bouts, queues, publish cadence, remap, and the four guarantees are unchanged. Delta
   iteration is *cheaper* than the current direct f64 path; nothing about scheduling changes.
 
-## Series approximation (the actual speedup)
+## Series approximation (the actual skip)
 
-In this final phase: from a reference orbit, build a polynomial in Δc that
-skips the first N iterations of every pixel, with an error bound deciding safe N
-(`series-approximation.md`). This is routinely the largest single speedup at depth (half to
-most iterations skipped). Coefficients are computed once per reference (bout-sliced),
-published alongside the orbit in the same generation snapshot. Simple series only;
-biseries / nucleus seek / multi-ref remain named deferrals.
+From a reference orbit, build a polynomial in Δc that skips the first N iterations
+of every pixel, with an error bound deciding safe N. Coefficients are computed once
+per reference (with the publish snapshot), published alongside the orbit in the same
+generation. Simple series only; biseries / nucleus seek / multi-ref remain named
+deferrals (`r[cz.depth.series-approximation+1]`).
+
+## Acceptance (this push — all gates together)
+
+Nothing is complete until every gate passes on one final tree:
+
+- Home-view perturbation parity-or-better vs DirectKernel f64 baseline.
+- Scaled-f64 materially faster than all-FloatExp on representative deep workloads.
+- Series materially reduces prefix iterations.
+- Live adjacent-pixel distinction at capacity ≥2^3600000.
+- Full tests, tracey links, visual captures (no banding/blobs), HUD gear+IPS+PPS.
+- Zero regressions vs accepted benchmarks and craftsmanship invariants.
 
 ## Deferrals (named, not smuggled)
 
@@ -241,14 +265,15 @@ finds, as with the views and craftsmanship suites.
   should publish intermediate whole snapshots before period/escape — leaning no for v1
   (zero-orbit floor until done); revisit if zero-orbit is too common at depth.
 - Selection upgrades: prefer proven periodic nuclei; when glitches cluster, seek toward
-  non-central / edge / Misiurewicz candidates (`reference-orbit-strategy.md`). v1 sticky
-  deepest-completed + coverage gate stands until measured.
+  non-central / edge / Misiurewicz candidates. v1 sticky deepest-completed + coverage
+  gate stands until measured.
 
 ## Traceability
 
 Satisfies: `r[cz.seamless.perturbation-always-on+1]`, `r[cz.seamless.reference-background+1]`,
 `r[cz.deep.min-zoom-pot-capacity+1]`, `r[cz.deep.snappy-at-depth+1]`,
 `r[cz.tenacious.no-max-iter+1]`, `r[cz.hoarding.no-compute-settings+1]`,
-`r[cz.system.memory-default-1gb+1]`, `r[cz.system.tile-manager-protect-current-lookahead+1]`.
+`r[cz.system.memory-default-1gb+1]`, `r[cz.system.tile-manager-protect-current-lookahead+1]`,
+`r[cz.depth.compute-gear+1]`, `r[cz.depth.gear-hud+1]`, `r[cz.depth.series-approximation+1]`.
 Constrains and is constrained by: `design-target.md`, `workgroup-virtues.md` §2–§5.
-Sources: `../mandelbrot-library/` files cited inline above.
+Math research: private sister repo `Critical-Zoomer-Math-Library` (not in this tree).

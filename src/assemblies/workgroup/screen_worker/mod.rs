@@ -5,6 +5,7 @@ use crate::assemblies::workgroup::c_generator::Mandelbrotable;
 use crate::assemblies::workgroup::reference_worker::{
     select_reference_request, PublishedReference, ReferenceRequest,
 };
+use crate::delta_gear::ComputeGear;
 use crate::utils::ObjectivePosAndZoom;
 //use crate::actor::work_collector::*;
 use crate::assemblies::workgroup::work_controller::*;
@@ -19,7 +20,12 @@ mod craftsmanship_tests;
 
 pub struct WorkUpdate<T> {
     pub frame_info: Option<(ObjectivePosAndZoom, (u32, u32))>,
-    pub completed_points: (Vec<(CompletedPoint<T>, usize)>)
+    pub completed_points: (Vec<(CompletedPoint<T>, usize)>),
+    /// Aggregate active compute gear for HUD.
+    // r[impl cz.depth.gear-hud+1]
+    pub active_gear: crate::delta_gear::ComputeGear,
+    /// Iterations performed since the previous update.
+    pub iterations_delta: u64,
 }
 
 pub struct WorkerState<T: Mandelbrotable> {
@@ -199,9 +205,13 @@ async fn internal_behavior<A: SteadyActor>(
                     let previous_for_shell = match previous {
                         Some(mut live) => {
                             let old_zoom = live.frame_info.0.clone();
+                            let iters = live.context.total_iterations_today;
                             let U = work_update(&mut live.context);
                             if U.len() > 0 {
-                                actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:U});
+                                actor.try_send(
+                                    &mut updates_out,
+                                    telemetry_update(None, U, Some(&live.context), iters as u64),
+                                );
                             }
                             Some((live.context, old_zoom))
                         }
@@ -225,7 +235,10 @@ async fn internal_behavior<A: SteadyActor>(
                             }
                         }
                         state.work_context = Some(LiveTarget { context: new_ctx, frame_info: frame_info.clone() });
-                        actor.try_send(&mut updates_out, WorkUpdate{frame_info:Some(frame_info), completed_points:vec!()});
+                        actor.try_send(
+                            &mut updates_out,
+                            telemetry_update(Some(frame_info), vec!(), state.work_context.as_ref().map(|l| &l.context), 0),
+                        );
                     }
                 }
             }
@@ -237,8 +250,9 @@ async fn internal_behavior<A: SteadyActor>(
         let point_token_cost = state.point_token_cost.clone();
         
 
+        let mut iters_delta = 0u64;
         if let Some(live) = &mut state.work_context {
-            //let start = Instant::now();
+            let iters_before = live.context.total_iterations_today;
             workshift (
                 token_budget
                 , iteration_token_cost
@@ -246,18 +260,21 @@ async fn internal_behavior<A: SteadyActor>(
                 , point_token_cost
                 , &mut live.context
             );
-            state.total_workshifts+=1;
-            //info!("workday completed. took {}ms.", start.elapsed().as_millis());
-            //info!("workshift {}", state.total_workshifts);
+            iters_delta = live
+                .context
+                .total_iterations_today
+                .saturating_sub(iters_before) as u64;
         }
-
-
+        state.total_workshifts += 1;
         if state.total_workshifts % 1 == 0 {
             if let Some(live) = &mut state.work_context {
                 let c = work_update(&mut live.context);
                 if c.len() > 0 {
                     // r[impl cz.craft.emergent-cadence+1]
-                    actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:c});
+                    actor.try_send(
+                        &mut updates_out,
+                        telemetry_update(None, c, Some(&live.context), iters_delta),
+                    );
                 }
             }
         }
@@ -267,19 +284,29 @@ async fn internal_behavior<A: SteadyActor>(
     Ok(())
 }
 
+fn telemetry_update<T>(
+    frame_info: Option<(ObjectivePosAndZoom, (u32, u32))>,
+    completed_points: Vec<(CompletedPoint<T>, usize)>,
+    ctx: Option<&WorkContext<T>>,
+    iterations_delta: u64,
+) -> WorkUpdate<T>
+where
+    T: Mandelbrotable,
+{
+    WorkUpdate {
+        frame_info,
+        completed_points,
+        active_gear: ctx.map(|c| c.active_gear).unwrap_or(ComputeGear::F64),
+        iterations_delta,
+    }
+}
+
 // r[impl cz.craft.lifo-drain+1]
 fn work_update<T: Mandelbrotable>(ctx: &mut WorkContext<T>) -> Vec<(CompletedPoint<T>, usize)> {
-
-
-    //ctx.completed_points
-    let update_start = ctx.last_update;
     let mut returned = vec!();
     for _ in 0..ctx.completed_points.len {
         returned.push(ctx.completed_points.try_pop().unwrap())
     }
-    /*returned.append(&mut ctx.completed_points);
-    ctx.completed_points = vec!();
-    ctx.last_update = ctx.index;*/
     returned
 }
 

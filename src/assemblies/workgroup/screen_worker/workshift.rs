@@ -157,6 +157,8 @@ pub struct WorkContext<T: Mandelbrotable> {
     , pub view_gear: ComputeGear
     // Rolling HUD aggregate across active seats.
     , pub active_gear: ComputeGear
+    // True when `c_generator` emits relative-to-`coord_anchor` samples.
+    , pub coords_are_relative: bool
 }
 
 
@@ -315,7 +317,7 @@ pub fn view_center_compute(
 }
 
 /// Alias for tests / depth fixtures — always-relative stencil build.
-pub fn from_stencil_relative<T: Mandelbrotable + From<f32>>(
+pub fn from_stencil_relative<T: Mandelbrotable + From<f32> + 'static>(
     frame_info: (ObjectivePosAndZoom, (u32, u32)),
     previous: Option<(WorkContext<T>, ObjectivePosAndZoom)>,
 ) -> Option<WorkContext<T>> {
@@ -327,7 +329,7 @@ pub fn from_stencil_relative<T: Mandelbrotable + From<f32>>(
 ///
 /// `previous` is `(old_context, old_objective)`.
 // r[impl cz.craft.stencil-only-replace+2]
-pub fn from_stencil<T: Mandelbrotable + From<f32>>(
+pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
     frame_info: (ObjectivePosAndZoom, (u32, u32)),
     previous: Option<(WorkContext<T>, ObjectivePosAndZoom)>,
 ) -> Option<WorkContext<T>> {
@@ -345,20 +347,33 @@ pub fn from_stencil<T: Mandelbrotable + From<f32>>(
     let (obj, res) = frame_info;
     let compute_loc = (obj.pos.0.clone(), IntExp::ZERO - obj.pos.1.clone());
     let coord_anchor = view_center_compute(&compute_loc, obj.zoom_pot, res);
-    let c_generator = if T::max_value().to_f64() > 1e200 {
-        // Depth / FloatExp hosts: always-relative seat samples.
+    let use_floatexp_host = std::any::TypeId::of::<T>()
+        == std::any::TypeId::of::<crate::floatexp::FloatExp>();
+    let (c_generator, coords_are_relative) = if use_floatexp_host {
+        // Prefer absolute FloatExp when the grid admits; relative only when
+        // absolute collapses (deep views past f64).
         // r[impl cz.depth.floatexp-host-coords+1]
-        CGenerator::<T>::new_relative(
-            &compute_loc,
-            &coord_anchor,
-            obj.zoom_pot as i64,
-            res,
-        )?
+        match CGenerator::<T>::new(&compute_loc, obj.zoom_pot as i64, res) {
+            Some(g) => (g, false),
+            None => (
+                CGenerator::<T>::new_relative(
+                    &compute_loc,
+                    &coord_anchor,
+                    obj.zoom_pot as i64,
+                    res,
+                )?,
+                true,
+            ),
+        }
     } else {
         // Live f64 actors: absolute grid (banding-safe production path).
-        CGenerator::<T>::new(&compute_loc, obj.zoom_pot as i64, res)?
+        (CGenerator::<T>::new(&compute_loc, obj.zoom_pot as i64, res)?, false)
     };
-    let view_gear = view_gear_from_generators::<T>(T::max_value().to_f64() > 1e200);
+    let view_gear = if use_floatexp_host {
+        ComputeGear::FloatExp
+    } else {
+        ComputeGear::F64
+    };
     let (_, space) = c_generator.origin_and_space();
     let pitch_epsilon = space.abs() * T::from(1.0 / 256.0);
 
@@ -456,6 +471,7 @@ pub fn from_stencil<T: Mandelbrotable + From<f32>>(
         coord_anchor,
         view_gear,
         active_gear: view_gear,
+        coords_are_relative,
         latest_reference: carried_reference,
     })
 }

@@ -98,6 +98,10 @@ pub struct WindowState {
     , pub scroll_debt: f32
     , pub coord_input: String
     , pub startup_goto_applied: bool
+    // r[impl cz.depth.gear-hud+1]
+    , pub pps_counter: RateCounter
+    , pub ips_counter: RateCounter
+    , pub last_gear_label: &'static str
 }
 
 /// Entry point for the window actor.
@@ -161,6 +165,9 @@ async fn internal_behavior<A: SteadyActor>(
         , scroll_debt: SCROLL_SPEED/2.0
         , coord_input: String::new()
         , startup_goto_applied: false
+        , pps_counter: RateCounter::default()
+        , ips_counter: RateCounter::default()
+        , last_gear_label: "F64"
     }).await;
 
     {
@@ -315,6 +322,10 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             match actor.try_take(&mut pixels_in) {
                 Some(s) => {
+                    let now = Instant::now();
+                    state.pps_counter.record(s.hud.points_delta, now);
+                    state.ips_counter.record(s.hud.iterations_delta, now);
+                    state.last_gear_label = s.hud.gear.hud_label();
                     update_sampling_context(&mut state.sampling_context, s);
 
                 }
@@ -439,7 +450,17 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
                                 match rolling_frame_result.1 {
                                     Some(r) => {
-                                        response += format!("fps:{:.0} / 1s low: {:.1}", r.0.0 as f64 / 1000000000.0, 1.0 / r.1.0.as_secs_f64()).as_str();
+                                        let now = Instant::now();
+                                        let pps = state.pps_counter.rate(now);
+                                        let ips = state.ips_counter.rate(now);
+                                        response += format!(
+                                            "fps:{:.0} / pps:{:.0} / ips:{:.0} / gear:{} / 1s low: {:.1}",
+                                            r.0.0 as f64 / 1000000000.0,
+                                            pps,
+                                            ips,
+                                            state.last_gear_label,
+                                            1.0 / r.1.0.as_secs_f64()
+                                        ).as_str();
 
                                     }
                                     None => {}
