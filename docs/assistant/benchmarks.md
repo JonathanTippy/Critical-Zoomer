@@ -67,6 +67,9 @@ Benchmarks vary run to run; this is not an exact science and that's fine.
 | full_stack_ips (perturbation path / zero-orbit floor) **REJECTED** | ~3.2e6 (10,302,566 iterations, ~300–310 shifts) | 2026-08-07 | post-feature working tree | same; not a baseline |
 | worker_1080p_full_frame (perturbation path / zero-orbit floor) **REJECTED** | 4.898 s (4.767–5.043 s; ~7× vs direct) | 2026-08-07 | post-feature working tree | 1920×1080; not a baseline |
 
+| time_to_full_frame (perturbation path / zero-orbit floor, post-honest-opts) **REJECTED** | 1.335 s (1.320–1.353 s; ~5.9× vs last accepted 227.87 ms) | 2026-08-07 | grok-probation | same; not a baseline |
+| time_to_full_frame_with_reference **REJECTED** | 1.288 s (1.276–1.300 s; ~5.7× vs last accepted) | 2026-08-07 | grok-probation | published reference preinstalled; not a baseline |
+
 ### Perturbation-path note (2026-08-07) — rejected measurements
 
 **These rows are diagnostic only and are not accepted baselines.** The fitness
@@ -78,6 +81,14 @@ must be closed before phase two is accepted. Optimization target: FloatExp /
 delta hot path, and separate measurement with a preinstalled published reference
 (closer to headed operation once the reference actor has published). Do not
 relabel a larger regression as accepted.
+
+**2026-08-07 follow-up (still rejected):** after removing a cheating
+zero-orbit→`iterate_max_n_times` bypass and applying same-path opts (hoisted
+constants, one post-advance sync, FloatExp period check, inlined FloatExp ops),
+zero-orbit full-frame is ~1.33 s (~5.9×) and published-reference ~1.29 s (~5.7×).
+Still far above the ≤20% gate (~273 ms). Closing the gap without a second
+production path needs a deliberate design decision (e.g. deeper FloatExp
+representation work), not a DirectKernel shortcut.
 
 Pre-change test baseline: `cargo test` ran 39 tests; 38 passed and only the known
 `assemblies::views::zoom_in_associativity_test` failed, reproducing

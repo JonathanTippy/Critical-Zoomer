@@ -65,6 +65,7 @@ fn active_generation(
     }
 }
 
+#[inline(always)]
 fn sync_point_from_delta(
     point: &mut Point<f64>,
     z_ref: ComplexFloatExp,
@@ -75,6 +76,11 @@ fn sync_point_from_delta(
     point.z = (z.re.to_f64(), z.im.to_f64());
     point.dc = (dd.re.to_f64(), dd.im.to_f64());
     update_point_results(point);
+}
+
+#[inline(always)]
+fn near_complex(a: ComplexFloatExp, b: ComplexFloatExp, epsilon: FloatExp) -> bool {
+    (a.re - b.re).abs() <= epsilon && (a.im - b.im).abs() <= epsilon
 }
 
 fn init_delta(point: &mut Point<f64>, orbit: &ReferenceOrbit, generation: u64) {
@@ -121,13 +127,6 @@ fn reset_for_glitch(point: &mut Point<f64>) {
     point.delivered = false;
 }
 
-fn points_near_abs(a: (f64, f64), b: (f64, f64), e: f64) -> bool {
-    a.0 >= (b.0 - e)
-        && a.0 <= (b.0 + e)
-        && a.1 >= (b.1 - e)
-        && a.1 <= (b.1 + e)
-}
-
 impl SeatKernel<f64> for PerturbationKernel {
     fn start_seat(&self, context: &mut WorkContext<f64>, pos: (i32, i32)) {
         ensure_started(context, pos);
@@ -168,7 +167,12 @@ impl SeatKernel<f64> for PerturbationKernel {
             return;
         };
 
+        // Same FloatExp delta recurrence for every reference, including the
+        // zero-orbit floor. Never branch to DirectKernel / iterate_max_n_times.
         let glitch_factor = FloatExp::from(1.0e-6);
+        let r_sq = FloatExp::from(r_squared);
+        let four = FloatExp::from(4.0);
+        let eps = FloatExp::from(epsilon);
         let two = ComplexFloatExp::new(FloatExp::TWO, FloatExp::ZERO);
         let one = ComplexFloatExp::new(FloatExp::ONE, FloatExp::ZERO);
 
@@ -181,12 +185,14 @@ impl SeatKernel<f64> for PerturbationKernel {
             };
 
             let z = z_ref + delta.dz;
-            sync_point_from_delta(point, z_ref, delta.dz, delta.dd);
+            let z_norm_sq = z.norm_squared();
+            let z_ref_norm_sq = z_ref.norm_squared();
 
-            if delta.dz != ComplexFloatExp::ZERO && z_ref.norm_squared() == FloatExp::from(4.0) {
+            if delta.dz != ComplexFloatExp::ZERO && z_ref_norm_sq == four {
                 let correction = FloatExp::TWO * (z_ref.re * delta.dz.re + z_ref.im * delta.dz.im)
                     + delta.dz.norm_squared();
                 if correction > FloatExp::ZERO {
+                    sync_point_from_delta(point, z_ref, delta.dz, delta.dd);
                     point.escapes = true;
                     point.delta = Some(delta);
                     return;
@@ -197,18 +203,27 @@ impl SeatKernel<f64> for PerturbationKernel {
                 }
             }
 
-            if z.norm_squared() > FloatExp::from(r_squared) {
+            if z_norm_sq > r_sq {
+                sync_point_from_delta(point, z_ref, delta.dz, delta.dd);
                 point.escapes = true;
                 point.delta = Some(delta);
                 return;
             }
 
-            if point.iterations > 0 && z.norm_squared() < z_ref.norm_squared() * glitch_factor {
+            if point.iterations > 0 && z_norm_sq < z_ref_norm_sq * glitch_factor {
                 reset_for_glitch(point);
                 return;
             }
 
-            // Advance δ and the reconstructed z (mirrors DirectKernel::iterate).
+            // Track smallness on the pre-advance reconstruct (DirectKernel order).
+            let z_f64 = (z.re.to_f64(), z.im.to_f64());
+            let rad = z_f64.0 * z_f64.0 + z_f64.1 * z_f64.1;
+            if rad < point.smallness_squared {
+                point.smallness_squared = rad;
+                point.small_time = point.iterations;
+            }
+
+            // Advance δ (same recurrence for zero orbit and published references).
             delta.dd = z * delta.dd * two + one;
             delta.dz = z_ref * delta.dz * two + delta.dz * delta.dz + delta.dc;
             point.iterations = point.iterations.saturating_add(1);
@@ -218,11 +233,10 @@ impl SeatKernel<f64> for PerturbationKernel {
                 return;
             };
             let z_next = z_next_ref + delta.dz;
+            // One full sync after advance (point.z/dc match iterations).
             sync_point_from_delta(point, z_next_ref, delta.dz, delta.dd);
 
-            // Period check after the advance, against the pre-advance checkpoint.
-            let checkpoint_z = (delta.checkpoint.re.to_f64(), delta.checkpoint.im.to_f64());
-            if points_near_abs(point.z, checkpoint_z, epsilon) {
+            if near_complex(z_next, delta.checkpoint, eps) {
                 point.repeats = true;
                 point.period = point.iterations.saturating_sub(delta.checkpoint_n);
                 point.delta = Some(delta);

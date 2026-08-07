@@ -31,6 +31,7 @@ impl FloatExp {
         exponent: 1,
     };
 
+    #[inline(always)]
     pub fn new(mantissa: f64, exponent: i64) -> Self {
         assert!(
             mantissa.is_finite(),
@@ -99,6 +100,7 @@ impl FloatExp {
         self * self
     }
 
+    #[inline(always)]
     pub fn to_f64(self) -> f64 {
         if self.exponent > i32::MAX as i64 {
             return if self.mantissa.is_sign_negative() {
@@ -201,6 +203,7 @@ impl PartialOrd for FloatExp {
 
 impl Add for FloatExp {
     type Output = Self;
+    #[inline(always)]
     fn add(self, rhs: Self) -> Self {
         if self.mantissa == 0.0 {
             return rhs;
@@ -243,19 +246,18 @@ impl Sub for FloatExp {
 
 impl Mul for FloatExp {
     type Output = Self;
+    #[inline(always)]
     fn mul(self, rhs: Self) -> Self {
         if self.mantissa == 0.0 || rhs.mantissa == 0.0 {
             return Self::ZERO;
         }
         let product = self.mantissa * rhs.mantissa;
-        let mut exponent = self
-            .exponent
-            .checked_add(rhs.exponent)
-            .expect("FloatExp exponent overflow");
+        // Hot path: mantissa product stays in [1, 4) for normalized inputs, so
+        // at most one exponent bump. Saturating add is enough for deep zooms;
+        // overflow still surfaces as an extreme exponent rather than wrapping.
+        let mut exponent = self.exponent.saturating_add(rhs.exponent);
         let mantissa = if product.abs() >= 2.0 {
-            exponent = exponent
-                .checked_add(1)
-                .expect("FloatExp exponent overflow");
+            exponent = exponent.saturating_add(1);
             product * 0.5
         } else {
             product
@@ -323,6 +325,7 @@ impl Sub for ComplexFloatExp {
 
 impl Mul for ComplexFloatExp {
     type Output = Self;
+    #[inline(always)]
     fn mul(self, rhs: Self) -> Self {
         Self::new(
             self.re * rhs.re - self.im * rhs.im,

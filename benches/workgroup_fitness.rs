@@ -7,12 +7,17 @@
 #![allow(warnings)]
 
 use std::hint::black_box;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use criterion::*;
 
+use critical_zoomer::assemblies::workgroup::reference_worker::{
+    PublishedReference, select_reference_request,
+};
 use critical_zoomer::assemblies::workgroup::screen_worker::workshift::*;
 use critical_zoomer::constants::{DEFAULT_WINDOW_RES, HOME_POSITION};
+use critical_zoomer::reference::ReferenceOrbit;
 use critical_zoomer::utils::{IntExp, ObjectivePosAndZoom};
 
 // WorkContext build still uses run_big for headroom with the rest of the
@@ -47,6 +52,33 @@ fn home_context_res(res: (u32, u32)) -> WorkContext<f64> {
 
 fn home_context() -> WorkContext<f64> {
     home_context_res(DEFAULT_WINDOW_RES)
+}
+
+fn home_frame() -> (ObjectivePosAndZoom, (u32, u32)) {
+    (
+        ObjectivePosAndZoom {
+            pos: (
+                IntExp::from(HOME_POSITION.0),
+                IntExp::from(HOME_POSITION.1),
+            ),
+            zoom_pot: HOME_POSITION.2,
+        },
+        DEFAULT_WINDOW_RES,
+    )
+}
+
+/// Home view with a preinstalled published reference (headed operation once the
+/// reference actor has published).
+fn home_context_with_reference() -> WorkContext<f64> {
+    let frame = home_frame();
+    let req = select_reference_request::<f64>(None, &frame);
+    let mut ctx = from_stencil(frame, None).expect("home view must admit an f64 grid");
+    ctx.latest_reference = Some(Arc::new(PublishedReference {
+        orbit: ReferenceOrbit::compute(&req.c, req.precision_bits, req.max_iterations),
+        c: req.c,
+        generation: 1,
+    }));
+    ctx
 }
 
 fn drain(ctx: &mut WorkContext<f64>) -> usize {
@@ -121,6 +153,40 @@ fn time_to_full_frame(c: &mut Criterion) {
     group.finish();
 }
 
+// Perturbation path with a preinstalled published reference (not the zero-orbit floor).
+fn time_to_full_frame_with_reference(c: &mut Criterion) {
+    let mut group = c.benchmark_group("workgroup_fitness");
+    group.sample_size(10);
+    group.bench_function("time_to_full_frame_with_reference", |b| {
+        b.iter(|| {
+            run_big(|| {
+                let mut ctx = home_context_with_reference();
+                let start = Instant::now();
+                let mut shifts = 0u32;
+                loop {
+                    workshift(0, 0, 0, 0, &mut ctx);
+                    drain(&mut ctx);
+                    shifts += 1;
+                    if frame_complete(&ctx) {
+                        break;
+                    }
+                    if shifts > 200_000 {
+                        panic!("home frame with reference did not complete");
+                    }
+                }
+                let elapsed = start.elapsed();
+                let ips = ctx.total_iterations as f64 / elapsed.as_secs_f64();
+                println!(
+                    "full_stack_ips_with_ref: {:.0}  ({} iterations, {} shifts, {:.2?})",
+                    ips, ctx.total_iterations, shifts, elapsed
+                );
+                elapsed
+            })
+        });
+    });
+    group.finish();
+}
+
 /// Diagnostic for the open 1080p issue: isolates worker scaling from remap and
 /// shader costs, so the issue is not attributed to view/remap by assumption.
 fn worker_1080p_full_frame(c: &mut Criterion) {
@@ -151,6 +217,7 @@ criterion_group!(
     benches,
     time_to_first_publish,
     time_to_full_frame,
+    time_to_full_frame_with_reference,
     worker_1080p_full_frame
 );
 criterion_main!(benches);

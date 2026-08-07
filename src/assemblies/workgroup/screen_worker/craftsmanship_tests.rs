@@ -1407,5 +1407,15 @@ fn phase_two_perturbation_test_inventory_is_present() {
             "missing phase-two fixture state `{needle}`"
         );
     }
+    // One-path anti-cheat: zero-orbit must stay on FloatExp delta recurrence.
+    let kernel = include_str!("perturb_kernel.rs");
+    assert!(
+        !kernel.contains("iterate_max_n_times("),
+        "zero-orbit must not call the direct f64 bout helper"
+    );
+    assert!(
+        !kernel.contains("fn is_zero_orbit"),
+        "zero-orbit must not special-case away from the shared delta loop"
+    );
 }
 
