@@ -39,14 +39,34 @@ representative (Heiland-Allen, "Perturbation glitches", 2014):
 
 ## Leverage for Critical-Zoomer (interpretation — ours)
 
-- Maps onto the salvaged anti-cheating rules: references inside the set, per-seat orbit
-  binding, zero orbit as the legitimate trivial reference, never abandon a seat (pause it).
+- References are not required to be inside: exterior views need slow-escaping exterior
+  references. Proven periodic/preperiodic references are a useful capability — their finite
+  cycles index infinitely — not a selection constraint. Zero orbit remains the legitimate
+  floor; never abandon a seat (pause it).
 - The natural architecture fit: a reference is IntExp-defined and computed once per view (or
   per dominating island); seats bind to it; glitch → rebind. This is the depth design gap in
   `issue-stack.md` and the suspended D-REF decisions in `unit-design/decisions.md`.
 - The period pipeline and perturbation are mutually dependent, as the developer suspected:
   interiority at depth needs the derivative test (period doc), and the derivative test at depth
   needs perturbed evaluation (this doc). Design them as one unit.
+
+### Implemented core (not integrated)
+
+- `src/assemblies/workgroup/c_generator.rs`: trimmed `Mandelbrotable` trait and fail-closed
+  objective→compute generator. It proves adjacent seats stay distinct at the max-magnitude
+  end and reproduces the v0.0.9 grid bit-for-bit; relative Δc subtracts exact IntExp first.
+- `src/floatexp.rs`: normalized f64 mantissa + i64 exponent for deep deltas and low-precision
+  reference storage; tested nonzero at 2^-5000 and against rug arithmetic.
+- `src/reference.rs`: rug-computed/floatexp-stored resumable references; one high-precision
+  tail state; periodic and preperiodic cycles index indefinitely; escaping references remain
+  finite and honest.
+- `src/perturb.rs`: the delta recurrence, bailout-circle loss-of-significance handling,
+  Pauldelbrot glitch/unfinished outcomes, and differential tests against a precision-doubling
+  rug oracle at depths through 2^-1500. The oracle must first represent the dyadic input
+  exactly; two fixed low precisions can falsely agree because both erased the same deep bit.
+
+This is intentionally not on the live workgroup path yet. Actor/pivot/fallback integration is
+the next design stage; see `design/depth-design.md` and `tracey/depth-rules.md`.
 
 ## Sources
 

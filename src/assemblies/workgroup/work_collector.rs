@@ -119,11 +119,12 @@ async fn internal_behavior<A: SteadyActor>(
                                        }
                                        , data: completed_work.clone().results.into_iter().map(|x| -> Answer {
                                            match x {
-                                               CompletedPoint::Escapes{escape_time, escape_location, smallness, small_time, ..} => {
+                                               CompletedPoint::Escapes{escape_time, escape_location, escape_derivative, smallness, small_time, ..} => {
                                                    Answer{
                                                        result: MandelbrotResult::Outside {
                                                            escape_time_r2: escape_time as u64
                                                            , escape_z: (escape_location.0 as f32, escape_location.1 as f32)
+                                                           , escape_dc: (escape_derivative.0 as f32, escape_derivative.1 as f32)
                                                        }
                                                        , min_magnitude_time: small_time as u64
                                                        , min_magnitude: smallness
@@ -183,12 +184,13 @@ async fn internal_behavior<A: SteadyActor>(
                         ,
                         data: completed_work.clone().results.into_iter().map(|x| -> Answer {
                             match x {
-                                CompletedPoint::Escapes { escape_time, escape_location, smallness, small_time, .. } => {
+                                CompletedPoint::Escapes { escape_time, escape_location, escape_derivative, smallness, small_time, .. } => {
                                     Answer {
                                         result: MandelbrotResult::Outside {
                                             escape_time_r2: escape_time as u64
                                             ,
                                             escape_z: (escape_location.0 as f32, escape_location.1 as f32)
+                                            , escape_dc: (escape_derivative.0 as f32, escape_derivative.1 as f32)
                                         }
                                         ,
                                         min_magnitude_time: small_time as u64

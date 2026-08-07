@@ -45,6 +45,16 @@ Benchmarks vary run to run; this is not an exact science and that's fine.
 | full_stack_ips (derivative pipeline) | ~5.8e7 (10,302,563 iterations, 17–18 shifts) | 2026-08-06 | post-change working tree | same |
 | time_to_first_publish (period-correctness fix) | 65.50 ms (65.23–65.77 ms) | 2026-08-06 | post-fix working tree | same |
 | time_to_full_frame (period-correctness fix) | 293.57 ms (291.12–295.86 ms; −97.6% vs pre-pipeline, +25% vs first pipeline cut) | 2026-08-06 | post-fix working tree | same |
+| time_to_first_publish (screen-space filament derivative) | 72.07 ms (71.64–72.50 ms; +10.0% vs period-correctness fix) | 2026-08-07 | post-feature working tree | same |
+| time_to_full_frame (screen-space filament derivative) | 316.72 ms (312.49–320.39 ms; +7.9% vs period-correctness fix) | 2026-08-07 | post-feature working tree | same |
+| full_stack_ips (screen-space filament derivative) | ~4.0e7 (10,302,563 iterations, 24–26 typical shifts; 37.1–42.5M observed) | 2026-08-07 | post-feature working tree | same |
+| time_to_first_publish (false-filament sign guard) | 71.60 ms (71.02–72.26 ms; no change detected) | 2026-08-07 | post-fix working tree | same |
+| time_to_full_frame (false-filament sign guard) | 316.26 ms (308.65–325.35 ms; no change detected) | 2026-08-07 | post-fix working tree | same |
+| time_to_first_publish (tendril raw-contrast guard) | 71.68 ms (71.19–72.19 ms) | 2026-08-07 | post-fix working tree | same |
+| time_to_full_frame (tendril raw-contrast guard) | 314.77 ms (310.38–319.19 ms) | 2026-08-07 | post-fix working tree | same |
+| time_to_first_publish (stencil-only lazy Replace) | 41.28 ms (40.89–41.68 ms; −42% vs tendril guard) | 2026-08-07 | post-feature working tree | same |
+| time_to_full_frame (stencil-only lazy Replace) | 322.41 ms (315.76–328.09 ms; noise vs tendril guard) | 2026-08-07 | post-feature working tree | same |
+| full_stack_ips (stencil-only lazy Replace) | ~3.6e7 (10,302,563 iterations, 26–29 typical shifts) | 2026-08-07 | post-feature working tree | same |
 
 Pre-change test baseline: `cargo test` ran 39 tests; 38 passed and only the known
 `assemblies::views::zoom_in_associativity_test` failed, reproducing
@@ -59,3 +69,11 @@ The period-correctness fix (ascending partials instead of last-record-only, mini
 reduction, tail-started Newton, period-0 = unknown) costs ~25% on full-frame versus the first
 pipeline cut — the price of the per-completion partial replay — while remaining ~42× faster
 than the timewarp code it replaced.
+
+The screen-space filament derivative adds one complex multiply-add to every Mandelbrot
+iteration. Its measured full-frame wall-time cost is 7.9%, within the 20% regression guard;
+this is accepted feature cost for retaining in-filaments during interim zoom frames.
+
+Stencil-only Replace drops the seeded context from the command channel and materializes seat
+coordinates at first start. `time_to_first_publish` improves ~42%; full-frame wall time is
+unchanged within noise (same 10,302,563 counted iterations).

@@ -53,6 +53,18 @@ featureless center (Heiland-Allen 2010f, 2014g with Kalles Fraktaler).
   *distance* fields, which are smooth, testable (numeric oracles), and composable with
   anti-aliasing. A distance-based filament layer would also give the "pixel resolved?" test
   that honest-incomplete rendering wants.
+- **Design rule (developer note): edges are detected on the screen, from derivative fields
+  carried in the data.** Detecting in-filaments as sign changes between *data-grid* neighbors
+  breaks past data resolution: zoomed in, the blocky data no longer crosses a sign change and
+  filaments vanish (known issue, see issue-stack). Instead the per-point answer should carry
+  the derivative *direction/angle* (and likewise smallness for nodes), and coloring should
+  detect sign changes between *screen-space* neighbors. Thinness constraint: the current
+  up/down/left/right local-peak test is what keeps filaments thin and catch-everything; a
+  naive angle-based replacement thickens the lines and is a visual regression even if more
+  "correct". The in-filament path now implements this rule: it carries `dz/dc`, derives the
+  exterior-field direction, locally extrapolates remapped samples, and preserves the
+  four-neighbor one-pixel peak test. Applying the same rule to smallness/small-time nodes
+  remains open.
 - All of the above are pure functions of per-point answers + derivatives — shade-time work,
   consistent with the answer-only hoard rule (no color hoard; colors exist only at shade time).
 - Derivative storage per Answer has a size cost; the salvaged "derivative direction on Answers /

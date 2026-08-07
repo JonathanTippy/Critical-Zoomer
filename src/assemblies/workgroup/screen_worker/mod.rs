@@ -2,6 +2,7 @@ use std::cmp::min;
 use std::ops::{Add, Mul, Sub};
 use steady_state::*;
 use crate::assemblies::headgroup::window::sampling::{index_from_relative_location, relative_location_i32_row_and_seat, transform_relative_location_i32};
+use crate::assemblies::workgroup::c_generator::Mandelbrotable;
 use crate::utils::ObjectivePosAndZoom;
 //use crate::actor::work_collector::*;
 use crate::assemblies::workgroup::work_controller::*;
@@ -18,7 +19,7 @@ pub struct WorkUpdate<T> {
 }
 
 #[derive(Clone)]
-pub struct WorkerState<T:Copy> {
+pub struct WorkerState<T: Mandelbrotable> {
     work_context: Option<(WorkContext<T>, (ObjectivePosAndZoom, (u32, u32)))>
     , workshift_token_budget: u32
     , iteration_token_cost: u32
@@ -30,7 +31,7 @@ pub struct WorkerState<T:Copy> {
 
 pub async fn run(
     actor: SteadyActorShadow,
-    commands_in: SteadyRx<WorkerCommand<f64>>,
+    commands_in: SteadyRx<WorkerCommand>,
     updates_out: SteadyTx<WorkUpdate<f64>>,
     attention_in: SteadyRx<(i32, i32)>,
     state: SteadyState<WorkerState<f64>>,
@@ -46,9 +47,9 @@ pub async fn run(
         .await
 }
 
-async fn internal_behavior<A: SteadyActor, T: Send + std::fmt::Debug + Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + workshift::Finite + workshift::Gt + workshift::Abs + From<f32> + Into<f64> + Copy>(
+async fn internal_behavior<A: SteadyActor, T: Mandelbrotable + Send + std::fmt::Debug + Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + workshift::Finite + workshift::Gt + workshift::Abs + From<f32> + Into<f64> + Copy>(
     mut actor: A,
-    commands_in: SteadyRx<WorkerCommand<T>>,
+    commands_in: SteadyRx<WorkerCommand>,
     updates_out: SteadyTx<WorkUpdate<T>>,
     attention_in: SteadyRx<(i32, i32)>,
     state: SteadyState<WorkerState<T>>,
@@ -110,22 +111,24 @@ async fn internal_behavior<A: SteadyActor, T: Send + std::fmt::Debug + Sub<Outpu
 
             match actor.try_take(&mut commands_in).unwrap() {
 
-                WorkerCommand::Replace{frame_info: frame_info, context:ctx} => {
+                WorkerCommand::Replace{frame_info} => {
                     // r[impl cz.craft.pivot-two-message-order+1]
-                    if let Some((old_ctx, old_frame_info)) = &mut state.work_context {
-                        let U = work_update(old_ctx);
-
-                        if U.len() > 0 {
-                            actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:U});
+                    // r[impl cz.craft.stencil-only-replace+2]
+                    let previous = state.work_context.take();
+                    let previous_for_shell = match previous {
+                        Some((mut old_ctx, old_fi)) => {
+                            let U = work_update(&mut old_ctx);
+                            if U.len() > 0 {
+                                actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:U});
+                            }
+                            Some((old_ctx, old_fi.0.zoom_pot))
                         }
+                        None => None,
+                    };
 
-                        state.work_context = Some((ctx, frame_info.clone()));
+                    if let Some(new_ctx) = from_stencil(frame_info.clone(), previous_for_shell) {
+                        state.work_context = Some((new_ctx, frame_info.clone()));
                         actor.try_send(&mut updates_out, WorkUpdate{frame_info:Some(frame_info), completed_points:vec!()});
-
-                    } else {
-                        state.work_context = Some((ctx, frame_info.clone()));
-                        actor.try_send(&mut updates_out, WorkUpdate{frame_info:Some(frame_info), completed_points:vec!()});
-                        //debug!("screen worker got new context: \n{:?}", state.work_context);
                     }
                 }
             }
@@ -168,7 +171,7 @@ async fn internal_behavior<A: SteadyActor, T: Send + std::fmt::Debug + Sub<Outpu
 }
 
 // r[impl cz.craft.lifo-drain+1]
-fn work_update<T:Copy>(ctx: &mut WorkContext<T>) -> Vec<(CompletedPoint<T>, usize)> {
+fn work_update<T: Mandelbrotable>(ctx: &mut WorkContext<T>) -> Vec<(CompletedPoint<T>, usize)> {
 
 
     //ctx.completed_points

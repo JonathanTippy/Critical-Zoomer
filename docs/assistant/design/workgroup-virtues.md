@@ -73,11 +73,12 @@ The later machine kept the coalescing *function* (`coalesce_scheduler_commands`)
 
 ## 3. The WorkContext: a self-contained job site
 
-When a stencil changes, the controller builds the entire next world:
+When a stencil changes, the worker builds the next world from `frame_info` alone:
 
-- **`points`** — a full-screen dense `Vec<Point>`, one entry per pixel, each seeded with `c = z = pixel_location`, iteration count 0, no loop checkpoint, smallness 100. The schedule and the working state are literally the same vector; there is no registry of "tasks" separate from "progress". A point's index *is* its seat. This is why work-skipping bugs (README: "fix work skipping") have no place to live: there is no task list that can disagree with the point state; the point state is all there is.
+- **`points`** — a full-screen dense `Vec<Point>`, one entry per pixel. Seats start `initialized == false`; the first time the scheduler starts a seat, `ensure_started` materializes `c = z = generator.get_c(seat)`, `dc = (1, 0)`. The schedule and the working state are still the same vector; there is no registry of "tasks" separate from "progress". A point's index *is* its seat. This is why work-skipping bugs (README: "fix work skipping") have no place to live: there is no task list that can disagree with the point state; the point state is all there is.
+- **`c_generator`** — fail-closed objective→compute converter for this frame; also the source of `pitch_epsilon`.
 - **`random_map` (mixmap)** — a shuffled permutation of seat indices, regenerated when the resolution changes. Random order is a specific lesson: raster-order traversal of the Mandelbrot set creates visible banding, because neighboring pixels have correlated costs and correlated completion. A shuffled order spreads both easy and hard pixels uniformly across the screen, so partial progress *looks like* uniform refinement rather than crawling stripes. (An interlaced variant exists in the code as an alternative — same intent.)
-- **`scredge_poses`** — the *shuffled perimeter* of the screen, computed at context build time. This is the scheduling face of the architecture's "smear/extrude" rule: the seats most likely to be newly exposed by motion are the edges, so the edges are seeded as work from birth, before any completion has occurred anywhere.
+- **`scredge_poses`** — the *shuffled perimeter* of the screen, computed at shell install. This is the scheduling face of the architecture's "smear/extrude" rule: the seats most likely to be newly exposed by motion are the edges, so the edges are seeded as work from birth, before any completion has occurred anywhere.
 - **Four queues** — `scredge_poses`, `edge_queue`, `out_queue`, `in_queue`. All seeded empty except scredge. Queues are `VecDeque`s of `(position, difficulty-or-period)`.
 - **`attention`** — the cursor pixel, updated asynchronously, used by the Random slot.
 - **`zoomed`** — whether this frame is deeper than the last.
@@ -85,11 +86,20 @@ When a stencil changes, the controller builds the entire next world:
 
 Note the queue entries carry a **cost estimate** (iterations of the neighbor that spawned them, or period for interior floods). The current scheduling order does not sort by it — but it is captured at the source, for free, as a byproduct of having just iterated the neighbor. The design leaves hooks without paying for them.
 
-### Why the context is built by the controller, not the worker
+### Why the context is built by the worker from the stencil
 
-Because context construction is *work the worker should never do*. Building a full screen of seeded points, a mixmap, and an edge list is O(pixels) of pure allocation and arithmetic. If the worker built it, the first shift after every pivot would be consumed by construction — a visible pause at exactly the moment the user most wants responsiveness (README: "fix zoom while drag", "fix work cancellation"). The controller builds the next world *concurrently* with the worker finishing its current shift, and the swap is instant. This is the pipelining that makes pivots feel free: construction and execution overlap, and the handoff is one message.
+Because shipping a fully seeded `WorkContext` (~410k points, tens of megabytes) through the
+capacity-10 command channel was the pivot's dominant play cost. With a fail-closed
+`CGenerator`, per-seat coordinates are trivially recomputable from `(loc, zoom, res)`, so
+`Replace` carries only that stencil. The worker installs an O(1)-coordinate shell — generator,
+mixmap, shuffled scredge, empty queues — and materializes each seat at first start, the same
+way `delivered` guards the publish side. Construction spreads across the frame's natural start
+pattern instead of landing as one lump on either actor, and steady-zoom pivots reuse the
+previous points buffer so large reallocations are rare.
 
-One honest reservation: the construction is a single monolithic batch on the controller. It works — the controller has nothing else to do — but a small incremental generator could spread that load across the pivot window instead of doing it in one lump, an opportunity to reduce play even further. The *split* (builder vs runner) is the gold; the *batch size* of the build is a refinement left on the table.
+The virtue that remains is "pivots feel free". The old mechanism was controller-side pipelining
+of a monolithic seed; the new mechanism is a near-zero-byte message plus lazy seat init. The
+two-message pivot order (flush completions, then announce `frame_info`) is unchanged.
 
 ---
 
@@ -288,7 +298,7 @@ Details that are easy to miss and were clearly earned (each bound to its code si
 - **Provisional answers never mark delivered** — guesses never block truth. `r[cz.craft.provisional-not-delivered+1]`
 - **Undeliver-and-break on full buffer** — backpressure degrades to re-queue, never to loss (policy gold; fixed-array structure replaceable, §12). `r[cz.craft.undeliver-on-full+1]`
 - **Clamped remap as smear** — motion-fill and storage-remap are one operation. `r[cz.craft.clamped-remap-smear+1]`
-- **Controller builds, worker runs** — pivot construction overlaps current execution. `r[cz.craft.controller-builds+1]`
+- **Stencil-only Replace, lazy seat init** — no seeded context crosses the channel; seats materialize at first start. `r[cz.craft.stencil-only-replace+2]`
 - **Small channels** — the machine promises to consume toward the tip. `r[cz.craft.small-channels+1]`
 - **Wall-clock as law** — budget what the user feels (token accounting is vestigial, §12). `r[cz.craft.wall-clock-law+1]`
 - **Publish cadence emergent** — no timer to tune. `r[cz.craft.emergent-cadence+1]`

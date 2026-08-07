@@ -43,6 +43,7 @@ impl Answer {
         result: MandelbrotResult::Outside {
             escape_time_r2: 0
             , escape_z: (0.0, 0.0)
+            , escape_dc: (1.0, 0.0)
         }
         , min_magnitude_time: 0
         , min_magnitude: 0.0
@@ -54,6 +55,7 @@ pub enum MandelbrotResult {
     Outside {
         escape_time_r2: u64
         , escape_z: (f32, f32)
+        , escape_dc: (f32, f32)
     }
     , Inside {
         period: u64

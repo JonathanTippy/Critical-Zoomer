@@ -6,6 +6,7 @@ Assistant-owned index for this folder. The developer's files speak for themselve
 
 - `design-target.md` — the developer's current target: **build v0.0.9 but on GPU** (views, not tiles; full remap of old work).
 - `workgroup-virtues.md` — enshrined study of the v0.0.9 workgroup (commit e6a0560): the mechanisms and invariants that kept it from getting behind pivots, confusing work storage, stalling, or publishing stale work. **Read before changing anything in the workgroup.** Every later regression traced to breaking one of its seven invariants; they are not to be re-broken.
+- `depth-design.md` — perturbation with a background reference worker (floatexp storage, fallback chain, byte-budgeted reference cache, series approximation as follow-on). Design proposal only; not yet implemented.
 
 ## Stale
 

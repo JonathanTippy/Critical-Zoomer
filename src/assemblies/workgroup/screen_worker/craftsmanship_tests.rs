@@ -2,8 +2,8 @@
 // (docs/assistant/tracey/craftsmanship-rules.md) to the v0.0.9 workgroup code.
 // Each test names the rule it verifies.
 //
-// Seam note: WorkContext<f64> carries an inline [(_, _); 100000] Stec (~5 MB),
-// so every test that builds one runs on a 64 MB-stack thread via `run_big`.
+// Seam note: WorkContext's completion buffer is a heap Vec-backed Stec
+// (capacity 100000). Tests that build one still use run_big for headroom.
 
 use std::time::Instant;
 use std::collections::VecDeque;
@@ -13,8 +13,9 @@ use proptest::prelude::*;
 use super::work_update;
 use super::workshift::*;
 use crate::assemblies::headgroup::window::sampling::index_from_relative_location;
+use crate::assemblies::workgroup::c_generator::CGenerator;
 use crate::assemblies::workgroup::work_collector::{sample_old_values, ResultsPackage};
-use crate::assemblies::workgroup::work_controller::get_random_mixmap;
+use crate::assemblies::workgroup::screen_worker::workshift::get_random_mixmap;
 use crate::utils::{index_from_pos, IntExp, ObjectivePosAndZoom};
 
 fn run_big(f: impl FnOnce() + Send + 'static) {
@@ -30,6 +31,7 @@ fn make_point(c: (f64, f64)) -> Point<f64> {
     Point {
         c,
         z: (0.0, 0.0),
+        dc: (0.0, 0.0),
         real_squared: 0.0,
         imag_squared: 0.0,
         real_imag: 0.0,
@@ -38,6 +40,7 @@ fn make_point(c: (f64, f64)) -> Point<f64> {
         escapes: false,
         repeats: false,
         delivered: false,
+        initialized: true,
         period: 0,
         smallness_squared: f64::MAX,
         small_time: 0,
@@ -65,9 +68,10 @@ fn make_context(workshifts: u32) -> WorkContext<f64> {
     ];
     let points: Vec<Point<f64>> = cs.iter().map(|&c| make_point(c)).collect();
     let n = points.len();
+    let c_generator = CGenerator::new(&(IntExp::from(0), IntExp::from(0)), -2, res).unwrap();
     WorkContext {
         points,
-        completed_points: Stec { stuff: [(CompletedPoint::Dummy {}, 0usize); 100000], len: 0 },
+        completed_points: Stec::with_capacity(100000, (CompletedPoint::Dummy {}, 0)),
         last_update: 0,
         index: 0,
         random_index: 0,
@@ -88,11 +92,66 @@ fn make_context(workshifts: u32) -> WorkContext<f64> {
         in_queue: VecDeque::new(),
         zoomed: false,
         attention: (0, 0),
+        c_generator,
+        pitch_epsilon: 1e-9 * (1.0 / 256.0),
     }
 }
 
 fn shift(ctx: &mut WorkContext<f64>) {
     workshift(0, 0, 0, 0, ctx);
+}
+
+fn orbit_with_derivative(c: (f64, f64), iterations: u32) -> Point<f64> {
+    let mut point = make_point(c);
+    for _ in 0..iterations {
+        update_point_results(&mut point);
+        iterate(&mut point);
+    }
+    point
+}
+
+fn adjacent_ulps(value: f64, upward: bool, ulps: u64) -> f64 {
+    if value == 0.0 {
+        return if upward { f64::from_bits(ulps) } else { -f64::from_bits(ulps) };
+    }
+    let bits = value.to_bits();
+    f64::from_bits(if upward == (value > 0.0) { bits + ulps } else { bits - ulps })
+}
+
+proptest! {
+    // r[verify cz.craft.screen-space-derivative-edges+1]
+    #[test]
+    fn mandelbrot_dc_matches_ulp_finite_difference(
+        cr in -1.5f64..0.5,
+        ci in -1.0f64..1.0,
+        iterations in 1u32..4,
+    ) {
+        prop_assume!(cr.abs() > 0.01);
+        let center = orbit_with_derivative((cr, ci), iterations);
+        // A small ULP window avoids making the finite-difference numerator
+        // itself indistinguishable from endpoint rounding.
+        let lo = adjacent_ulps(cr, false, 1 << 20);
+        let hi = adjacent_ulps(cr, true, 1 << 20);
+        let z_lo = orbit_with_derivative((lo, ci), iterations).z;
+        let z_hi = orbit_with_derivative((hi, ci), iterations).z;
+        let finite = ((z_hi.0 - z_lo.0) / (hi - lo), (z_hi.1 - z_lo.1) / (hi - lo));
+        let tolerance = iterations as f64 * 1.0e-4;
+        prop_assert!((center.dc.0 - finite.0).abs() <= tolerance * center.dc.0.abs().max(1.0));
+        prop_assert!((center.dc.1 - finite.1).abs() <= tolerance * center.dc.1.abs().max(1.0));
+    }
+
+    // r[verify cz.craft.screen-space-derivative-edges+1]
+    #[test]
+    fn mandelbrot_dc_obeys_conjugation(
+        cr in -2.0f64..1.0,
+        ci in -1.5f64..1.5,
+        iterations in 1u32..8,
+    ) {
+        let a = orbit_with_derivative((cr, ci), iterations).dc;
+        let b = orbit_with_derivative((cr, -ci), iterations).dc;
+        prop_assert_eq!(a.0, b.0);
+        prop_assert_eq!(a.1, -b.1);
+    }
 }
 
 // verifies r[cz.craft.epsilon-pixel-pitch+1]
@@ -408,6 +467,7 @@ fn remap_onto_same_view_is_fixed_point() {
             .map(|i| CompletedPoint::Escapes {
                 escape_time: i,
                 escape_location: (0.0, 0.0),
+                escape_derivative: (1.0, 0.0),
                 start_location: (0.0, 0.0),
                 smallness: 0.0,
                 small_time: 0,
@@ -447,3 +507,84 @@ fn workshift_always_terminates() {
         assert_eq!(ctx.workshifts, 3);
     });
 }
+
+// r[verify cz.craft.stencil-only-replace+2]
+#[test]
+fn fresh_shell_leaves_seats_uninitialized() {
+    run_big(|| {
+        let frame_info = (
+            ObjectivePosAndZoom {
+                pos: (IntExp::from(-2), IntExp::from(2)),
+                zoom_pot: -2,
+            },
+            (8u32, 4u32),
+        );
+        let ctx = from_stencil::<f64>(frame_info, None).unwrap();
+        assert!(ctx.points.iter().all(|p| !p.initialized && !p.delivered));
+        assert_eq!(ctx.points.len(), 32);
+        assert!(!ctx.scredge_poses.is_empty());
+    });
+}
+
+// r[verify cz.craft.stencil-only-replace+2]
+#[test]
+fn ensure_started_matches_generator_bit_for_bit() {
+    run_big(|| {
+        let res = (17u32, 11u32);
+        let frame_info = (
+            ObjectivePosAndZoom {
+                pos: (IntExp::from(-2), IntExp::from(2)),
+                zoom_pot: 7,
+            },
+            res,
+        );
+        let mut ctx = from_stencil::<f64>(frame_info, None).unwrap();
+        for row in 0..res.1 {
+            for seat in 0..res.0 {
+                let pos = (seat as i32, row as i32);
+                ensure_started(&mut ctx, pos);
+                let index = index_from_pos(&pos, res.0);
+                assert!(ctx.points[index].initialized);
+                assert_eq!(
+                    ctx.points[index].c,
+                    ctx.c_generator.get_c((seat, row)),
+                    "seat ({seat},{row})"
+                );
+                assert_eq!(ctx.points[index].z, ctx.points[index].c);
+                assert_eq!(ctx.points[index].dc, (1.0, 0.0));
+            }
+        }
+    });
+}
+
+// r[verify cz.craft.stencil-only-replace+2]
+#[test]
+fn replace_reuses_points_capacity_and_resets_initialized() {
+    run_big(|| {
+        let frame_a = (
+            ObjectivePosAndZoom {
+                pos: (IntExp::from(-2), IntExp::from(2)),
+                zoom_pot: -2,
+            },
+            (8u32, 4u32),
+        );
+        let mut ctx = from_stencil::<f64>(frame_a.clone(), None).unwrap();
+        ensure_started(&mut ctx, (0, 0));
+        assert!(ctx.points[0].initialized);
+        let cap = ctx.points.capacity();
+
+        let frame_b = (
+            ObjectivePosAndZoom {
+                pos: (IntExp::from(-2), IntExp::from(2)),
+                zoom_pot: -1,
+            },
+            (8u32, 4u32),
+        );
+        let ctx2 = from_stencil(frame_b, Some((ctx, -2))).unwrap();
+        assert!(ctx2.points.iter().all(|p| !p.initialized));
+        assert!(ctx2.points.capacity() >= cap);
+        assert_eq!(ctx2.points.len(), 32);
+        assert!(ctx2.zoomed);
+    });
+}
+

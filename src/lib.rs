@@ -26,4 +26,7 @@ pub mod settings;
 pub mod utils;
 pub mod range;
 pub mod constants;
+pub mod floatexp;
+pub mod reference;
+pub mod perturb;
 pub mod assemblies;

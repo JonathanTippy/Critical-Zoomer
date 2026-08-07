@@ -21,6 +21,7 @@ pub enum ScreenValue {
         big_time:u32
         , small_time: u32
         , smallness:f64
+        , gradient_angle: f32
     },
     Inside{
         small_time: u32
@@ -140,10 +141,11 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
                                         , smallness: x.min_magnitude.into()
                                         , small_time: x.min_magnitude_time as u32
                                     }
-                                }, MandelbrotResult::Outside{escape_time_r2, escape_z} => {
+                                }, MandelbrotResult::Outside{escape_time_r2, escape_z, escape_dc} => {
                                     CompletedPoint::<T>::Escapes {
                                         escape_time: escape_time_r2 as u32
                                         , escape_location: (escape_z.0.into(), escape_z.1.into())
+                                        , escape_derivative: (escape_dc.0.into(), escape_dc.1.into())
                                         ,
                                         smallness: x.min_magnitude.into()
                                         ,
@@ -200,7 +202,7 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
 fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f64> + PartialOrd + Finite + Gt + Abs + From<f32> + Into<f64> + Copy>
     (p: &CompletedPoint<T>, r: f32, pos:(i32, i32), points: &Vec<CompletedPoint<T>>, res: (u32, u32), settings:Settings) -> ScreenValue {
     match p {
-        CompletedPoint::Escapes{escape_time: t, escape_location: z, start_location: c , smallness:s, small_time:st} => {
+        CompletedPoint::Escapes{escape_time: t, escape_location: z, escape_derivative: dc, start_location: c , smallness:s, small_time:st} => {
 
             let neighbors: [(i32, i32);4] =[
                 (pos.0, pos.1-1)
@@ -220,7 +222,7 @@ fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f6
                 ) {
                     match points[index_from_pos(&n, res.0)] {
                         CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {}
-                        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {
+                        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st, ..} => {
                             
                             let difference = (nt as i32)-(*t as i32);
                             let direction = diff(n, pos);
@@ -251,6 +253,7 @@ fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f6
             let mut p = Point{
                 c: *c
                 , z: *z
+                , dc: *dc
                 , real_squared: z.0 * z.0
                 , imag_squared: z.1 * z.1
                 , iterations: t.clone()
@@ -259,6 +262,7 @@ fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f6
                 , escapes: false
                 , repeats: false
                 , delivered: false
+                , initialized: true
                 , period: 0
                 , smallness_squared:*s
                 , small_time:*st
@@ -289,7 +293,18 @@ fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f6
                 c+=1;
             }
 
-            ScreenValue::Outside{ big_time: p.iterations, smallness:<T as Into<f64>>::into(*s), small_time:*st}
+            let zr: f64 = p.z.0.into();
+            let zi: f64 = p.z.1.into();
+            let dr: f64 = p.dc.0.into();
+            let di: f64 = p.dc.1.into();
+            // arg(z / dc), reflected because screen y grows downward.
+            let gradient_angle = (-(zi * dr - zr * di)).atan2(zr * dr + zi * di) as f32;
+            ScreenValue::Outside{
+                big_time: p.iterations,
+                smallness:<T as Into<f64>>::into(*s),
+                small_time:*st,
+                gradient_angle,
+            }
         }
         CompletedPoint::Repeats{period: p, smallness:s, small_time:st} => {
             let neighbors: [(i32, i32);4] =[
@@ -316,7 +331,7 @@ fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f6
                             let derivative = (direction.0 * difference, direction.1 * difference);
                             sum = (sum.0+derivative.0, sum.1+derivative.1);
                         }
-                        CompletedPoint::Escapes{escape_time: t, escape_location: z, start_location: c, smallness:s, small_time:st} => {}
+                        CompletedPoint::Escapes{escape_time: t, escape_location: z, start_location: c, smallness:s, small_time:st, ..} => {}
                         CompletedPoint::Dummy{} => {}
                     }
                 }
@@ -361,7 +376,7 @@ fn get_derivative<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f64> + P
         ) {
             match points[index_from_pos(&n, res.0)] {
                 CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {}
-                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st, ..} => {
                     let difference = (nt as i32)-(escape_time as i32);
                     let direction = diff(n, pos);
                     let derivative = (direction.0 * difference, direction.1 * difference);
@@ -383,7 +398,7 @@ fn is_node<T: From<f32> + Into<f64> + Copy>(pos:(i32, i32), points:&Vec<Complete
 
     let s:f64 = match points[index_from_pos(&pos, res.0)] {
         CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {s}
-        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {s}
+        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st, ..} => {s}
         CompletedPoint::Dummy{} => {100.0f32.into()}
     }.into();
 
@@ -415,13 +430,13 @@ fn is_node<T: From<f32> + Into<f64> + Copy>(pos:(i32, i32), points:&Vec<Complete
 
         let s1:f64 = match points[index_from_pos(&n1, res.0)] {
             CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {s}
-            CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {s}
+            CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st, ..} => {s}
             CompletedPoint::Dummy{} => {100.0f32.into()}
         }.into();
 
         let s2:f64 = match points[index_from_pos(&n2, res.0)] {
             CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {s}
-            CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {s}
+            CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st, ..} => {s}
             CompletedPoint::Dummy{} => {100.0f32.into()}
         }.into();
 
@@ -441,7 +456,7 @@ fn is_node_tree<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f64> + Par
 
     let st = match points[index_from_pos(&pos, res.0)] {
         CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {st}
-        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {st}
+        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st, ..} => {st}
         CompletedPoint::Dummy{} => {0}
     };
 
@@ -483,13 +498,13 @@ fn is_node_tree<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f64> + Par
 
             let st1 = match points[index_from_pos(&n1, res.0)] {
                 CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {st}
-                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {st}
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st, ..} => {st}
                 CompletedPoint::Dummy{} => {0}
             };
 
             let st2 = match points[index_from_pos(&n2, res.0)] {
                 CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {st}
-                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {st}
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st, ..} => {st}
                 CompletedPoint::Dummy{} => {0}
             };
 
@@ -506,7 +521,7 @@ fn smallness_deriv_deriv_big <T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ I
 
     let s = match points[index_from_pos(&pos, res.0)] {
         CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {s}
-        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {s}
+        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st, ..} => {s}
         CompletedPoint::Dummy{} => {100.0f32.into()}
     };
 
@@ -534,22 +549,22 @@ fn smallness_deriv_deriv_big <T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ I
         ) {
             let ns11:f64 = match points[index_from_pos(&n.0.0, res.0)] {
                 CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {s}
-                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {s}
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st, ..} => {s}
                 CompletedPoint::Dummy{} => {100.0f32.into()}
             }.into();
             let ns12:f64 = match points[index_from_pos(&n.0.1, res.0)] {
                 CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {s}
-                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {s}
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st, ..} => {s}
                 CompletedPoint::Dummy{} => {100.0f32.into()}
             }.into();
             let ns21:f64 = match points[index_from_pos(&n.1.0, res.0)] {
                 CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {s}
-                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {s}
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st, ..} => {s}
                 CompletedPoint::Dummy{} => {100.0f32.into()}
             }.into();
             let ns22:f64 = match points[index_from_pos(&n.1.1, res.0)] {
                 CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {s}
-                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {s}
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st, ..} => {s}
                 CompletedPoint::Dummy{} => {100.0f32.into()}
             }.into();
             let slope1 = ns12-ns11;
@@ -578,7 +593,7 @@ fn get_smallness_derivative<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Int
 
     let s:f64 = match points[index_from_pos(&pos, res.0)] {
         CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {s}
-        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st} => {s}
+        CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:s, small_time:st, ..} => {s}
         CompletedPoint::Dummy{} => {100.0f32.into()}
     }.into();
 
@@ -599,7 +614,7 @@ fn get_smallness_derivative<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Int
         ) {
             let ns:f64 = match points[index_from_pos(&n, res.0)] {
                 CompletedPoint::Repeats{period: np, smallness:s, small_time:st} => {s}
-                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:ns, small_time:st} => {
+                CompletedPoint::Escapes{escape_time: nt, escape_location: z, start_location: c, smallness:ns, small_time:st, ..} => {
                     ns
                 }
                 CompletedPoint::Dummy{} => {100.0f32.into()}

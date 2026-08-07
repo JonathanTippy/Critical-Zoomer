@@ -327,7 +327,7 @@ if color_max + delta_b > 255 {delta_b = 255-color_max}
 }
 
 pub fn is_in_filament(values: &ZoomerValuesScreen, pos: (i32, i32)) -> bool {
-
+    // r[impl cz.craft.screen-space-derivative-edges+1]
     let points = [
         pos
         , (pos.0, pos.1-1) // up
@@ -336,17 +336,42 @@ pub fn is_in_filament(values: &ZoomerValuesScreen, pos: (i32, i32)) -> bool {
         , (pos.0+1, pos.1) // right
     ];
 
-    let values = [
-        get_escape_time(safe_sample(&values.values, points[0], values.res))
-        ,get_escape_time(safe_sample(&values.values, points[1], values.res))
-        ,get_escape_time(safe_sample(&values.values, points[2], values.res))
-        ,get_escape_time(safe_sample(&values.values, points[3], values.res))
-        ,get_escape_time(safe_sample(&values.values, points[4], values.res))
-    ];
+    // Each remapped sample describes a locally linear field at its source.
+    // Project that field to the center screen pixel before looking for a peak.
+    let sample = |sample_pos: (i32, i32)| -> Option<(f64, f64, f32)> {
+        match safe_sample(&values.values, sample_pos, values.res)? {
+            ScreenValue::Outside { big_time, gradient_angle, .. } => {
+                let offset = (
+                    (pos.0 - sample_pos.0) as f64,
+                    (pos.1 - sample_pos.1) as f64,
+                );
+                let projection = offset.0 * (*gradient_angle as f64).cos()
+                    + offset.1 * (*gradient_angle as f64).sin();
+                Some((*big_time as f64, *big_time as f64 + projection, *gradient_angle))
+            }
+            ScreenValue::Inside { .. } => None,
+        }
+    };
+    let samples = points.map(sample);
 
-    slope_sign_changed(
-        values[0], values[1], values[2], values[3], values[4]
-    )
+    // Axis peak with two layers of honesty:
+    // 1. Extrapolated peak keeps thin screen-space ridges past remap.
+    // 2. Raw escape times on that axis must not be a flat plateau. The old
+    //    integer test was deaf to equal-n neighborhoods; conjugation-symmetric
+    //    exterior rays (cusp / bulb-axis tendrils) live in those plateaus and
+    //    must stay dark. A true filament has a raw escape-time contrast.
+    let axis_peak = |a: usize, b: usize| -> bool {
+        let (Some((c_raw, c_ext, _)), Some((a_raw, a_ext, _)), Some((b_raw, b_ext, _))) =
+            (samples[0], samples[a], samples[b])
+        else {
+            return false;
+        };
+        let extrapolated_peak = c_ext > a_ext && c_ext > b_ext;
+        let raw_contrast = !(c_raw == a_raw && c_raw == b_raw);
+        extrapolated_peak && raw_contrast
+    };
+
+    axis_peak(1, 2) || axis_peak(3, 4)
 }
 
 
@@ -598,6 +623,15 @@ mod tests {
         ScreenValue::Inside { small_time: 0, loop_period: period, smallness: 0.0 }
     }
 
+    fn outside(time: u32, angle: f32) -> ScreenValue {
+        ScreenValue::Outside {
+            big_time: time,
+            small_time: 0,
+            smallness: 0.0,
+            gradient_angle: angle,
+        }
+    }
+
     fn screen(values: Vec<ScreenValue>) -> ZoomerValuesScreen {
         ZoomerValuesScreen {
             values,
@@ -639,5 +673,177 @@ mod tests {
         ]);
         assert!(is_out_filament(&values, (1, 1)),
             "real period boundaries must remain visible");
+    }
+
+    // r[verify cz.craft.screen-space-derivative-edges+1]
+    #[test]
+    fn caught_up_view_matches_old_raw_peak_oracle() {
+        // When the worker has caught up, every screen neighbor is a distinct
+        // data pixel. The old look is the strict raw escape-time peak. With
+        // zero angles, extrapolation is a no-op on the vertical axis and must
+        // reproduce that oracle exactly — including the dark cells.
+        let times = [
+            4u32, 8, 4,
+            4, 8, 4,
+            3, 5, 3,
+        ];
+        let values = ZoomerValuesScreen {
+            values: times.into_iter().map(|t| outside(t, 0.0)).collect(),
+            res: (3, 3),
+            objective_location: ObjectivePosAndZoom {
+                pos: (crate::utils::IntExp::ZERO, crate::utils::IntExp::ZERO),
+                zoom_pot: 0,
+            },
+        };
+        for y in 0..3 {
+            for x in 0..3 {
+                let pos = (x, y);
+                let old = slope_sign_changed(
+                    get_escape_time(safe_sample(&values.values, pos, values.res)),
+                    get_escape_time(safe_sample(&values.values, (pos.0, pos.1 - 1), values.res)),
+                    get_escape_time(safe_sample(&values.values, (pos.0, pos.1 + 1), values.res)),
+                    get_escape_time(safe_sample(&values.values, (pos.0 - 1, pos.1), values.res)),
+                    get_escape_time(safe_sample(&values.values, (pos.0 + 1, pos.1), values.res)),
+                );
+                assert_eq!(is_in_filament(&values, pos), old,
+                    "caught-up parity broken at ({x},{y})");
+            }
+        }
+    }
+
+    // r[verify cz.craft.screen-space-derivative-edges+1]
+    #[test]
+    fn conjugation_axis_tendril_stays_dark() {
+        // Home-view false filaments: a flat escape-time band with conjugation
+        // symmetry. Opposite flanks point away from the axis, so naive
+        // extrapolation manufactures a peak the old integer test never saw.
+        // The whole horizontal mid-row must stay dark.
+        let mut samples = Vec::new();
+        for y in 0..5 {
+            for _x in 0..9 {
+                // Angles point away from the mid-row (y=2): up-flank down? 
+                // Away from axis: y<2 points up (-π/2 in screen y-down), y>2 points down.
+                let angle = if y < 2 {
+                    -FRAC_PI_2 as f32
+                } else if y > 2 {
+                    FRAC_PI_2 as f32
+                } else {
+                    0.0
+                };
+                samples.push(outside(20, angle));
+            }
+        }
+        let values = ZoomerValuesScreen {
+            values: samples,
+            res: (9, 5),
+            objective_location: ObjectivePosAndZoom {
+                pos: (crate::utils::IntExp::ZERO, crate::utils::IntExp::ZERO),
+                zoom_pot: 0,
+            },
+        };
+        for x in 1..8 {
+            assert!(!is_in_filament(&values, (x, 2)),
+                "conjugation-axis tendril lit at ({x}, 2)");
+        }
+    }
+
+    // r[verify cz.craft.screen-space-derivative-edges+1]
+    #[test]
+    fn monotone_exterior_field_never_lights() {
+        // Smooth outside-set field: escape time falls to the right and every
+        // gradient points right (increasing |z|). No screen pixel is a ridge.
+        let mut samples = Vec::new();
+        for _y in 0..5 {
+            for x in 0..7 {
+                samples.push(outside(40 - x as u32, 0.0));
+            }
+        }
+        let values = ZoomerValuesScreen {
+            values: samples,
+            res: (7, 5),
+            objective_location: ObjectivePosAndZoom {
+                pos: (crate::utils::IntExp::ZERO, crate::utils::IntExp::ZERO),
+                zoom_pot: 2,
+            },
+        };
+        for y in 1..4 {
+            for x in 1..6 {
+                assert!(!is_in_filament(&values, (x, y)),
+                    "monotone exterior field lit a false filament at ({x}, {y})");
+            }
+        }
+    }
+
+    // r[verify cz.craft.screen-space-derivative-edges+1]
+    #[test]
+    fn true_ridge_stays_one_pixel_with_raw_contrast() {
+        // A real in-filament has an elevated escape-time spine. It must light
+        // exactly one screen column — the thin line the old look had — not a
+        // block of neighbors.
+        for width in [8i32, 16] {
+            let ridge = width / 2;
+            let mut samples = Vec::new();
+            for _y in 0..3 {
+                for x in 0..width {
+                    let (time, angle) = if x < ridge {
+                        (4, PI as f32)
+                    } else if x > ridge {
+                        (4, 0.0)
+                    } else {
+                        (8, FRAC_PI_2 as f32)
+                    };
+                    samples.push(outside(time, angle));
+                }
+            }
+            let values = ZoomerValuesScreen {
+                values: samples,
+                res: (width as u32, 3),
+                objective_location: ObjectivePosAndZoom {
+                    pos: (crate::utils::IntExp::ZERO, crate::utils::IntExp::ZERO),
+                    zoom_pot: if width == 8 { 1 } else { 2 },
+                },
+            };
+            let lit: Vec<i32> = (1..width - 1)
+                .filter(|x| is_in_filament(&values, (*x, 1)))
+                .collect();
+            assert_eq!(lit, vec![ridge], "true ridge must stay exactly one screen pixel");
+        }
+    }
+
+    // r[verify cz.craft.screen-space-derivative-edges+1]
+    #[test]
+    fn remapped_duplicate_block_does_not_become_a_thick_band() {
+        // After a 2x remap a 1px ridge becomes a 2-wide block of identical
+        // elevated answers. Lighting every raw boundary of that block makes
+        // the "flashing big blocks" regression. At most one column may light;
+        // lighting none is also acceptable (interim honesty) — never two.
+        let mut samples = Vec::new();
+        // Cross-section: 4,4,8,8,4,4 — duplicated ridge block.
+        let row = [4u32, 4, 8, 8, 4, 4];
+        for _y in 0..3 {
+            for (x, &t) in row.iter().enumerate() {
+                let angle = if (x as i32) < 2 {
+                    PI as f32
+                } else if (x as i32) > 3 {
+                    0.0
+                } else {
+                    FRAC_PI_2 as f32
+                };
+                samples.push(outside(t, angle));
+            }
+        }
+        let values = ZoomerValuesScreen {
+            values: samples,
+            res: (6, 3),
+            objective_location: ObjectivePosAndZoom {
+                pos: (crate::utils::IntExp::ZERO, crate::utils::IntExp::ZERO),
+                zoom_pot: 1,
+            },
+        };
+        let lit: Vec<i32> = (1..5)
+            .filter(|x| is_in_filament(&values, (*x, 1)))
+            .collect();
+        assert!(lit.len() <= 1,
+            "remapped ridge block thickened into {:?}; want at most one column", lit);
     }
 }

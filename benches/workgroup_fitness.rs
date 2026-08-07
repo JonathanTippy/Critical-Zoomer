@@ -6,19 +6,17 @@
 
 #![allow(warnings)]
 
-use std::collections::VecDeque;
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
 use criterion::*;
 
 use critical_zoomer::assemblies::workgroup::screen_worker::workshift::*;
-use critical_zoomer::assemblies::workgroup::work_controller::get_points;
 use critical_zoomer::constants::{DEFAULT_WINDOW_RES, HOME_POSITION};
-use critical_zoomer::utils::IntExp;
+use critical_zoomer::utils::{IntExp, ObjectivePosAndZoom};
 
-// WorkContext<f64> carries an inline ~5 MB Stec; build and run it on a
-// big-stack thread (same pattern as the craftsmanship tests).
+// WorkContext build still uses run_big for headroom with the rest of the
+// workgroup fixtures.
 fn run_big<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> R {
     std::thread::Builder::new()
         .stack_size(64 << 20)
@@ -28,66 +26,24 @@ fn run_big<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> R {
         .unwrap()
 }
 
-/// Builds the home-view context exactly as the work controller does
-/// (work_controller.rs handle_sampler_stuff): negated imag, shuffled perimeter
-/// as scredge, shuffled mixmap.
+/// Builds the home-view context the same way the worker does on Replace:
+/// controller frame_info → from_stencil → lazy seat init on start.
 fn home_context() -> WorkContext<f64> {
     let res = DEFAULT_WINDOW_RES;
-    let loc = (
-        IntExp::from(HOME_POSITION.0),
-        IntExp::from(0) - IntExp::from(HOME_POSITION.1),
-    );
-    let zoom_pot = HOME_POSITION.2 as i64;
-
-    let n = (res.0 * res.1) as usize;
-    let mut random_map: Vec<usize> = (0..n).collect();
-    {
-        use rand::seq::SliceRandom;
-        random_map.shuffle(&mut rand::rng());
-    }
-
-    let mut edges = Vec::new();
-    for i in 0..(res.0 - 1) as i32 {
-        edges.push((i, 0))
-    }
-    for i in 0..(res.1 - 1) as i32 {
-        edges.push(((res.0 - 1) as i32, i))
-    }
-    for i in 0..(res.0) as i32 {
-        edges.push((i, (res.1 - 1) as i32))
-    }
-    for i in 1..(res.1 - 1) as i32 {
-        edges.push((0, i))
-    }
-    {
-        use rand::seq::SliceRandom;
-        edges.shuffle(&mut rand::rng());
-    }
-
-    WorkContext {
-        points: get_points(res, loc, zoom_pot),
-        completed_points: Stec { stuff: [(CompletedPoint::Dummy {}, 0); 100000], len: 0 },
-        index: 0,
-        random_index: 0,
-        time_created: Instant::now(),
-        time_workshift_started: Instant::now(),
-        percent_completed: 0.0,
-        random_map,
-        workshifts: 0,
-        total_iterations: 0,
-        spent_tokens_today: 0,
-        total_iterations_today: 0,
-        total_points_today: 0,
-        total_bouts_today: 0,
-        last_update: 0,
+    // Live path: window flips imag into the stencil, controller flips again into
+    // frame_info — for HOME that lands frame_info.pos == HOME (real, imag, zoom).
+    // from_stencil flips once more to recover the compute-grid origin.
+    let frame_info = (
+        ObjectivePosAndZoom {
+            pos: (
+                IntExp::from(HOME_POSITION.0),
+                IntExp::from(HOME_POSITION.1),
+            ),
+            zoom_pot: HOME_POSITION.2,
+        },
         res,
-        scredge_poses: VecDeque::from(edges),
-        edge_queue: VecDeque::new(),
-        out_queue: VecDeque::new(),
-        in_queue: VecDeque::new(),
-        zoomed: false,
-        attention: (0, 0),
-    }
+    );
+    from_stencil(frame_info, None).expect("home view must admit an f64 grid")
 }
 
 fn drain(ctx: &mut WorkContext<f64>) -> usize {

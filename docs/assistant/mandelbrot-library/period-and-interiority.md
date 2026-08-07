@@ -23,8 +23,9 @@ period and are usually much larger, so the candidate is robust.
   get closest to the critical point?" — which is exactly when a nearby attractor of that period
   dominates.
 - Cost: free. The running minimum is what v0.0.9 already collects as `smallness_squared` /
-  `small_time` (`update_point_results` — see `cz.craft.cached-products+1`). Live `Point`s start
-  with `z₁=c` at counter zero, so the period candidate is `small_time + 1`.
+  `small_time` (`update_point_results` — see `cz.craft.cached-products+1`). The candidate list
+  is every record-minimum step, tried ascending — not just the last one (see the corrections
+  under Leverage below).
 
 ### 2. Solve for the attractor with Newton's method
 
@@ -105,6 +106,65 @@ run `m_attractor(z, n, c)`; carry dw around the n-cycle; `if (cabs(dw) <= 1) ret
   (a few p-length passes), fitting the small-interruptible-bouts discipline; it replaces, not
   adds to, the 100k-step timewarp.
 
+## Completion taxonomy: does every point finish?
+
+The app's founding assumption — every point either escapes or repeats, so every point
+eventually completes — needs precise statement. The true taxonomy of the critical orbit:
+
+- **Exterior (c ∉ M):** escapes. Finite escape time; precision-doubling always resolves it.
+- **Hyperbolic interior:** converges to an attracting cycle → repeats. Every convergent orbit
+  is Cauchy, so an epsilon loop check fires eventually even when it never repeats exactly
+  (this also covers parabolic and Feigenbaum-type convergence).
+- **Boundary (c ∈ ∂M):** the honest exception list. Parabolic parameters converge like 1/n —
+  never exactly repeat, and epsilon detection takes ~1/ε iterations (astronomical at depth).
+  Note that parabolic parameters include dyadic values (c = 0.25, −0.75) which *can be exact
+  pixel centers*. Siegel/Cremer parameters (irrational indifferent multipliers) are worse:
+  quasiperiodic, never repeat, never converge to a cycle; proven to exist in positive-measure
+  sets on component boundaries (Avila–Lyubich). They are irrational, so pixel centers land
+  arbitrarily close but never exactly on them.
+
+And the load-bearing caveat: **"every interior point is in a hyperbolic component" is the
+density of hyperbolicity conjecture — open as of 2026** (implied by MLC; proved for the real
+axis by Lyubich and independently Graczyk–Świątek in the 1990s). Hypothetical non-hyperbolic
+"queer" interior components have never been observed, and the conjecture is universally
+believed; building the app on it is sound. But docs and tests must cite it as a conjecture,
+and the practical completion boundary is *cost*, not chaos: near-∂M iteration counts grow
+without bound, so "unfinished while visible, keep working" (tenacity) is a mathematical
+necessity, not just good UX. The Mandelbrot dynamics relevant here are never chaotic in the
+sense of unbounded disorder — bounded critical orbits are structured (attracting, parabolic,
+or quasiperiodic) — which is exactly why completion is achievable at all.
+
+## Can boundary points be detected explicitly?
+
+Three-way split, and the split is sharp:
+
+- **Never, in general.** Certifying an arbitrary boundary point as boundary is undecidable:
+  M is not computable (BSS), its complement is only computably enumerable, and Hertling showed
+  computability of M is equivalent to the density-of-hyperbolicity conjecture. A generic
+  boundary point is forever indistinguishable from a very slow interior point.
+- **Exactly, for the algebraic cases — which are the only ones pixel centers can hit.** Pixel
+  centers are dyadic rationals, and dyadic boundary parameters are low-degree algebraic:
+  - *Parabolic* (necks/cusps: 0.25, −0.75, …): certify with exact rational arithmetic —
+    multiplier = root of unity and F^p(w,c)=w checked with no epsilon (0.25: w=0.5,
+    multiplier exactly 1). Tolerance-free, per the §13 design ideal.
+  - *Misiurewicz* (preperiodic: −2, i, …): the orbit repeats exactly after the preperiod; for
+    small dyadic c this repetition is exact in machine arithmetic — a zero-epsilon loop check
+    certifies it.
+  These warrant a third completion state (`Boundary`, colored separately) alongside
+  escapes/repeats.
+- **Approximately, as regions.** "The boundary passes through this pixel's footprint" is
+  achievable via interior/exterior distance estimation — different and weaker than "this
+  point is boundary", but it is the renderable version, and it needs no undecidable step.
+
+Everything else on the boundary (Siegel/Cremer/Feigenbaum/generic) is irrational: pixel
+centers approach but never land. Those pixels remain honestly unfinished — ridden by the
+queues at bounded bout cost, exactly as v0.0.9's rotation already handles slow points.
+
+(Developer-confirmed design intent: this certifiability result is the reason Critical-Zoomer
+uses dyadic IntExp coordinates from the start — pixel centers stay exact dyadic rationals at
+every zoom, so the only boundary points that can ever be requested are the algebraically
+certifiable ones.)
+
 ## Sources
 
 - Heiland-Allen, "Practical interior distance rendering" (2014):
@@ -117,3 +177,8 @@ run `m_attractor(z, n, c)`; carry dw around the n-cycle; `if (cabs(dw) <= 1) ret
 - Munafo, "Atom Domain", muency: https://www.mrob.com/pub/muency/atomdomain.html
 - Munafo, "Period", muency (incl. Jordan-curve method alternative):
   https://www.mrob.com/pub/muency/period.html
+- Density of hyperbolicity / MLC status (open conjectures; real-axis proofs by Lyubich and
+  Graczyk–Świątek): https://en.wikipedia.org/wiki/Mandelbrot_set
+- Avila–Lyubich, "The positive-measure Julia sets / Siegel parameters" work (parameters with
+  Siegel disks have positive measure on component boundaries):
+  https://arxiv.org/abs/0805.1658 (survey context for bifurcation loci and hyperbolicity)

@@ -138,15 +138,16 @@ r[cz.craft.mixmap-shuffle+1]
 **Normative summary.** Seat traversal order is a shuffled permutation, regenerated exactly when
 resolution changes — anti-banding by construction.
 
-**Code site.** `src/assemblies/workgroup/work_controller.rs` — `get_random_mixmap`, called on
-resolution change; `random_map` field of the context.
+**Code site.** `src/assemblies/workgroup/screen_worker/workshift.rs` — `get_random_mixmap`,
+called from `from_stencil` on resolution change; `random_map` field of the context.
 
 **Acceptance criteria.**
 - [ ] The mixmap is a true permutation (no duplicates, full coverage); identical res keeps the
   same map; changed res rebuilds.
 
 **Test.** `mixmap_is_permutation` (proptest, craftsmanship_tests.rs) covers the permutation
-half; the rebuild-on-resolution-change half is acceptance by code review (`handle_sampler_stuff`).
+half; the rebuild-on-resolution-change half is acceptance by code review (`from_stencil`) plus
+`replace_reuses_points_capacity_and_resets_initialized`.
 
 r[cz.craft.scredge-first-shift0+1]
 
@@ -241,19 +242,52 @@ transform functions, so work and color can never disagree about where a pixel we
 **Test.** `remap_onto_same_view_is_fixed_point` (craftsmanship_tests.rs) — remapping a package
 onto its own view reproduces it exactly through the shared transform.
 
-r[cz.craft.controller-builds+1]
+r[cz.craft.screen-space-derivative-edges+1]
 
-**Normative summary.** The controller constructs the next `WorkContext` concurrently with the
-worker running the current one; the worker never pays construction cost at pivot time.
+**Normative summary.** Visual edges are detected between screen pixels from derivative fields
+carried with the remapped answers. In-filaments extrapolate each local escape field to the
+center pixel, then keep the four-neighbor peak test. A flat raw-escape-time neighborhood on
+that axis must stay dark — that is the old integer look, and it is what keeps conjugation-axis
+exterior tendrils (cusp / bulb rays through smooth bands) from lighting. Remapped duplicate
+blocks must not thicken into multi-pixel bands.
 
-**Code site.** `work_controller.rs` — context construction on stencil receipt;
-`screen_worker/mod.rs` — `WorkerCommand::Replace` install.
+**Code site.** `workshift.rs` — the `dc = 2*z*dc + 1` recurrence; `color.rs` —
+`is_in_filament`.
 
 **Acceptance criteria.**
-- [ ] The worker's first shift after a Replace begins iterating immediately (no construction
-  work in the worker loop).
+- [ ] Caught-up views with zero angles match the old raw `slope_sign_changed` oracle cell-for-cell.
+- [ ] Conjugation-symmetric flat bands with opposing flank angles light no axis tendril.
+- [ ] Monotone exterior fields produce no in-filaments.
+- [ ] A true elevated ridge stays exactly one screen pixel wide.
+- [ ] A 2-wide remapped duplicate of a ridge lights at most one column (never a thick band).
+- [ ] The derivative agrees with finite differences and complex conjugation.
 
-**Test.** None — lives in the actor loop; acceptance by code review + e2e.
+**Test.** `caught_up_view_matches_old_raw_peak_oracle`,
+`conjugation_axis_tendril_stays_dark`, `monotone_exterior_field_never_lights`,
+`true_ridge_stays_one_pixel_with_raw_contrast`,
+`remapped_duplicate_block_does_not_become_a_thick_band`,
+`mandelbrot_dc_matches_ulp_finite_difference`, and `mandelbrot_dc_obeys_conjugation`.
+
+r[cz.craft.stencil-only-replace+2]
+
+**Normative summary.** A pivot `Replace` carries only `frame_info` (loc + zoom + res). The
+worker builds an uninitialized context shell from that stencil and materializes each seat's
+`c`/`z`/`dc` from a fail-closed `CGenerator` at first start. No seeded point buffer crosses the
+channel; construction cost is amortized across the frame's natural start pattern.
+
+**Code site.** `work_controller.rs` — fail-closed stencil pass-through;
+`screen_worker/mod.rs` — shell install on Replace; `workshift.rs` — `from_stencil` /
+`ensure_started`.
+
+**Acceptance criteria.**
+- [ ] `WorkerCommand::Replace` contains no `WorkContext`.
+- [ ] A fresh shell leaves every seat `initialized == false`.
+- [ ] `ensure_started` produces bit-identical `c` to the generator grid.
+- [ ] Steady-zoom Replace reuses the previous points vec capacity.
+
+**Test.** `fresh_shell_leaves_seats_uninitialized`,
+`ensure_started_matches_generator_bit_for_bit`,
+`replace_reuses_points_capacity_and_resets_initialized`.
 
 r[cz.craft.small-channels+1]
 

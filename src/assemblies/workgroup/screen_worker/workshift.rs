@@ -1,9 +1,11 @@
 
 use rand::Rng;
+use rand::prelude::SliceRandom;
 
 use std::time::Instant;
 use std::collections::*;
 use std::cmp::*;
+use crate::assemblies::workgroup::c_generator::{CGenerator, Mandelbrotable};
 use crate::utils::*;
 pub const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
 
@@ -16,16 +18,22 @@ pub enum Step {Scredge, In, Out, Edge, Random}
 pub trait Floaty: Sub<Output=Self> + Add<Output=Self> + Mul<Output=Self> + Into<f64> + PartialOrd + Finite + Gt + Abs + From<f32> + Into<f64> + Copy {}
 
 #[derive(Clone, Debug)]
-pub struct Stec<T: Copy, const SIZE:usize> {
-    pub stuff: [T;SIZE]
+pub struct Stec<T: Copy> {
+    pub stuff: Vec<T>
     , pub len: usize
 }
 
-impl<T: Copy, const SIZE:usize> Stec<T, SIZE> {
+impl<T: Copy> Stec<T> {
+    pub fn with_capacity(cap: usize, fill: T) -> Self {
+        let mut stuff = Vec::with_capacity(cap);
+        stuff.resize(cap, fill);
+        Self { stuff, len: 0 }
+    }
+
     pub fn try_push(&mut self, thing:T) -> bool {
-        if self.len < SIZE {
+        if self.len < self.stuff.len() {
+            self.stuff[self.len] = thing;
             self.len+=1;
-            self.stuff[self.len-1] = thing;
             true
         } else {
             false
@@ -44,9 +52,9 @@ impl<T: Copy, const SIZE:usize> Stec<T, SIZE> {
 
 use std::collections::*;
 #[derive(Clone, Debug)]
-pub struct WorkContext<T:Copy> {
+pub struct WorkContext<T: Mandelbrotable> {
     pub points: Vec<Point<T>>
-    , pub completed_points: Stec<(CompletedPoint<T>, usize), 100000>
+    , pub completed_points: Stec<(CompletedPoint<T>, usize)>
     , pub last_update: usize
     , pub index: usize
     , pub random_index: usize
@@ -67,6 +75,8 @@ pub struct WorkContext<T:Copy> {
     , pub in_queue: VecDeque<((i32, i32), u32)>
     , pub zoomed: bool
     , pub attention: (i32, i32)
+    , pub c_generator: CGenerator<T>
+    , pub pitch_epsilon: T
 }
 
 
@@ -80,6 +90,7 @@ pub enum CompletedPoint<T> {
     , Escapes{
         escape_time: u32
         , escape_location: (T, T)
+        , escape_derivative: (T, T)
         , start_location: (T, T)
         , smallness: T
         , small_time: u32
@@ -94,6 +105,7 @@ pub enum CompletedPoint<T> {
 pub struct Point<T> {
     pub c: (T, T)
     , pub z: (T, T)
+    , pub dc: (T, T)
     , pub real_squared: T
     , pub imag_squared: T
     , pub real_imag: T
@@ -102,6 +114,8 @@ pub struct Point<T> {
     , pub escapes: bool
     , pub repeats: bool
     , pub delivered: bool
+    // Seat coordinates materialize at first start from `c_generator`.
+    , pub initialized: bool
     , pub period: u32
     , pub smallness_squared: T
     , pub small_time: u32
@@ -144,7 +158,144 @@ pub fn pitch_epsilon<T:Sub<Output=T> + Abs + From<f32> + Mul<Output=T> + Copy>(p
     (points[0].c.0 - points[1].c.0).abs() * (T::from(1.0 * (1.0/256.0)))
 }
 
-pub fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<Output=T> + Into<f64> + PartialOrd + Finite + Gt + Abs + From<f32> + Into<f64> + Copy>(
+pub fn placeholder_point<T: From<f32> + Copy>() -> Point<T> {
+    Point {
+        c: (0.0.into(), 0.0.into()),
+        z: (0.0.into(), 0.0.into()),
+        dc: (1.0.into(), 0.0.into()),
+        real_squared: 0.0.into(),
+        imag_squared: 0.0.into(),
+        real_imag: 0.0.into(),
+        iterations: 0,
+        loop_detection_point: ((0.0.into(), 0.0.into()), 0),
+        escapes: false,
+        repeats: false,
+        delivered: false,
+        initialized: false,
+        period: 0,
+        smallness_squared: 100.0.into(),
+        small_time: 0,
+    }
+}
+
+// r[impl cz.craft.mixmap-shuffle+1]
+pub(crate) fn get_random_mixmap(size: usize) -> Vec<usize> {
+    let mut rng = rand::rng();
+    let mut indices: Vec<usize> = (0..size).collect();
+    indices.shuffle(&mut rng);
+    indices
+}
+
+/// Build an O(1)-coordinate shell from a stencil. Reuses the previous context's
+/// point/mixmap buffers when present so steady-zoom pivots avoid large reallocs.
+///
+/// `previous` is `(old_context, old_zoom_pot)`.
+// r[impl cz.craft.stencil-only-replace+2]
+pub fn from_stencil<T: Mandelbrotable + From<f32>>(
+    frame_info: (ObjectivePosAndZoom, (u32, u32)),
+    previous: Option<(WorkContext<T>, i32)>,
+) -> Option<WorkContext<T>> {
+    let (obj, res) = frame_info;
+    let compute_loc = (obj.pos.0.clone(), IntExp::ZERO - obj.pos.1.clone());
+    let c_generator = CGenerator::<T>::new(&compute_loc, obj.zoom_pot as i64, res)?;
+    let (_, space) = c_generator.origin_and_space();
+    let pitch_epsilon = space.abs() * T::from(1.0 / 256.0);
+
+    let zoomed = previous
+        .as_ref()
+        .map(|(_, old_zoom)| obj.zoom_pot > *old_zoom)
+        .unwrap_or(false);
+
+    let new_len = (res.0 * res.1) as usize;
+    let (mut points, mut random_map, old_res, mut completed_points) = match previous {
+        Some((old, _)) => {
+            let WorkContext {
+                points,
+                random_map,
+                res: old_res,
+                mut completed_points,
+                ..
+            } = old;
+            completed_points.len = 0;
+            (points, random_map, old_res, completed_points)
+        }
+        None => (
+            Vec::new(),
+            Vec::new(),
+            (0, 0),
+            Stec::with_capacity(100000, (CompletedPoint::Dummy {}, 0)),
+        ),
+    };
+
+    points.clear();
+    points.resize_with(new_len, placeholder_point);
+
+    if old_res != res || random_map.len() != new_len {
+        random_map = get_random_mixmap(new_len);
+    }
+
+    let mut edges = Vec::new();
+    for i in 0..(res.0 - 1) as i32 {
+        edges.push((i, 0));
+    }
+    for i in 0..(res.1 - 1) as i32 {
+        edges.push(((res.0 - 1) as i32, i));
+    }
+    for i in 0..(res.0) as i32 {
+        edges.push((i, (res.1 - 1) as i32));
+    }
+    for i in 1..(res.1 - 1) as i32 {
+        edges.push((0, i));
+    }
+    {
+        let mut rng = rand::rng();
+        edges.shuffle(&mut rng);
+    }
+
+    Some(WorkContext {
+        points,
+        completed_points,
+        index: 0,
+        random_index: 0,
+        time_created: Instant::now(),
+        time_workshift_started: Instant::now(),
+        percent_completed: 0.0,
+        random_map,
+        workshifts: 0,
+        total_iterations: 0,
+        spent_tokens_today: 0,
+        total_iterations_today: 0,
+        total_points_today: 0,
+        total_bouts_today: 0,
+        last_update: 0,
+        res,
+        scredge_poses: VecDeque::from(edges),
+        edge_queue: VecDeque::new(),
+        out_queue: VecDeque::new(),
+        in_queue: VecDeque::new(),
+        zoomed,
+        attention: (0, 0),
+        c_generator,
+        pitch_epsilon,
+    })
+}
+
+/// Materialize seat coordinates from the generator on first start.
+// r[impl cz.craft.stencil-only-replace+2]
+#[inline]
+pub fn ensure_started<T: Mandelbrotable>(ctx: &mut WorkContext<T>, pos: (i32, i32)) {
+    let index = index_from_pos(&pos, ctx.res.0);
+    let point = &mut ctx.points[index];
+    if !point.initialized {
+        let c = ctx.c_generator.get_c((pos.0 as u32, pos.1 as u32));
+        point.c = c;
+        point.z = c;
+        point.dc = (T::ONE, T::ZERO);
+        point.initialized = true;
+    }
+}
+
+pub fn workshift<T: Mandelbrotable + Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<Output=T> + Into<f64> + PartialOrd + Finite + Gt + Abs + From<f32> + Into<f64> + Copy>(
     day_token_allowance: u32
     , iteration_token_cost: u32
     , point_token_cost: u32
@@ -163,7 +314,7 @@ pub fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<Output=
 
 
     // r[impl cz.craft.epsilon-pixel-pitch+1]
-    let episilon = pitch_epsilon(&context.points);//0.0f32.into();//
+    let episilon = context.pitch_epsilon;
 
 
     let total_points = context.points.len();
@@ -266,13 +417,9 @@ pub fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<Output=
         };
 
         let index = index_from_pos(pos, context.res.0);
-
-
-        let point = &mut context.points[index];
-
         let pos = pos.clone();
 
-        if point.delivered {
+        if context.points[index].delivered {
             match step {
                 Step::Out => {
                     let _ =  context.out_queue.pop_front();
@@ -294,9 +441,9 @@ pub fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<Output=
             continue;
         }
 
-
-
-
+        // r[impl cz.craft.stencil-only-replace+2]
+        ensure_started(context, pos);
+        let point = &mut context.points[index];
 
         let old_iterations = point.iterations;
 
@@ -357,6 +504,7 @@ pub fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<Output=
                 let result = CompletedPoint::Escapes {
                     escape_time: point.iterations
                     , escape_location: (point.z.0, point.z.1)
+                    , escape_derivative: point.dc
                     , start_location: (point.c.0, point.c.1)
                     , smallness: point.smallness_squared
                     , small_time:point.small_time
@@ -455,11 +603,18 @@ use std::ops::*;
 
 #[inline(always)]
 pub fn iterate<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + From<f32> + Copy> (point: &mut Point<T>) {
+    // r[impl cz.craft.screen-space-derivative-edges+1]
+    // dc_n = dz_n/dc follows dc_{n+1} = 2 z_n dc_n + 1.
+    let dc = (
+        T::from(2.0) * (point.z.0 * point.dc.0 - point.z.1 * point.dc.1) + T::from(1.0),
+        T::from(2.0) * (point.z.0 * point.dc.1 + point.z.1 * point.dc.0),
+    );
     // move z
     point.z = (
         point.real_squared - point.imag_squared + point.c.0
         , T::from(2.0f32.into()) * point.real_imag + point.c.1
     );
+    point.dc = dc;
     point.iterations+=1;
 }
 
