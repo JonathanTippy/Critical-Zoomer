@@ -336,8 +336,9 @@ fn requeue_completions<T: Mandelbrotable>(
     ctx: &mut WorkContext<T>,
     batch: Vec<(CompletedPoint<T>, usize)>,
 ) {
-    for item in batch.into_iter().rev() {
-        if !ctx.completed_points.try_push(item) {
+    for (point, index) in batch.into_iter().rev() {
+        ctx.points[index].delivered = false;
+        if !ctx.completed_points.try_push((point, index)) {
             break;
         }
     }
