@@ -328,9 +328,14 @@ The pattern in all five: the *policy* each served (foveation, boundedness, batch
 ### Resolved since restoration
 
 - **Period refinement.** The timewarp and tighter-epsilon re-search were replaced by the
-  atom-domain → Newton → derivative pipeline. On the committed home-frame fitness workload,
-  full-frame time fell from 12.30 s to about 234 ms while counted Mandelbrot iterations stayed
-  exactly 10,302,563; known period oracles and generated main-cardioid points verify the result.
+  atom-domain → Newton → derivative pipeline (`period_partials` + `verified_period_from`):
+  candidates are record-minimum steps tried ascending (the last-record-only form verified
+  multiples of the true period), Newton starts from the orbit's tail iterate (the published
+  `F^p(0,c)` start is unreliable near parabolic necks), and a converged root is reduced to its
+  minimal period before the exact `|b| ≤ 1` multiplier test. Unverifiable repeats publish
+  period 0 (unknown), which never lights a period edge. Oracles: main cardioid = period 1,
+  period-2 bulb = period 2, and the neck at −0.75 classifies correctly at ±2^-k for k up to 40.
+  Full-frame time: 12.30 s (timewarp) → about 293 ms, same 10,302,563 counted iterations.
 
 ---
 

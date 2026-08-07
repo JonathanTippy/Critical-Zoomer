@@ -65,10 +65,36 @@ run `m_attractor(z, n, c)`; carry dw around the n-cycle; `if (cabs(dw) <= 1) ret
 
 ## Leverage for Critical-Zoomer (interpretation — ours, not the sources')
 
-- **Implemented in `workshift.rs::verified_period`**: bout iterates with running-minimum
-  collection (already free) → on completion, candidate p = `small_time + 1` → Newton attractor
-  solve → multiplier test. Interior answers now carry a verified period; the old
-  `determine_period` timewarp/tighter-epsilon stage is gone.
+- **Implemented in `workshift.rs`** as `period_partials` + `verified_period` /
+  `verified_period_from`: on completion, replay the critical orbit collecting record-minimum
+  steps, try candidates ascending with the tail iterate as Newton start, reduce a converged
+  root to its minimal period, accept exactly when |b| ≤ 1; if nothing verifies, publish period
+  0 ("unknown"), which never lights a period edge. The old `determine_period`
+  timewarp/tighter-epsilon stage is gone.
+- **Two corrections learned by oracle testing (not in the sources as we read them):**
+  1. *Ascending partials, not the last record.* An interior orbit sets new |z| minima until it
+     converges, so `small_time` is the convergence time; Newton then happily verifies a
+     multiple of the true period (an attracting p-cycle is also an attracting kp-cycle). Every
+     record minimum must be tried in increasing order, first verification wins.
+  2. *Newton start and divisor roots.* The published `F^p(0,c)` start is far from the attractor
+     exactly at necks, where the multiplier sits on the unit circle and Newton converges only
+     linearly (budget ~128 steps); it can also land on a divisor of p (fixed points satisfy
+     F^p(w)=w too), so the converged root must be reduced to its minimal period before the
+     multiplier test. Starting from the orbit's tail iterate fixes the convergence pathology.
+- **Oracles that catch both failure classes:** main cardioid → period 1 (multiplier
+  parameterization), period-2 bulb |c+1| < 1/4 → period 2, and the cardioid/bulb neck at
+  c = −0.75: −0.75 ± 2^-k must classify as 1/2 for k up to 40. Neck points are where
+  epsilon-based and single-candidate pipelines break first, and they are testable to f64 depth.
+- **Publication is part of correctness.** The v0.0.9 scredge path publishes an unfinished
+  repeating answer to keep the newest frame visible. Its loop-checkpoint gap is not a period:
+  publishing that value created cloudy period noise inside the period-2 bulb and increasingly
+  speckled child bulbs even though the final verifier was correct. Provisional publications must
+  use period 0 (unknown); only completion may publish a verified nonzero period. A scheduling-path
+  regression test enforces this separately from the mathematical verifier tests.
+- **Child-component noise oracle.** Sample small two-dimensional neighborhoods around known
+  superattracting period-3 and conjugate period-4 centers and require period constancy. The centers
+  and expected periods are test-only independent oracles; production contains no cardioid/bulb
+  membership branches.
 - **Out-filament detection** (period changes among interior neighbors, per collected-wisdom)
   needs trustworthy periods — this pipeline is the prerequisite.
 - **Node/minibrot highlighting** ("most-stable settled points") = |b| near 0; the multiplier

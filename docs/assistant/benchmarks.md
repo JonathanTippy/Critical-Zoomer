@@ -43,6 +43,8 @@ Benchmarks vary run to run; this is not an exact science and that's fine.
 | time_to_first_publish (derivative pipeline) | 66.27 ms (65.88–66.68 ms; +1.0%, noise) | 2026-08-06 | post-change working tree | same |
 | time_to_full_frame (derivative pipeline) | 234.22 ms (231.81–236.96 ms; −98.1%) | 2026-08-06 | post-change working tree | same |
 | full_stack_ips (derivative pipeline) | ~5.8e7 (10,302,563 iterations, 17–18 shifts) | 2026-08-06 | post-change working tree | same |
+| time_to_first_publish (period-correctness fix) | 65.50 ms (65.23–65.77 ms) | 2026-08-06 | post-fix working tree | same |
+| time_to_full_frame (period-correctness fix) | 293.57 ms (291.12–295.86 ms; −97.6% vs pre-pipeline, +25% vs first pipeline cut) | 2026-08-06 | post-fix working tree | same |
 
 Pre-change test baseline: `cargo test` ran 39 tests; 38 passed and only the known
 `assemblies::views::zoom_in_associativity_test` failed, reproducing
@@ -52,3 +54,8 @@ The post-change run completed the exact same 10,302,563 counted Mandelbrot itera
 pre-change run. The 98% wall-time reduction comes from deleting the uncounted 100,000-step
 timewarp and tighter-epsilon re-search on every interior completion, not from doing less
 screen work.
+
+The period-correctness fix (ascending partials instead of last-record-only, minimal-period
+reduction, tail-started Newton, period-0 = unknown) costs ~25% on full-frame versus the first
+pipeline cut — the price of the per-completion partial replay — while remaining ~42× faster
+than the timewarp code it replaced.

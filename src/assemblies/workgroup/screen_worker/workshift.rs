@@ -340,13 +340,15 @@ pub fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<Output=
 
 
             let completed_point = if point.repeats {
-                let raw_period = point.iterations-point.loop_detection_point.1;
-                // Point iteration zero already stores z₁=c, so small_time is zero-based.
-                let atom_domain_candidate = point.small_time.saturating_add(1);
-                point.period = verified_period(
-                    (point.c.0.into(), point.c.1.into()),
-                    atom_domain_candidate,
-                ).unwrap_or(raw_period);
+                // Candidate periods are the atom-domain partials, tried ascending;
+                // the first that survives Newton + the multiplier test is the true
+                // period. 0 means "repeats, period unknown" — never a guessed number.
+                let c64 = (point.c.0.into(), point.c.1.into());
+                let (partials, tail) = period_partials(c64, point.iterations);
+                point.period = partials
+                    .into_iter()
+                    .find_map(|p| verified_period_from(c64, p, tail))
+                    .unwrap_or(0);
                 let returned = CompletedPoint::Repeats{period: point.period, smallness: point.smallness_squared, small_time:point.small_time};
                 queue_incomplete_neighbors_in(&pos, context.res, &context.points, &mut context.in_queue);
                 returned
@@ -394,7 +396,12 @@ pub fn workshift<T:Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<Output=
                     //context.scredge_poses.push_back(pos);
                     // r[impl cz.craft.provisional-not-delivered+1]
                     let completed_point = {
-                        CompletedPoint::Repeats{period: point.iterations-point.loop_detection_point.1, smallness: point.smallness_squared, small_time:point.small_time}
+                        // This point has not completed and its checkpoint gap is
+                        // not a verified period. Publish 0 ("unknown") so the
+                        // provisional frame remains current without inventing
+                        // period edges. Completion replaces it with a period
+                        // verified by Newton and the cycle multiplier.
+                        CompletedPoint::Repeats{period: 0, smallness: point.smallness_squared, small_time:point.small_time}
                     };
                     if context.completed_points.try_push((completed_point, index)) {} else {
                         break;
@@ -491,23 +498,59 @@ fn iterate_complex(z: (f64, f64), c: (f64, f64)) -> (f64, f64) {
     (z.0 * z.0 - z.1 * z.1 + c.0, 2.0 * z.0 * z.1 + c.1)
 }
 
+// Record-minimum steps of the critical orbit (atom-domain partials), ascending,
+// plus the tail iterate after `max` steps. Candidates must be tried in this
+// order: the first that verifies is the true period. Using only the LAST record
+// (e.g. small_time) is wrong — an interior orbit keeps setting minima as it
+// converges, so the last record is the convergence time, and Newton then
+// verifies a multiple of the true period. The tail iterate rides the attracting
+// cycle and is the best Newton start; F^p(0,c) (the published guess) is far
+// from the attractor exactly where necks make convergence slow.
+pub fn period_partials(c: (f64, f64), max: u32) -> (Vec<u32>, (f64, f64)) {
+    let mut z = c; // z_1: this codebase's orbit convention starts at c
+    let mut best = f64::MAX;
+    let mut out = Vec::new();
+    for n in 1..=max {
+        let r = z.0 * z.0 + z.1 * z.1;
+        if r < best {
+            best = r;
+            out.push(n);
+        }
+        z = iterate_complex(z, c);
+    }
+    (out, z)
+}
+
 // r[impl cz.craft.period-derivative-test+1]
 pub fn verified_period(c: (f64, f64), period: u32) -> Option<u32> {
-    if period == 0 {
-        return None;
-    }
-
     // F^p(0,c) is the published Newton starting point.
     let mut w = (0.0, 0.0);
     for _ in 0..period {
         w = iterate_complex(w, c);
     }
+    verified_period_from(c, period, w)
+}
+
+// r[impl cz.craft.period-derivative-test+1]
+pub fn verified_period_from(
+    c: (f64, f64),
+    period: u32,
+    start: (f64, f64),
+) -> Option<u32> {
+    if period == 0 {
+        return None;
+    }
+
+    let mut w = start;
 
     // Solve F^p(w,c)=w.  Stop only when another Newton step is exactly
     // unrepresentable in f64; the mathematical acceptance test below has no epsilon.
+    // Budget is generous because necks between hyperbolic components are
+    // parabolic (multiplier on the unit circle): convergence is linear there,
+    // with quadratic behavior only resuming within ~δ of the attractor.
     let mut converged = false;
     let mut previous = None;
-    for _ in 0..32 {
+    for _ in 0..128 {
         let mut z = w;
         let mut dz = (1.0, 0.0);
         for _ in 0..period {
@@ -552,10 +595,30 @@ pub fn verified_period(c: (f64, f64), period: u32) -> Option<u32> {
         return None;
     }
 
+    // Newton can land on a divisor of the candidate period (fixed points also
+    // satisfy F^p(w)=w). Reduce to the true minimal period of the converged
+    // attractor before the multiplier test; the cycle points are O(1) apart,
+    // so the closeness bound here is only absorbing f64 roundoff, not deciding
+    // membership (that is the exact unit-circle multiplier test below).
+    let mut z = w;
+    let mut minimal_period = period;
+    for d in 1..period {
+        z = iterate_complex(z, c);
+        if period % d == 0 {
+            let diff = (z.0 - w.0, z.1 - w.1);
+            let norm = diff.0 * diff.0 + diff.1 * diff.1;
+            let scale = (w.0 * w.0 + w.1 * w.1).max(1.0);
+            if norm <= 1e-24 * scale {
+                minimal_period = d;
+                break;
+            }
+        }
+    }
+
     // The cycle multiplier is exact in the mathematical model: attracting iff |b| <= 1.
     let mut z = w;
     let mut multiplier = (1.0, 0.0);
-    for _ in 0..period {
+    for _ in 0..minimal_period {
         multiplier = (
             2.0 * (z.0 * multiplier.0 - z.1 * multiplier.1),
             2.0 * (z.0 * multiplier.1 + z.1 * multiplier.0),
@@ -564,7 +627,7 @@ pub fn verified_period(c: (f64, f64), period: u32) -> Option<u32> {
     }
     let multiplier_norm =
         multiplier.0 * multiplier.0 + multiplier.1 * multiplier.1;
-    (multiplier_norm <= 1.0).then_some(period)
+    (multiplier_norm <= 1.0).then_some(minimal_period)
 }
 
 #[inline]
@@ -656,7 +719,9 @@ pub fn point_is_edge<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Copy> (po
                 if points[index].escapes != points[nindex].escapes || points[index].repeats != points[nindex].repeats {
                     return Some((*pos, n));
                 } else if points[index].repeats == true {
-                    if points[index].period!=points[nindex].period {
+                    // period 0 = verified-unknown; unknown must not light a filament
+                    if points[index].period != 0 && points[nindex].period != 0
+                        && points[index].period != points[nindex].period {
                         return Some((*pos, n));
                     }
                 }

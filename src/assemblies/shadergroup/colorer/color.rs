@@ -539,7 +539,9 @@ pub fn get_loop_period(value: Option<&ScreenValue>) -> Option<u32> {
         match v {
             ScreenValue::Outside{..} => {return None}
             ScreenValue::Inside{loop_period, ..} => {
-                return Some(*loop_period)
+                // Period 0 is "interior, period unknown", not a numeric period.
+                // Unknown values must not create filament edges.
+                return (*loop_period != 0).then_some(*loop_period)
             }
         }
     } else {None}
@@ -584,4 +586,58 @@ pub fn get_smallness(value: Option<&ScreenValue>) -> Option<f64> {
 use std::ops::*;
 pub fn safe_sample<T: Index<usize, Output=J>, J>(stuff:&T, pos:(i32, i32), res:(u32, u32)) -> Option<&J> {
     if let Some(i) = index_from_pos_safe(&pos, res) {Some(&stuff[i])} else {None}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::assemblies::shadergroup::escaper::{ScreenValue, ZoomerValuesScreen};
+    use crate::utils::ObjectivePosAndZoom;
+
+    fn inside(period: u32) -> ScreenValue {
+        ScreenValue::Inside { small_time: 0, loop_period: period, smallness: 0.0 }
+    }
+
+    fn screen(values: Vec<ScreenValue>) -> ZoomerValuesScreen {
+        ZoomerValuesScreen {
+            values,
+            res: (3, 3),
+            objective_location: ObjectivePosAndZoom {
+                pos: (crate::utils::IntExp::ZERO, crate::utils::IntExp::ZERO),
+                zoom_pot: 0,
+            },
+        }
+    }
+
+    // verifies r[cz.craft.period-derivative-test+1]
+    #[test]
+    fn unknown_period_never_creates_out_filament() {
+        let center_verified = screen(vec![
+            inside(0), inside(2), inside(0),
+            inside(2), inside(2), inside(2),
+            inside(0), inside(2), inside(0),
+        ]);
+        assert!(!is_out_filament(&center_verified, (1, 1)),
+            "unknown neighboring periods must be ignored");
+
+        let center_unknown = screen(vec![
+            inside(2), inside(0), inside(2),
+            inside(0), inside(0), inside(0),
+            inside(2), inside(0), inside(2),
+        ]);
+        assert!(!is_out_filament(&center_unknown, (1, 1)),
+            "an unknown center must not light itself");
+    }
+
+    // verifies r[cz.craft.period-derivative-test+1]
+    #[test]
+    fn differing_verified_periods_still_create_out_filament() {
+        let values = screen(vec![
+            inside(1), inside(1), inside(1),
+            inside(1), inside(2), inside(1),
+            inside(1), inside(1), inside(1),
+        ]);
+        assert!(is_out_filament(&values, (1, 1)),
+            "real period boundaries must remain visible");
+    }
 }

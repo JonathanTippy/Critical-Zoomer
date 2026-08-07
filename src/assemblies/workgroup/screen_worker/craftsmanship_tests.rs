@@ -147,7 +147,7 @@ proptest! {
 
     // verifies r[cz.craft.period-derivative-test+1]
     #[test]
-    fn main_cardioid_points_verify_as_period_one(
+    fn main_cardioid_points_detect_as_period_one(
         radius in 0.0f64..0.95,
         angle in -std::f64::consts::PI..std::f64::consts::PI,
     ) {
@@ -161,8 +161,71 @@ proptest! {
             mu.0 / 2.0 - mu_squared.0 / 4.0,
             mu.1 / 2.0 - mu_squared.1 / 4.0,
         );
-        prop_assert_eq!(verified_period(c, 1), Some(1));
+        prop_assert_eq!(detected_period(c, 4096), 1);
     }
+
+    // verifies r[cz.craft.period-derivative-test+1]
+    // The period-2 bulb is exactly the disk |c + 1| < 1/4.
+    #[test]
+    fn period_two_bulb_detects_as_period_two(
+        x in -0.24f64..0.24,
+        y in -0.24f64..0.24,
+    ) {
+        prop_assume!(x * x + y * y < 0.24 * 0.24);
+        prop_assert_eq!(detected_period((-1.0 + x, y), 4096), 2);
+    }
+
+    // Independent child-component oracles. These centers/periods exist only in
+    // the test: production sees an ordinary c and must derive the period.
+    #[test]
+    fn child_bulb_interiors_are_period_constant(
+        dx in -1.0e-5f64..1.0e-5,
+        dy in -1.0e-5f64..1.0e-5,
+    ) {
+        let components = [
+            ((-1.7548776662466927, 0.0), 3),
+            ((-0.15652016683375508, 1.0322471089228318), 4),
+            ((-0.15652016683375508, -1.0322471089228318), 4),
+        ];
+        for (center, period) in components {
+            let c = (center.0 + dx, center.1 + dy);
+            prop_assert_eq!(
+                detected_period(c, 4096),
+                period,
+                "period noise inside period-{} component at {:?}",
+                period,
+                c,
+            );
+        }
+    }
+
+    // verifies r[cz.craft.period-derivative-test+1]
+    // The cardioid/bulb neck at c = -0.75 is the parabolic worst case: approach
+    // lag explodes there, which is exactly where epsilon-based detection dies.
+    // Newton needs no orbit convergence, so correctness must hold to f64 depth.
+    #[test]
+    fn neck_zoom_classifies_correctly_at_arbitrary_depth(depth in 2u32..40) {
+        let delta = 2.0f64.powi(-(depth as i32));
+        // just right of the neck: main cardioid, period 1
+        prop_assert_eq!(detected_period((-0.75 + delta, 0.0), 8192), 1);
+        // just left of the neck (δ < 0.5, so we stay off the bulb tip at -1.25):
+        // period-2 bulb
+        prop_assert_eq!(detected_period((-0.75 - delta, 0.0), 8192), 2);
+        // the neck point itself is on the boundary (|b| = 1): either answer is
+        // legitimate, but it must be detected, not garbage
+        let neck = detected_period((-0.75, 0.0), 8192);
+        prop_assert!(neck == 1 || neck == 2, "neck detected as {}", neck);
+    }
+}
+
+// The completion-path pipeline: partials ascending, tail-started Newton,
+// first verified wins.
+fn detected_period(c: (f64, f64), max_iter: u32) -> u32 {
+    let (partials, tail) = period_partials(c, max_iter);
+    partials
+        .into_iter()
+        .find_map(|p| verified_period_from(c, p, tail))
+        .unwrap_or(0)
 }
 
 // verifies r[cz.craft.period-derivative-test+1]
@@ -303,8 +366,21 @@ fn provisional_answer_never_marks_delivered() {
         ctx.scredge_poses.push_back((3, 1));
         shift(&mut ctx);
         assert!(ctx.completed_points.len > 0, "scredge publishes provisional answers");
-        assert!(!ctx.points[index_from_pos(&(3, 1), ctx.res.0)].delivered,
+        let index = index_from_pos(&(3, 1), ctx.res.0);
+        assert!(!ctx.points[index].delivered,
             "a guess must never block the truth");
+        let periods = ctx.completed_points.stuff[..ctx.completed_points.len]
+            .iter()
+            .filter_map(|(answer, answer_index)| {
+                (*answer_index == index).then_some(match answer {
+                    CompletedPoint::Repeats { period, .. } => *period,
+                    _ => panic!("an unfinished interior point must publish as repeating"),
+                })
+            })
+            .collect::<Vec<_>>();
+        assert!(!periods.is_empty(), "target point publishes provisionally");
+        assert!(periods.iter().all(|period| *period == 0),
+            "provisional checkpoint gaps are not periods: {:?}", periods);
     });
 }
 

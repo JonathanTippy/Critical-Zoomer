@@ -33,22 +33,49 @@ current form and stand until such a form exists.
 
 r[cz.craft.period-derivative-test+1]
 
-**Normative summary.** A repeating point's period candidate comes from the atom-domain running
-minimum, then Newton solves `F^p(w,c)=w` and the cycle multiplier accepts interiority exactly
-when `|∂F^p/∂z| <= 1`. The pixel-pitch epsilon is not the final oracle.
+**Normative summary.** A repeating point's period candidates are the atom-domain partials
+(record-minimum steps of the critical orbit) tried in ascending order — the FIRST that verifies
+is the true period. Verification is Newton on `F^p(w,c)=w`, reduced to the converged root's
+minimal period, accepted exactly when the cycle multiplier satisfies `|∂F^p/∂z| <= 1`. Failure
+on every candidate yields period 0 ("repeats, period unknown"), and unknown periods must not
+light period edges. The pixel-pitch epsilon is not the final oracle.
 
-**Code site.** `workshift.rs` — `verified_period`; completion passes the zero-based
-`small_time + 1` candidate because live `Point`s start at `z₁=c` with iteration counter zero.
+Two corrections to the naive pipeline, both caught by the shape oracles below:
+- Trying only the last record minimum (`small_time`) verifies a multiple of the true period,
+  because interior orbits set records until convergence.
+- Newton started from `F^p(0,c)` is unreliable near necks (parabolic = linear convergence) and
+  can land on a divisor root; starting from the orbit's tail iterate and reducing to the
+  minimal period fixes both.
+
+**Code site.** `workshift.rs` — `period_partials`, `verified_period` / `verified_period_from`;
+completion in `workshift` tries partials ascending with the tail iterate as Newton start, else 0;
+`point_is_edge` refuses to match period 0.
 
 **Acceptance criteria.**
 - [ ] Published period-1, period-2, period-3 and period-4 attractors verify with their periods.
 - [ ] Exterior points and incorrect candidate periods are rejected.
-- [ ] Generated points strictly inside the main cardioid verify as period 1.
+- [ ] Generated points strictly inside the main cardioid detect as period 1; generated points
+  strictly inside the disk |c+1| < 1/4 detect as period 2.
+- [ ] At the cardioid/bulb neck c = −0.75, points at −0.75 ± 2^-k (k = 2..40) detect as
+  period 1 (right) and period 2 (left).
+- [ ] Small neighborhoods inside known period-3 and conjugate period-4 child components remain
+  period-constant; no cloudy or speckled period noise appears in component interiors.
+- [ ] Newton that lands on a divisor of the candidate period is reduced to the minimal period
+  before the multiplier test (a period-2 bulb point must never report 4/8).
+- [ ] An unfinished scheduling-queue publication uses period 0 (unknown), never its loop-checkpoint
+  gap; only the completed verification path may publish a nonzero period.
+- [ ] The renderer treats period 0 as missing data, not a numeric period: unknown periods create no
+  out-filaments, while differing verified periods still do.
 - [ ] No timewarp or tighter-epsilon period-refinement pass remains.
 
 **Test.** `known_attractors_have_their_published_periods`,
-`exterior_or_wrong_period_is_not_accepted`, and the
-`main_cardioid_points_verify_as_period_one` proptest (`craftsmanship_tests.rs`).
+`exterior_or_wrong_period_is_not_accepted`, and the proptests
+`main_cardioid_points_detect_as_period_one`, `period_two_bulb_detects_as_period_two`, and
+`child_bulb_interiors_are_period_constant`,
+`neck_zoom_classifies_correctly_at_arbitrary_depth`, plus the real scheduling-path test
+`provisional_answer_never_marks_delivered` (`craftsmanship_tests.rs`) and renderer tests
+`unknown_period_never_creates_out_filament` /
+`differing_verified_periods_still_create_out_filament` (`shadergroup/colorer/color.rs`).
 
 r[cz.craft.cached-products+1]
 
