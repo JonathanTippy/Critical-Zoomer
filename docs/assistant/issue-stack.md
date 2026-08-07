@@ -26,6 +26,7 @@ Developer acceptance test failed on the tile machine. Most items were tile-era i
 ## True bugs (open)
 
 - Re-verify headed: resize, settings layers, bailout slider. (2026-08-07: home render, scroll zoom, and drag verified normal headed after the kernel-seam + reference-actor wiring.)
+- **Phase-two home render corruption (open).** Perturbation path can produce a giant black disk / rectangular discontinuity / transient flat purple frame on home. Harness must wait for structure readiness (not gray-hole-only). Block phase-two acceptance until settled captures match the known-good home baseline and rug-oracle inventory stays green.
 
 ## Known issues (open)
 
@@ -35,7 +36,7 @@ Developer acceptance test failed on the tile machine. Most items were tile-era i
 
 ## Design gaps (open)
 
-- **Depth integration — NEXT is deep-zoom type switch** (milestone 3): Milestone 2 is live — `PerturbationKernel` is the sole production numerical path (zero-orbit floor when no reference / post-glitch); `DirectKernel` is test-only; published references install into `WorkContext` with generation-guarded delta restarts. Parity vs the direct oracle holds on f64-valid views. Next: `WorkContext<FloatExp>` when `CGenerator::<f64>` fails closed, plus consumer audit of `CompletedPoint` through escaper/colorer. Design: `design/depth-design.md`, grounded in `mandelbrot-library/`.
+- **Depth integration — phase two (delta kernel) implemented but not accepted.** `PerturbationKernel` is the sole production numerical path (zero-orbit floor when no reference / post-glitch); `DirectKernel` is test-only; published references install into `WorkContext` with generation-guarded delta restarts. Open gates before acceptance: rug-oracle numerical inventory locked, settled visual harness readiness (no false “filled” on flat purple), product-level home/deep/pan correctness, and ≤20% performance vs the last accepted direct-kernel baseline (7–14× floatexp rows are rejected measurements). **Phase three / NEXT after acceptance:** `WorkContext<FloatExp>` when `CGenerator::<f64>` fails closed, plus consumer audit of `CompletedPoint` through escaper/colorer. Design: `design/depth-design.md`, grounded in `mandelbrot-library/`.
 - **Display-path latency profiling.** The high-res lag is a *display pipeline* problem (see Known issues): measure per-stage per-frame cost at 1920×1080 — escaper, colorer, window sampling, texture allocation/upload, repaint cadence — to find where backlog accumulates. Do not assume view/remap is the dominant contributor. Defer until after the deep-zoom type-switch milestone (or run in parallel if headed profiling is available).
 - **GPU port of the golden design** (`docs/assistant/design/design-target.md`): views not tiles, full remap of old work, v0.0.9 semantics on GPU. Not started; design must follow `docs/assistant/design/workgroup-virtues.md`.
 - **Certified `Boundary` completion state.** Dyadic pixel centers can only hit algebraically certifiable boundary parameters: exact parabolic points via rational cycle/multiplier checks, and Misiurewicz points via exact preperiodic repetition. Add a third completion state and separate coloring; do not impose an app effort cap. Explicitly deferred from the perturbation-core round, not forgotten.
@@ -63,9 +64,10 @@ Not bugs; provisional mechanisms that shipped because they beat nothing. None is
 
 ## Done (recent)
 
-- Perturbation delta kernel (milestone 2): `PerturbationKernel` is the only production
-  path; zero-orbit floor; glitch → `direct_only` via same code; generation-guarded
-  restarts; `DirectKernel` test-only. Parity tests green on f64-valid views.
+- Perturbation delta kernel (milestone 2) — code landed, **not accepted**:
+  `PerturbationKernel` is the only production path; zero-orbit floor; glitch →
+  `direct_only` via same code; generation-guarded restarts; `DirectKernel` test-only.
+  See Design gaps for the open correctness/performance gates.
 - In-filament detection now carries the Mandelbrot derivative through remap and extrapolates
   the escape field across the four screen neighbors before applying the existing one-pixel
   peak test. Derivative, convergence, and 2x/4x ridge-survival tests are green. Pending headed

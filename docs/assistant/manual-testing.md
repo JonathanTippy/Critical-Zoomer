@@ -25,7 +25,12 @@ these steps.
    use `scripts/cz_ctl.sh` or an existing `scripts/e2e_*.sh` consumer. Never use
    the developer’s desktop, `DISPLAY=:0`, or a desktop screenshot API.
 
-4. Capture a settled home frame before relying on aggregate assertions:
+4. Capture a settled home frame before relying on aggregate assertions.
+   Readiness means observable Mandelbrot structure (center/side variance and,
+   when available, cropped baseline similarity on consecutive stable frames).
+   Do **not** treat “few gray holes” or a fixed sleep alone as settled — a
+   transient flat purple frame has zero gray holes and must be rejected as
+   not-ready until structure appears or the timeout expires:
 
    ```bash
    CZ_CPUSET=3-8 taskset -c 3-8 nice -n 15 \
@@ -33,8 +38,8 @@ these steps.
    ```
 
 5. Read the generated PNG directly and inspect it as an image. Confirm that it
-   is recognizably the expected Mandelbrot view, not merely “non-black” or
-   statistically varied. Look specifically for:
+   is recognizably the expected Mandelbrot view, not merely “non-black”,
+   “non-gray”, or statistically varied. Look specifically for:
 
    - coherent cardioid/bulb boundaries and expected real-axis symmetry;
    - no giant circles, rectangles, seams, uniform unfinished blocks, or holes;

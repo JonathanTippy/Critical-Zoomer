@@ -1,11 +1,14 @@
 # Depth design: perturbation with a background reference worker
 
-Status: **milestone 2 (delta kernel) implemented in f64-valid views.**
+Status: **milestone 2 (delta kernel) implemented but not accepted.**
 The floatexp, fail-closed c generator, resumable reference orbit, perturbed iterator,
 differential oracle, worker/kernel seam, background reference actor, and
 `PerturbationKernel` (one production path, zero-orbit floor) live in `src/`;
-see `../tracey/depth-rules.md`. Deep-zoom `WorkContext<FloatExp>` type switch is
-milestone 3. Grounded in `../mandelbrot-library/`
+see `../tracey/depth-rules.md`. Phase-two acceptance still requires settled visual
+correctness on f64-valid views and a ≤20% performance gate versus the last accepted
+direct-kernel baseline; the 7–14× floatexp measurements are rejected results, not a
+new baseline. Deep-zoom `WorkContext<FloatExp>` type switch is milestone 3 / phase
+three and is not started. Grounded in `../mandelbrot-library/`
 (`perturbation.md`, `series-approximation.md`, `numerics-and-precision.md`,
 `reference-orbit-strategy.md`, `period-and-interiority.md`) and constrained by
 `workgroup-virtues.md` and the authoritative requirements. Nothing here may re-break the

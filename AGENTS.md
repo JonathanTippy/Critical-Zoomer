@@ -51,3 +51,23 @@ For any change that can affect rendered output, also follow
 current release, run it under the isolated Xvfb harness, capture PNGs, and
 inspect them directly. Never capture the developer's desktop and never hand the
 procedure to the developer.
+
+## Same-workspace checkpoint commits (recoverable delegated work)
+
+The developer keeps control of permanent / main history. Agents may still create
+**checkpoint commits on the current non-main feature branch** in this same
+workspace so interruptions and whole-file mishaps are recoverable:
+
+1. Work on a non-main branch in the current workspace (visible; no parallel
+   worktree required for ordinary delegated work).
+2. Before risky delegated edits, commit a clearly labeled recovery checkpoint
+   (`checkpoint: ...`) even if some gates are still red.
+3. One foreground agent at a time; no parent+child concurrent edits of the same
+   tree. Prefer narrow diffs over whole-file replacements; never stash ad-hoc
+   copies inside the repo as the recovery mechanism.
+4. After each coherent green unit (focused tests pass), create another
+   checkpoint commit. Stop if a diff deletes unrelated tests or exceeds a large
+   unexplained deletion threshold.
+5. Never merge, rebase, squash, push-force, or otherwise alter main / permanent
+   history unless the developer explicitly directs it. Present commits for
+   review; the developer chooses squash, cherry-pick, merge, or discard.
