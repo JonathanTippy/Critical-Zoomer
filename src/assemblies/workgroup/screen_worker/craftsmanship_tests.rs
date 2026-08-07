@@ -960,11 +960,13 @@ use crate::reference::ReferenceOrbit;
 use std::sync::Arc;
 
 fn home_frame() -> (ObjectivePosAndZoom, (u32, u32)) {
+    // Match the live window's ObjectivePosAndZoom: display Y is stored unflipped;
+    // `from_stencil` / `objective_c` apply the compute-space Y flip once.
     (
         ObjectivePosAndZoom {
             pos: (
                 IntExp::from(HOME_POSITION.0),
-                IntExp::ZERO - IntExp::from(HOME_POSITION.1),
+                IntExp::from(HOME_POSITION.1),
             ),
             zoom_pot: HOME_POSITION.2,
         },

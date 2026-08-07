@@ -26,7 +26,7 @@ Developer acceptance test failed on the tile machine. Most items were tile-era i
 ## True bugs (open)
 
 - Re-verify headed: resize, settings layers, bailout slider. (2026-08-07: home render, scroll zoom, and drag verified normal headed after the kernel-seam + reference-actor wiring.)
-- **Phase-two home render corruption (open).** Perturbation path can produce a giant black disk / rectangular discontinuity / transient flat purple frame on home. Harness must wait for structure readiness (not gray-hole-only). Block phase-two acceptance until settled captures match the known-good home baseline and rug-oracle inventory stays green.
+- **Phase-two home render corruption — closed under readiness wait (2026-08-07).** Earlier captures of giant black disk / rectangular discontinuity / flat purple were either pre-ready frames (purple: zero gray holes falsely treated as filled) or superseded by escaped-reference rejection + settled capture. Settled Xvfb home now shows coherent Mandelbrot structure; `e2e_visual.sh` passes with structure+baseline readiness (crop RMSE ~9.5k ≤12k). Keep the readiness gate; do not regress to gray-hole-only completion.
 
 ## Known issues (open)
 
