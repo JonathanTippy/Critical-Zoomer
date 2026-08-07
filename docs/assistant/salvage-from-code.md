@@ -8,50 +8,10 @@ hook points, not a promise. Promote a feature by porting it and deleting its ent
 
 ## Portable features, ranked
 
-### 1. Location readout + goto panel — the big one
+### 1. Location readout + goto panel — PORTED (2026-08-07)
 
-**What it does.** Top-center HUD bar with a read-only location field showing the viewport
-center as `re ± imi  mag 2^N` (compact decimal, never the truncated `n...` IntExp Display)
-with a Copy button, and a goto text field with live validation and an Apply button. Apply
-accepts the HUD's own readout format verbatim, plus legacy `re, im`, `re im pot`, `a+bi`,
-`(5i + 6)`, and the word `home` (restores HOME_POSITION framing). Apply emits SetZoom
-*before* SetPos so a pasted location lands identically regardless of current magnification.
-
-**Where.**
-- `stash@{0}:src/assemblies/headgroup/window/coords.rs` (670 lines; 326 existed at `7ff5ef5`,
-  the stash adds ~344 of fixes and tests). Key items: `f64_to_intexp` (line 9),
-  `ul_for_center` (36), `viewport_center` (60), `format_intexp_readout` (79),
-  `format_location_readout` (96), `parse_complex` (113), `commands_from_goto_line` (231),
-  `split_mag_suffix`/`parse_mag_token` (287-310), `apply_button_enabled` (317), tests 322-EOF.
-- UI wiring: `stash@{0}:src/assemblies/headgroup/window/mod.rs:696-750` (the `coord_bar`
-  egui Area), plus the `coord_input` state field and the CZ_GOTOFILE harness hook
-  (mod.rs:398-430).
-- Transform side: `stash@{0}:src/assemblies/headgroup/window/transforms.rs:106-135` — SetPos
-  center semantics via `ul_for_center`; stash also implements the `NavigateTo` arm with the
-  same semantics (tests transforms.rs:352-406).
-
-**Evidence it worked.** ~25 unit tests including exact roundtrips (paste HUD string →
-validate → SetZoom-then-SetPos), pan/drag sign-convention tests, and a transform-level test
-proving the same pasted line lands identically from mag 0 and mag 5. The DAT record
-(`Trash/dat-2026-08-01.md`) lists precisely these gaps — magnification missing from the
-location display, IntExp display wrong, no text oracle — as broken at DAT time; this work is
-the direct fix, written after.
-
-**Coupling.** Essentially zero — IntExp math, string parsing, egui. (One test constructs a
-tile-flavored `SamplingContext`; the production functions only need `location` and
-`screen_size`.)
-
-**Porting difficulty: LOW-MEDIUM.** v0.0.9 hook points:
-- `SamplingContext.location: ObjectivePosAndZoom` already exists
-  (`src/assemblies/headgroup/window/sampling.rs:41`); `ZoomerCommand::SetZoom`/`SetPos`/
-  `MoveTo` exist (sampling.rs:16-34) — but the `SetPos` match arm is an **empty stub**
-  (sampling.rs:162-163), so the port must bring the tile-era SetPos implementation with it.
-- IntExp lives at `src/utils.rs:49` at v0.0.9; the tile era moved it to `crate::intexp` —
-  imports need rewriting.
-- Extend the HUD debug block at `src/assemblies/headgroup/window/mod.rs:380-440`; v0.0.9 has
-  no coord bar today.
-- v0.0.9 has no `NavigateTo` command variant — add it or drop `commands_from_navigate_line`.
-
+Ported to v0.0.9: `coords.rs`, HUD coord bar, `SetPos` center semantics, `CZ_GOTO` /
+`CZ_GOTOFILE`, round-trip tests. See product-rules acceptance updates.
 ### 2. TPS counter → PPS analog — trivial core
 
 **What it does.** HUD shows `fps:X / tps:Y / 1s low: Z`, where TPS is a rolling 1-second

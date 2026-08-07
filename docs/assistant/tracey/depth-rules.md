@@ -51,19 +51,24 @@ indices.
 r[cz.depth.perturb-never-wrong+1]
 
 **Rule.** Delta iteration implements Δz' = 2ZΔz + Δz² + Δc. Missing reference work,
-loss-of-significance at the bailout circle, and Pauldelbrot glitches return
-`Unfinished`/`Glitch`; they never become guessed Mandelbrot answers. At the
-scheduler level the same honesty holds: a glitched seat is reset unfinished and
-rebound to the zero-orbit floor; nothing wrong is published.
+loss-of-significance at the bailout circle, and Pauldelbrot glitches never become
+guessed Mandelbrot answers. These are **distinct** honest outcomes (library
+`PerturbedOutcome` in `src/perturb.rs`):
 
-**Implementation.** `src/perturb.rs` — `iterate_pixel`, `PerturbedOutcome`;
-`src/assemblies/workgroup/screen_worker/perturb_kernel.rs` — glitch reset and
-missing-iterate early return.
+- **Missing iterate** (`orbit.get(n) == None`) → unfinished / soft-continue. Not a
+  glitch. Switch to the zero-orbit floor with `δz ← z` (reconstructed objective
+  state) and `δc ← c`, and keep iterating — same recurrence, no invented answer.
+- **Pauldelbrot glitch** → unfinished; rebind that seat to the zero-orbit floor
+  (reset; do not trust a corrupted reconstruct). Never publish a guessed answer.
 
-**Verification.** `perturbation_matches_precision_doubling_oracle_for_exteriors`,
-`missing_reference_is_unfinished_not_wrong`, `exact_reference_matches_naive_escape_time`,
+**Implementation.** `src/perturb.rs` — `iterate_pixel`, `PerturbedOutcome::{Glitch,
+Unfinished}`; `perturb_kernel.rs` — `rebind_to_zero_continuing` (exhaustion) vs
+`reset_for_glitch` (Pauldelbrot).
+
+**Verification.** `missing_reference_is_unfinished_not_wrong`,
+`missing_reference_iterate_stays_unfinished`,
 `glitch_sets_direct_only_and_never_publishes_guess`,
-`missing_reference_iterate_stays_unfinished`.
+`perturbation_matches_precision_doubling_oracle_for_exteriors`.
 
 r[cz.depth.oracle-doubling+1]
 
@@ -152,12 +157,46 @@ rug precision-doubling oracle.
 r[cz.depth.glitch-is-unfinished+1]
 
 **Rule.** A Pauldelbrot glitch permanently rebinds that seat to the zero-orbit
-floor (`direct_only`) through the same delta code path. The seat is reset
-unfinished; it never publishes a guessed answer from the glitched delta.
+floor (`direct_only`) through the same delta code path for the current
+published generation. The seat is reset unfinished; it never publishes a guessed
+answer from the glitched delta. A *newer* published generation may clear the
+bind and retry (exhaustion/false sticky poison must not outlive a retarget).
 
-**Implementation.** `perturb_kernel.rs` — `reset_for_glitch`.
+**Implementation.** `perturb_kernel.rs` — `reset_for_glitch`, `bound_zero_generation`,
+`maybe_clear_zero_bind`.
 
 **Verification.** `glitch_sets_direct_only_and_never_publishes_guess`.
+
+r[cz.depth.reference-until-done+1]
+
+**Rule.** The reference worker publishes only when the orbit has an honest
+terminal state (period found or escaped). There is **no artificial length wall**
+(`max_iterations` / `MAX_BOUT` as a publish target). Incomplete interiors keep
+the zero-orbit floor until then. Extension is wall-clock bout-sliced
+(`r[cz.depth.reference-bout-law+1]`), same interruptibility as seats — not a
+length cap. Matches `r[cz.tenacious.no-max-iter+1]`.
+
+**Implementation.** `reference_worker.rs` — `work_for` done = period || escaped;
+`ReferenceRequest` carries `c` + precision only.
+
+**Verification.** `never_publishes_a_finite_incomplete_orbit`,
+`publication_moves_one_complete_snapshot_and_increments_generation`.
+
+r[cz.depth.reference-coverage+1]
+
+**Rule.** A previous published reference may be carried across a pivot only while
+its `c` still lies inside the new viewport. Uncovered sticky refs are dropped
+(zero-orbit interim). Sticky selection likewise falls back to the new center when
+the previous deepest interior is outside the new frame. Prevents classic
+glitch-blob clusters when zooming into hard areas / minibrots (dead-reckon goto
+to the same place stays clean).
+
+**Implementation.** `reference_c_covers_frame`; `from_stencil` carry filter;
+Replace pending install gate; `select_reference_request` coverage filter.
+
+**Verification.** `sticky_selection_drops_interior_outside_new_view`,
+`coverage_accepts_center_of_same_view`,
+`faux_user_zoom_to_hard_minibrot_matches_direct`.
 
 r[cz.depth.reference-generation-restart+1]
 

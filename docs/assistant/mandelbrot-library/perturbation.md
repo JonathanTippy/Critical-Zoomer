@@ -31,6 +31,11 @@ representative (Heiland-Allen, "Perturbation glitches", 2014):
   the sum at some iteration. mathr's mightymodel instead tracks an *error estimate* per pixel.
 - **Correction**: re-reference the glitched pixels against a new reference and recompute them
   (our salvaged rule: glitch → rebind seat to the zero orbit is the no-reference special case).
+- **Not a glitch**: running out of stored reference iterates (`get(n)` missing) is
+  **Unfinished**, not Glitch (`src/perturb.rs` `missing_reference_is_unfinished_not_wrong`).
+  Soft-continue on the zero-orbit floor from reconstructed `z` is valid algebra
+  (`δz ← z`, `δc ← c`); do not hard-reset as if Pauldelbrot fired. An artificial
+  publish-at-max-iterations wall is a CZ design bug, not a Mandelbrot necessity.
 - **Reference choice matters more than threshold choice**: mathr's glitch study shows the
   central minibrot is often a *bad* reference; a non-central minibrot near the glitch cluster
   is better, and the limit of "nearby higher-period non-central minibrots" is a pre-periodic

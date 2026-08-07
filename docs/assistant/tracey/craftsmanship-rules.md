@@ -424,8 +424,9 @@ commented out beside it).
 - [ ] Shifts terminate within ~10ms + one bout under all load classes (timed verify).
 
 **Test.** `workshift_always_terminates` (craftsmanship_tests.rs) — structural: shifts return
-with empty queues and under non-completing load. The 10ms constant itself stays code-reviewed
-(timing is not meaningfully unit-testable).
+with empty queues and under non-completing load. Never-stall: `unfinished_synthetic_workshift_never_stalls`,
+`unfinished_home_workshift_never_stalls`, `reference_install_mid_fill_keeps_shift_progress`.
+The 10ms constant itself stays code-reviewed (timing is not meaningfully unit-testable).
 
 r[cz.craft.emergent-cadence+1]
 
@@ -437,8 +438,11 @@ publish timer or gate.
 **Acceptance criteria.**
 - [ ] While incomplete, publishes track workrate with no fixed interval; when complete,
   publishing goes idle (no empty publishes).
+- Worker-layer never-stall: unfinished frames must show progress every workshift
+  (`total_iterations_today` / seat advance / completions).
 
-**Test.** None — actor send loop; acceptance by code review + e2e.
+**Test.** Never-stall suite in craftsmanship_tests.rs (same three tests as wall-clock-law).
+Actor send loop idle/complete still by code review + e2e.
 
 r[cz.craft.load-proportional-ignorance+1]
 

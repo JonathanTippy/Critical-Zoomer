@@ -69,6 +69,11 @@ Benchmarks vary run to run; this is not an exact science and that's fine.
 
 | time_to_full_frame (perturbation path / zero-orbit floor, post-honest-opts) **REJECTED** | 1.335 s (1.320–1.353 s; ~5.9× vs last accepted 227.87 ms) | 2026-08-07 | grok-probation | same; not a baseline |
 | time_to_full_frame_with_reference **REJECTED** | 1.288 s (1.276–1.300 s; ~5.7× vs last accepted) | 2026-08-07 | grok-probation | published reference preinstalled; not a baseline |
+| time_to_full_frame (post coverage + FloatExp add hot + deferred sync) **REJECTED** | 1.998 s (1.953–2.046 s; ~8.8× vs last accepted; ~5.5e6 ips) | 2026-08-07 | grok-probation | still not a baseline; ≤20% gate unmet |
+| time_to_first_publish (post docs/test lock) **REJECTED** | 107.11 ms (106.55–109.34 ms) | 2026-08-07 | grok-probation | not a baseline |
+| time_to_full_frame (post docs/test lock) **REJECTED** | 2.298 s (2.241–2.312 s; ~10× vs last accepted ~228 ms; ~4.6–4.8e6 ips) | 2026-08-07 | grok-probation | not a baseline; ≤20% gate unmet |
+| time_to_full_frame_with_reference (post docs/test lock) **REJECTED** | 1.681 s (1.621–1.919 s; ~7.4× vs last accepted; ~5.6–6.9e6 ips) | 2026-08-07 | grok-probation | improved vs prior rejected ref row; still not a baseline |
+| worker_1080p_full_frame (post docs/test lock) **REJECTED** | 4.648 s (4.009–4.808 s) | 2026-08-07 | grok-probation | not a baseline |
 
 ### Perturbation-path note (2026-08-07) — rejected measurements
 

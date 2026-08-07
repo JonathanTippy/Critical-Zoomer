@@ -136,12 +136,22 @@ Each rung is rarer and slower than the one above; none is a user-visible stall
 
 ## Glitch handling (v1)
 
-Perturbation glitches are detected per pixel with Pauldelbrot's criterion
-(`perturbation.md`): when |Z_n + Δz_n| becomes small relative to |Δz_n|, the approximation
-has failed for that pixel. A glitched pixel is **not** wrong data — it is *unfinished* data:
-it drops to fallback rung 3 (zero orbit, full precision) and stays marked unfinished so the
-workgroup keeps it honest (virtues §5: provisional answers never masquerade as final;
-`r[cz.calib.*]`). This matches the period pipeline's rule: unknown is a state, never a guess.
+**Pauldelbrot glitch** (library `perturbation.md` / `src/perturb.rs`): when
+|Z_n + Δz_n| becomes small relative to |Z_n|, the approximation has failed for
+that pixel. That seat is *unfinished*: rebind to fallback rung 3 (zero orbit)
+and reset — do not publish a guessed answer (`r[cz.depth.glitch-is-unfinished+1]`).
+
+**Missing reference iterate is not a glitch.** If the published orbit has no
+`Z_n` yet (`orbit.get(n) == None`), that is unfinished / short coverage — the
+library core returns `Unfinished`, never `Glitch`. The seat soft-continues on
+the zero-orbit floor with `δz ← z` (reconstructed objective state) and
+`δc ← c` (`r[cz.depth.perturb-never-wrong+1]`). An artificial reference length
+wall (publishing incomplete orbits at `MAX_BOUT`) was a design bug: it made
+exhaustion look like a shared "iteration wall" / glitch-blob epidemic.
+
+**Reference completion** is period-found or escaped only — no length target
+(`r[cz.depth.reference-until-done+1]`, `r[cz.tenacious.no-max-iter+1]`). Until
+then, seats use the zero-orbit floor.
 
 ## What the workgroup changes look like
 
@@ -224,12 +234,12 @@ finds, as with the views and craftsmanship suites.
 - Exact precision-margin constant in bits = zoom pot + PPU + margin (size from benchmarks).
 - Glitch-criterion constant tuning on hard views (published defaults exist; verify on our
   fitness workloads).
-- Whether reference *extension* (longer orbit, same location) should preempt a pending
-  retarget or queue behind it — leaning preempt, since tenacity outranks speculation.
-- **Mid-view reference extension** is not yet requested: seats deeper than the published
-  orbit rotate unfinished until the next pivot re-requests. Decide whether the screen
-  worker should emit an extend request when unfinished seats accumulate past the orbit
-  length (milestone 3 adjacency).
+- Whether reference *extension* (longer orbit, same location, still incomplete interior)
+  should publish intermediate whole snapshots before period/escape — leaning no for v1
+  (zero-orbit floor until done); revisit if zero-orbit is too common at depth.
+- Selection upgrades: prefer proven periodic nuclei; when glitches cluster, seek toward
+  non-central / edge / Misiurewicz candidates (`reference-orbit-strategy.md`). v1 sticky
+  deepest-completed + coverage gate stands until measured.
 
 ## Traceability
 

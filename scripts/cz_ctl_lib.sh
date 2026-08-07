@@ -328,6 +328,12 @@ cz_ctl_run_command() {
     zoomout) cz_ctl_send_zoomout "${1:-1}" ;;
     goto) cz_ctl_send_goto "$@" ;;
     navigate) cz_ctl_send_navigate "$@" ;;
+    snip)
+      # In-app viewport PPM via CZ_SNIPREQ (destination path).
+      local dest="${1:-$OUT/snip.ppm}"
+      printf '%s\n' "$dest" >"${CZ_SNIPREQ:-/tmp/cz_ctl.snip}"
+      sleep 0.35
+      ;;
     capture) cz_ctl_capture_to "$1" ;;
     settle) cz_ctl_wait_settled "$1" "${2:-30}" "${3:-4500}" "${4:-1500}" "${5:-2000}" ;;
     home) cz_ctl_send_home ;;

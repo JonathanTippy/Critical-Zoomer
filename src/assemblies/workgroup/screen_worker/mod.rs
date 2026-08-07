@@ -185,7 +185,19 @@ async fn internal_behavior<A: SteadyActor>(
 
                     if let Some(mut new_ctx) = from_stencil(frame_info.clone(), previous_for_shell) {
                         if let Some(pending) = state.pending_reference.clone() {
-                            new_ctx.latest_reference = Some(pending);
+                            // r[impl cz.depth.reference-coverage+1]
+                            if crate::assemblies::workgroup::reference_worker::reference_c_covers_frame(
+                                &pending.c,
+                                &frame_info,
+                            ) {
+                                new_ctx.latest_reference = Some(pending);
+                            } else {
+                                // Uncovered sticky refs cause classic glitch blobs when
+                                // zooming into hard areas; drop to zero-orbit until the
+                                // new-view reference arrives.
+                                state.pending_reference = None;
+                                new_ctx.latest_reference = None;
+                            }
                         }
                         state.work_context = Some(LiveTarget { context: new_ctx, frame_info: frame_info.clone() });
                         actor.try_send(&mut updates_out, WorkUpdate{frame_info:Some(frame_info), completed_points:vec!()});

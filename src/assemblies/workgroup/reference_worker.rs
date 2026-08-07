@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use steady_state::*;
 
-use crate::assemblies::workgroup::screen_worker::workshift::{WorkContext, MAX_BOUT};
+use crate::assemblies::workgroup::screen_worker::workshift::WorkContext;
 use crate::assemblies::workgroup::c_generator::{CGenerator, Mandelbrotable};
 use crate::constants::PIXELS_PER_UNIT_POT;
 use crate::reference::ReferenceOrbit;
@@ -18,9 +18,6 @@ use crate::utils::{IntExp, ObjectivePosAndZoom};
 pub struct ReferenceRequest {
     pub c: (IntExp, IntExp),
     pub precision_bits: u32,
-    /// Requested orbit length, not an application effort cap. A later request
-    /// for the same c may extend the target.
-    pub max_iterations: u32,
 }
 
 pub struct PublishedReference {
@@ -64,22 +61,21 @@ impl ReferenceWorkerState {
         self.job = Some(ReferenceJob { request, orbit });
     }
 
-    /// Runs one bounded bout and returns a whole snapshot only when this
-    /// request's target length (or an honest terminal state) is reached.
+    /// Runs one wall-clock bout. Publishes only when the orbit has an honest
+    /// terminal state (period found or escaped) — never an artificial length
+    /// wall. Incomplete interiors keep the zero-orbit floor until then.
     // r[impl cz.depth.reference-bout-law+1]
     // r[impl cz.depth.reference-whole-snapshot+1]
+    // r[impl cz.depth.reference-until-done+1]
     pub fn work_for(&mut self, budget: Duration) -> Option<PublishedReference> {
         let job = self.job.as_mut()?;
-        let completed = job.orbit.iterates.len().saturating_sub(1) as u32;
-        let remaining = job.request.max_iterations.saturating_sub(completed);
-        if remaining > 0 && job.orbit.period.is_none() && !job.orbit.escaped {
-            job.orbit.extend_for(remaining, budget);
+        if job.orbit.period.is_none() && !job.orbit.escaped {
+            // Same interruptibility as seats: wall-clock bout, no length cap.
+            // `u32::MAX` here is only "keep going within budget," not a target.
+            job.orbit.extend_for(u32::MAX, budget);
         }
 
-        let completed = job.orbit.iterates.len().saturating_sub(1) as u32;
-        let done = completed >= job.request.max_iterations
-            || job.orbit.period.is_some()
-            || job.orbit.escaped;
+        let done = job.orbit.period.is_some() || job.orbit.escaped;
         if !done {
             return None;
         }
@@ -147,42 +143,66 @@ fn objective_c(
     )
 }
 
+/// True when `c` lies inside the viewport rectangle of `frame` (inclusive).
+/// Previous references may only be carried across a pivot when they still cover
+/// the new view — otherwise the zero-orbit floor is the interim answer.
+// r[impl cz.depth.reference-coverage+1]
+pub fn reference_c_covers_frame(
+    c: &(IntExp, IntExp),
+    frame: &(ObjectivePosAndZoom, (u32, u32)),
+) -> bool {
+    let w = frame.1.0.max(1);
+    let h = frame.1.1.max(1);
+    let a = objective_c(frame, 0, 0);
+    let b = objective_c(frame, w - 1, h - 1);
+    let re_lo = if a.0.clone() < b.0.clone() { a.0.clone() } else { b.0.clone() };
+    let re_hi = if a.0.clone() < b.0.clone() { b.0.clone() } else { a.0.clone() };
+    let im_lo = if a.1.clone() < b.1.clone() { a.1.clone() } else { b.1.clone() };
+    let im_hi = if a.1.clone() < b.1.clone() { b.1.clone() } else { a.1.clone() };
+    c.0.clone() >= re_lo
+        && c.0.clone() <= re_hi
+        && c.1.clone() >= im_lo
+        && c.1.clone() <= im_hi
+}
+
 /// Choose once at pivot: deepest delivered interior seat from the previous
-/// live view, otherwise the new view's center. Progress within a view never
-/// calls this function, so selection is sticky.
+/// live view **only if that seat still covers the new frame**, otherwise the
+/// new view's center. Progress within a view never calls this function.
 // r[impl cz.depth.reference-sticky-selection+1]
+// r[impl cz.depth.reference-coverage+1]
 pub fn select_reference_request<T: Mandelbrotable>(
     previous: Option<(&WorkContext<T>, &(ObjectivePosAndZoom, (u32, u32)))>,
     new_frame: &(ObjectivePosAndZoom, (u32, u32)),
 ) -> ReferenceRequest {
-    let selected = previous.and_then(|(context, frame)| {
-        context
-            .points
-            .iter()
-            .enumerate()
-            .filter(|(_, point)| point.delivered && point.repeats && !point.escapes)
-            .max_by_key(|(_, point)| point.iterations)
-            .map(|(index, point)| {
-                let seat = index as u32 % context.res.0;
-                let row = index as u32 / context.res.0;
-                (
-                    objective_c(frame, seat, row),
-                    point.iterations.max(MAX_BOUT),
-                )
-            })
-    });
-
-    let (c, max_iterations) = selected.unwrap_or_else(|| {
-        let center = (new_frame.1.0 / 2, new_frame.1.1 / 2);
-        (objective_c(new_frame, center.0, center.1), MAX_BOUT)
-    });
+    let c = previous
+        .and_then(|(context, frame)| {
+            context
+                .points
+                .iter()
+                .enumerate()
+                .filter(|(_, point)| point.delivered && point.repeats && !point.escapes)
+                .max_by_key(|(_, point)| point.iterations)
+                .and_then(|(index, _point)| {
+                    let seat = index as u32 % context.res.0;
+                    let row = index as u32 / context.res.0;
+                    let c = objective_c(frame, seat, row);
+                    if reference_c_covers_frame(&c, new_frame) {
+                        Some(c)
+                    } else {
+                        None
+                    }
+                })
+        })
+        .unwrap_or_else(|| {
+            let center = (new_frame.1.0 / 2, new_frame.1.1 / 2);
+            objective_c(new_frame, center.0, center.1)
+        });
     ReferenceRequest {
         c,
         precision_bits: crate::reference::bits_for_zoom(
             new_frame.0.zoom_pot as i64,
             PIXELS_PER_UNIT_POT,
         ),
-        max_iterations,
     }
 }
 
@@ -242,11 +262,10 @@ mod tests {
     use crate::assemblies::workgroup::screen_worker::workshift::from_stencil;
     use crate::utils::ObjectivePosAndZoom;
 
-    fn request(c: i32, iterations: u32) -> ReferenceRequest {
+    fn request(c: i32) -> ReferenceRequest {
         ReferenceRequest {
             c: (IntExp::from(c), IntExp::ZERO),
             precision_bits: 128,
-            max_iterations: iterations,
         }
     }
 
@@ -254,27 +273,54 @@ mod tests {
     // r[verify cz.depth.reference-latest-wins+1]
     fn newer_request_replaces_in_progress_job() {
         let mut state = ReferenceWorkerState::new();
-        state.replace(request(0, 100));
+        state.replace(request(0));
         assert!(state.work_for(Duration::ZERO).is_none());
-        state.replace(request(-1, 8));
+        state.replace(request(-1));
         let published = state.work_for(Duration::from_secs(1)).unwrap();
         assert_eq!(published.c.0, IntExp::from(-1));
         assert_eq!(published.generation, 1);
+        assert!(published.orbit.period.is_some() || published.orbit.escaped);
     }
 
     #[test]
     // r[verify cz.depth.reference-whole-snapshot+1]
+    // r[verify cz.depth.reference-until-done+1]
     fn publication_moves_one_complete_snapshot_and_increments_generation() {
         let mut state = ReferenceWorkerState::new();
-        state.replace(request(2, 20));
+        state.replace(request(2));
         let first = state.work_for(Duration::from_secs(1)).unwrap();
         assert!(first.orbit.escaped);
         assert!(state.work_for(Duration::from_secs(1)).is_none());
 
-        state.replace(request(-1, 8));
+        state.replace(request(-1));
         let second = state.work_for(Duration::from_secs(1)).unwrap();
         assert_eq!(second.generation, first.generation + 1);
         assert!(second.orbit.period.is_some());
+    }
+
+    #[test]
+    // r[verify cz.depth.reference-until-done+1]
+    fn never_publishes_a_finite_incomplete_orbit() {
+        // Period-1 center takes many rug steps; a 0-budget bout must not publish
+        // a truncated orbit (the old max_iterations wall).
+        let mut state = ReferenceWorkerState::new();
+        state.replace(ReferenceRequest {
+            c: (IntExp::ZERO, IntExp::ZERO),
+            precision_bits: 128,
+        });
+        assert!(
+            state.work_for(Duration::ZERO).is_none(),
+            "zero-budget must not publish an incomplete orbit"
+        );
+        let job_len = state
+            .job
+            .as_ref()
+            .map(|j| j.orbit.iterates.len())
+            .unwrap_or(0);
+        assert!(
+            job_len < 1000 || state.job.as_ref().unwrap().orbit.period.is_some(),
+            "must not treat a length wall as completion"
+        );
     }
 
     fn frame() -> (ObjectivePosAndZoom, (u32, u32)) {
@@ -318,6 +364,44 @@ mod tests {
 
         let fallback = select_reference_request::<f64>(None, &f);
         assert_eq!(fallback.c, objective_c(&f, 2, 1));
+    }
+
+    #[test]
+    // r[verify cz.depth.reference-coverage+1]
+    fn sticky_selection_drops_interior_outside_new_view() {
+        let old = frame();
+        let mut context = from_stencil::<f64>(old.clone(), None).unwrap();
+        context.points[7].delivered = true;
+        context.points[7].repeats = true;
+        context.points[7].iterations = 80;
+        // Zoom hard into a distant minibrot-like corner that does not contain
+        // the previous deepest interior seat.
+        let new = (
+            ObjectivePosAndZoom {
+                pos: (IntExp::from(1), IntExp::from(-1)),
+                zoom_pot: 8,
+            },
+            old.1,
+        );
+        let old_deep = objective_c(&old, 3, 1);
+        assert!(
+            !reference_c_covers_frame(&old_deep, &new),
+            "fixture must place old deep c outside the new view"
+        );
+        let selected = select_reference_request(Some((&context, &old)), &new);
+        assert_eq!(
+            selected.c,
+            objective_c(&new, new.1.0 / 2, new.1.1 / 2),
+            "uncovered sticky interior must fall back to new center"
+        );
+    }
+
+    #[test]
+    // r[verify cz.depth.reference-coverage+1]
+    fn coverage_accepts_center_of_same_view() {
+        let f = frame();
+        let c = objective_c(&f, f.1.0 / 2, f.1.1 / 2);
+        assert!(reference_c_covers_frame(&c, &f));
     }
 
     #[test]

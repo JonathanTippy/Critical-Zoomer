@@ -25,6 +25,8 @@ use crate::assemblies::headgroup::window::widgetize::*;
 use crate::assemblies::structs::*;
 use crate::assemblies::headgroup::window::inputs::*;
 use crate::assemblies::headgroup::window::sampling::*;
+use crate::assemblies::headgroup::window::coords::*;
+use crate::assemblies::headgroup::window::transforms::transform;
 
 
 pub mod rolling;
@@ -32,6 +34,8 @@ pub mod widgetize;
 pub mod inputs;
 pub mod sampling;
 pub mod transforms;
+pub mod coords;
+pub mod snip;
 
 const RECOVER_EGUI_CRASHES:bool = false;
 // ^ half implimented; in cases where the window is supposed to
@@ -92,6 +96,8 @@ pub struct WindowState {
     , pub controls_timer: Instant
     , pub stencil_serial_number_counter: u64
     , pub scroll_debt: f32
+    , pub coord_input: String
+    , pub startup_goto_applied: bool
 }
 
 /// Entry point for the window actor.
@@ -153,6 +159,8 @@ async fn internal_behavior<A: SteadyActor>(
         , controls_timer: Instant::now()
         , stencil_serial_number_counter: 0
         , scroll_debt: SCROLL_SPEED/2.0
+        , coord_input: String::new()
+        , startup_goto_applied: false
     }).await;
 
     {
@@ -334,14 +342,40 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             // sample
 
-            let (command_package, attention) = parse_inputs(&ctx, &mut state, size);
+            let (mut command_package, attention) = parse_inputs(&ctx, &mut state, size);
             actor.try_send(&mut attention_out, attention);
+
+            if !state.startup_goto_applied {
+                if let Ok(line) = std::env::var("CZ_GOTO") {
+                    if !line.trim().is_empty() {
+                        if let Some(cmds) = commands_from_goto_line(&line) {
+                            command_package.extend(cmds);
+                        }
+                    }
+                }
+                state.startup_goto_applied = true;
+            }
+            let goto_path = std::env::var("CZ_GOTOFILE")
+                .unwrap_or_else(|_| "/tmp/cz_ctl.goto".to_string());
+            if let Ok(line) = std::fs::read_to_string(&goto_path) {
+                let _ = std::fs::remove_file(&goto_path);
+                if let Some(cmds) = commands_from_goto_line(&line) {
+                    command_package.extend(cmds);
+                }
+            }
 
             state.sampling_context.screen_size = (size.0 as u32, size.1 as u32);
 
             if state.sampling_context.screen.is_some() {
                 sample(command_package, &mut sampler_buffer, &mut state.sampling_context);
+            } else if !command_package.is_empty() {
+                transform(command_package, &mut state.sampling_context);
             }
+
+            crate::assemblies::headgroup::window::snip::maybe_write_viewport_snip(
+                size,
+                &sampler_buffer,
+            );
 
             let start = Instant::now();
 
@@ -432,6 +466,62 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                         }).inner
                     }
                 );
+
+                egui::Area::new(egui::Id::new("coord_bar"))
+                    .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 8.0))
+                    .order(egui::Order::Foreground)
+                    .show(ctx, |ui| {
+                        egui::Frame::popup(ui.style())
+                            .inner_margin(egui::Margin::symmetric(8, 6))
+                            .show(ui, |ui| {
+                                ui.set_min_width(520.0);
+                                let screen = (
+                                    state.size.x.max(1.0) as u32
+                                    , state.size.y.max(1.0) as u32
+                                );
+                                let (cre, cim) = viewport_center(
+                                    &state.sampling_context.location
+                                    , screen
+                                );
+                                let center_text = format_location_readout(
+                                    &cre
+                                    , &cim
+                                    , state.sampling_context.location.zoom_pot
+                                );
+                                ui.horizontal(|ui| {
+                                    ui.label("location");
+                                    let mut readonly = center_text.clone();
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut readonly)
+                                            .desired_width(320.0)
+                                            .interactive(true)
+                                    );
+                                    if ui.button("Copy").clicked() {
+                                        ui.ctx().copy_text(center_text);
+                                    }
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("goto");
+                                    let response = ui.add(
+                                        egui::TextEdit::singleline(&mut state.coord_input)
+                                            .desired_width(280.0)
+                                            .hint_text("re, im  or  a+bi")
+                                    );
+                                    let valid = goto_line_is_valid(&state.coord_input);
+                                    let apply = ui.add_enabled(valid, egui::Button::new("Apply"));
+                                    let go = apply.clicked()
+                                        || (valid
+                                            && response.lost_focus()
+                                            && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+                                    if go {
+                                        if let Some(cmds) = commands_from_goto_line(&state.coord_input) {
+                                            transform(cmds, &mut state.sampling_context);
+                                            state.sampling_context.updated = true;
+                                        }
+                                    }
+                                });
+                            });
+                    });
 
                 // Add a gear icon button in the top-right corner
                 ui.put(

@@ -171,10 +171,7 @@ r[cz.ui.coords-parse+1]
 brackets, imag-leading) and rejects invalid input without user confusion.
 
 **Acceptance criteria.**
-- [ ] GAP. No coords parser exists at v0.0.9 (the tile-era `coords.rs` is gone; `widgetize.rs`
-  has the HUD but no parse field). Product rule stands; port is a product decision. Note the
-  developer acceptance requirement: goto Apply must accept the HUD's own readout format and
-  land identically from any view.
+- Ported: [`coords.rs`](../../src/assemblies/headgroup/window/coords.rs) parse/readout/Apply; HUD coord bar; `SetPos` center semantics. Verify tags on coords tests.
 
 r[cz.ui.coords-apply+1]
 
@@ -182,7 +179,7 @@ r[cz.ui.coords-apply+1]
 already at that location); applying moves viewport center; field is not cleared.
 
 **Acceptance criteria.**
-- [ ] GAP (same as parse). Port together.
+- Ported with coords Apply enable rules and goto round-trip tests.
 
 r[cz.ui.location-readout+1]
 
@@ -190,9 +187,7 @@ r[cz.ui.location-readout+1]
 coordinates entry/display always includes magnification.
 
 **Acceptance criteria.**
-- [ ] Partial at v0.0.9: the HUD displays the location (developer acceptance list requires
-  intexp display and magnification in the readout — keep those). Copy button / full format
-  compliance unverified on the restored tree.
+- Ported: location HUD string includes `mag 2^N`, Copy button, center (not UL).
 
 r[cz.ui.viewport-fill+1]
 

@@ -268,6 +268,7 @@ fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f6
                 , small_time:*st
                 , delta: None
                 , direct_only: false
+                , bound_zero_generation: 0
             };
 
             let max = settings.bailout_max_additional_iterations;

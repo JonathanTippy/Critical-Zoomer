@@ -46,6 +46,12 @@ Kalles Fraktaler / mightymandel practice (from the glitch study and deep-zoom wr
 - The two-level seek the salvage doc describes (short interactive cap + background thorough
   seek) matches practice: a quick Newton from the view-center candidate is usually enough; the
   thorough seek (non-central minibrots near glitch clusters) is the idle-time upgrade.
+- **v1 shipping constraints (restored design):** sticky selection prefers the deepest
+  delivered interior that still covers the new viewport, else the new center; uncovered
+  sticky refs are never carried (`reference_c_covers_frame`). Publish only when
+  period-found or escaped — no artificial length wall. Prefer interiors / periodic nuclei
+  when upgrading selection later; missing iterates are unfinished soft-continue, not
+  Pauldelbrot glitch (`perturbation.md`).
 
 ## Sources
 

@@ -65,6 +65,53 @@ fn active_generation(
     }
 }
 
+fn published_generation(
+    published: Option<&crate::assemblies::workgroup::reference_worker::PublishedReference>,
+) -> u64 {
+    published.map(|r| r.generation).unwrap_or(0)
+}
+
+fn maybe_clear_zero_bind(
+    point: &mut Point<f64>,
+    published: Option<&crate::assemblies::workgroup::reference_worker::PublishedReference>,
+) {
+    // A newer published reference may reclaim seats that glitched or exhausted
+    // against an older / short orbit. Same-generation binds stay on the floor.
+    let gen = published_generation(published);
+    if point.direct_only && gen != point.bound_zero_generation {
+        point.direct_only = false;
+        point.delta = None;
+        point.initialized = false;
+    }
+}
+
+fn reset_for_glitch(point: &mut Point<f64>, against_generation: u64) {
+    // r[impl cz.depth.glitch-is-unfinished+1]
+    // r[impl cz.depth.perturb-never-wrong+1]
+    point.direct_only = true;
+    point.bound_zero_generation = against_generation;
+    point.delta = None;
+    point.initialized = false;
+    point.iterations = 0;
+    point.escapes = false;
+    point.repeats = false;
+    point.delivered = false;
+}
+
+fn rebind_to_zero_continuing(
+    point: &mut Point<f64>,
+    delta: &mut DeltaState,
+    against_generation: u64,
+) {
+    // Exhausted published orbit: keep unfinished progress, switch δ to the
+    // zero-orbit floor (Z≡0 ⇒ δz ≡ z, δc ≡ c) and continue the bout.
+    point.direct_only = true;
+    point.bound_zero_generation = against_generation;
+    delta.dc = to_delta_c(point.c);
+    delta.dz = ComplexFloatExp::new(FloatExp::from(point.z.0), FloatExp::from(point.z.1));
+    delta.generation = 0;
+}
+
 #[inline(always)]
 fn sync_point_from_delta(
     point: &mut Point<f64>,
@@ -84,7 +131,11 @@ fn near_complex(a: ComplexFloatExp, b: ComplexFloatExp, epsilon: FloatExp) -> bo
 }
 
 fn init_delta(point: &mut Point<f64>, orbit: &ReferenceOrbit, generation: u64) {
-    let dc = to_delta_c(point.c) - reference_c_floatexp(orbit);
+    let dc = if std::ptr::eq(orbit, zero_orbit()) {
+        to_delta_c(point.c)
+    } else {
+        to_delta_c(point.c) - reference_c_floatexp(orbit)
+    };
 
     // Match DirectKernel's z₀ = c convention: at iterations=0 we sit at
     // standard n=1 (Z₁ + δ₁ = c). For Mandelbrot Z₀=0, Z₁=c_ref ⇒ δ₁ = dc.
@@ -115,22 +166,14 @@ fn init_delta(point: &mut Point<f64>, orbit: &ReferenceOrbit, generation: u64) {
     sync_point_from_delta(point, z_ref, dz, dd);
 }
 
-fn reset_for_glitch(point: &mut Point<f64>) {
-    // r[impl cz.depth.glitch-is-unfinished+1]
-    // r[impl cz.depth.perturb-never-wrong+1]
-    point.direct_only = true;
-    point.delta = None;
-    point.initialized = false;
-    point.iterations = 0;
-    point.escapes = false;
-    point.repeats = false;
-    point.delivered = false;
-}
-
 impl SeatKernel<f64> for PerturbationKernel {
     fn start_seat(&self, context: &mut WorkContext<f64>, pos: (i32, i32)) {
         ensure_started(context, pos);
         let index = crate::utils::index_from_pos(&pos, context.res.0);
+        maybe_clear_zero_bind(
+            &mut context.points[index],
+            context.latest_reference.as_deref(),
+        );
         let generation = active_generation(
             &context.points[index],
             context.latest_reference.as_deref(),
@@ -162,9 +205,14 @@ impl SeatKernel<f64> for PerturbationKernel {
             return;
         }
 
-        let orbit = active_orbit(point, reference);
+        let mut orbit = active_orbit(point, reference);
         let Some(mut delta) = point.delta.take() else {
             return;
+        };
+        let against_generation = if point.direct_only {
+            point.bound_zero_generation
+        } else {
+            delta.generation
         };
 
         // Same FloatExp delta recurrence for every reference, including the
@@ -175,20 +223,38 @@ impl SeatKernel<f64> for PerturbationKernel {
         let eps = FloatExp::from(epsilon);
         let two = ComplexFloatExp::new(FloatExp::TWO, FloatExp::ZERO);
         let one = ComplexFloatExp::new(FloatExp::ONE, FloatExp::ZERO);
+        // Period-1 zero reference is still the same recurrence; skip Option/modulo
+        // get traffic on the static floor without forking the algorithm.
+        let mut is_zero_ref = std::ptr::eq(orbit, zero_orbit());
 
         for _ in 0..cap.get() {
             // Current z sits at standard index n = iterations+1.
             let n = point.iterations.saturating_add(1);
-            let Some(z_ref) = orbit.get(n) else {
-                point.delta = Some(delta);
-                return;
+            let z_ref = if is_zero_ref {
+                ComplexFloatExp::ZERO
+            } else {
+                match orbit.get(n) {
+                    Some(z) => z,
+                    None => {
+                        let stamp = delta.generation;
+                        rebind_to_zero_continuing(point, &mut delta, stamp);
+                        orbit = zero_orbit();
+                        is_zero_ref = true;
+                        ComplexFloatExp::ZERO
+                    }
+                }
             };
 
             let z = z_ref + delta.dz;
             let z_norm_sq = z.norm_squared();
-            let z_ref_norm_sq = z_ref.norm_squared();
+            // Zero-orbit |Z|² is identically 0; skip the multiply when possible.
+            let z_ref_norm_sq = if is_zero_ref {
+                FloatExp::ZERO
+            } else {
+                z_ref.norm_squared()
+            };
 
-            if delta.dz != ComplexFloatExp::ZERO && z_ref_norm_sq == four {
+            if !is_zero_ref && delta.dz != ComplexFloatExp::ZERO && z_ref_norm_sq == four {
                 let correction = FloatExp::TWO * (z_ref.re * delta.dz.re + z_ref.im * delta.dz.im)
                     + delta.dz.norm_squared();
                 if correction > FloatExp::ZERO {
@@ -198,7 +264,7 @@ impl SeatKernel<f64> for PerturbationKernel {
                     return;
                 }
                 if correction == FloatExp::ZERO {
-                    reset_for_glitch(point);
+                    reset_for_glitch(point, against_generation.max(delta.generation));
                     return;
                 }
             }
@@ -210,14 +276,17 @@ impl SeatKernel<f64> for PerturbationKernel {
                 return;
             }
 
-            if point.iterations > 0 && z_norm_sq < z_ref_norm_sq * glitch_factor {
-                reset_for_glitch(point);
+            // Glitch sad-exit (kept): only meaningful when |Z_ref| is nonzero.
+            if !is_zero_ref
+                && point.iterations > 0
+                && z_norm_sq < z_ref_norm_sq * glitch_factor
+            {
+                reset_for_glitch(point, against_generation.max(delta.generation));
                 return;
             }
 
-            // Track smallness on the pre-advance reconstruct (DirectKernel order).
-            let z_f64 = (z.re.to_f64(), z.im.to_f64());
-            let rad = z_f64.0 * z_f64.0 + z_f64.1 * z_f64.1;
+            // Track smallness from FloatExp norm (one to_f64, not a dual sync).
+            let rad = z_norm_sq.to_f64();
             if rad < point.smallness_squared {
                 point.smallness_squared = rad;
                 point.small_time = point.iterations;
@@ -228,15 +297,26 @@ impl SeatKernel<f64> for PerturbationKernel {
             delta.dz = z_ref * delta.dz * two + delta.dz * delta.dz + delta.dc;
             point.iterations = point.iterations.saturating_add(1);
 
-            let Some(z_next_ref) = orbit.get(point.iterations.saturating_add(1)) else {
-                point.delta = Some(delta);
-                return;
+            let z_next_ref = if is_zero_ref {
+                ComplexFloatExp::ZERO
+            } else {
+                match orbit.get(point.iterations.saturating_add(1)) {
+                    Some(z) => z,
+                    None => {
+                        let stamp = delta.generation;
+                        // Sync before rebind so point.z feeds δz ≡ z.
+                        sync_point_from_delta(point, z_ref, delta.dz, delta.dd);
+                        rebind_to_zero_continuing(point, &mut delta, stamp);
+                        orbit = zero_orbit();
+                        is_zero_ref = true;
+                        ComplexFloatExp::ZERO
+                    }
+                }
             };
             let z_next = z_next_ref + delta.dz;
-            // One full sync after advance (point.z/dc match iterations).
-            sync_point_from_delta(point, z_next_ref, delta.dz, delta.dd);
 
             if near_complex(z_next, delta.checkpoint, eps) {
+                sync_point_from_delta(point, z_next_ref, delta.dz, delta.dd);
                 point.repeats = true;
                 point.period = point.iterations.saturating_sub(delta.checkpoint_n);
                 point.delta = Some(delta);
@@ -249,6 +329,15 @@ impl SeatKernel<f64> for PerturbationKernel {
             }
         }
 
+        // One mirror sync at bout end (provisional/completion paths read f64 z/dc).
+        let z_ref = if is_zero_ref {
+            ComplexFloatExp::ZERO
+        } else {
+            orbit
+                .get(point.iterations.saturating_add(1))
+                .unwrap_or(ComplexFloatExp::ZERO)
+        };
+        sync_point_from_delta(point, z_ref, delta.dz, delta.dd);
         point.delta = Some(delta);
     }
 

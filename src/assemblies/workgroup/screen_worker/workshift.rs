@@ -208,9 +208,12 @@ pub struct Point<T> {
     , pub smallness_squared: T
     , pub small_time: u32
     , pub delta: Option<DeltaState>
-    // After a Pauldelbrot glitch: permanently bound to the zero-orbit floor.
+    // After a Pauldelbrot glitch or exhausted published orbit: bound to the
+    // zero-orbit floor for `bound_zero_generation`. A newer published generation
+    // may clear `direct_only` and retry the reference.
     // r[impl cz.depth.glitch-is-unfinished+1]
     , pub direct_only: bool
+    , pub bound_zero_generation: u64
 }
 
 
@@ -269,6 +272,7 @@ pub fn placeholder_point<T: From<f32> + Copy>() -> Point<T> {
         small_time: 0,
         delta: None,
         direct_only: false,
+        bound_zero_generation: 0,
     }
 }
 
@@ -289,6 +293,17 @@ pub fn from_stencil<T: Mandelbrotable + From<f32>>(
     frame_info: (ObjectivePosAndZoom, (u32, u32)),
     previous: Option<(WorkContext<T>, ObjectivePosAndZoom)>,
 ) -> Option<WorkContext<T>> {
+    let carried_reference = previous
+        .as_ref()
+        .and_then(|(old, _)| old.latest_reference.clone())
+        .filter(|published| {
+            // r[impl cz.depth.reference-coverage+1]
+            crate::assemblies::workgroup::reference_worker::reference_c_covers_frame(
+                &published.c,
+                &frame_info,
+            )
+        });
+
     let (obj, res) = frame_info;
     let compute_loc = (obj.pos.0.clone(), IntExp::ZERO - obj.pos.1.clone());
     let c_generator = CGenerator::<T>::new(&compute_loc, obj.zoom_pot as i64, res)?;
@@ -311,9 +326,6 @@ pub fn from_stencil<T: Mandelbrotable + From<f32>>(
     };
 
     let new_len = (res.0 * res.1) as usize;
-    let carried_reference = previous
-        .as_ref()
-        .and_then(|(old, _)| old.latest_reference.clone());
     let (mut points, mut random_map, old_res, mut completed_points) = match previous {
         Some((old, _)) => {
             let WorkContext {
@@ -880,7 +892,10 @@ where
     }
 
     context.workshifts += 1;
-    context.percent_completed = context.index as f64 / (total_points) as f64 * 100.0;
+    // r[impl cz.craft.load-proportional-ignorance+1]
+    // Idle metric is delivered fraction, not the empty-queue break index.
+    let delivered = context.points.iter().filter(|p| p.delivered).count();
+    context.percent_completed = delivered as f64 / (total_points as f64) * 100.0;
 }
 
 /// Hard ceiling for any single iteration bout. The worker must never make an

@@ -46,6 +46,7 @@ fn make_point(c: (f64, f64)) -> Point<f64> {
         small_time: 0,
         delta: None,
         direct_only: false,
+        bound_zero_generation: 0,
     }
 }
 
@@ -1001,7 +1002,7 @@ fn home_workshift_with_reference_matches_direct() {
         let mut direct = from_stencil(frame.clone(), None).expect("home");
         let mut perturb = from_stencil(frame, None).expect("home");
         perturb.latest_reference = Some(Arc::new(PublishedReference {
-            orbit: ReferenceOrbit::compute(&req.c, req.precision_bits, req.max_iterations),
+            orbit: ReferenceOrbit::compute(&req.c, req.precision_bits, 4096),
             c: req.c,
             generation: 1,
         }));
@@ -1282,10 +1283,14 @@ fn missing_reference_iterate_stays_unfinished() {
         1e-15,
         BoutCap::new(20),
     );
-    assert!(ctx.points[0].iterations > 0 && ctx.points[0].iterations < 20);
-    assert!(!ctx.points[0].escapes && !ctx.points[0].repeats);
+    // Short published orbits must not invent a final answer. Falling through to
+    // the zero-orbit floor and continuing is allowed (never soft-stall).
+    assert!(ctx.points[0].iterations > 0);
     assert!(!ctx.points[0].delivered);
-    assert!(ctx.points[0].delta.is_some());
+    assert!(
+        ctx.points[0].delta.is_some() || ctx.points[0].direct_only,
+        "must keep delta state or bind the zero-orbit floor"
+    );
 }
 
 #[test]
@@ -1399,6 +1404,7 @@ fn phase_two_perturbation_test_inventory_is_present() {
     for needle in [
         "delta: None",
         "direct_only: false",
+        "bound_zero_generation: 0",
         "latest_reference: None",
         "workshift_with_kernel(0, 0, 0, 0, ctx, &DirectKernel)",
     ] {
@@ -1418,4 +1424,372 @@ fn phase_two_perturbation_test_inventory_is_present() {
         "zero-orbit must not special-case away from the shared delta loop"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Never-stall: unfinished frames must show progress every workshift
+// r[verify cz.craft.wall-clock-law+1]
+// r[verify cz.craft.emergent-cadence+1]
+// ---------------------------------------------------------------------------
+
+fn frame_unfinished(ctx: &WorkContext<f64>) -> bool {
+    ctx.points.iter().any(|p| !p.delivered)
+}
+
+fn seat_iter_sum(ctx: &WorkContext<f64>) -> u64 {
+    ctx.points.iter().map(|p| p.iterations as u64).sum()
+}
+
+fn shift_made_progress(ctx: &WorkContext<f64>, before_sum: u64, before_completed: usize) -> bool {
+    ctx.total_iterations_today > 0
+        || seat_iter_sum(ctx) != before_sum
+        || ctx.completed_points.len > before_completed
+        || ctx.total_points_today > 0
+}
+
+/// Synthetic unfinished-heavy fixture: hard seats must keep advancing.
+#[test]
+fn unfinished_synthetic_workshift_never_stalls() {
+    run_big(|| {
+        let mut ctx = make_context(0);
+        ctx.attention_index = 0;
+        set_attention(&mut ctx, Some((3, 0)));
+        ctx.attention_current = Some((3, 0));
+        // Seed queues so non-attention rotation slots still have unfinished work
+        // (empty queues would exit the shift with zero progress — that is starvation,
+        // not a valid unfinished-heavy fixture).
+        for y in 0..ctx.res.1 as i32 {
+            for x in 0..ctx.res.0 as i32 {
+                let i = index_from_pos(&(x, y), ctx.res.0);
+                if !ctx.points[i].delivered {
+                    ctx.out_queue.push_back(((x, y), 0));
+                    ctx.edge_queue.push_back(((x, y), 0));
+                }
+            }
+        }
+
+        let mut zero_streak = 0u32;
+        const MAX_ZERO: u32 = 2;
+        for _ in 0..30 {
+            if !frame_unfinished(&ctx) {
+                break;
+            }
+            let before = seat_iter_sum(&ctx);
+            let before_done = ctx.completed_points.len;
+            workshift(0, 0, 0, 0, &mut ctx);
+            if shift_made_progress(&ctx, before, before_done) {
+                zero_streak = 0;
+            } else {
+                zero_streak += 1;
+            }
+            assert!(
+                zero_streak < MAX_ZERO,
+                "zero-progress streak={zero_streak} on unfinished synthetic frame"
+            );
+            let _ = work_update(&mut ctx);
+            // Keep unfinished seats visible to the rotation after drains/rotates.
+            if ctx.out_queue.is_empty() {
+                for y in 0..ctx.res.1 as i32 {
+                    for x in 0..ctx.res.0 as i32 {
+                        let i = index_from_pos(&(x, y), ctx.res.0);
+                        if !ctx.points[i].delivered {
+                            ctx.out_queue.push_back(((x, y), 0));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(frame_unfinished(&ctx), "SLOW seats must remain unfinished");
+    });
+}
+
+/// Home view under production PerturbationKernel (zero-orbit floor).
+#[test]
+fn unfinished_home_workshift_never_stalls() {
+    run_big(|| {
+        let mut ctx = from_stencil(home_frame(), None).expect("home");
+        let mut zero_streak = 0u32;
+        const MAX_ZERO: u32 = 2;
+        for _ in 0..8 {
+            assert!(frame_unfinished(&ctx), "home must still be unfinished early");
+            let before = seat_iter_sum(&ctx);
+            let before_done = ctx.completed_points.len;
+            workshift(0, 0, 0, 0, &mut ctx);
+            if shift_made_progress(&ctx, before, before_done) {
+                zero_streak = 0;
+            } else {
+                zero_streak += 1;
+            }
+            assert!(
+                zero_streak < MAX_ZERO,
+                "home zero-progress streak={zero_streak}"
+            );
+            let _ = work_update(&mut ctx);
+        }
+    });
+}
+
+/// Installing a published reference mid-fill may restart deltas, but must not
+/// open a multi-shift zero-progress window.
+#[test]
+fn reference_install_mid_fill_keeps_shift_progress() {
+    run_big(|| {
+        let frame = home_frame();
+        let mut ctx = from_stencil(frame.clone(), None).expect("home");
+        for _ in 0..3 {
+            workshift(0, 0, 0, 0, &mut ctx);
+            let _ = work_update(&mut ctx);
+        }
+        assert!(frame_unfinished(&ctx));
+
+        let req = select_reference_request::<f64>(None, &frame);
+        ctx.latest_reference = Some(Arc::new(PublishedReference {
+            orbit: ReferenceOrbit::compute(&req.c, req.precision_bits, 4096),
+            c: req.c,
+            generation: 1,
+        }));
+
+        let mut zero_streak = 0u32;
+        const MAX_ZERO: u32 = 2;
+        for _ in 0..8 {
+            if !frame_unfinished(&ctx) {
+                break;
+            }
+            let before = seat_iter_sum(&ctx);
+            let before_done = ctx.completed_points.len;
+            workshift(0, 0, 0, 0, &mut ctx);
+            if shift_made_progress(&ctx, before, before_done) {
+                zero_streak = 0;
+            } else {
+                zero_streak += 1;
+            }
+        assert!(
+            zero_streak < MAX_ZERO,
+            "reference install mid-fill created zero-progress window (streak={zero_streak})"
+        );
+            let _ = work_update(&mut ctx);
+        }
+    });
+}
+
+/// Developer repro: `-0.161913425661 + 1.035546905361i mag 2^20`.
+/// Classic perturbation glitch blobs when an uncovered sticky reference from a
+/// prior view is carried across the zoom path (dead-reckon goto is fine).
+fn hard_minibrot_frame(res: (u32, u32)) -> (ObjectivePosAndZoom, (u32, u32)) {
+    use crate::assemblies::headgroup::window::coords::{f64_to_intexp, ul_for_center};
+    let loc = ul_for_center(
+        f64_to_intexp(-0.161913425661),
+        f64_to_intexp(1.035546905361),
+        20,
+        res,
+    );
+    (loc, res)
+}
+
+fn frame_at_center(re: f64, im: f64, pot: i32, res: (u32, u32)) -> (ObjectivePosAndZoom, (u32, u32)) {
+    use crate::assemblies::headgroup::window::coords::{f64_to_intexp, ul_for_center};
+    (ul_for_center(f64_to_intexp(re), f64_to_intexp(im), pot, res), res)
+}
+
+fn fill_until<K: SeatKernel<f64>>(ctx: &mut WorkContext<f64>, kernel: &K, shifts: u32) {
+    for _ in 0..shifts {
+        if ctx.points.iter().all(|p| p.delivered) {
+            break;
+        }
+        ctx.attention_index = 0;
+        workshift_with_kernel(0, 0, 0, 0, ctx, kernel);
+        let _ = work_update(ctx);
+    }
+}
+
+fn disagree_rate(a: &WorkContext<f64>, b: &WorkContext<f64>) -> (usize, usize) {
+    let n = a.points.len().min(b.points.len());
+    let mut disagree = 0usize;
+    let mut compared = 0usize;
+    for i in 0..n {
+        if !a.points[i].delivered || !b.points[i].delivered {
+            continue;
+        }
+        compared += 1;
+        if outcome_key(&a.points[i]) != outcome_key(&b.points[i]) {
+            disagree += 1;
+        }
+    }
+    (disagree, compared)
+}
+
+/// Faux-user zoom path to hard minibrot (IntExp). Uncovered sticky from a
+/// home-class prior must be dropped; forced uncovered sticky reproduces
+/// glitch-blob disagreement vs DirectKernel.
+#[test]
+// r[verify cz.depth.reference-coverage+1]
+// r[verify cz.ui.goto-absolute-center+1]
+fn faux_user_zoom_to_hard_minibrot_matches_direct() {
+    run_big(|| {
+        use crate::assemblies::headgroup::window::coords::{
+            commands_from_goto_line, ul_for_center, viewport_center,
+        };
+        use crate::assemblies::headgroup::window::transforms::transform;
+        use crate::assemblies::headgroup::window::sampling::SamplingContext;
+
+        let res = (48u32, 32u32);
+        // Dead-reckon: IntExp goto line applied through the headgroup command path.
+        let goto = "-0.161913425661 + 1.035546905361i mag 2^20";
+        let cmds = commands_from_goto_line(goto).expect("goto");
+        let mut dead_nav = SamplingContext {
+            screen: None,
+            screen_size: res,
+            location: ul_for_center(IntExp::ZERO, IntExp::ZERO, 0, res),
+            updated: false,
+            mouse_drag_start: None,
+        };
+        transform(cmds, &mut dead_nav);
+        let hard = (dead_nav.location.clone(), res);
+        let (dre, dim) = viewport_center(&hard.0, res);
+
+        // Zoom path: stepwise IntExp mags toward the same center (not f64 centers).
+        let mut zoom_nav = SamplingContext {
+            screen: None,
+            screen_size: res,
+            location: ul_for_center(IntExp::from(-2), IntExp::from(-2), -2, res),
+            updated: false,
+            mouse_drag_start: None,
+        };
+        for pot in [0, 4, 8, 12, 16, 20] {
+            let step = format!(
+                "{} {}i mag 2^{}"
+                , crate::assemblies::headgroup::window::coords::format_intexp_readout(&dre)
+                , {
+                    let s = crate::assemblies::headgroup::window::coords::format_intexp_readout(&dim);
+                    if s.starts_with('-') { s } else { format!("+ {s}") }
+                }
+                , pot
+            );
+            // format_location_readout style: re ± imi
+            let line = crate::assemblies::headgroup::window::coords::format_location_readout(
+                &dre, &dim, pot,
+            );
+            let _ = step;
+            transform(
+                commands_from_goto_line(&line).expect("zoom step"),
+                &mut zoom_nav,
+            );
+        }
+        assert_eq!(zoom_nav.location.zoom_pot, 20);
+        let (zre, zim) = viewport_center(&zoom_nav.location, res);
+        assert!(
+            (f64::from(zre.clone()) - f64::from(dre.clone())).abs() < 1e-9
+                && (f64::from(zim.clone()) - f64::from(dim.clone())).abs() < 1e-9,
+            "IntExp zoom path must land on the same center as dead-reckon goto"
+        );
+
+        // Blob repro prior: a wide home-class view whose reference `c` lies
+        // outside the hard minibrot viewport. Same-center shallow zoom would
+        // still cover (center ∈ hard frame) — that is not the uncovered-sticky bug.
+        let prior_frame = (
+            ul_for_center(IntExp::from(-2), IntExp::from(-2), -2, res),
+            res,
+        );
+        let mut prior = from_stencil(prior_frame.clone(), None).expect("prior");
+        let prior_req = select_reference_request::<f64>(None, &prior_frame);
+        let uncovered = Arc::new(PublishedReference {
+            orbit: ReferenceOrbit::compute(&prior_req.c, prior_req.precision_bits, 256),
+            c: prior_req.c.clone(),
+            generation: 3,
+        });
+        prior.latest_reference = Some(uncovered.clone());
+        assert!(
+            !crate::assemblies::workgroup::reference_worker::reference_c_covers_frame(
+                &uncovered.c,
+                &hard,
+            ),
+            "home-class reference must not cover the hard view (blob repro precondition)"
+        );
+
+        let mut clean = from_stencil(hard.clone(), Some((prior, prior_frame.0)))
+            .expect("hard");
+        assert!(
+            clean.latest_reference.is_none(),
+            "uncovered sticky reference must not install into the hard view"
+        );
+
+        let mut direct = from_stencil(hard.clone(), None).expect("hard direct");
+        fill_until(&mut direct, &DirectKernel, 40);
+        fill_until(&mut clean, &PerturbationKernel, 40);
+        let (disagree, compared) = disagree_rate(&direct, &clean);
+        assert!(
+            compared > 0,
+            "expected some delivered seats on the hard fixture"
+        );
+        assert!(
+            disagree * 100 / compared.max(1) < 5,
+            "clean zero-orbit path diverged: {disagree}/{compared}"
+        );
+
+        // Hazardous short covering center ref (old length-wall publish): still
+        // can disagree with DirectKernel — why production publishes only
+        // period/escape, never truncated orbits.
+        let hard_req = select_reference_request::<f64>(None, &hard);
+        let short_covering = Arc::new(PublishedReference {
+            orbit: ReferenceOrbit::compute(&hard_req.c, hard_req.precision_bits, 64),
+            c: hard_req.c.clone(),
+            generation: 4,
+        });
+        assert!(
+            crate::assemblies::workgroup::reference_worker::reference_c_covers_frame(
+                &short_covering.c,
+                &hard,
+            ),
+            "short center ref must cover the hard view"
+        );
+        assert!(
+            !short_covering.orbit.escaped && short_covering.orbit.period.is_none(),
+            "fixture needs an incomplete truncated orbit"
+        );
+        let mut blob = from_stencil(hard.clone(), None).expect("blob");
+        blob.latest_reference = Some(short_covering);
+        fill_until(&mut blob, &PerturbationKernel, 40);
+        let (blob_disagree, blob_compared) = disagree_rate(&direct, &blob);
+        assert!(
+            blob_compared > 0 && blob_disagree * 100 / blob_compared.max(1) >= 5,
+            "short covering incomplete ref should disagree vs Direct; got {blob_disagree}/{blob_compared}"
+        );
+
+        // Dead-reckon control: fresh shell with no sticky prior (goto semantics).
+        let mut dead = from_stencil(hard, None).expect("dead reckon");
+        fill_until(&mut dead, &PerturbationKernel, 40);
+        let (dead_disagree, dead_compared) = disagree_rate(&direct, &dead);
+        assert!(
+            dead_compared > 0 && dead_disagree * 100 / dead_compared.max(1) < 5,
+            "dead-reckon (no sticky) diverged: {dead_disagree}/{dead_compared}"
+        );
+    });
+}
+
+/// PPS/progress flatline: unfinished frame must not run shifts with zero
+/// completions and zero iterations (the headed "pps drops to 0" stall).
+#[test]
+fn unfinished_frame_never_zero_pps_streak() {
+    run_big(|| {
+        let mut ctx = from_stencil(home_frame(), None).expect("home");
+        let mut zero_pps = 0u32;
+        for _ in 0..12 {
+            if !frame_unfinished(&ctx) {
+                break;
+            }
+            workshift(0, 0, 0, 0, &mut ctx);
+            let ppsish = ctx.total_points_today + ctx.total_iterations_today;
+            if ppsish == 0 {
+                zero_pps += 1;
+            } else {
+                zero_pps = 0;
+            }
+            assert!(
+                zero_pps < 2,
+                "pps-like progress dropped to 0 for {zero_pps} shifts while unfinished"
+            );
+            let _ = work_update(&mut ctx);
+        }
+    });
+}
+
 

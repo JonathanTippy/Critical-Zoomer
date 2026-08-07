@@ -167,6 +167,7 @@ pub fn get_points<
                 small_time: 0,
                 delta: None,
                 direct_only: false,
+                bound_zero_generation: 0,
             })
         }
     }

@@ -13,6 +13,7 @@ use rug::{Float, Integer};
 use crate::constants::PIXELS_PER_UNIT_POT;
 
 use crate::assemblies::structs::*;
+#[derive(Clone)]
 pub enum ZoomerCommand {
     SetFocus { pixel_x: u32, pixel_y: u32 }
     ,
@@ -160,6 +161,18 @@ pub fn sample(
             }
 
             ZoomerCommand::SetPos{real, imag} => {
+                // Field location is viewport center. Zoom must already be the
+                // target pot when mag was named in goto (SetZoom before SetPos).
+                let screen = context.screen_size;
+                let zoom = context.location.zoom_pot;
+                context.location = crate::assemblies::headgroup::window::coords::ul_for_center(
+                    real.clone()
+                    , imag.clone()
+                    , zoom
+                    , screen
+                );
+                context.mouse_drag_start = None;
+                context.updated = true;
             }
             ZoomerCommand::TrackPoint{point_id, point_real, point_imag} => {
             }

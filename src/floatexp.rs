@@ -217,10 +217,33 @@ impl Add for FloatExp {
                 return self;
             }
             let scale = f64::from_bits(((1023 - shift) as u64) << 52);
-            Self::new(
-                self.mantissa + rhs.mantissa * scale,
-                self.exponent,
-            )
+            let sum = self.mantissa + rhs.mantissa * scale;
+            // Hot path: avoid FloatExp::new's assert + full bit extract when the
+            // sum is already a normal finite mantissa near [1, 2).
+            debug_assert!(sum.is_finite());
+            if sum == 0.0 {
+                return Self::ZERO;
+            }
+            let abs = sum.abs();
+            if abs >= 1.0 && abs < 2.0 {
+                return Self {
+                    mantissa: sum,
+                    exponent: self.exponent,
+                };
+            }
+            if abs >= 2.0 && abs < 4.0 {
+                return Self {
+                    mantissa: sum * 0.5,
+                    exponent: self.exponent.saturating_add(1),
+                };
+            }
+            if abs >= 0.5 && abs < 1.0 {
+                return Self {
+                    mantissa: sum * 2.0,
+                    exponent: self.exponent.saturating_sub(1),
+                };
+            }
+            Self::new(sum, self.exponent)
         } else {
             rhs + self
         }
