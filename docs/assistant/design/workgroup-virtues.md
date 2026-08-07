@@ -80,8 +80,9 @@ When a stencil changes, the worker builds the next world from `frame_info` alone
 - **`random_map` (mixmap)** — a shuffled permutation of seat indices, regenerated when the resolution changes. Random order is a specific lesson: raster-order traversal of the Mandelbrot set creates visible banding, because neighboring pixels have correlated costs and correlated completion. A shuffled order spreads both easy and hard pixels uniformly across the screen, so partial progress *looks like* uniform refinement rather than crawling stripes. (An interlaced variant exists in the code as an alternative — same intent.)
 - **`scredge_poses`** — the *shuffled perimeter* of the screen, computed at shell install. This is the scheduling face of the architecture's "smear/extrude" rule: the seats most likely to be newly exposed by motion are the edges, so the edges are seeded as work from birth, before any completion has occurred anywhere.
 - **Four queues** — `scredge_poses`, `edge_queue`, `out_queue`, `in_queue`. All seeded empty except scredge. Queues are `VecDeque`s of `(position, difficulty-or-period)`.
-- **`attention`** — the cursor pixel, updated asynchronously, used by the Random slot.
-- **`zoomed`** — whether this frame is deeper than the last.
+- **`attention`** — `Option<(i32, i32)>` from the pointer channel; `None` when the mouse is off the fractal screen. Spiral anchor defaults to screen center.
+- **`attention_anchor` / `attention_index`** — square-ring spiral state for slot 0.
+- **`motion`** — `Zoomed` / `Panned` / `Neither`; decides whether slot 0 leads with attention or edge.
 - **counters** — tokens, iterations, bouts, workshifts, percent.
 
 Note the queue entries carry a **cost estimate** (iterations of the neighbor that spawned them, or period for interior floods). The current scheduling order does not sort by it — but it is captured at the source, for free, as a byproduct of having just iterated the neighbor. The design leaves hooks without paying for them.
@@ -130,9 +131,12 @@ A 100ms shift would triple the effective pivot latency. A 1ms shift would spend 
 
 ### The bout: one seat, bounded iterations, resumable
 
-Each bout picks one seat and calls `iterate_max_n_times(point, r²=4, epsilon, n=1000)`:
+Each bout picks one seat and calls `iterate_max_n_times(point, r²=4, epsilon, BoutCap::STANDARD)`:
 
-- Up to 1000 iterations per bout.
+- Up to `MAX_BOUT` (1000) iterations per bout. The cap is a type, not a convention: `BoutCap`'s
+  only constructor clamps, so an unbounded call literally cannot be expressed. The worker may
+  never make an unbounded call — the 10 ms wall-clock check at the top of the bout loop is only
+  valid if no call inside the loop can run away.
 - The point's full state (`z`, cached squares, iteration count, loop checkpoint, smallness) lives in `points[index]` between bouts, so **pause and resume is free** — there is nothing to serialize, no coroutine, no stack to save. The architecture requirement "must be able to pause a particularly difficult point and continue it in the next workshift" is satisfied by the data layout itself. A point *is* its own continuation.
 - Cached squares (`real_squared`, `imag_squared`, `real_imag`) make each iteration three multiplies plus the loop/bailout checks — and `update_point_results` also tracks the running minimum of |z|² and when it occurred. Smallness and small-time are collected *for free*, as a side effect of state the iteration already computes. The shadergroup's cosmetics (interior distance-ish shading, period animation) ride on data nobody paid extra to gather.
 
@@ -154,14 +158,13 @@ This is the heart of the design, and the most imitated-least-understood piece. E
 
 | Shift mod 5 | Priority order | Character |
 |---|---|---|
-| 0 (first shift only) | scredge → edge → out → in | screen perimeter first |
-| 0 (later) | edge → out → scredge → in | boundary & exterior |
+| 0 | **Attention** when Zoomed/Neither; **Scredge** when Panned | foveation vs smear |
 | 1 | edge → out → scredge → in | boundary & exterior |
 | 2 | **out** → edge → scredge → in | exterior flood favored |
 | 3 | edge → out → scredge → in | boundary & exterior |
-| 4 | **Random**: attention ± 50 jitter | cursor neighborhood |
+| 4 | **scredge** → edge → out → in | perimeter |
 
-Read what this rotation *is*: **timeslicing between scheduling queues**. Each of the five shifts grants the CPU to a different scheduling class, in a fixed round-robin. No class monopolizes; no class starves; the classes interleave at 10ms granularity, so over any 50ms window all five have run.
+Read what this rotation *is*: **timeslicing between scheduling queues**. Each of the five shifts grants the CPU to a different scheduling class, in a fixed round-robin. No class monopolizes; no class starves; the classes interleave at 10ms granularity, so over any 50ms window all five have run. Slot 0 is the one exception that adapts: after a zoom (or neither), attention leads for direct navigation; after a pan, scredge leads so the smearing screen border resolves first.
 
 Why five classes and not a single priority queue? Because each queue encodes a *different theory of what matters most*, and the theories disagree:
 
@@ -169,11 +172,11 @@ Why five classes and not a single priority queue? Because each queue encodes a *
 - **edge** says: the boundary between inside and outside matters most (that's where the image's information content lives — the set's filigree).
 - **out** says: flood outward from completed escapes (large exterior regions finish fast; clears cheap space quickly).
 - **in** says: flood outward from completed repeats (interior regions likewise).
-- **random/attention** says: what the user is looking at matters most.
+- **attention** says: what the user is looking at matters most.
 
-A single priority order would enshrine one theory and starve the others: edge-only leaves big exterior regions visibly unfinished; out-only wastes time on boring space while the interesting boundary crawls; attention-only turns the rest of the screen into background. The rotation is the compromise — and the specific ordering (edge usually first, out promoted on shift 2, scredge demoted after the initial burst, attention getting exactly one shift in five) is the empirically-tuned truce between the theories. It is a scheduler of schedulers, and it is six lines of `match`.
+A single priority order would enshrine one theory and starve the others: edge-only leaves big exterior regions visibly unfinished; out-only wastes time on boring space while the interesting boundary crawls; attention-only turns the rest of the screen into background. The rotation is the compromise — and the specific ordering (attention first after zoom / neither, scredge first after pan, out promoted on shift 2, scredge also owning slot 4, attention getting exactly one shift in five when it leads) is the empirically-tuned truce between the theories. It is a scheduler of schedulers, and it is six lines of `match`.
 
-Notice the first-shift exception: on shift 0 of a brand-new context, scredge leads. A fresh frame (after a move) needs its edges proven first — the architecture's rule that extruded/smear regions be redone first, embodied as "the perimeter is the initial frontier". Once scredge drains, it demotes behind edge and out for the rest of the context's life.
+Notice the first-shift exception on attention fallthrough: when the spiral yields nothing on shift 0 of a brand-new context, scredge leads. A fresh frame (after a move) still needs its edges proven early — the architecture's rule that extruded/smear regions be redone first. Once that first-shift scredge burst drains, scredge lives in slot 4 for the rest of the context's life.
 
 ### Queue dynamics: frontiers that generate themselves
 
@@ -196,9 +199,14 @@ When a bout does *not* finish its seat:
 
 ### Attention: the user's gaze as a fifth queue
 
-The Random step jitters ±50 pixels around the attention position (clamped to screen), effectively sampling the neighborhood of the cursor. The *idea* is right and cheap: the user is usually looking near the cursor or drag origin; giving that neighborhood one shift in five is a foveation that required no eye-tracking and no special data path — just an `(i32,i32)` on a channel, drained to newest. And if the jitter would fall off-screen, it clamps to the exact attention seat — the center of interest is always reachable.
-
-The *implementation* was an experiment that beat nothing but was not great: the random walk has no memory of delivered seats, so it keeps re-picking points that are already done and burning bouts on the no-op. A delivered-aware sampler (or a small frontier seeded from the attention seat, like the other queues) would keep the virtue without the waste. Keep "gaze is a queue"; replace "random" with something that knows what it has already seen. (See §12.)
+Slot 0 runs an **attention spiral**: a square-ring walk outward from the live
+cursor (`Option<(i32,i32)>` on the attention channel). `Some` restarts the spiral
+at that seat; `None` (pointer off the fractal screen) anchors at screen center.
+Each attention bout advances a persistent index, skipping delivered and
+off-screen seats, so the fovea fills deterministically instead of re-picking
+finished seats. When the spiral is exhausted (or the per-bout scan budget is
+spent), the slot falls through to the ordinary queues — with scredge preferred
+on the context's first shift. `r[cz.craft.attention-spiral+1]`
 
 ---
 
@@ -293,7 +301,8 @@ Details that are easy to miss and were clearly earned (each bound to its code si
 - **Edge neighbors pushed to queue front** — boundaries jump their own line. `r[cz.craft.edge-push-front+1]`
 - **Difficulty/period carried in queue entries** — cost metadata captured free at the source. `r[cz.craft.cost-metadata+1]`
 - **Shuffle-per-resolution mixmap** — anti-banding randomized traversal, rebuilt exactly when it must be. `r[cz.craft.mixmap-shuffle+1]`
-- **Scredge first only on shift 0** — motion edges proven at frame birth, then demoted. `r[cz.craft.scredge-first-shift0+1]`
+- **Scredge first on shift-0 fallthrough** — motion edges proven at frame birth when attention yields nothing. `r[cz.craft.scredge-first-shift0+1]`
+- **Attention spiral first** — foveated square-ring walk owns slot 0. `r[cz.craft.attention-spiral+1]`
 - **Out rotates, In doesn't** — asymmetric treatment of slow escapes vs slow repeats. `r[cz.craft.out-rotates-in-stays+1]`
 - **Provisional answers never mark delivered** — guesses never block truth. `r[cz.craft.provisional-not-delivered+1]`
 - **Undeliver-and-break on full buffer** — backpressure degrades to re-queue, never to loss (policy gold; fixed-array structure replaceable, §12). `r[cz.craft.undeliver-on-full+1]`
@@ -327,7 +336,9 @@ Every added capability after v0.0.9 (tiles, mags, batches, orbits, GPU) re-opene
 
 The closures above are the gold. These five remaining pieces are not — they were experiments that shipped because they beat the alternative of nothing, and each has a known better shape. None of the four guarantees depends on any of them; clean them up without fear, but keep the *need* each one was feeding.
 
-- **Random attention walk.** The idea — the user's gaze gets a scheduling class — is sound foveation for free. The implementation re-picks already-delivered seats because the random walk has no memory, wasting bouts on no-ops. Better shape: a delivered-aware sampler, or seed a small ordinary frontier from the attention seat and let the existing queue dynamics do the work.
+- **Attention spiral.** The user's gaze gets a scheduling class that walks outward from the
+  cursor (or screen center when the pointer is off-screen), skipping finished seats.
+  `r[cz.craft.attention-spiral+1]`
 - **The `Stec` fixed array stack.** A stack is a fine discipline, but a `[T; 100000]` inline in the context object bakes a ceiling into the type and can overflow — the undeliver-and-break branch exists precisely to absorb that. A `Vec`, with allocations kept in mind (reserve once, reuse across contexts), gives the same boundedness policy and the same pop-from-end freshness order without the hard cap or the inline bulk.
 - **The completion staging buffer ("publish queue").** It is a second queue sitting in front of a queue — the `WorkUpdate` channel already stages and bounds messages. Its only distinct contributions are per-shift batching and the LIFO drain order, and both might be had from the channel directly. Possibly redundant; not obviously wrong. If it stays, it should stay *because* batching and freshness-order are demonstrably earning it, not by default.
 - **Monolithic WorkContext construction.** Building the next world in one O(pixels) lump on the controller is correct but crude. A small incremental generator could spread construction across the pivot window — one more turn of the play-reduction ratchet. The builder/runner split is gold; the batch size is the unfinished part.

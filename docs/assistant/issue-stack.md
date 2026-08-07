@@ -55,7 +55,7 @@ Not bugs; provisional mechanisms that shipped because they beat nothing. None is
 
 - **Delete token accounting** in the screen worker (`workshift.rs` / `screen_worker/mod.rs`): the budget check in the shift loop is commented out, wall-clock is the only law; the token fields and `spent_tokens_today` recomputation are dead code.
 - **`Stec` → `Vec`** for the completion buffer: storage is now a heap `Vec` with a fixed capacity (still 100k, still LIFO pop-from-end). The old inline array form is gone because worker-side shell install could not put two ~8 MB arrays on a default stack. Remaining cleanup: drop the fixed ceiling if a growable policy is preferred.
-- **Delivered-aware attention sampling**: the random walk re-picks finished seats; keep "gaze is a queue", replace the memoryless walk.
+- **Delivered-aware attention sampling**: done as the attention square-ring spiral (`cz.craft.attention-spiral+1`).
 - **Incremental WorkContext construction**: done as stencil-only Replace + lazy `ensure_started` (see `cz.craft.stencil-only-replace+2`). Chunked amortization beyond first-start laziness remains optional if install-time shell work ever shows up in play.
 - **Completion staging buffer vs channel**: possibly redundant (batching + LIFO order are its only distinct contributions); keep only if demonstrably earning it.
 
@@ -69,6 +69,9 @@ Not bugs; provisional mechanisms that shipped because they beat nothing. None is
 - Stencil-only Replace: controller sends `frame_info` only; worker builds an uninitialized
   shell and materializes seat `c`/`z`/`dc` from `CGenerator` at first start. Reuses points /
   mixmap / completion buffers across pivots. `time_to_first_publish` −42%; full-frame unchanged.
+- Attention-first square-ring spiral owns slot 0; `Option` attention (`None` = pointer
+  off-screen → center anchor). Full-frame −29% vs prior; first-publish tradeoff noted in
+  benchmarks.
 - View remap associativity fixed: large-zoom remaps select source pixels from absolute plane
   positions; the saved `(0,513)` regression and generated associativity property are green.
 - Period refinement replaced by the atom-domain candidate → Newton attractor → multiplier-test

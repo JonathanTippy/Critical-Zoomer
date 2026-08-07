@@ -100,7 +100,7 @@ pub async fn run(
     pixels_in: SteadyRx<View<Color32>>,
     stencil_out: SteadyTx<(PointStencil)>,
     settings_out: SteadyTxBundle<Settings,2>,
-    attention_out: SteadyTx<(i32, i32)>,
+    attention_out: SteadyTx<Option<(i32, i32)>>,
     state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
     internal_behavior(
@@ -120,7 +120,7 @@ async fn internal_behavior<A: SteadyActor>(
     pixels_in: SteadyRx<View<Color32>>,
     stencil_out: SteadyTx<(PointStencil)>,
     settings_out: SteadyTxBundle<Settings, 2>,
-    attention_out: SteadyTx<(i32, i32)>,
+    attention_out: SteadyTx<Option<(i32, i32)>>,
     state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
 
@@ -237,7 +237,7 @@ struct EguiWindowPassthrough<'a, A> {
     pixels_in: SteadyRx<View<Color32>>,
     stencil_out: SteadyTx<(PointStencil)>,
     settings_out: SteadyTxBundle<Settings, 2>,
-    attention_out: SteadyTx<(i32, i32)>,
+    attention_out: SteadyTx<Option<(i32, i32)>>,
     portable_state:Arc<Mutex<StateGuard<'a, WindowState>>>
 }
 

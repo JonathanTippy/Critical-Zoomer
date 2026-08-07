@@ -69,6 +69,7 @@ fn make_context(workshifts: u32) -> WorkContext<f64> {
     let points: Vec<Point<f64>> = cs.iter().map(|&c| make_point(c)).collect();
     let n = points.len();
     let c_generator = CGenerator::new(&(IntExp::from(0), IntExp::from(0)), -2, res).unwrap();
+    let center = ((res.0 / 2) as i32, (res.1 / 2) as i32);
     WorkContext {
         points,
         completed_points: Stec::with_capacity(100000, (CompletedPoint::Dummy {}, 0)),
@@ -90,8 +91,12 @@ fn make_context(workshifts: u32) -> WorkContext<f64> {
         edge_queue: VecDeque::new(),
         out_queue: VecDeque::new(),
         in_queue: VecDeque::new(),
-        zoomed: false,
-        attention: (0, 0),
+        motion: Motion::Neither,
+        attention: None,
+        attention_anchor: center,
+        // Force queue fallthrough unless a test exercises the spiral.
+        attention_index: u64::MAX,
+        attention_current: None,
         c_generator,
         pitch_epsilon: 1e-9 * (1.0 / 256.0),
     }
@@ -367,6 +372,8 @@ fn queue_entries_carry_source_cost() {
 }
 
 // verifies r[cz.craft.scredge-first-shift0+1]
+// Attention owns slot 0; when the spiral is exhausted, shift 0 still prefers
+// scredge over edge (the old first-shift motion-edge proof).
 #[test]
 fn scredge_first_only_on_shift_zero() {
     run_big(|| {
@@ -378,7 +385,7 @@ fn scredge_first_only_on_shift_zero() {
         shift(&mut ctx);
         assert!(ctx.completed_points.len > 0);
         assert_eq!(ctx.completed_points.stuff[0].1, index_from_pos(&(3, 1), ctx.res.0),
-            "shift 0 must prove the motion edge first");
+            "shift 0 fallthrough must prove the motion edge first");
     });
     run_big(|| {
         // shift 1: edge outranks scredge.
@@ -580,11 +587,261 @@ fn replace_reuses_points_capacity_and_resets_initialized() {
             },
             (8u32, 4u32),
         );
-        let ctx2 = from_stencil(frame_b, Some((ctx, -2))).unwrap();
+        let ctx2 = from_stencil(frame_b, Some((ctx, frame_a.0.clone()))).unwrap();
         assert!(ctx2.points.iter().all(|p| !p.initialized));
         assert!(ctx2.points.capacity() >= cap);
         assert_eq!(ctx2.points.len(), 32);
-        assert!(ctx2.zoomed);
+        assert_eq!(ctx2.motion, Motion::Zoomed);
+    });
+}
+
+// r[verify cz.craft.attention-spiral+1]
+#[test]
+fn from_stencil_defaults_attention_anchor_to_center() {
+    run_big(|| {
+        let frame = (
+            ObjectivePosAndZoom {
+                pos: (IntExp::from(-2), IntExp::from(2)),
+                zoom_pot: -2,
+            },
+            (8u32, 4u32),
+        );
+        let ctx = from_stencil::<f64>(frame, None).unwrap();
+        assert_eq!(ctx.attention, None);
+        assert_eq!(ctx.attention_anchor, (4, 2));
+        assert_eq!(ctx.attention_index, 0);
+    });
+}
+
+// r[verify cz.craft.attention-spiral+1]
+#[test]
+fn square_ring_spiral_is_nondecreasing_chebyshev() {
+    let mut prev = 0i32;
+    for k in 0..200u64 {
+        let (dx, dy) = square_ring_offset(k);
+        let d = dx.abs().max(dy.abs());
+        assert!(d >= prev, "k={k} offset=({dx},{dy}) decreased Chebyshev distance");
+        prev = d;
+    }
+}
+
+// r[verify cz.craft.attention-spiral+1]
+#[test]
+fn attention_slot_picks_spiral_before_queues() {
+    run_big(|| {
+        let mut ctx = make_context(0);
+        ctx.attention_index = 0;
+        set_attention(&mut ctx, Some((1, 0)));
+        ctx.edge_queue.push_back(((3, 1), 0));
+        // One bout: slot 0 should take the attention anchor, not the edge seat.
+        // Bypass the 10ms wall by calling the selector directly.
+        let pos = next_attention_spiral_pos(&mut ctx).unwrap();
+        assert_eq!(pos, (1, 0));
+        assert_eq!(ctx.attention_index, 1);
+    });
+}
+
+// r[verify cz.craft.attention-spiral+1]
+#[test]
+fn spiral_skips_delivered_and_falls_through_when_exhausted() {
+    run_big(|| {
+        let mut ctx = make_context(0);
+        set_attention(&mut ctx, Some((0, 0)));
+        ctx.attention_index = 0;
+        for p in &mut ctx.points {
+            p.delivered = true;
+        }
+        // One call: scan budget spent on delivered seats → None.
+        assert!(next_attention_spiral_pos(&mut ctx).is_none());
+    });
+}
+
+// r[verify cz.craft.attention-spiral+1]
+#[test]
+fn attention_bout_works_seat_to_completion() {
+    run_big(|| {
+        let mut ctx = make_context(0);
+        set_attention(&mut ctx, Some((2, 0))); // ESC seat
+        ctx.attention_index = 0;
+        ctx.scredge_poses.push_back((3, 1));
+        shift(&mut ctx);
+        let index = index_from_pos(&(2, 0), ctx.res.0);
+        assert!(ctx.points[index].delivered, "attention bout must finish its seat");
+        assert!(ctx.completed_points.stuff[..ctx.completed_points.len]
+            .iter()
+            .any(|(_, i)| *i == index), "completed attention seat is published");
+    });
+}
+
+// r[verify cz.craft.attention-spiral+1]
+#[test]
+fn attention_holds_seat_across_bouts_until_complete() {
+    run_big(|| {
+        let mut ctx = make_context(0);
+        set_attention(&mut ctx, Some((2, 0))); // ESC seat, escapes quickly
+        ctx.attention_index = 0;
+
+        // Seed a held seat manually as if a prior bout capped out mid-seat:
+        // an unfinished, undelivered seat that the spiral never returns to.
+        let held = (1, 0);
+        ctx.attention_current = Some(held);
+        let held_index = index_from_pos(&held, ctx.res.0);
+        ctx.points[held_index].initialized = true;
+        ctx.points[held_index].iterations = 7; // partial prior work
+
+        shift(&mut ctx);
+
+        // The held seat must be finished. The spiral stays parked at 0 until
+        // the hold releases; once it does, later bouts pick fresh spiral seats.
+        assert!(ctx.points[held_index].delivered, "held seat must be finished");
+        // After the shift the phase has moved on: whatever is currently held
+        // (if anything) is a spiral seat, never the already-done held one.
+        assert_ne!(ctx.attention_current, Some(held), "completed hold not retained");
+    });
+}
+
+// r[verify cz.craft.attention-spiral+1]
+#[test]
+fn attention_releases_held_seat_delivered_elsewhere() {
+    run_big(|| {
+        let mut ctx = make_context(0);
+        set_attention(&mut ctx, Some((2, 0)));
+        ctx.attention_index = 0;
+        let held = (2, 0);
+        ctx.attention_current = Some(held);
+        // Seat already delivered (e.g. via another queue): the bout must
+        // release the hold and fall through rather than spin forever.
+        let held_index = index_from_pos(&held, ctx.res.0);
+        ctx.points[held_index].delivered = true;
+        shift(&mut ctx);
+        // The delivered hold must be dropped (the bout cannot spin on it); the
+        // phase then moves on, holding only fresh spiral seats.
+        assert_ne!(ctx.attention_current, Some(held), "delivered held seat released");
+        assert!(ctx.attention_index > 0, "spiral advanced after release");
+    });
+}
+
+// r[verify cz.craft.attention-spiral+1]
+#[test]
+fn set_attention_none_restores_center_anchor() {
+    run_big(|| {
+        let mut ctx = make_context(0);
+        set_attention(&mut ctx, Some((3, 1)));
+        assert_eq!(ctx.attention_anchor, (3, 1));
+        assert_eq!(ctx.attention_index, 0);
+        ctx.attention_index = 17;
+        set_attention(&mut ctx, None);
+        assert_eq!(ctx.attention, None);
+        assert_eq!(ctx.attention_anchor, (2, 1)); // 4x2 center
+        assert_eq!(ctx.attention_index, 0, "anchor change restarts the spiral");
+    });
+}
+
+// r[verify cz.craft.bout-cap+1]
+#[test]
+fn bout_cap_clamps_above_max() {
+    assert_eq!(BoutCap::new(0).get(), 0);
+    assert_eq!(BoutCap::new(MAX_BOUT).get(), MAX_BOUT);
+    assert_eq!(BoutCap::new(MAX_BOUT + 1).get(), MAX_BOUT);
+    assert_eq!(BoutCap::new(u32::MAX).get(), MAX_BOUT);
+    assert_eq!(BoutCap::STANDARD.get(), MAX_BOUT);
+}
+
+// r[verify cz.craft.pan-zoom-slot0+1]
+#[test]
+fn from_stencil_classifies_zoom_pan_neither() {
+    run_big(|| {
+        let base = ObjectivePosAndZoom {
+            pos: (IntExp::from(-2), IntExp::from(2)),
+            zoom_pot: -2,
+        };
+        let res = (8u32, 4u32);
+        let fresh = from_stencil::<f64>((base.clone(), res), None).unwrap();
+        assert_eq!(fresh.motion, Motion::Neither);
+
+        let zoomed_fi = ObjectivePosAndZoom {
+            pos: base.pos.clone(),
+            zoom_pot: -1,
+        };
+        let zoomed = from_stencil(
+            (zoomed_fi.clone(), res),
+            Some((fresh, base.clone())),
+        )
+        .unwrap();
+        assert_eq!(zoomed.motion, Motion::Zoomed);
+
+        let panned_fi = ObjectivePosAndZoom {
+            pos: (IntExp::from(-1), IntExp::from(2)),
+            zoom_pot: -2,
+        };
+        let panned_base = from_stencil::<f64>((base.clone(), res), None).unwrap();
+        let panned = from_stencil(
+            (panned_fi, res),
+            Some((panned_base, base.clone())),
+        )
+        .unwrap();
+        assert_eq!(panned.motion, Motion::Panned);
+    });
+}
+
+// r[verify cz.craft.pan-zoom-slot0+1]
+#[test]
+fn pan_scredge_lead_only_on_first_shift() {
+    run_big(|| {
+        // After the first shift of a pan shell, slot 0 returns to attention —
+        // stopping the pan must not leave scredge sticky forever.
+        let mut ctx = make_context(5); // workshifts % 5 == 0, but not the first
+        ctx.motion = Motion::Panned;
+        ctx.attention_index = 0;
+        set_attention(&mut ctx, Some((1, 0)));
+        ctx.scredge_poses.push_back((3, 1));
+        let attn_index = index_from_pos(&(1, 0), ctx.res.0);
+        shift(&mut ctx);
+        assert!(
+            ctx.points[attn_index].delivered || ctx.points[attn_index].iterations > 0,
+            "stopped / later pan shifts must lead with attention"
+        );
+    });
+}
+
+// r[verify cz.craft.pan-zoom-slot0+1]
+#[test]
+fn pan_slot0_prefers_scredge_over_attention() {
+    run_big(|| {
+        let mut ctx = make_context(0);
+        ctx.motion = Motion::Panned;
+        ctx.attention_index = 0;
+        set_attention(&mut ctx, Some((1, 0)));
+        ctx.scredge_poses.push_back((3, 1));
+        let scredge_index = index_from_pos(&(3, 1), ctx.res.0);
+        shift(&mut ctx);
+        assert!(
+            ctx.points[scredge_index].delivered || ctx.points[scredge_index].iterations > 0,
+            "pan slot0 must start the scredge seat"
+        );
+        let attn_index = index_from_pos(&(1, 0), ctx.res.0);
+        assert!(
+            !ctx.points[attn_index].delivered && ctx.points[attn_index].iterations == 0,
+            "attention must not lead on a pan"
+        );
+    });
+}
+
+// r[verify cz.craft.pan-zoom-slot0+1]
+#[test]
+fn zoom_slot0_prefers_attention_over_scredge() {
+    run_big(|| {
+        let mut ctx = make_context(0);
+        ctx.motion = Motion::Zoomed;
+        ctx.attention_index = 0;
+        set_attention(&mut ctx, Some((1, 0)));
+        ctx.scredge_poses.push_back((3, 1));
+        let attn_index = index_from_pos(&(1, 0), ctx.res.0);
+        shift(&mut ctx);
+        assert!(
+            ctx.points[attn_index].delivered || ctx.points[attn_index].iterations > 0,
+            "zoom slot0 must start the attention seat"
+        );
     });
 }
 

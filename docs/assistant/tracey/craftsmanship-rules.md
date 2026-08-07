@@ -151,18 +151,91 @@ half; the rebuild-on-resolution-change half is acceptance by code review (`from_
 
 r[cz.craft.scredge-first-shift0+1]
 
-**Normative summary.** On the first shift of a new context the screen-perimeter queue leads;
-after it drains it demotes behind edge and out for the rest of the context's life.
+**Normative summary.** When the attention spiral yields nothing on the first shift of a new
+context, the screen-perimeter queue leads the fallthrough; after that first shift, scredge
+lives in slot 4 of the rotation.
 
-**Code site.** `workshift.rs` — `match context.workshifts % 5` with the `workshifts == 0`
-exception.
+**Code site.** `workshift.rs` — slot 0 fallthrough with `prefer_scredge: workshifts == 0`.
 
 **Acceptance criteria.**
-- [ ] First-shift scheduling draws scredge seats before any other class; later shifts only fall
-  back to scredge after edge/out are empty.
+- [ ] First-shift fallthrough draws scredge seats before edge; later fallthrough / slot 1 prefer
+  edge over scredge.
 
 **Test.** `scredge_first_only_on_shift_zero` (craftsmanship_tests.rs) — first buffered
-completion belongs to the scredge seat on shift 0, to the edge seat on shift 1.
+completion belongs to the scredge seat on shift 0 (spiral exhausted), to the edge seat on
+shift 1.
+
+r[cz.craft.attention-spiral+1]
+
+**Normative summary.** Slot 0 of the five-slot rotation is the attention phase when motion is
+`Zoomed` or `Neither` (see `pan-zoom-slot0`). It walks a square-ring spiral from the live
+attention seat (`Some`) or screen center (`None`, pointer off-screen), skipping delivered /
+off-screen seats. Tenacity is *state*, not call depth: the seat under work is held in
+`attention_current`, and every bout is bounded by `BoutCap` (see `bout-cap`). When the held
+seat completes (or is found delivered), the hold is released and the next bout advances the
+spiral. Exhaustion falls through to the queue priorities.
+
+**Code site.** `workshift.rs` — `next_attention_spiral_pos`, `set_attention`,
+`attention_current` hold/release, slot 0 of `workshifts % 5`; `screen_worker/mod.rs`
+attention drain; `inputs.rs` sends `Option`.
+
+**Acceptance criteria.**
+- [ ] Fresh shells default the spiral anchor to screen center with `attention: None`.
+- [ ] Spiral offsets are non-decreasing in Chebyshev distance from the origin.
+- [ ] On Zoomed / Neither, slot 0 selects the spiral seat before queued edge work.
+- [ ] A held seat is reworked on the next attention bout until it completes, then released.
+- [ ] A held seat found delivered is released so the bout cannot spin on it.
+- [ ] `set_attention(None)` restores the center anchor, restarts the index, drops the hold.
+
+**Test.** `from_stencil_defaults_attention_anchor_to_center`,
+`square_ring_spiral_is_nondecreasing_chebyshev`,
+`attention_slot_picks_spiral_before_queues`,
+`attention_bout_works_seat_to_completion`,
+`attention_holds_seat_across_bouts_until_complete`,
+`attention_releases_held_seat_delivered_elsewhere`,
+`spiral_skips_delivered_and_falls_through_when_exhausted`,
+`set_attention_none_restores_center_anchor`.
+
+r[cz.craft.bout-cap+1]
+
+**Normative summary.** The worker may never make an unbounded call. The 10 ms wall-clock check
+at the top of the bout loop is only valid if no call inside the loop can run away. Every
+iteration bout therefore takes a `BoutCap`, whose only constructor clamps to `MAX_BOUT`
+(1000). Passing a raw `u32` (including `u32::MAX`) is a type error.
+
+**Code site.** `workshift.rs` — `BoutCap`, `MAX_BOUT`, `iterate_max_n_times`.
+
+**Acceptance criteria.**
+- [ ] `BoutCap::new(n)` never returns a value greater than `MAX_BOUT`.
+- [ ] `BoutCap::new(u32::MAX)` equals `BoutCap::STANDARD`.
+- [ ] The sole production caller of `iterate_max_n_times` passes `BoutCap::STANDARD`.
+
+**Test.** `bout_cap_clamps_above_max`.
+
+r[cz.craft.pan-zoom-slot0+1]
+
+**Normative summary.** Slot 0's leading phase is the only motion-dependent choice.
+`Zoomed` or `Neither` → attention first. `Panned` → scredge first, but only on the
+*first* shift of that shell (`workshifts == 0`). Once the pan frame has had its first
+shift — including when the user stops panning and no new Replace arrives — slot 0
+returns to attention. No other slot changes. Fresh shells are `Neither`. Zoom takes
+precedence when both change.
+
+**Code site.** `workshift.rs` — `Motion`, `from_stencil` classification, slot 0 of
+`workshifts % 5`; `screen_worker/mod.rs` passes the previous objective into `from_stencil`.
+
+**Acceptance criteria.**
+- [ ] No previous → `Motion::Neither`.
+- [ ] Zoom pot changed → `Motion::Zoomed`; same zoom, position changed → `Motion::Panned`.
+- [ ] On the first shift of a pan shell, slot 0 starts a scredge seat before attention.
+- [ ] On later shifts of a pan shell (user stopped), slot 0 leads with attention.
+- [ ] On zoom, slot 0 starts the attention spiral before a scredge seat.
+- [ ] Slots 1–4 are identical regardless of motion.
+
+**Test.** `from_stencil_classifies_zoom_pan_neither`,
+`pan_slot0_prefers_scredge_over_attention`,
+`pan_scredge_lead_only_on_first_shift`,
+`zoom_slot0_prefers_attention_over_scredge`.
 
 r[cz.craft.out-rotates-in-stays+1]
 
@@ -248,7 +321,8 @@ r[cz.craft.screen-space-derivative-edges+1]
 carried with the remapped answers. In-filaments extrapolate each local escape field to the
 center pixel, then keep the four-neighbor peak test. A flat raw-escape-time neighborhood on
 that axis must stay dark — that is the old integer look, and it is what keeps conjugation-axis
-exterior tendrils (cusp / bulb rays through smooth bands) from lighting. Remapped duplicate
+exterior tendrils (cusp / bulb rays through smooth bands) from lighting. Near-flat bands
+where escape time only differs by one are also dark (boundary speckles). Remapped duplicate
 blocks must not thicken into multi-pixel bands.
 
 **Code site.** `workshift.rs` — the `dc = 2*z*dc + 1` recurrence; `color.rs` —
@@ -257,13 +331,15 @@ blocks must not thicken into multi-pixel bands.
 **Acceptance criteria.**
 - [ ] Caught-up views with zero angles match the old raw `slope_sign_changed` oracle cell-for-cell.
 - [ ] Conjugation-symmetric flat bands with opposing flank angles light no axis tendril.
+- [ ] Near-flat (±1) escape-time bumps stay dark.
 - [ ] Monotone exterior fields produce no in-filaments.
 - [ ] A true elevated ridge stays exactly one screen pixel wide.
 - [ ] A 2-wide remapped duplicate of a ridge lights at most one column (never a thick band).
 - [ ] The derivative agrees with finite differences and complex conjugation.
 
 **Test.** `caught_up_view_matches_old_raw_peak_oracle`,
-`conjugation_axis_tendril_stays_dark`, `monotone_exterior_field_never_lights`,
+`conjugation_axis_tendril_stays_dark`, `near_flat_escape_delta_one_stays_dark`,
+`monotone_exterior_field_never_lights`,
 `true_ridge_stays_one_pixel_with_raw_contrast`,
 `remapped_duplicate_block_does_not_become_a_thick_band`,
 `mandelbrot_dc_matches_ulp_finite_difference`, and `mandelbrot_dc_obeys_conjugation`.

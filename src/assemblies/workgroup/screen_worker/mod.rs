@@ -33,7 +33,7 @@ pub async fn run(
     actor: SteadyActorShadow,
     commands_in: SteadyRx<WorkerCommand>,
     updates_out: SteadyTx<WorkUpdate<f64>>,
-    attention_in: SteadyRx<(i32, i32)>,
+    attention_in: SteadyRx<Option<(i32, i32)>>,
     state: SteadyState<WorkerState<f64>>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
@@ -51,7 +51,7 @@ async fn internal_behavior<A: SteadyActor, T: Mandelbrotable + Send + std::fmt::
     mut actor: A,
     commands_in: SteadyRx<WorkerCommand>,
     updates_out: SteadyTx<WorkUpdate<T>>,
-    attention_in: SteadyRx<(i32, i32)>,
+    attention_in: SteadyRx<Option<(i32, i32)>>,
     state: SteadyState<WorkerState<T>>,
 ) -> Result<(), Box<dyn Error>> {
 
@@ -97,7 +97,7 @@ async fn internal_behavior<A: SteadyActor, T: Mandelbrotable + Send + std::fmt::
             };
             let attention = actor.try_take(&mut attention_in).expect("internal error");
             if let Some((ctx, _)) = &mut state.work_context {
-                ctx.attention = attention;
+                set_attention(ctx, attention);
             }
         }
 
@@ -121,7 +121,7 @@ async fn internal_behavior<A: SteadyActor, T: Mandelbrotable + Send + std::fmt::
                             if U.len() > 0 {
                                 actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:U});
                             }
-                            Some((old_ctx, old_fi.0.zoom_pot))
+                            Some((old_ctx, old_fi.0))
                         }
                         None => None,
                     };

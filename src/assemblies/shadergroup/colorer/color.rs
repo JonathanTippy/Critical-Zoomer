@@ -367,7 +367,9 @@ pub fn is_in_filament(values: &ZoomerValuesScreen, pos: (i32, i32)) -> bool {
             return false;
         };
         let extrapolated_peak = c_ext > a_ext && c_ext > b_ext;
-        let raw_contrast = !(c_raw == a_raw && c_raw == b_raw);
+        // Flat (±0) or near-flat (±1) raw neighborhoods are not filaments —
+        // boundary speckles / tendril edges live in those bands.
+        let raw_contrast = (c_raw - a_raw).abs() > 1.0 || (c_raw - b_raw).abs() > 1.0;
         extrapolated_peak && raw_contrast
     };
 
@@ -772,6 +774,28 @@ mod tests {
                     "monotone exterior field lit a false filament at ({x}, {y})");
             }
         }
+    }
+
+    // r[verify cz.craft.screen-space-derivative-edges+1]
+    #[test]
+    fn near_flat_escape_delta_one_stays_dark() {
+        // Boundary speckles: escape time only differs by one from neighbors.
+        // That is still a plateau for filament purposes — must stay dark.
+        let times = [
+            5u32, 5, 5,
+            5, 6, 5,
+            5, 5, 5,
+        ];
+        let values = ZoomerValuesScreen {
+            values: times.into_iter().map(|t| outside(t, FRAC_PI_2 as f32)).collect(),
+            res: (3, 3),
+            objective_location: ObjectivePosAndZoom {
+                pos: (crate::utils::IntExp::ZERO, crate::utils::IntExp::ZERO),
+                zoom_pot: 0,
+            },
+        };
+        assert!(!is_in_filament(&values, (1, 1)),
+            "±1 escape-time bump must not light as a filament");
     }
 
     // r[verify cz.craft.screen-space-derivative-edges+1]

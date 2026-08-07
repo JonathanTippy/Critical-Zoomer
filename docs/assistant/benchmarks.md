@@ -55,6 +55,9 @@ Benchmarks vary run to run; this is not an exact science and that's fine.
 | time_to_first_publish (stencil-only lazy Replace) | 41.28 ms (40.89–41.68 ms; −42% vs tendril guard) | 2026-08-07 | post-feature working tree | same |
 | time_to_full_frame (stencil-only lazy Replace) | 322.41 ms (315.76–328.09 ms; noise vs tendril guard) | 2026-08-07 | post-feature working tree | same |
 | full_stack_ips (stencil-only lazy Replace) | ~3.6e7 (10,302,563 iterations, 26–29 typical shifts) | 2026-08-07 | post-feature working tree | same |
+| time_to_first_publish (attention-first spiral) | 52.50 ms (51.01–53.95 ms; +27% vs stencil-only — attention fills center before easy perimeter) | 2026-08-07 | post-feature working tree | same |
+| time_to_full_frame (attention-first spiral) | 227.36 ms (225.59–229.16 ms; −29% vs stencil-only) | 2026-08-07 | post-feature working tree | same |
+| full_stack_ips (attention-first spiral) | ~5.4e7 (10,302,563 iterations, 18–19 typical shifts) | 2026-08-07 | post-feature working tree | same |
 
 Pre-change test baseline: `cargo test` ran 39 tests; 38 passed and only the known
 `assemblies::views::zoom_in_associativity_test` failed, reproducing
@@ -77,3 +80,8 @@ this is accepted feature cost for retaining in-filaments during interim zoom fra
 Stencil-only Replace drops the seeded context from the command channel and materializes seat
 coordinates at first start. `time_to_first_publish` improves ~42%; full-frame wall time is
 unchanged within noise (same 10,302,563 counted iterations).
+
+Attention-first spiral makes slot 0 foveate from screen center (home bench has `attention:
+None`). First publish is ~27% slower than stencil-only (center seats are harder than the old
+scredge perimeter) but still well under the pre-stencil baseline; full-frame improves ~29%
+as the spiral + queue mix finishes the home view in fewer shifts.

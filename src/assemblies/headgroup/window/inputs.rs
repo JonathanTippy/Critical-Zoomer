@@ -20,14 +20,14 @@ pub fn parse_inputs(
     , state: &mut WindowState
     , sampling_size: (usize, usize)
 )
-    -> (Vec<ZoomerCommand>, (i32, i32)) {
+    -> (Vec<ZoomerCommand>, Option<(i32, i32)>) {
 
     let time_elapsed = state.controls_timer.elapsed();
     state.controls_timer = std::time::Instant::now();
 
     let settings = &state.controls_settings;
 
-    let mut returned = (vec!(), (0, 0));
+    let mut returned = (vec!(), None);
 
     let ppp = ctx.pixels_per_point();
 
@@ -35,7 +35,15 @@ pub fn parse_inputs(
 
     ctx.input(|input_state| {
         if let Some(pos) = input_state.pointer.latest_pos() {
-            returned.1 = ((pos.x as i32).clamp(0, sampling_size.0 as i32-1), (pos.y as i32).clamp(0, sampling_size.1 as i32-1));
+            // Pointer on the window: clamp to the sampling screen. Off-window
+            // leaves attention as None so the worker spirals from screen center.
+            if pos.x >= 0.0
+                && pos.y >= 0.0
+                && (pos.x as usize) < sampling_size.0
+                && (pos.y as usize) < sampling_size.1
+            {
+                returned.1 = Some((pos.x as i32, pos.y as i32));
+            }
         }
 
         // begin a new drag if neither of the buttons are held and one or both has just been pressed

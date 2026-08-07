@@ -1,5 +1,4 @@
 
-use rand::Rng;
 use rand::prelude::SliceRandom;
 
 use std::time::Instant;
@@ -11,8 +10,8 @@ pub const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
 
 pub const MAX_PIXELS:usize = 1920*1080*4;
 
-#[derive(Clone, Debug)]
-pub enum Step {Scredge, In, Out, Edge, Random}
+#[derive(Clone, Debug, PartialEq)]
+pub enum Step {Scredge, In, Out, Edge, Attention}
 
 
 pub trait Floaty: Sub<Output=Self> + Add<Output=Self> + Mul<Output=Self> + Into<f64> + PartialOrd + Finite + Gt + Abs + From<f32> + Into<f64> + Copy {}
@@ -51,6 +50,16 @@ impl<T: Copy> Stec<T> {
 
 
 use std::collections::*;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Motion {
+    /// Zoom level changed: lead with attention (direct navigation).
+    Zoomed,
+    /// Position changed at constant zoom: lead with scredge (smearing border).
+    Panned,
+    /// Fresh shell or no motion: lead with attention.
+    Neither,
+}
+
 #[derive(Clone, Debug)]
 pub struct WorkContext<T: Mandelbrotable> {
     pub points: Vec<Point<T>>
@@ -73,8 +82,14 @@ pub struct WorkContext<T: Mandelbrotable> {
     , pub edge_queue: VecDeque<((i32, i32), u32)>
     , pub out_queue: VecDeque<((i32, i32), u32)>
     , pub in_queue: VecDeque<((i32, i32), u32)>
-    , pub zoomed: bool
-    , pub attention: (i32, i32)
+    , pub motion: Motion
+    , pub attention: Option<(i32, i32)>
+    // Spiral center: cursor when present, else screen center.
+    , pub attention_anchor: (i32, i32)
+    // Flattened square-ring index; advances only when a held seat completes.
+    , pub attention_index: u64
+    // Seat the attention phase is tenaciously working; cleared on completion.
+    , pub attention_current: Option<(i32, i32)>
     , pub c_generator: CGenerator<T>
     , pub pitch_epsilon: T
 }
@@ -189,11 +204,11 @@ pub(crate) fn get_random_mixmap(size: usize) -> Vec<usize> {
 /// Build an O(1)-coordinate shell from a stencil. Reuses the previous context's
 /// point/mixmap buffers when present so steady-zoom pivots avoid large reallocs.
 ///
-/// `previous` is `(old_context, old_zoom_pot)`.
+/// `previous` is `(old_context, old_objective)`.
 // r[impl cz.craft.stencil-only-replace+2]
 pub fn from_stencil<T: Mandelbrotable + From<f32>>(
     frame_info: (ObjectivePosAndZoom, (u32, u32)),
-    previous: Option<(WorkContext<T>, i32)>,
+    previous: Option<(WorkContext<T>, ObjectivePosAndZoom)>,
 ) -> Option<WorkContext<T>> {
     let (obj, res) = frame_info;
     let compute_loc = (obj.pos.0.clone(), IntExp::ZERO - obj.pos.1.clone());
@@ -201,10 +216,20 @@ pub fn from_stencil<T: Mandelbrotable + From<f32>>(
     let (_, space) = c_generator.origin_and_space();
     let pitch_epsilon = space.abs() * T::from(1.0 / 256.0);
 
-    let zoomed = previous
-        .as_ref()
-        .map(|(_, old_zoom)| obj.zoom_pot > *old_zoom)
-        .unwrap_or(false);
+    // r[impl cz.craft.pan-zoom-slot0+1]
+    // Zoom takes precedence over pan when both change; neither defaults to attention.
+    let motion = match previous.as_ref() {
+        None => Motion::Neither,
+        Some((_, old)) => {
+            if obj.zoom_pot != old.zoom_pot {
+                Motion::Zoomed
+            } else if obj.pos.0 != old.pos.0 || obj.pos.1 != old.pos.1 {
+                Motion::Panned
+            } else {
+                Motion::Neither
+            }
+        }
+    };
 
     let new_len = (res.0 * res.1) as usize;
     let (mut points, mut random_map, old_res, mut completed_points) = match previous {
@@ -252,6 +277,8 @@ pub fn from_stencil<T: Mandelbrotable + From<f32>>(
         edges.shuffle(&mut rng);
     }
 
+    let center = ((res.0 / 2) as i32, (res.1 / 2) as i32);
+
     Some(WorkContext {
         points,
         completed_points,
@@ -273,8 +300,11 @@ pub fn from_stencil<T: Mandelbrotable + From<f32>>(
         edge_queue: VecDeque::new(),
         out_queue: VecDeque::new(),
         in_queue: VecDeque::new(),
-        zoomed,
-        attention: (0, 0),
+        motion,
+        attention: None,
+        attention_anchor: center,
+        attention_index: 0,
+        attention_current: None,
         c_generator,
         pitch_epsilon,
     })
@@ -293,6 +323,124 @@ pub fn ensure_started<T: Mandelbrotable>(ctx: &mut WorkContext<T>, pos: (i32, i3
         point.dc = (T::ONE, T::ZERO);
         point.initialized = true;
     }
+}
+
+/// Update live attention. `None` means the pointer is off-screen (or unset):
+/// the spiral keeps / restores the screen-center anchor.
+// r[impl cz.craft.attention-spiral+1]
+pub fn set_attention<T: Mandelbrotable>(ctx: &mut WorkContext<T>, attention: Option<(i32, i32)>) {
+    ctx.attention = attention;
+    let anchor = match attention {
+        Some(pos) => pos,
+        None => ((ctx.res.0 / 2) as i32, (ctx.res.1 / 2) as i32),
+    };
+    if anchor != ctx.attention_anchor {
+        ctx.attention_anchor = anchor;
+        ctx.attention_index = 0;
+        ctx.attention_current = None;
+    }
+}
+
+/// Integer floor sqrt for the square-ring index.
+#[inline]
+fn isqrt_u64(n: u64) -> u64 {
+    if n <= 1 {
+        return n;
+    }
+    // Newton's method; avoid (n+1) overflow at u64::MAX.
+    let mut x = 1u64 << ((64 - n.leading_zeros() + 1) / 2);
+    loop {
+        let y = (x + n / x) / 2;
+        if y >= x {
+            return x;
+        }
+        x = y;
+    }
+}
+
+/// Offset from spiral index `k` on a square ring (Ulam-style).
+/// Ring 0 is the origin; ring r has 8r seats.
+#[inline]
+pub fn square_ring_offset(k: u64) -> (i32, i32) {
+    if k == 0 {
+        return (0, 0);
+    }
+    let s = isqrt_u64(k);
+    let r = ((s + 1) / 2) as i32;
+    let r_u = r as u64;
+    let start = (2 * r_u - 1) * (2 * r_u - 1);
+    let t = (k - start) as i32;
+    let side = 2 * r;
+    if t < side {
+        (r, -r + 1 + t)
+    } else if t < 2 * side {
+        (r - 1 - (t - side), r)
+    } else if t < 3 * side {
+        (-r, r - 1 - (t - 2 * side))
+    } else {
+        (-r + 1 + (t - 3 * side), -r)
+    }
+}
+
+const ATTENTION_SCAN_CAP: u32 = 64;
+
+/// Advance the attention spiral to the next in-bounds, undelivered seat.
+/// Returns `None` when the spiral is exhausted or the scan budget is spent.
+// r[impl cz.craft.attention-spiral+1]
+pub fn next_attention_spiral_pos<T: Mandelbrotable>(
+    ctx: &mut WorkContext<T>,
+) -> Option<(i32, i32)> {
+    let max_ring = max(ctx.res.0, ctx.res.1) as u64;
+    // Indices past (2*max_ring+1)^2 lie outside every on-screen ring.
+    let max_index = (2 * max_ring + 1).saturating_mul(2 * max_ring + 1);
+    let (ax, ay) = ctx.attention_anchor;
+    for _ in 0..ATTENTION_SCAN_CAP {
+        let k = ctx.attention_index;
+        if k >= max_index {
+            return None;
+        }
+        let (dx, dy) = square_ring_offset(k);
+        ctx.attention_index = k + 1;
+        let pos = (ax + dx, ay + dy);
+        if pos.0 < 0
+            || pos.1 < 0
+            || pos.0 >= ctx.res.0 as i32
+            || pos.1 >= ctx.res.1 as i32
+        {
+            continue;
+        }
+        let index = index_from_pos(&pos, ctx.res.0);
+        if !ctx.points[index].delivered {
+            return Some(pos);
+        }
+    }
+    None
+}
+
+fn queue_fallback_pos<T: Mandelbrotable>(
+    context: &WorkContext<T>,
+    prefer_scredge: bool,
+) -> Option<((i32, i32), Step)> {
+    if prefer_scredge {
+        if let Some(pos) = context.scredge_poses.front() {
+            return Some((*pos, Step::Scredge));
+        }
+    }
+    if let Some((pos, _)) = context.edge_queue.front() {
+        return Some((*pos, Step::Edge));
+    }
+    if let Some((pos, _)) = context.out_queue.front() {
+        return Some((*pos, Step::Out));
+    }
+    if !prefer_scredge {
+        if let Some(pos) = context.scredge_poses.front() {
+            return Some((*pos, Step::Scredge));
+        }
+    }
+    if let Some((pos, _)) = context.in_queue.front() {
+        return Some((*pos, Step::In));
+    }
+    None
 }
 
 pub fn workshift<T: Mandelbrotable + Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<Output=T> + Into<f64> + PartialOrd + Finite + Gt + Abs + From<f32> + Into<f64> + Copy>(
@@ -325,99 +473,76 @@ pub fn workshift<T: Mandelbrotable + Sub<Output=T> + std::fmt::Debug + Add<Outpu
     while context.time_workshift_started.elapsed().as_millis()<10{//while context.index < total_points && context.spent_tokens_today + bout_token_cost + 1000 * iteration_token_cost * point_token_cost < day_token_allowance { // workbout loop
 
 
-        // r[impl cz.craft.scredge-first-shift0+1]
+        // r[impl cz.craft.attention-spiral+1]
+        // r[impl cz.craft.pan-zoom-slot0+1]
+        // Slot 0's leading phase is the only motion-dependent choice:
+        //   Zoomed / Neither → Attention
+        //   Panned           → Scredge
+        // Everything else in the rotation is unchanged.
         let (pos, step) = match context.workshifts%5 {
             0 => {
-                if context.workshifts == 0 {
-                    if context.scredge_poses.len()>0 {
-                        (&context.scredge_poses[0], Step::Scredge)
-                    } else if context.edge_queue.len()>0 {
-                        (&context.edge_queue[0].0, Step::Edge)
-                    } else if context.out_queue.len()>0{
-                        (&context.out_queue[0].0, Step::Out)
-                    } else if context.in_queue.len()>0 {
-                        (&context.in_queue[0].0, Step::In)
-                    } else {context.index = total_points-1; break;
+                // Pan only owns the first shift of a fresh shell. After that
+                // (or when the user has stopped and no new Replace arrives)
+                // fall back to attention like Neither.
+                if context.motion == Motion::Panned && context.workshifts == 0 {
+                    if let Some(p) = queue_fallback_pos(context, true) {
+                        p
+                    } else if let Some(pos) = context.attention_current {
+                        (pos, Step::Attention)
+                    } else if let Some(pos) = next_attention_spiral_pos(context) {
+                        context.attention_current = Some(pos);
+                        (pos, Step::Attention)
+                    } else {
+                        context.index = total_points-1; break;
                     }
+                } else if let Some(pos) = context.attention_current {
+                    (pos, Step::Attention)
+                } else if let Some(pos) = next_attention_spiral_pos(context) {
+                    context.attention_current = Some(pos);
+                    (pos, Step::Attention)
+                } else if let Some(p) = queue_fallback_pos(context, context.workshifts == 0) {
+                    p
                 } else {
-                    if context.edge_queue.len()>0 {
-                        (&context.edge_queue[0].0, Step::Edge)
-                    } else if context.out_queue.len()>0{
-                        (&context.out_queue[0].0, Step::Out)
-                    } else if context.scredge_poses.len()>0 {
-                        (&context.scredge_poses[0], Step::Scredge)
-                    } else if context.in_queue.len()>0 {
-                        (&context.in_queue[0].0, Step::In)
-                    } else {context.index = total_points-1; break;
-                    }
+                    context.index = total_points-1; break;
                 }
             }
             1 => {
-                if context.edge_queue.len()>0 {
-                    (&context.edge_queue[0].0, Step::Edge)
-                } else if context.out_queue.len()>0{
-                    (&context.out_queue[0].0, Step::Out)
-                } else if context.scredge_poses.len()>0 {
-                    (&context.scredge_poses[0], Step::Scredge)
-                } else if context.in_queue.len()>0 {
-                    (&context.in_queue[0].0, Step::In)
-                } else {context.index = total_points-1; break;}
-            }
-            2 =>{
-                if context.out_queue.len()>0{
-                    (&context.out_queue[0].0, Step::Out)
-                } else if context.edge_queue.len()>0 {
-                    (&context.edge_queue[0].0, Step::Edge)
-                } else if context.scredge_poses.len()>0 {
-                    (&context.scredge_poses[0], Step::Scredge)
-                } else if context.in_queue.len()>0 {
-                    (&context.in_queue[0].0, Step::In)
-                } else {context.index = total_points-1; break;
+                if let Some(p) = queue_fallback_pos(context, false) {
+                    // Prefer edge: queue_fallback already does edge→out→scredge→in
+                    p
+                } else {
+                    context.index = total_points-1; break;
                 }
             }
-            3 =>{
-                if context.edge_queue.len()>0 {
-                    (&context.edge_queue[0].0, Step::Edge)
-                } else if context.out_queue.len()>0{
-                    (&context.out_queue[0].0, Step::Out)
-                } else if context.scredge_poses.len()>0 {
-                    (&context.scredge_poses[0], Step::Scredge)
-                } else if context.in_queue.len()>0 {
-                    (&context.in_queue[0].0, Step::In)
-                } else {context.index = total_points-1; break;}
+            2 => {
+                // Out first
+                if context.out_queue.len()>0{
+                    (context.out_queue[0].0, Step::Out)
+                } else if let Some(p) = queue_fallback_pos(context, false) {
+                    p
+                } else {
+                    context.index = total_points-1; break;
+                }
+            }
+            3 => {
+                if let Some(p) = queue_fallback_pos(context, false) {
+                    p
+                } else {
+                    context.index = total_points-1; break;
+                }
             }
             4 => {
-                //(&pos_from_index(context.random_index, context.res.0), Step::Random)
-                /*if context.edge_queue.len()>0 {
-                    (&context.edge_queue[0].0, Step::Edge)
-                } else if context.out_queue.len()>0{
-                    (&context.out_queue[0].0, Step::Out)
-                } else   if context.scredge_poses.len()>0 {
-                    (&context.scredge_poses[0], Step::Scredge)
-                } else if context.in_queue.len()>0 {
-                    (&context.in_queue[0].0, Step::In)
-                } else {context.index = total_points-1; break;}*/
-                let mut rng = rand::rng();
-                let mut x:i32 = rng.random_range(-50..50);
-                let mut y:i32 = rng.random_range(-50..50);
-
-                if x + context.attention.0 < 0 || x + context.attention.0 > context.res.0 as i32-1
-                || y + context.attention.1 < 0 || y + context.attention.1 > context.res.1 as i32-1{
-                    x = 0;y=0;
+                // Scredge first this slot
+                if let Some(p) = queue_fallback_pos(context, true) {
+                    p
+                } else {
+                    context.index = total_points-1; break;
                 }
-
-                let p = &context.points[index_from_pos(&context.attention, context.res.0)];
-                //println!("selected point: {:?}", p);
-
-                (&(
-                    context.attention.0 + x, context.attention.1 + y
-                ), Step::Random)
             }
             _ => {break}
         };
 
-        let index = index_from_pos(pos, context.res.0);
-        let pos = pos.clone();
+        let index = index_from_pos(&pos, context.res.0);
 
         if context.points[index].delivered {
             match step {
@@ -433,9 +558,10 @@ pub fn workshift<T: Mandelbrotable + Sub<Output=T> + std::fmt::Debug + Add<Outpu
                 Step::Edge => {
                     let _ =  context.edge_queue.pop_front();
                 }
-                Step::Random => {
-                    context.index += 1;
-                    context.random_index = context.random_map[min(context.index, total_points-1)];
+                Step::Attention => {
+                    // Held seat got delivered elsewhere; release it so the
+                    // next bout advances the spiral instead of spinning.
+                    context.attention_current = None;
                 }
             }
             continue;
@@ -448,7 +574,11 @@ pub fn workshift<T: Mandelbrotable + Sub<Output=T> + std::fmt::Debug + Add<Outpu
         let old_iterations = point.iterations;
 
 
-        iterate_max_n_times(point, 4.0f32.into(), episilon, 1000);
+        // r[impl cz.craft.attention-spiral+1]
+        // Every bout is bounded — the worker may never make an unbounded call.
+        // Attention tenacity is carried by `attention_current` across bouts,
+        // not by an uncapped iteration count inside a single bout.
+        iterate_max_n_times(point, 4.0f32.into(), episilon, BoutCap::STANDARD);
 
 
 
@@ -476,9 +606,10 @@ pub fn workshift<T: Mandelbrotable + Sub<Output=T> + std::fmt::Debug + Add<Outpu
                 Step::Edge => {
                     let _ =  context.edge_queue.pop_front();
                 }
-                Step::Random => {
-                    context.index += 1;
-                    context.random_index = context.random_map[min(context.index, total_points-1)];
+                Step::Attention => {
+                    // Held seat finished: release it so the next attention
+                    // bout advances the spiral to the next undelivered seat.
+                    context.attention_current = None;
                 }
             }
 
@@ -568,9 +699,31 @@ pub fn workshift<T: Mandelbrotable + Sub<Output=T> + std::fmt::Debug + Add<Outpu
     context.percent_completed = context.index as f64 / (total_points) as f64 * 100.0;
 }
 
+/// Hard ceiling for any single iteration bout. The worker must never make an
+/// unbounded call; the 10 ms wall-clock check at the top of the bout loop is
+/// only valid if no call inside the loop can run away. This type makes the cap
+/// a construction-time fact rather than a convention.
+pub const MAX_BOUT: u32 = 1000;
+
+/// Bounded iteration cap. The only constructor clamps to `MAX_BOUT`, so an
+/// unbounded (or merely huge) count cannot be expressed at a call site.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BoutCap(u32);
+
+impl BoutCap {
+    /// Values above `MAX_BOUT` clamp; they never exceed it.
+    pub const fn new(n: u32) -> Self {
+        if n > MAX_BOUT { BoutCap(MAX_BOUT) } else { BoutCap(n) }
+    }
+    /// The standard full bout.
+    pub const STANDARD: BoutCap = BoutCap(MAX_BOUT);
+    #[inline]
+    pub const fn get(self) -> u32 { self.0 }
+}
+
 #[inline]
-pub fn iterate_max_n_times<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Into<f64>+ PartialOrd + Gt +From<f32>+ Copy> (point: &mut Point<T>, r_squared:T, epsilon:T, n: u32) {
-    for i in 0..n {
+pub fn iterate_max_n_times<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Into<f64>+ PartialOrd + Gt +From<f32>+ Copy> (point: &mut Point<T>, r_squared:T, epsilon:T, cap: BoutCap) {
+    for _ in 0..cap.get() {
         update_point_results(point);
         point.escapes = bailout_point(point, r_squared);// || (!point.real_squared.is_finite()) || (!point.imag_squared.is_finite());
         if !(point.escapes || point.repeats) {
