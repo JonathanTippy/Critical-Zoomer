@@ -313,6 +313,18 @@ impl Mandelbrotable for FloatExp {
     }
 }
 
+impl From<f32> for FloatExp {
+    fn from(value: f32) -> Self {
+        Self::from(value as f64)
+    }
+}
+
+impl Into<f64> for FloatExp {
+    fn into(self) -> f64 {
+        self.to_f64()
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ComplexFloatExp {
     pub re: FloatExp,

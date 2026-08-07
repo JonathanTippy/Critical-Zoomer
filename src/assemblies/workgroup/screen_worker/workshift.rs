@@ -7,7 +7,8 @@ use std::collections::*;
 use std::cmp::*;
 use crate::assemblies::workgroup::c_generator::{CGenerator, Mandelbrotable};
 use crate::assemblies::workgroup::reference_worker::PublishedReference;
-use crate::floatexp::ComplexFloatExp;
+use crate::delta_gear::{aggregate_seat_gears, ComputeGear, view_gear_from_generators};
+use crate::floatexp::{ComplexFloatExp, FloatExp};
 use crate::reference::ReferenceOrbit;
 use crate::utils::*;
 pub const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
@@ -148,6 +149,14 @@ pub struct WorkContext<T: Mandelbrotable> {
     // Newest published reference for the live shell. Shared so the clone-happy
     // context type does not deep-copy rug Float state on every shell clone.
     , pub latest_reference: Option<Arc<PublishedReference>>
+    // IntExp anchor for relative seat samples (view center in compute space).
+    // r[impl cz.depth.floatexp-host-coords+1]
+    , pub coord_anchor: (IntExp, IntExp)
+    // Default delta gear for this view (seats may promote individually).
+    // r[impl cz.depth.compute-gear+1]
+    , pub view_gear: ComputeGear
+    // Rolling HUD aggregate across active seats.
+    , pub active_gear: ComputeGear
 }
 
 
@@ -185,6 +194,13 @@ pub struct DeltaState {
     pub dd: ComplexFloatExp,
     /// Reference generation this delta belongs to (0 = zero-orbit floor).
     pub generation: u64,
+    /// Active recurrence gear for this seat.
+    // r[impl cz.depth.compute-gear+1]
+    pub gear: ComputeGear,
+    /// Wide exponent for scaled-f64 inner recurrence.
+    pub scale: FloatExp,
+    /// Absolute plane c (anchor + seat) for zero-orbit rebind.
+    pub abs_c: ComplexFloatExp,
 }
 
 //pub const SpeedTestPoint
@@ -284,6 +300,28 @@ pub(crate) fn get_random_mixmap(size: usize) -> Vec<usize> {
     indices
 }
 
+/// Compute-space center of a viewport (half-res seat), exact IntExp pitch.
+pub fn view_center_compute(
+    compute_loc: &(IntExp, IntExp),
+    zoom_pot: i32,
+    res: (u32, u32),
+) -> (IntExp, IntExp) {
+    let exponent = zoom_pot.saturating_add(crate::constants::PIXELS_PER_UNIT_POT);
+    let pitch = IntExp::from(1).shift(exponent.saturating_neg());
+    (
+        compute_loc.0.clone() + pitch.clone() * IntExp::from((res.0 / 2) as i32),
+        compute_loc.1.clone() - pitch * IntExp::from((res.1 / 2) as i32),
+    )
+}
+
+/// Alias for tests / depth fixtures — always-relative stencil build.
+pub fn from_stencil_relative<T: Mandelbrotable + From<f32>>(
+    frame_info: (ObjectivePosAndZoom, (u32, u32)),
+    previous: Option<(WorkContext<T>, ObjectivePosAndZoom)>,
+) -> Option<WorkContext<T>> {
+    from_stencil(frame_info, previous)
+}
+
 /// Build an O(1)-coordinate shell from a stencil. Reuses the previous context's
 /// point/mixmap buffers when present so steady-zoom pivots avoid large reallocs.
 ///
@@ -306,7 +344,21 @@ pub fn from_stencil<T: Mandelbrotable + From<f32>>(
 
     let (obj, res) = frame_info;
     let compute_loc = (obj.pos.0.clone(), IntExp::ZERO - obj.pos.1.clone());
-    let c_generator = CGenerator::<T>::new(&compute_loc, obj.zoom_pot as i64, res)?;
+    let coord_anchor = view_center_compute(&compute_loc, obj.zoom_pot, res);
+    let c_generator = if T::max_value().to_f64() > 1e200 {
+        // Depth / FloatExp hosts: always-relative seat samples.
+        // r[impl cz.depth.floatexp-host-coords+1]
+        CGenerator::<T>::new_relative(
+            &compute_loc,
+            &coord_anchor,
+            obj.zoom_pot as i64,
+            res,
+        )?
+    } else {
+        // Live f64 actors: absolute grid (banding-safe production path).
+        CGenerator::<T>::new(&compute_loc, obj.zoom_pot as i64, res)?
+    };
+    let view_gear = view_gear_from_generators::<T>(T::max_value().to_f64() > 1e200);
     let (_, space) = c_generator.origin_and_space();
     let pitch_epsilon = space.abs() * T::from(1.0 / 256.0);
 
@@ -401,8 +453,38 @@ pub fn from_stencil<T: Mandelbrotable + From<f32>>(
         attention_current: None,
         c_generator,
         pitch_epsilon,
+        coord_anchor,
+        view_gear,
+        active_gear: view_gear,
         latest_reference: carried_reference,
     })
+}
+
+/// Absolute plane coordinate = IntExp anchor + relative seat sample.
+// r[impl cz.depth.floatexp-host-coords+1]
+#[inline]
+pub fn absolute_plane_c(
+    relative: (FloatExp, FloatExp),
+    anchor: &(IntExp, IntExp),
+) -> (FloatExp, FloatExp) {
+    (
+        FloatExp::from(anchor.0.clone()) + relative.0,
+        FloatExp::from(anchor.1.clone()) + relative.1,
+    )
+}
+
+/// Refresh HUD aggregate gear from per-seat delta gears.
+pub fn refresh_active_gear<T: Mandelbrotable>(ctx: &mut WorkContext<T>) {
+    let gears: Vec<ComputeGear> = ctx
+        .points
+        .iter()
+        .filter_map(|p| p.delta.as_ref().map(|d| d.gear))
+        .collect();
+    if gears.is_empty() {
+        ctx.active_gear = ctx.view_gear;
+    } else {
+        ctx.active_gear = aggregate_seat_gears(&gears);
+    }
 }
 
 /// Materialize seat coordinates from the generator on first start.
@@ -947,6 +1029,21 @@ impl Finite for f32 {
 impl Finite for f64 {
     fn is_finite(self) -> bool {
         self.is_finite()
+    }
+}
+impl Finite for FloatExp {
+    fn is_finite(self) -> bool {
+        self.mantissa.is_finite()
+    }
+}
+impl Gt for FloatExp {
+    fn gt(self, a: Self) -> bool {
+        self > a
+    }
+}
+impl Abs for FloatExp {
+    fn abs(self) -> Self {
+        self.abs()
     }
 }
 

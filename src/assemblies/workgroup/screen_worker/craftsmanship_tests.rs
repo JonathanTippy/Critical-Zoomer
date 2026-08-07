@@ -10,7 +10,7 @@ use std::collections::VecDeque;
 
 use proptest::prelude::*;
 
-use super::perturb_kernel::PerturbationKernel;
+use super::perturb_floatexp::FloatExpPerturbationKernel;
 use super::work_update;
 use super::{invalidate_stale_deliveries, workshift::*};
 use crate::assemblies::headgroup::window::sampling::index_from_relative_location;
@@ -105,6 +105,8 @@ fn make_context(workshifts: u32) -> WorkContext<FloatExp> {
         c_generator,
         pitch_epsilon: FloatExp::from(1e-9 * (1.0 / 256.0)),
         coord_anchor: (IntExp::ZERO, IntExp::ZERO),
+        view_gear: crate::delta_gear::ComputeGear::FloatExp,
+        active_gear: crate::delta_gear::ComputeGear::FloatExp,
         latest_reference: None,
     }
 }
@@ -127,7 +129,7 @@ fn perturb_workshift(
         point_token_cost,
         bout_token_cost,
         context,
-        &PerturbationKernel,
+        &FloatExpPerturbationKernel,
     );
 }
 
@@ -1110,8 +1112,8 @@ proptest! {
         prop_assume!(oracle.is_some());
         let mut ctx = make_context(0);
         ctx.points[0] = make_point((cr, ci));
-        PerturbationKernel.start_seat(&mut ctx, (0, 0));
-        PerturbationKernel.iterate_bout(
+        FloatExpPerturbationKernel.start_seat(&mut ctx, (0, 0));
+        FloatExpPerturbationKernel.iterate_bout(
             &mut ctx.points[0], None, FloatExp::from(4.0), FloatExp::from(1e-15), BoutCap::new(max_n),
         );
         let p = &ctx.points[0];
@@ -1149,8 +1151,8 @@ fn exact_f64_conversion_round_trips_representative_values() {
 fn zero_orbit_center_reports_period_one() {
     let mut ctx = make_context(0);
     ctx.points[0].initialized = false;
-    PerturbationKernel.start_seat(&mut ctx, (0, 0));
-    PerturbationKernel.iterate_bout(
+    FloatExpPerturbationKernel.start_seat(&mut ctx, (0, 0));
+    FloatExpPerturbationKernel.iterate_bout(
         &mut ctx.points[0], None, FloatExp::from(4.0), ctx.pitch_epsilon, BoutCap::new(2),
     );
     assert!(ctx.points[0].repeats);
@@ -1169,11 +1171,11 @@ fn zero_orbit_floor_matches_direct_kernel_escape_times() {
         direct_ctx.points[0].dc = (FloatExp::ONE, FloatExp::ZERO);
         let mut perturb_ctx = direct_ctx.clone();
         DirectKernel.start_seat(&mut direct_ctx, (0, 0));
-        PerturbationKernel.start_seat(&mut perturb_ctx, (0, 0));
+        FloatExpPerturbationKernel.start_seat(&mut perturb_ctx, (0, 0));
         DirectKernel.iterate_bout(
             &mut direct_ctx.points[0], None, FloatExp::from(4.0), FloatExp::from(1e-15), BoutCap::new(512),
         );
-        PerturbationKernel.iterate_bout(
+        FloatExpPerturbationKernel.iterate_bout(
             &mut perturb_ctx.points[0], None, FloatExp::from(4.0), FloatExp::from(1e-15), BoutCap::new(512),
         );
         assert_eq!(
@@ -1203,11 +1205,11 @@ fn published_reference_matches_direct_on_shallow_view() {
         let mut perturb_ctx = direct_ctx.clone();
         perturb_ctx.latest_reference = Some(published.clone());
         DirectKernel.start_seat(&mut direct_ctx, (0, 0));
-        PerturbationKernel.start_seat(&mut perturb_ctx, (0, 0));
+        FloatExpPerturbationKernel.start_seat(&mut perturb_ctx, (0, 0));
         DirectKernel.iterate_bout(
             &mut direct_ctx.points[0], None, FloatExp::from(4.0), FloatExp::from(1e-15), BoutCap::new(512),
         );
-        PerturbationKernel.iterate_bout(
+        FloatExpPerturbationKernel.iterate_bout(
             &mut perturb_ctx.points[0],
             Some(&published.orbit),
             FloatExp::from(4.0),
@@ -1233,9 +1235,9 @@ fn generation_mismatch_restarts_delta() {
         generation: 1,
             series: None,
         }));
-    PerturbationKernel.start_seat(&mut ctx, (2, 0));
+    FloatExpPerturbationKernel.start_seat(&mut ctx, (2, 0));
     let initial_dz = ctx.points[2].delta.as_ref().unwrap().dz;
-    PerturbationKernel.iterate_bout(
+    FloatExpPerturbationKernel.iterate_bout(
         &mut ctx.points[2],
         ctx.latest_reference.as_ref().map(|r| &r.orbit),
         FloatExp::from(4.0),
@@ -1249,7 +1251,7 @@ fn generation_mismatch_restarts_delta() {
         generation: 2,
             series: None,
         }));
-    PerturbationKernel.start_seat(&mut ctx, (2, 0));
+    FloatExpPerturbationKernel.start_seat(&mut ctx, (2, 0));
     let delta = ctx.points[2].delta.as_ref().unwrap();
     assert_eq!(delta.generation, 2);
     assert_eq!(delta.dz, initial_dz);
@@ -1279,8 +1281,10 @@ fn glitch_sets_direct_only_and_never_publishes_guess() {
         abs_c: ComplexFloatExp::ZERO,
         dd: ComplexFloatExp::new(FloatExp::ONE, FloatExp::ZERO),
         generation: 7,
+        gear: crate::delta_gear::ComputeGear::FloatExp,
+        scale: FloatExp::ONE,
     });
-    PerturbationKernel.iterate_bout(
+    FloatExpPerturbationKernel.iterate_bout(
         &mut ctx.points[0],
         ctx.latest_reference.as_ref().map(|r| &r.orbit),
         FloatExp::from(4.0),
@@ -1292,9 +1296,9 @@ fn glitch_sets_direct_only_and_never_publishes_guess() {
     assert!(!ctx.points[0].initialized);
     assert!(!ctx.points[0].escapes && !ctx.points[0].repeats);
     assert!(!ctx.points[0].delivered);
-    PerturbationKernel.start_seat(&mut ctx, (0, 0));
+    FloatExpPerturbationKernel.start_seat(&mut ctx, (0, 0));
     assert_eq!(ctx.points[0].delta.as_ref().unwrap().generation, 0);
-    PerturbationKernel.iterate_bout(
+    FloatExpPerturbationKernel.iterate_bout(
         &mut ctx.points[0], None, FloatExp::from(4.0), ctx.pitch_epsilon, BoutCap::new(2),
     );
     assert!(ctx.points[0].repeats);
@@ -1316,8 +1320,8 @@ fn missing_reference_iterate_stays_unfinished() {
             series: None,
         }));
     ctx.points[0] = make_point((0.2, 0.08));
-    PerturbationKernel.start_seat(&mut ctx, (0, 0));
-    PerturbationKernel.iterate_bout(
+    FloatExpPerturbationKernel.start_seat(&mut ctx, (0, 0));
+    FloatExpPerturbationKernel.iterate_bout(
         &mut ctx.points[0],
         ctx.latest_reference.as_ref().map(|r| &r.orbit),
         FloatExp::from(4.0),
@@ -1338,17 +1342,17 @@ fn missing_reference_iterate_stays_unfinished() {
 fn perturbation_bout_obeys_cap_and_split_bouts_match() {
     let mut ctx = make_context(0);
     ctx.points[0] = make_point((-0.1, 0.65));
-    PerturbationKernel.start_seat(&mut ctx, (0, 0));
+    FloatExpPerturbationKernel.start_seat(&mut ctx, (0, 0));
     let mut whole = ctx.points[0].clone();
     let mut split = whole.clone();
-    PerturbationKernel.iterate_bout(
+    FloatExpPerturbationKernel.iterate_bout(
         &mut whole, None, FloatExp::from(4.0), FloatExp::from(1e-15), BoutCap::new(17),
     );
-    PerturbationKernel.iterate_bout(
+    FloatExpPerturbationKernel.iterate_bout(
         &mut split, None, FloatExp::from(4.0), FloatExp::from(1e-15), BoutCap::new(5),
     );
     assert!(split.iterations <= 5);
-    PerturbationKernel.iterate_bout(
+    FloatExpPerturbationKernel.iterate_bout(
         &mut split, None, FloatExp::from(4.0), FloatExp::from(1e-15), BoutCap::new(12),
     );
     assert_eq!(whole.iterations, split.iterations);
@@ -1401,8 +1405,8 @@ fn perturbation_derivative_matches_rug_and_conjugation() {
     for ci in [0.2, -0.2] {
         let mut ctx = make_context(0);
         ctx.points[0] = make_point((0.1, ci));
-        PerturbationKernel.start_seat(&mut ctx, (0, 0));
-        PerturbationKernel.iterate_bout(
+        FloatExpPerturbationKernel.start_seat(&mut ctx, (0, 0));
+        FloatExpPerturbationKernel.iterate_bout(
             &mut ctx.points[0], None, FloatExp::from(4.0), FloatExp::from(1e-15), BoutCap::new(5),
         );
         let expected = rug_orbit_derivative((0.1, ci), 6);
@@ -1504,7 +1508,7 @@ fn production_plane_coords_are_not_plain_f64() {
         "live actors must use f64 plane coords"
     );
     assert!(
-        kernel.contains("mod floatexp_host") && kernel.contains("SeatKernel<FloatExp>"),
+        kernel.contains("mod floatexp_host") && kernel.contains("perturb_floatexp"),
         "depth tests must still exercise FloatExp host coords"
     );
     assert!(
@@ -1516,7 +1520,7 @@ fn production_plane_coords_are_not_plain_f64() {
         "production workshift must take f64 context"
     );
     assert!(
-        kernel.contains("to_delta_c(c: (f64, f64))"),
+        kernel.contains("to_delta_c_f64") || kernel.contains("abs_plane_f64"),
         "live kernel must use plain f64 seat coordinates"
     );
 }
@@ -1564,7 +1568,7 @@ fn series_never_publishes_guessed_completion() {
             generation: 1,
             series: Some(s),
         }));
-        PerturbationKernel.start_seat(&mut ctx, (2, 0));
+        FloatExpPerturbationKernel.start_seat(&mut ctx, (2, 0));
         assert!(
             !ctx.points[2].delivered,
             "series skip must not invent a delivered completion"
@@ -1673,7 +1677,7 @@ fn unfinished_synthetic_workshift_never_stalls() {
     });
 }
 
-/// Home view under production PerturbationKernel (zero-orbit floor).
+/// Home view under production FloatExpPerturbationKernel (zero-orbit floor).
 #[test]
 fn unfinished_home_workshift_never_stalls() {
     run_big(|| {
@@ -1887,7 +1891,7 @@ fn faux_user_zoom_to_hard_minibrot_matches_direct() {
 
         let mut direct = from_stencil(hard.clone(), None).expect("hard direct");
         fill_until(&mut direct, &DirectKernel, 40);
-        fill_until(&mut clean, &PerturbationKernel, 40);
+        fill_until(&mut clean, &FloatExpPerturbationKernel, 40);
         let (disagree, compared) = disagree_rate(&direct, &clean);
         assert!(
             compared > 0,
@@ -1921,7 +1925,7 @@ fn faux_user_zoom_to_hard_minibrot_matches_direct() {
         );
         let mut blob = from_stencil(hard.clone(), None).expect("blob");
         blob.latest_reference = Some(short_covering);
-        fill_until(&mut blob, &PerturbationKernel, 40);
+        fill_until(&mut blob, &FloatExpPerturbationKernel, 40);
         let (blob_disagree, blob_compared) = disagree_rate(&direct, &blob);
         assert!(
             blob_compared > 0 && blob_disagree * 100 / blob_compared.max(1) >= 5,
@@ -1930,7 +1934,7 @@ fn faux_user_zoom_to_hard_minibrot_matches_direct() {
 
         // Dead-reckon control: fresh shell with no sticky prior (goto semantics).
         let mut dead = from_stencil(hard, None).expect("dead reckon");
-        fill_until(&mut dead, &PerturbationKernel, 40);
+        fill_until(&mut dead, &FloatExpPerturbationKernel, 40);
         let (dead_disagree, dead_compared) = disagree_rate(&direct, &dead);
         assert!(
             dead_compared > 0 && dead_disagree * 100 / dead_compared.max(1) < 5,

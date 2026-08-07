@@ -15,6 +15,7 @@ use criterion::*;
 use critical_zoomer::assemblies::workgroup::reference_worker::{
     PublishedReference, select_reference_request,
 };
+use critical_zoomer::assemblies::workgroup::screen_worker::perturb_floatexp::FloatExpPerturbationKernel;
 use critical_zoomer::assemblies::workgroup::screen_worker::workshift::*;
 use critical_zoomer::constants::{DEFAULT_WINDOW_RES, HOME_POSITION};
 use critical_zoomer::reference::ReferenceOrbit;
@@ -95,6 +96,10 @@ fn frame_complete(ctx: &WorkContext<FloatExp>) -> bool {
     ctx.points.iter().all(|p| p.delivered)
 }
 
+fn perturb_shift(ctx: &mut WorkContext<FloatExp>) {
+    workshift_with_kernel(0, 0, 0, 0, ctx, &FloatExpPerturbationKernel);
+}
+
 // cz.perf.play-minimize / cz.perf.play-8bump-100ms: how quickly the first work lands.
 fn time_to_first_publish(c: &mut Criterion) {
     let mut group = c.benchmark_group("workgroup_fitness");
@@ -105,7 +110,7 @@ fn time_to_first_publish(c: &mut Criterion) {
                 let mut ctx = home_context();
                 let start = Instant::now();
                 let first = loop {
-                    workshift(0, 0, 0, 0, &mut ctx);
+                    perturb_shift(&mut ctx);
                     let got = drain(&mut ctx);
                     if got > 0 {
                         break got;
@@ -132,7 +137,7 @@ fn time_to_full_frame(c: &mut Criterion) {
                 let start = Instant::now();
                 let mut shifts = 0u32;
                 loop {
-                    workshift(0, 0, 0, 0, &mut ctx);
+                    perturb_shift(&mut ctx);
                     drain(&mut ctx);
                     shifts += 1;
                     if frame_complete(&ctx) {
@@ -166,7 +171,7 @@ fn time_to_full_frame_with_reference(c: &mut Criterion) {
                 let start = Instant::now();
                 let mut shifts = 0u32;
                 loop {
-                    workshift(0, 0, 0, 0, &mut ctx);
+                    perturb_shift(&mut ctx);
                     drain(&mut ctx);
                     shifts += 1;
                     if frame_complete(&ctx) {
@@ -201,7 +206,7 @@ fn worker_1080p_full_frame(c: &mut Criterion) {
                 let start = Instant::now();
                 let mut shifts = 0u32;
                 while !frame_complete(&ctx) {
-                    workshift(0, 0, 0, 0, &mut ctx);
+                    perturb_shift(&mut ctx);
                     drain(&mut ctx);
                     shifts += 1;
                     if shifts > 1_000_000 {

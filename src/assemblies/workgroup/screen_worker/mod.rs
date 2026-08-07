@@ -12,6 +12,7 @@ use crate::assemblies::workgroup::screen_worker::workshift::*;
 
 pub mod workshift;
 pub mod perturb_kernel;
+pub mod perturb_floatexp;
 
 #[cfg(test)]
 mod craftsmanship_tests;
