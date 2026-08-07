@@ -315,6 +315,18 @@ pub fn view_center_compute(
     )
 }
 
+/// Fail-closed gate: reject stencils whose FloatExp grid would collapse before
+/// consuming the live shell on Replace.
+// r[impl cz.depth.c-generator-fails-closed+1]
+pub fn stencil_admits_frame<T: Mandelbrotable + From<f32>>(
+    frame_info: &(ObjectivePosAndZoom, (u32, u32)),
+) -> bool {
+    let (obj, res) = frame_info;
+    let compute_loc = (obj.pos.0.clone(), IntExp::ZERO - obj.pos.1.clone());
+    let center = view_center_compute(&compute_loc, obj.zoom_pot, *res);
+    CGenerator::<T>::new_relative(&compute_loc, &center, obj.zoom_pot as i64, *res).is_some()
+}
+
 /// Build an O(1)-coordinate shell from a stencil. Reuses the previous context's
 /// point/mixmap buffers when present so steady-zoom pivots avoid large reallocs.
 ///
@@ -337,8 +349,7 @@ pub fn from_stencil<T: Mandelbrotable + From<f32>>(
 
     let (obj, res) = frame_info;
     let compute_loc = (obj.pos.0.clone(), IntExp::ZERO - obj.pos.1.clone());
-    // One path: always relative to view center. Absolute FloatExp seats are
-    // not a separate mode — perturbation recovers abs via coord_anchor + δ.
+    // One path: always relative to view center. Absolute plane c = anchor + seat.
     // r[impl cz.depth.floatexp-host-coords+1]
     // r[impl cz.perf.one-kernel-path+1]
     let coord_anchor = view_center_compute(&compute_loc, obj.zoom_pot, res);

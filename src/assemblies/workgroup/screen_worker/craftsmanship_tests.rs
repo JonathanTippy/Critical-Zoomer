@@ -11,12 +11,12 @@ use std::collections::VecDeque;
 use proptest::prelude::*;
 
 use super::work_update;
-use super::workshift::*;
+use super::{invalidate_stale_deliveries, workshift::*};
 use crate::assemblies::headgroup::window::sampling::index_from_relative_location;
 use crate::assemblies::workgroup::c_generator::{CGenerator, Mandelbrotable};
 use crate::assemblies::workgroup::work_collector::{sample_old_values, ResultsPackage};
 use crate::assemblies::workgroup::screen_worker::workshift::get_random_mixmap;
-use crate::utils::{index_from_pos, IntExp, ObjectivePosAndZoom};
+use crate::utils::{index_from_pos, pos_from_index, IntExp, ObjectivePosAndZoom};
 use crate::floatexp::{ComplexFloatExp, FloatExp};
 
 fn run_big(f: impl FnOnce() + Send + 'static) {
@@ -1983,5 +1983,862 @@ fn relative_abs_matches_absolute_generator_home() {
             }
         }
         assert_eq!(mism, 0, "relative+anchor must match absolute generator");
+    });
+}
+
+/// Pivot remapping at unchanged home must not scramble partial completions into
+/// vertical Dummy bands (live `home` = MoveTo + SetZoom can Replace twice).
+#[test]
+fn home_double_replace_collector_remap_preserves_completions() {
+    run_big(|| {
+        let frame = home_frame();
+        let n = (frame.1.0 * frame.1.1) as usize;
+        let mut results = vec![CompletedPoint::Dummy {}; n];
+        // Simulate ~40% fill like an early live frame.
+        for i in (0..n).step_by(5) {
+            results[i] = CompletedPoint::Repeats {
+                period: 1,
+                smallness: FloatExp::ONE,
+                small_time: 1,
+            };
+        }
+        let pkg = ResultsPackage {
+            results: results.clone(),
+            screen_res: frame.1,
+            location: frame.0.clone(),
+        };
+        let remapped = sample_old_values(&pkg, frame.0.clone(), frame.1);
+        let before_filled = results
+            .iter()
+            .filter(|p| !matches!(p, CompletedPoint::Dummy {}))
+            .count();
+        let after_filled = remapped
+            .results
+            .iter()
+            .filter(|p| !matches!(p, CompletedPoint::Dummy {}))
+            .count();
+        assert_eq!(
+            before_filled, after_filled,
+            "identity home remap must preserve filled seat count ({before_filled} vs {after_filled})"
+        );
+        for i in 0..n {
+            let was_filled = !matches!(results[i], CompletedPoint::Dummy {});
+            let still_filled = !matches!(remapped.results[i], CompletedPoint::Dummy {});
+            if was_filled {
+                assert!(
+                    still_filled,
+                    "identity remap dropped completion at seat index {i}"
+                );
+            }
+        }
+    });
+}
+
+/// Reference arrival after zero-orbit completions must not leave delivered=true
+/// seats stuck while the collector still holds stale Dummy slots.
+#[test]
+fn home_reference_arrival_reopens_stale_deliveries() {
+    run_big(|| {
+        let frame = home_frame();
+        let req = select_reference_request::<FloatExp>(None, &frame);
+        let mut ctx = from_stencil(frame, None).expect("home");
+        // Finish a slice on the zero-orbit floor before reference publishes.
+        for _ in 0..2000 {
+            if ctx.percent_completed >= 35.0 {
+                break;
+            }
+            workshift(16_000_000, 2, 4, 150, &mut ctx);
+            let _ = work_update(&mut ctx);
+        }
+        assert!(ctx.percent_completed > 10.0, "need partial zero-orbit fill");
+        let delivered_before = ctx.points.iter().filter(|p| p.delivered).count();
+        let pub_ref = Arc::new(PublishedReference {
+            orbit: ReferenceOrbit::compute(&req.c, req.precision_bits, 4096),
+            c: req.c,
+            generation: 1,
+            series: None,
+        });
+        ctx.latest_reference = Some(pub_ref);
+        invalidate_stale_deliveries(&mut ctx, 1);
+        let delivered_after = ctx.points.iter().filter(|p| p.delivered).count();
+        assert!(
+            delivered_after < delivered_before,
+            "reference gen-1 must reopen stale zero-orbit deliveries"
+        );
+        for _ in 0..8000 {
+            if ctx.points.iter().all(|p| p.delivered) {
+                break;
+            }
+            workshift(16_000_000, 2, 4, 150, &mut ctx);
+            let _ = work_update(&mut ctx);
+        }
+        assert!(
+            ctx.points.iter().all(|p| p.delivered),
+            "must finish after reference arrival"
+        );
+    });
+}
+
+/// Worker-layer sanity: delivered home frame must not show vertical column banding
+/// in escape vs interior classification (B-SCH-3 / rectangular black bands).
+#[test]
+fn home_worker_no_vertical_repeat_columns() {
+    run_big(|| {
+        let frame = home_frame();
+        let req = select_reference_request::<FloatExp>(None, &frame);
+        let mut ctx = from_stencil(frame, None).expect("home");
+        ctx.latest_reference = Some(Arc::new(PublishedReference {
+            orbit: ReferenceOrbit::compute(&req.c, req.precision_bits, 4096),
+            c: req.c,
+            generation: 1,
+            series: None,
+        }));
+        for _ in 0..10000 {
+            if ctx.points.iter().all(|p| p.delivered) {
+                break;
+            }
+            ctx.attention_index = 0;
+            workshift(0, 0, 0, 0, &mut ctx);
+            work_update(&mut ctx);
+        }
+        assert!(
+            ctx.points.iter().all(|p| p.delivered),
+            "home shell must finish for column audit"
+        );
+        let w = ctx.res.0 as usize;
+        let h = ctx.res.1 as usize;
+        let mut repeat_heavy_cols = 0usize;
+        for seat in 0..w {
+            let mut repeats = 0usize;
+            let mut escapes = 0usize;
+            for row in 0..h {
+                let idx = index_from_pos(&(seat as i32, row as i32), ctx.res.0);
+                let p = &ctx.points[idx];
+                if p.repeats {
+                    repeats += 1;
+                }
+                if p.escapes {
+                    escapes += 1;
+                }
+            }
+            let total = repeats + escapes;
+            if total > 0 && repeats * 100 / total >= 80 {
+                repeat_heavy_cols += 1;
+            }
+        }
+        assert!(
+            repeat_heavy_cols < 8,
+            "worker classified {repeat_heavy_cols} columns as ≥80% interior — vertical band source"
+        );
+    });
+}
+
+/// Before reference publishes, zero-orbit floor must still finish home cleanly.
+#[test]
+fn home_zero_orbit_floor_pipeline_no_vertical_black_columns() {
+    use crate::assemblies::shadergroup::colorer::color::color;
+    use crate::assemblies::shadergroup::escaper::{get_value_from_point, ZoomerValuesScreen};
+    use crate::assemblies::structs::{Answer, MandelbrotResult, PointStencil, View};
+    use crate::assemblies::headgroup::window::sampling::{sample, SamplingContext};
+    use crate::settings::{Settings, DEFAULT_COLORING_SCRIPT};
+
+    run_big(|| {
+        let frame = home_frame();
+        let mut ctx = from_stencil(frame.clone(), None).expect("home");
+        // No published reference — production zero-orbit floor only.
+        for _ in 0..5000 {
+            if ctx.percent_completed >= 100.0 {
+                break;
+            }
+            workshift(16_000_000, 2, 4, 150, &mut ctx);
+            let _ = work_update(&mut ctx);
+        }
+        assert!(
+            ctx.percent_completed >= 100.0,
+            "zero-orbit floor must finish home, got {:.1}%",
+            ctx.percent_completed
+        );
+        let w = ctx.res.0 as usize;
+        let h = ctx.res.1 as usize;
+        let location = frame.0.clone();
+        let stencil = PointStencil {
+            location: (
+                location.pos.0.clone(),
+                IntExp::ZERO - location.pos.1.clone(),
+                location.zoom_pot,
+            ),
+            resolution: (w, h),
+            serial_number: 0,
+        };
+        let settings = Settings {
+            coloring_script: Some(DEFAULT_COLORING_SCRIPT.to_vec()),
+            ..Settings::DEFAULT
+        };
+        let radius = settings.bailout_radius.clone().determine() as f32;
+        let location_f64: (f64, f64) = (
+            stencil.location.0.clone().into(),
+            stencil.location.1.clone().into(),
+        );
+        let space_f64: f64 = IntExp::from(1)
+            .shift(-stencil.location.2 - crate::constants::PIXELS_PER_UNIT_POT)
+            .into();
+        let mut results = Vec::new();
+        for p in &ctx.points {
+            results.push(if p.repeats {
+                CompletedPoint::Repeats {
+                    period: p.period,
+                    smallness: p.smallness_squared,
+                    small_time: p.small_time,
+                }
+            } else {
+                CompletedPoint::Escapes {
+                    escape_time: p.iterations,
+                    escape_location: (p.z.0, p.z.1),
+                    escape_derivative: p.dc,
+                    start_location: (p.c.0, p.c.1),
+                    smallness: p.smallness_squared,
+                    small_time: p.small_time,
+                }
+            });
+        }
+        let answers: Vec<Answer> = results
+            .iter()
+            .map(|x| match x {
+                CompletedPoint::Escapes {
+                    escape_time,
+                    escape_location,
+                    escape_derivative,
+                    smallness,
+                    small_time,
+                    ..
+                } => {
+                    let ez0: f64 = escape_location.0.into();
+                    let ez1: f64 = escape_location.1.into();
+                    let ed0: f64 = escape_derivative.0.into();
+                    let ed1: f64 = escape_derivative.1.into();
+                    Answer {
+                        result: MandelbrotResult::Outside {
+                            escape_time_r2: *escape_time as u64,
+                            escape_z: (ez0 as f32, ez1 as f32),
+                            escape_dc: (ed0 as f32, ed1 as f32),
+                        },
+                        min_magnitude_time: *small_time as u64,
+                        min_magnitude: (*smallness).into(),
+                    }
+                }
+                CompletedPoint::Repeats {
+                    period,
+                    smallness,
+                    small_time,
+                } => Answer {
+                    result: MandelbrotResult::Inside {
+                        period: *period as u64,
+                    },
+                    min_magnitude_time: *small_time as u64,
+                    min_magnitude: (*smallness).into(),
+                },
+                CompletedPoint::Dummy {} => Answer {
+                    result: MandelbrotResult::Inside { period: 0 },
+                    min_magnitude_time: 0,
+                    min_magnitude: 0.0,
+                },
+            })
+            .collect();
+        let escaper_results: Vec<CompletedPoint<f64>> = answers
+            .into_iter()
+            .enumerate()
+            .map(|(i, x)| match x.result {
+                MandelbrotResult::Inside { period } => CompletedPoint::Repeats {
+                    period: period as u32,
+                    smallness: x.min_magnitude,
+                    small_time: x.min_magnitude_time as u32,
+                },
+                MandelbrotResult::Outside {
+                    escape_time_r2,
+                    escape_z,
+                    escape_dc,
+                } => CompletedPoint::Escapes {
+                    escape_time: escape_time_r2 as u32,
+                    escape_location: (escape_z.0.into(), escape_z.1.into()),
+                    escape_derivative: (escape_dc.0.into(), escape_dc.1.into()),
+                    smallness: x.min_magnitude,
+                    small_time: x.min_magnitude_time as u32,
+                    start_location: (
+                        (location_f64.0 + stencil.seat_and_row(i).0 as f64 * space_f64).into(),
+                        (location_f64.1 - stencil.seat_and_row(i).1 as f64 * space_f64).into(),
+                    ),
+                },
+            })
+            .collect();
+        let mut screen_values = Vec::new();
+        for i in 0..escaper_results.len() {
+            let pos = pos_from_index(i, ctx.res.0);
+            screen_values.push(get_value_from_point(
+                &escaper_results[i],
+                radius,
+                pos,
+                &escaper_results,
+                ctx.res,
+                settings.clone(),
+            ));
+        }
+        let zoomer = ZoomerValuesScreen {
+            values: screen_values,
+            res: ctx.res,
+            objective_location: location.clone(),
+        };
+        let pixels = color(&zoomer, &mut settings.clone());
+        let color_view = View {
+            stencil: stencil.clone(),
+            data: pixels,
+            bitmap: vec![0u8; w * h],
+        };
+        let mut sampling = SamplingContext {
+            screen: Some(color_view),
+            screen_size: ctx.res,
+            location: location.clone(),
+            updated: false,
+            mouse_drag_start: None,
+        };
+        let mut viewport = Vec::new();
+        sample(vec![], &mut viewport, &mut sampling);
+        let black_cols = (0..w)
+            .filter(|&seat| {
+                (0..h)
+                    .filter(|&row| {
+                        let idx = index_from_pos(&(seat as i32, row as i32), ctx.res.0);
+                        let c = viewport[idx];
+                        c.r() < 30 && c.g() < 30 && c.b() < 30
+                    })
+                    .count()
+                    * 100
+                    / h
+                    >= 80
+            })
+            .count();
+        assert!(
+            black_cols < 8,
+            "zero-orbit floor pipeline left {black_cols} ≥80% black columns"
+        );
+    });
+}
+
+/// Production token budget must still finish home without vertical black bands.
+#[test]
+fn home_production_budget_pipeline_no_vertical_black_columns() {
+    run_big(|| {
+        let frame = home_frame();
+        let req = select_reference_request::<FloatExp>(None, &frame);
+        let mut ctx = from_stencil(frame.clone(), None).expect("home");
+        ctx.latest_reference = Some(Arc::new(PublishedReference {
+            orbit: ReferenceOrbit::compute(&req.c, req.precision_bits, 4096),
+            c: req.c,
+            generation: 1,
+            series: None,
+        }));
+        const TOKEN_BUDGET: u32 = 16_000_000;
+        const ITER_COST: u32 = 2;
+        const BOUT_COST: u32 = 4;
+        const POINT_COST: u32 = 150;
+        for _ in 0..5000 {
+            if ctx.percent_completed >= 100.0 {
+                break;
+            }
+            workshift(TOKEN_BUDGET, ITER_COST, BOUT_COST, POINT_COST, &mut ctx);
+            let _ = work_update(&mut ctx);
+        }
+        assert!(
+            ctx.percent_completed >= 100.0,
+            "production budget must finish home, got {:.1}%",
+            ctx.percent_completed
+        );
+        // Reuse pipeline audit from sibling test (inline minimal check).
+        let w = ctx.res.0 as usize;
+        let h = ctx.res.1 as usize;
+        let undelivered = ctx.points.iter().filter(|p| !p.delivered).count();
+        assert_eq!(undelivered, 0, "all seats must deliver under production budget");
+        let interior_cols = (0..w)
+            .filter(|&seat| {
+                let repeats = (0..h)
+                    .filter(|&row| {
+                        let idx = index_from_pos(&(seat as i32, row as i32), ctx.res.0);
+                        ctx.points[idx].repeats
+                    })
+                    .count();
+                repeats * 100 / h >= 80
+            })
+            .count();
+        assert!(
+            interior_cols < 8,
+            "production budget left {interior_cols} repeat-heavy columns"
+        );
+    });
+}
+
+/// Incremental WorkUpdate batches must populate the collector grid (no stuck Dummy).
+#[test]
+fn home_incremental_collector_matches_worker_delivery() {
+    use crate::series::SeriesApproximation;
+    run_big(|| {
+        let frame = home_frame();
+        let req = select_reference_request::<FloatExp>(None, &frame);
+        let orbit = ReferenceOrbit::compute(&req.c, req.precision_bits, 4096);
+        let series = SeriesApproximation::from_orbit(&orbit, 4);
+        let mut ctx = from_stencil(frame.clone(), None).expect("home");
+        ctx.latest_reference = Some(Arc::new(PublishedReference {
+            orbit,
+            c: req.c,
+            generation: 1,
+            series,
+        }));
+        let mut collector_results =
+            vec![CompletedPoint::Dummy {}; (ctx.res.0 * ctx.res.1) as usize];
+        for _ in 0..5000 {
+            if ctx.percent_completed >= 100.0 {
+                break;
+            }
+            workshift(16_000_000, 2, 4, 150, &mut ctx);
+            for (point, index) in work_update(&mut ctx) {
+                collector_results[index] = point;
+            }
+        }
+        assert!(ctx.percent_completed >= 100.0);
+        let worker_delivered = ctx.points.iter().filter(|p| p.delivered).count();
+        let collector_dummy = collector_results
+            .iter()
+            .filter(|p| matches!(p, CompletedPoint::Dummy {}))
+            .count();
+        assert_eq!(
+            collector_dummy, 0,
+            "collector must have no Dummy after fill; worker delivered {worker_delivered}"
+        );
+        let mut mism = 0usize;
+        for (i, p) in ctx.points.iter().enumerate() {
+            if !p.delivered {
+                continue;
+            }
+            let c = &collector_results[i];
+            let ok = if p.repeats {
+                matches!(c, CompletedPoint::Repeats { .. })
+            } else {
+                matches!(c, CompletedPoint::Escapes { .. })
+            };
+            if !ok {
+                mism += 1;
+            }
+        }
+        assert_eq!(mism, 0, "collector results must match worker outcomes");
+    });
+}
+
+/// Live reference_worker attaches series; must not regress home into vertical bands.
+#[test]
+fn home_pipeline_with_live_series_no_vertical_black_columns() {
+    use crate::assemblies::shadergroup::colorer::color::color;
+    use crate::assemblies::shadergroup::escaper::{get_value_from_point, ZoomerValuesScreen};
+    use crate::assemblies::structs::{Answer, MandelbrotResult, PointStencil, View};
+    use crate::assemblies::headgroup::window::sampling::{sample, SamplingContext};
+    use crate::assemblies::workgroup::reference_worker::PublishedReference;
+    use crate::series::SeriesApproximation;
+    use crate::settings::{Settings, DEFAULT_COLORING_SCRIPT};
+
+    run_big(|| {
+        let frame = home_frame();
+        let req = select_reference_request::<FloatExp>(None, &frame);
+        let orbit = ReferenceOrbit::compute(&req.c, req.precision_bits, 4096);
+        let series = SeriesApproximation::from_orbit(&orbit, 4);
+        let mut ctx = from_stencil(frame.clone(), None).expect("home");
+        ctx.latest_reference = Some(Arc::new(PublishedReference {
+            orbit,
+            c: req.c,
+            generation: 1,
+            series,
+        }));
+        for _ in 0..5000 {
+            if ctx.percent_completed >= 100.0 {
+                break;
+            }
+            workshift(16_000_000, 2, 4, 150, &mut ctx);
+            let _ = work_update(&mut ctx);
+        }
+        assert!(ctx.percent_completed >= 100.0);
+        // Minimal black-column audit after full pipeline (same as sibling test).
+        let w = ctx.res.0 as usize;
+        let h = ctx.res.1 as usize;
+        let location = frame.0.clone();
+        let stencil = PointStencil {
+            location: (
+                location.pos.0.clone(),
+                IntExp::ZERO - location.pos.1.clone(),
+                location.zoom_pot,
+            ),
+            resolution: (w, h),
+            serial_number: 0,
+        };
+        let settings = Settings {
+            coloring_script: Some(DEFAULT_COLORING_SCRIPT.to_vec()),
+            ..Settings::DEFAULT
+        };
+        let radius = settings.bailout_radius.clone().determine() as f32;
+        let location_f64: (f64, f64) = (
+            stencil.location.0.clone().into(),
+            stencil.location.1.clone().into(),
+        );
+        let space_f64: f64 = IntExp::from(1)
+            .shift(-stencil.location.2 - crate::constants::PIXELS_PER_UNIT_POT)
+            .into();
+        let answers: Vec<Answer> = ctx
+            .points
+            .iter()
+            .map(|p| {
+                if p.repeats {
+                    Answer {
+                        result: MandelbrotResult::Inside {
+                            period: p.period as u64,
+                        },
+                        min_magnitude_time: p.small_time as u64,
+                        min_magnitude: p.smallness_squared.into(),
+                    }
+                } else {
+                    let ez0: f64 = p.z.0.into();
+                    let ez1: f64 = p.z.1.into();
+                    let ed0: f64 = p.dc.0.into();
+                    let ed1: f64 = p.dc.1.into();
+                    Answer {
+                        result: MandelbrotResult::Outside {
+                            escape_time_r2: p.iterations as u64,
+                            escape_z: (ez0 as f32, ez1 as f32),
+                            escape_dc: (ed0 as f32, ed1 as f32),
+                        },
+                        min_magnitude_time: p.small_time as u64,
+                        min_magnitude: p.smallness_squared.into(),
+                    }
+                }
+            })
+            .collect();
+        let escaper_results: Vec<CompletedPoint<f64>> = answers
+            .into_iter()
+            .enumerate()
+            .map(|(i, x)| match x.result {
+                MandelbrotResult::Inside { period } => CompletedPoint::Repeats {
+                    period: period as u32,
+                    smallness: x.min_magnitude,
+                    small_time: x.min_magnitude_time as u32,
+                },
+                MandelbrotResult::Outside {
+                    escape_time_r2,
+                    escape_z,
+                    escape_dc,
+                } => CompletedPoint::Escapes {
+                    escape_time: escape_time_r2 as u32,
+                    escape_location: (escape_z.0.into(), escape_z.1.into()),
+                    escape_derivative: (escape_dc.0.into(), escape_dc.1.into()),
+                    smallness: x.min_magnitude,
+                    small_time: x.min_magnitude_time as u32,
+                    start_location: (
+                        (location_f64.0 + stencil.seat_and_row(i).0 as f64 * space_f64).into(),
+                        (location_f64.1 - stencil.seat_and_row(i).1 as f64 * space_f64).into(),
+                    ),
+                },
+            })
+            .collect();
+        let mut screen_values = Vec::new();
+        for i in 0..escaper_results.len() {
+            screen_values.push(get_value_from_point(
+                &escaper_results[i],
+                radius,
+                pos_from_index(i, ctx.res.0),
+                &escaper_results,
+                ctx.res,
+                settings.clone(),
+            ));
+        }
+        let zoomer = ZoomerValuesScreen {
+            values: screen_values,
+            res: ctx.res,
+            objective_location: location.clone(),
+        };
+        let pixels = color(&zoomer, &mut settings.clone());
+        let color_view = View {
+            stencil: stencil.clone(),
+            data: pixels,
+            bitmap: vec![0u8; w * h],
+        };
+        let mut sampling = SamplingContext {
+            screen: Some(color_view),
+            screen_size: ctx.res,
+            location,
+            updated: false,
+            mouse_drag_start: None,
+        };
+        let mut viewport = Vec::new();
+        sample(vec![], &mut viewport, &mut sampling);
+        let black_cols = (0..w)
+            .filter(|&seat| {
+                (0..h)
+                    .filter(|&row| {
+                        let idx = index_from_pos(&(seat as i32, row as i32), ctx.res.0);
+                        let c = viewport[idx];
+                        c.r() < 30 && c.g() < 30 && c.b() < 30
+                    })
+                    .count()
+                    * 100
+                    / h
+                    >= 80
+            })
+            .count();
+        assert!(
+            black_cols < 8,
+            "live-series pipeline left {black_cols} ≥80% black columns"
+        );
+    });
+}
+
+/// Full CPU pipeline (collector → escaper → colorer) must not paint vertical black bands.
+#[test]
+fn home_pipeline_no_vertical_black_columns() {
+    use crate::assemblies::shadergroup::colorer::color::color;
+    use crate::assemblies::shadergroup::escaper::{
+        get_value_from_point, ZoomerValuesScreen,
+    };
+    use crate::assemblies::structs::{Answer, MandelbrotResult, PointStencil, View};
+    use crate::settings::Settings;
+    use crate::settings::DEFAULT_COLORING_SCRIPT;
+
+    run_big(|| {
+        let frame = home_frame();
+        let req = select_reference_request::<FloatExp>(None, &frame);
+        let mut ctx = from_stencil(frame.clone(), None).expect("home");
+        ctx.latest_reference = Some(Arc::new(PublishedReference {
+            orbit: ReferenceOrbit::compute(&req.c, req.precision_bits, 4096),
+            c: req.c,
+            generation: 1,
+            series: None,
+        }));
+        for _ in 0..10000 {
+            if ctx.points.iter().all(|p| p.delivered) {
+                break;
+            }
+            ctx.attention_index = 0;
+            workshift(0, 0, 0, 0, &mut ctx);
+            work_update(&mut ctx);
+        }
+        assert!(ctx.points.iter().all(|p| p.delivered));
+
+        // Mirror work_collector (including f32 narrowing) + escaper reconstruction.
+        let mut results = Vec::with_capacity(ctx.points.len());
+        for i in 0..ctx.points.len() {
+            let p = &ctx.points[i];
+            let _ = i; // collector maps via completed_points order; full grid here
+            let cp = if p.repeats {
+                CompletedPoint::Repeats {
+                    period: p.period,
+                    smallness: p.smallness_squared,
+                    small_time: p.small_time,
+                }
+            } else if p.escapes {
+                CompletedPoint::Escapes {
+                    escape_time: p.iterations,
+                    escape_location: (p.z.0, p.z.1),
+                    escape_derivative: p.dc,
+                    start_location: (p.c.0, p.c.1),
+                    smallness: p.smallness_squared,
+                    small_time: p.small_time,
+                }
+            } else {
+                CompletedPoint::Dummy {}
+            };
+            results.push(cp);
+        }
+        let location = frame.0.clone();
+        let stencil = PointStencil {
+            location: (
+                location.pos.0.clone(),
+                IntExp::ZERO - location.pos.1.clone(),
+                location.zoom_pot,
+            ),
+            resolution: (ctx.res.0 as usize, ctx.res.1 as usize),
+            serial_number: 0,
+        };
+        let location_f64: (f64, f64) = (
+            stencil.location.0.clone().into(),
+            stencil.location.1.clone().into(),
+        );
+        let space_f64: f64 = IntExp::from(1)
+            .shift(-stencil.location.2 - crate::constants::PIXELS_PER_UNIT_POT)
+            .into();
+        // Round-trip through Answer like work_collector → escaper (f32 narrowing).
+        let answers: Vec<Answer> = results
+            .iter()
+            .map(|x| match x {
+                CompletedPoint::Escapes {
+                    escape_time,
+                    escape_location,
+                    escape_derivative,
+                    smallness,
+                    small_time,
+                    ..
+                } => {
+                    let ez0: f64 = escape_location.0.into();
+                    let ez1: f64 = escape_location.1.into();
+                    let ed0: f64 = escape_derivative.0.into();
+                    let ed1: f64 = escape_derivative.1.into();
+                    let mag: f64 = (*smallness).into();
+                    Answer {
+                        result: MandelbrotResult::Outside {
+                            escape_time_r2: *escape_time as u64,
+                            escape_z: (ez0 as f32, ez1 as f32),
+                            escape_dc: (ed0 as f32, ed1 as f32),
+                        },
+                        min_magnitude_time: *small_time as u64,
+                        min_magnitude: mag,
+                    }
+                }
+                CompletedPoint::Repeats {
+                    period,
+                    smallness,
+                    small_time,
+                } => {
+                    let mag: f64 = (*smallness).into();
+                    Answer {
+                        result: MandelbrotResult::Inside {
+                            period: *period as u64,
+                        },
+                        min_magnitude_time: *small_time as u64,
+                        min_magnitude: mag,
+                    }
+                }
+                CompletedPoint::Dummy {} => Answer {
+                    result: MandelbrotResult::Inside { period: 0 },
+                    min_magnitude_time: 0,
+                    min_magnitude: 0.0,
+                },
+            })
+            .collect();
+        let escaper_results: Vec<CompletedPoint<f64>> = answers
+            .into_iter()
+            .enumerate()
+            .map(|(i, x)| match x.result {
+                MandelbrotResult::Inside { period } => CompletedPoint::Repeats {
+                    period: period as u32,
+                    smallness: x.min_magnitude.into(),
+                    small_time: x.min_magnitude_time as u32,
+                },
+                MandelbrotResult::Outside {
+                    escape_time_r2,
+                    escape_z,
+                    escape_dc,
+                } => CompletedPoint::Escapes {
+                    escape_time: escape_time_r2 as u32,
+                    escape_location: (escape_z.0.into(), escape_z.1.into()),
+                    escape_derivative: (escape_dc.0.into(), escape_dc.1.into()),
+                    smallness: x.min_magnitude.into(),
+                    small_time: x.min_magnitude_time as u32,
+                    start_location: (
+                        (location_f64.0 + stencil.seat_and_row(i).0 as f64 * space_f64).into(),
+                        (location_f64.1 - stencil.seat_and_row(i).1 as f64 * space_f64).into(),
+                    ),
+                },
+            })
+            .collect();
+        let settings = Settings {
+            coloring_script: Some(DEFAULT_COLORING_SCRIPT.to_vec()),
+            ..Settings::DEFAULT
+        };
+        let radius = settings.bailout_radius.clone().determine() as f32;
+        let mut screen_values = Vec::with_capacity(escaper_results.len());
+        for i in 0..escaper_results.len() {
+            let pos = pos_from_index(i, ctx.res.0);
+            screen_values.push(get_value_from_point(
+                &escaper_results[i],
+                radius,
+                pos,
+                &escaper_results,
+                ctx.res,
+                settings.clone(),
+            ));
+        }
+        let outside_n = screen_values
+            .iter()
+            .filter(|v| matches!(v, crate::assemblies::shadergroup::escaper::ScreenValue::Outside { .. }))
+            .count();
+        let inside_n = screen_values.len() - outside_n;
+        let w = ctx.res.0 as usize;
+        let h = ctx.res.1 as usize;
+        let zoomer = ZoomerValuesScreen {
+            values: screen_values,
+            res: ctx.res,
+            objective_location: location.clone(),
+        };
+        let mut filament_n = 0usize;
+        for y in 0..h {
+            for x in 0..w {
+                if crate::assemblies::shadergroup::colorer::color::is_in_filament(
+                    &zoomer,
+                    (x as i32, y as i32),
+                ) {
+                    filament_n += 1;
+                }
+            }
+        }
+        let mut paint_settings = settings.clone();
+        let pixels = color(&zoomer, &mut paint_settings);
+        let non_black = pixels
+            .iter()
+            .filter(|c| c.r() >= 30 || c.g() >= 30 || c.b() >= 30)
+            .count();
+        let mut black_heavy_cols = 0usize;
+        for seat in 0..w {
+            let mut black = 0usize;
+            for row in 0..h {
+                let idx = index_from_pos(&(seat as i32, row as i32), ctx.res.0);
+                let c = pixels[idx];
+                if c.r() < 30 && c.g() < 30 && c.b() < 30 {
+                    black += 1;
+                }
+            }
+            if black * 100 / h >= 80 {
+                black_heavy_cols += 1;
+            }
+        }
+        assert!(
+            black_heavy_cols < 8,
+            "pipeline painted {black_heavy_cols} ≥80% black columns; outside={outside_n} inside={inside_n} filaments={filament_n} non_black={non_black}"
+        );
+
+        // Window samples Color32 through relative remap — bands must not appear here either.
+        use crate::assemblies::headgroup::window::sampling::{sample, SamplingContext};
+        let color_view = View {
+            stencil: stencil.clone(),
+            data: pixels,
+            bitmap: vec![0u8; w * h],
+        };
+        let mut sampling = SamplingContext {
+            screen: Some(color_view),
+            screen_size: ctx.res,
+            location: location.clone(),
+            updated: false,
+            mouse_drag_start: None,
+        };
+        let mut viewport = Vec::new();
+        sample(vec![], &mut viewport, &mut sampling);
+        let mut sampled_black_cols = 0usize;
+        for seat in 0..w {
+            let mut black = 0usize;
+            for row in 0..h {
+                let idx = index_from_pos(&(seat as i32, row as i32), ctx.res.0);
+                let c = viewport[idx];
+                if c.r() < 30 && c.g() < 30 && c.b() < 30 {
+                    black += 1;
+                }
+            }
+            if black * 100 / h >= 80 {
+                sampled_black_cols += 1;
+            }
+        }
+        assert!(
+            sampled_black_cols < 8,
+            "window sample() introduced {sampled_black_cols} ≥80% black columns"
+        );
     });
 }

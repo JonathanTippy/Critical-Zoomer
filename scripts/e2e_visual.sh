@@ -41,6 +41,7 @@ else
   e2e_fail_msg "home lacks structure stdev=$HOME_STDEV"
 fi
 e2e_assert_few_gray_holes "$E2E_OUT/vis_home_final.png" 2
+e2e_assert_few_black_columns "$E2E_OUT/vis_home_final.png" 8
 if [ -f "$BASELINE" ]; then
   CROP_DIR=$(mktemp -d)
   convert "$BASELINE" -gravity Center -crop 720x340+0+0 +repage "$CROP_DIR/baseline_crop.png"

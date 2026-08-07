@@ -309,10 +309,11 @@ impl Mandelbrotable for FloatExp {
         Self::from(value as f64)
     }
     fn to_f64(self) -> f64 {
-        self.to_f64()
+        // Delegate to inherent conversion; do not recurse through the trait slot.
+        f64::from(self)
     }
     fn abs(self) -> Self {
-        self.abs()
+        FloatExp::abs(self)
     }
     fn neg(self) -> Self {
         -self
@@ -372,7 +373,16 @@ impl Mul for ComplexFloatExp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::assemblies::workgroup::c_generator::Mandelbrotable;
     use proptest::prelude::*;
+
+    #[test]
+    // r[verify cz.depth.floatexp-range+1]
+    fn mandelbrotable_to_f64_uses_inherent_conversion() {
+        let x = FloatExp::from(1.25);
+        let via_trait: f64 = Mandelbrotable::to_f64(x);
+        assert!((via_trait - 1.25).abs() < 1e-12);
+    }
 
     fn slow_normalize(mantissa: f64, exponent: i64) -> FloatExp {
         assert!(mantissa.is_finite());

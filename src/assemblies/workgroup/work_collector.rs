@@ -9,6 +9,7 @@ use crate::constants::*;
 use crate::constants::*;
 
 use crate::assemblies::structs::*;
+use crate::assemblies::workgroup::c_generator::Mandelbrotable;
 
 use rand::prelude::SliceRandom;
 use crate::utils::*;
@@ -35,6 +36,79 @@ pub const WORKER_INIT_ZOOM:f64 = if WORKER_INIT_ZOOM_POT>0 {(1<<WORKER_INIT_ZOOM
 
 pub const PIXELS_PER_UNIT_POT:i32 = 9;
 pub const PIXELS_PER_UNIT: u64 = 1<<(PIXELS_PER_UNIT_POT);
+
+fn map_results_to_answers<T: crate::assemblies::workgroup::c_generator::Mandelbrotable>(
+    results: &[CompletedPoint<T>],
+) -> Vec<Answer> {
+    results
+        .iter()
+        .map(|x| match x {
+            CompletedPoint::Escapes {
+                escape_time,
+                escape_location,
+                escape_derivative,
+                smallness,
+                small_time,
+                ..
+            } => {
+                let ez0 = escape_location.0.to_f64();
+                let ez1 = escape_location.1.to_f64();
+                let ed0 = escape_derivative.0.to_f64();
+                let ed1 = escape_derivative.1.to_f64();
+                let mag = smallness.to_f64();
+                Answer {
+                    result: MandelbrotResult::Outside {
+                        escape_time_r2: *escape_time as u64,
+                        escape_z: (ez0 as f32, ez1 as f32),
+                        escape_dc: (ed0 as f32, ed1 as f32),
+                    },
+                    min_magnitude_time: *small_time as u64,
+                    min_magnitude: mag,
+                }
+            }
+            CompletedPoint::Repeats {
+                period,
+                smallness,
+                small_time,
+            } => {
+                let mag = smallness.to_f64();
+                Answer {
+                    result: MandelbrotResult::Inside {
+                        period: *period as u64,
+                    },
+                    min_magnitude_time: *small_time as u64,
+                    min_magnitude: mag,
+                }
+            }
+            CompletedPoint::Dummy {} => Answer {
+                result: MandelbrotResult::Inside { period: 0 },
+                min_magnitude_time: 0,
+                min_magnitude: 0.0,
+            },
+        })
+        .collect()
+}
+
+fn view_from_completed_work<T: Mandelbrotable>(
+    completed_work: &ResultsPackage<T>,
+) -> View<Answer> {
+    View {
+        stencil: PointStencil {
+            location: (
+                completed_work.location.clone().pos.0,
+                IntExp::ZERO - completed_work.location.clone().pos.1,
+                completed_work.location.zoom_pot,
+            ),
+            resolution: (
+                completed_work.screen_res.0 as usize,
+                completed_work.screen_res.1 as usize,
+            ),
+            serial_number: 0,
+        },
+        data: map_results_to_answers(&completed_work.results),
+        bitmap: vec![0; completed_work.results.len()],
+    }
+}
 
 
 
@@ -71,8 +145,7 @@ async fn internal_behavior<A: SteadyActor>(
 
     let max_sleep = Duration::from_millis(50);
 
-
-
+    let mut publish_pending = false;
 
     while actor.is_running(
         || i!(values_out.mark_closed())
@@ -83,8 +156,11 @@ async fn internal_behavior<A: SteadyActor>(
             actor.wait_avail(&mut from_worker, 1),
         );
 
-        if actor.avail_units(&mut from_worker) > 0 {
-            let U =actor.try_take(&mut from_worker).expect("work update seemed available but wasn't...");
+        // r[impl cz.craft.drain-to-newest+1]
+        while actor.avail_units(&mut from_worker) > 0 {
+            let U = actor
+                .try_take(&mut from_worker)
+                .expect("work update seemed available but wasn't...");
 
             if let Some(surrounding_work) = &mut state.surrounding_work {
                 if let Some(mut f) = U.frame_info.clone() {
@@ -96,151 +172,39 @@ async fn internal_behavior<A: SteadyActor>(
             if let Some(completed_work) = &mut state.completed_work {
                 if let Some(f) = U.frame_info {
                     *completed_work = sample_old_values(&completed_work, f.0, f.1);
+                    publish_pending = true;
                 } else {
-                    //let j = U.completed_points;
-                    let l = U.completed_points.len();
-
-                    /*for i in j..j+l {
-                        if i-j < vs.len() && i < state.completed_work[0].results.len() {
-                            state.completed_work[0].results[i] = vs[i-j].clone();
-                        }
-                    }*/
                     let vs = U.completed_points;
-                    for i in 0..l {
-                        let W = vs[i].clone();
+                    for W in vs {
                         completed_work.results[W.1] = W.0;
                     }
-                    actor.try_send(&mut values_out,
-                                   View{
-                                       stencil: PointStencil{
-                                           location: (completed_work.location.clone().pos.0, IntExp::ZERO-completed_work.location.clone().pos.1, completed_work.location.zoom_pot)
-                                           , resolution: (completed_work.screen_res.0 as usize, completed_work.screen_res.1 as usize)
-                                           , serial_number: 0
-                                       }
-                                       , data: completed_work.clone().results.into_iter().map(|x| -> Answer {
-                                           match x {
-                                               CompletedPoint::Escapes{escape_time, escape_location, escape_derivative, smallness, small_time, ..} => {
-                                                   let ez0: f64 = escape_location.0.into();
-                                                   let ez1: f64 = escape_location.1.into();
-                                                   let ed0: f64 = escape_derivative.0.into();
-                                                   let ed1: f64 = escape_derivative.1.into();
-                                                   let mag: f64 = smallness.into();
-                                                   Answer{
-                                                       result: MandelbrotResult::Outside {
-                                                           escape_time_r2: escape_time as u64
-                                                           , escape_z: (ez0 as f32, ez1 as f32)
-                                                           , escape_dc: (ed0 as f32, ed1 as f32)
-                                                       }
-                                                       , min_magnitude_time: small_time as u64
-                                                       , min_magnitude: mag
-                                                   }
-                                               }
-                                               , CompletedPoint::Repeats{ period, smallness, small_time} => {
-                                                   let mag: f64 = smallness.into();
-                                                   Answer{
-                                                       result: MandelbrotResult::Inside {
-                                                           period: period as u64
-                                                       }
-                                                       ,
-                                                       min_magnitude_time: small_time as u64
-                                                       ,
-                                                       min_magnitude: mag
-                                                   }
-                                               }
-                                               , CompletedPoint::Dummy{} => {
-                                                   Answer {
-                                                       result: MandelbrotResult::Inside {
-                                                           period: 0
-                                                       }
-                                                       ,
-                                                       min_magnitude_time: 0
-                                                       ,
-                                                       min_magnitude: 0.0
-                                                   }
-                                               }
-                                           }
-                                       }).collect()
-                                       , bitmap: vec!(0;completed_work.results.len())
-                                   });
+                    publish_pending = true;
                 }
-            } else {
-                let f = U.frame_info.expect("work collector recieved an initial work update without any info");
-                state.completed_work = Some(
-                    ResultsPackage {
-                        results: vec![CompletedPoint::Dummy{}; (f.1.0 * f.1.1) as usize]
-                        , screen_res: f.1
-                        , location: f.0
-                    }
-                );
+            } else if let Some(f) = U.frame_info {
+                state.completed_work = Some(ResultsPackage {
+                    results: vec![CompletedPoint::Dummy {}; (f.1.0 * f.1.1) as usize],
+                    screen_res: f.1,
+                    location: f.0,
+                });
                 if let Some(completed_work) = &mut state.completed_work {
-                    let l = U.completed_points.len();
                     let vs = U.completed_points;
-                    for i in 0..l {
-                        let W = vs[i].clone();
+                    for W in vs {
                         completed_work.results[W.1] = W.0;
                     }
-                    actor.try_send(&mut values_out, View {
-                        stencil: PointStencil {
-                            location: (completed_work.location.clone().pos.0, IntExp::ZERO-completed_work.location.clone().pos.1, completed_work.location.zoom_pot)
-                            ,
-                            resolution: (completed_work.screen_res.0 as usize, completed_work.screen_res.1 as usize)
-                            ,
-                            serial_number: 0
-                        }
-                        ,
-                        data: completed_work.clone().results.into_iter().map(|x| -> Answer {
-                            match x {
-                                CompletedPoint::Escapes { escape_time, escape_location, escape_derivative, smallness, small_time, .. } => {
-                                    let ez0: f64 = escape_location.0.into();
-                                    let ez1: f64 = escape_location.1.into();
-                                    let ed0: f64 = escape_derivative.0.into();
-                                    let ed1: f64 = escape_derivative.1.into();
-                                    let mag: f64 = smallness.into();
-                                    Answer {
-                                        result: MandelbrotResult::Outside {
-                                            escape_time_r2: escape_time as u64
-                                            ,
-                                            escape_z: (ez0 as f32, ez1 as f32)
-                                            , escape_dc: (ed0 as f32, ed1 as f32)
-                                        }
-                                        ,
-                                        min_magnitude_time: small_time as u64
-                                        ,
-                                        min_magnitude: mag
-                                    }
-                                }
-                                ,
-                                CompletedPoint::Repeats { period, smallness, small_time } => {
-                                    let mag: f64 = smallness.into();
-                                    Answer {
-                                        result: MandelbrotResult::Inside {
-                                            period: period as u64
-                                        }
-                                        ,
-                                        min_magnitude_time: small_time as u64
-                                        ,
-                                        min_magnitude: mag
-                                    }
-                                }
-                                ,
-                                CompletedPoint::Dummy {} => {
-                                    Answer {
-                                        result: MandelbrotResult::Inside {
-                                            period: 0
-                                        }
-                                        ,
-                                        min_magnitude_time: 0
-                                        ,
-                                        min_magnitude: 0.0
-                                    }
-                                }
-                            }
-                        }).collect()
-                        ,
-                        bitmap: vec!(0; completed_work.results.len())
-                    });
+                    publish_pending = true;
                 }
-
+            }
+        }
+        // Retry blocked escaper publishes on periodic wake as well as new worker data.
+        // r[impl cz.craft.undeliver-on-full+1]
+        if publish_pending {
+            if let Some(completed_work) = &state.completed_work {
+                if matches!(
+                    actor.try_send(&mut values_out, view_from_completed_work(completed_work)),
+                    SendOutcome::Success
+                ) {
+                    publish_pending = false;
+                }
             }
         }
     }

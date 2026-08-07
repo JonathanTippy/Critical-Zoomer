@@ -98,7 +98,35 @@ e2e_assert_few_gray_holes() {
   fi
 }
 
-# B-DISP-1: flat NORES grey (tps:0 symptom) must not persist after home fill time.
+# Count viewport columns that are ≥80% near-black (B-SCH-3 vertical band detector).
+e2e_assert_few_black_columns() {
+  local path="$1"
+  local max_cols="${2:-8}"
+  local w h cols
+  w=$(identify -format '%w' "$path" 2>/dev/null || echo 0)
+  h=$(identify -format '%h' "$path" 2>/dev/null || echo 0)
+  if [ -z "$w" ] || [ -z "$h" ] || [ "$w" -eq 0 ] || [ "$h" -eq 0 ]; then
+    e2e_fail_msg "black-column probe failed to read $path"
+    return
+  fi
+  cols=$(python3 - "$path" <<'PY'
+import sys
+from PIL import Image
+import numpy as np
+p = sys.argv[1]
+img = np.array(Image.open(p).convert('L'))
+h, w = img.shape
+print(sum(1 for x in range(w) if (img[:, x] < 30).mean() > 0.8))
+PY
+)
+  echo "black_cols_80=$cols (max $max_cols) path=$path"
+  if [ "$cols" -le "$max_cols" ]; then
+    e2e_pass "few black columns ($cols <= $max_cols) $path"
+  else
+    e2e_fail_msg "vertical black bands: $cols columns >=80% black (max $max_cols) $path"
+  fi
+}
+
 e2e_assert_not_flat_grey() {
   local path="$1"
   local min_stdev="${2:-5000}"

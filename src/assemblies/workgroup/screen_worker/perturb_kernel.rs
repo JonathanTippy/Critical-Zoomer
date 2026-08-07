@@ -85,6 +85,7 @@ fn maybe_clear_zero_bind(
         point.direct_only = false;
         point.delta = None;
         point.initialized = false;
+        point.delivered = false;
     }
 }
 

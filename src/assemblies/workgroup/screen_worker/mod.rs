@@ -47,6 +47,32 @@ pub struct LiveTarget<T: Mandelbrotable> {
     pub frame_info: (ObjectivePosAndZoom, (u32, u32)),
 }
 
+/// Reopen seats delivered against an older reference generation. Live actors
+/// publish references asynchronously; without this, delivered=true seats never
+/// revisit start_seat after generation advances (B-SCH-3 black columns).
+// r[impl cz.depth.reference-generation-restart+1]
+pub fn invalidate_stale_deliveries<T: Mandelbrotable>(
+    ctx: &mut WorkContext<T>,
+    new_generation: u64,
+) {
+    for p in &mut ctx.points {
+        if !p.delivered {
+            continue;
+        }
+        let stale = p
+            .delta
+            .as_ref()
+            .map(|d| d.generation != new_generation)
+            .unwrap_or(true);
+        if stale {
+            p.delivered = false;
+            p.initialized = false;
+            p.delta = None;
+            p.direct_only = false;
+        }
+    }
+}
+
 pub async fn run(
     actor: SteadyActorShadow,
     commands_in: SteadyRx<WorkerCommand>,
@@ -143,7 +169,8 @@ async fn internal_behavior<A: SteadyActor>(
             if !newest.orbit.escaped {
                 state.pending_reference = Some(newest.clone());
                 if let Some(live) = &mut state.work_context {
-                    live.context.latest_reference = Some(newest);
+                    live.context.latest_reference = Some(newest.clone());
+                    invalidate_stale_deliveries(&mut live.context, newest.generation);
                 }
             }
         }
@@ -159,6 +186,9 @@ async fn internal_behavior<A: SteadyActor>(
             match actor.try_take(&mut commands_in).unwrap() {
 
                 WorkerCommand::Replace{frame_info} => {
+                    if !stencil_admits_frame::<crate::floatexp::FloatExp>(&frame_info) {
+                        continue;
+                    }
                     // r[impl cz.craft.pivot-two-message-order+1]
                     // r[impl cz.craft.stencil-only-replace+2]
                     let request = select_reference_request(
@@ -175,8 +205,30 @@ async fn internal_behavior<A: SteadyActor>(
                         Some(mut live) => {
                             let old_zoom = live.frame_info.0.clone();
                             let U = work_update(&mut live.context);
-                            if U.len() > 0 {
-                                actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:U});
+                            if !U.is_empty() {
+                                match actor.try_send(
+                                    &mut updates_out,
+                                    WorkUpdate {
+                                        frame_info: None,
+                                        completed_points: U,
+                                    },
+                                ) {
+                                    SendOutcome::Success => {}
+                                    SendOutcome::Blocked(WorkUpdate {
+                                        completed_points: batch,
+                                        ..
+                                    })
+                                    | SendOutcome::Timeout(WorkUpdate {
+                                        completed_points: batch,
+                                        ..
+                                    })
+                                    | SendOutcome::Closed(WorkUpdate {
+                                        completed_points: batch,
+                                        ..
+                                    }) => {
+                                        requeue_completions(&mut live.context, batch);
+                                    }
+                                }
                             }
                             Some((live.context, old_zoom))
                         }
@@ -227,12 +279,31 @@ async fn internal_behavior<A: SteadyActor>(
         }
 
 
-        if state.total_workshifts % 1 == 0 {
-            if let Some(live) = &mut state.work_context {
-                let c = work_update(&mut live.context);
-                if c.len() > 0 {
-                    // r[impl cz.craft.emergent-cadence+1]
-                    actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:c});
+        if let Some(live) = &mut state.work_context {
+            let batch = work_update(&mut live.context);
+            if !batch.is_empty() {
+                match actor.try_send(
+                    &mut updates_out,
+                    WorkUpdate {
+                        frame_info: None,
+                        completed_points: batch,
+                    },
+                ) {
+                    SendOutcome::Success => {}
+                    SendOutcome::Blocked(WorkUpdate {
+                        completed_points: batch,
+                        ..
+                    })
+                    | SendOutcome::Timeout(WorkUpdate {
+                        completed_points: batch,
+                        ..
+                    })
+                    | SendOutcome::Closed(WorkUpdate {
+                        completed_points: batch,
+                        ..
+                    }) => {
+                        requeue_completions(&mut live.context, batch);
+                    }
                 }
             }
         }
@@ -247,7 +318,6 @@ fn work_update<T: Mandelbrotable>(ctx: &mut WorkContext<T>) -> Vec<(CompletedPoi
 
 
     //ctx.completed_points
-    let update_start = ctx.last_update;
     let mut returned = vec!();
     for _ in 0..ctx.completed_points.len {
         returned.push(ctx.completed_points.try_pop().unwrap())
@@ -256,6 +326,21 @@ fn work_update<T: Mandelbrotable>(ctx: &mut WorkContext<T>) -> Vec<(CompletedPoi
     ctx.completed_points = vec!();
     ctx.last_update = ctx.index;*/
     returned
+}
+
+/// Re-stage completions when the worker→collector channel is full. Draining
+/// before send without this requeue permanently orphans delivered seats as
+/// Dummy in the collector (B-SCH-3 rectangular black bands).
+// r[impl cz.craft.undeliver-on-full+1]
+fn requeue_completions<T: Mandelbrotable>(
+    ctx: &mut WorkContext<T>,
+    batch: Vec<(CompletedPoint<T>, usize)>,
+) {
+    for item in batch.into_iter().rev() {
+        if !ctx.completed_points.try_push(item) {
+            break;
+        }
+    }
 }
 
 #[inline]
@@ -296,6 +381,6 @@ pub fn relative_location_from_index(data_res: (u32, u32), index: usize) -> (i32,
 
     (
         index as i32 % (data_res.0) as i32
-        , index as i32 / (data_res.1) as i32
+        , index as i32 / (data_res.0) as i32
         )
 }
