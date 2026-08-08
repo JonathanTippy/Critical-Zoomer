@@ -178,7 +178,25 @@ fn apply_series_skip(
     if point.iterations > 0 {
         return;
     }
-    let skip = series.safe_skip(delta.dc, pub_ref.orbit.iterates.len().saturating_sub(1));
+    let mut skip = series.safe_skip(delta.dc, pub_ref.orbit.iterates.len().saturating_sub(1));
+    if skip <= 1 {
+        return;
+    }
+    // Never skip past the first bailout of Z_n+δz_n (same rule as f64 kernel).
+    // r[impl cz.depth.series-approximation+1]
+    let bailout = FloatExp::from(4.0);
+    for n in 1..=skip {
+        let Some(dz_n) = series.evaluate(n, delta.dc) else {
+            break;
+        };
+        let Some(z_ref_n) = pub_ref.orbit.get(n as u32) else {
+            break;
+        };
+        if (z_ref_n + dz_n).norm_squared() > bailout {
+            skip = n;
+            break;
+        }
+    }
     if skip <= 1 {
         return;
     }

@@ -242,7 +242,40 @@ fn apply_series_skip(
     if point.iterations > 0 {
         return;
     }
-    let skip = series.safe_skip(delta.dc, pub_ref.orbit.iterates.len().saturating_sub(1));
+    let mut skip = series.safe_skip(delta.dc, pub_ref.orbit.iterates.len().saturating_sub(1));
+    if skip <= 1 {
+        return;
+    }
+    // Series validity is not membership: never skip past the first bailout of
+    // Z_n+δz_n. Doing so left exterior seats (incl. |c|>2) with inflated
+    // escape_time (headed: always 2 after a published reference) and shattered
+    // escape-time / small-time shading after navigate.
+    // r[impl cz.depth.series-approximation+1]
+    let bailout = FloatExp::from(4.0);
+    for n in 1..=skip {
+        let Some(dz_n) = series.evaluate(n, delta.dc) else {
+            break;
+        };
+        let Some(z_ref_n) = pub_ref.orbit.get(n as u32) else {
+            break;
+        };
+        if (z_ref_n + dz_n).norm_squared() > bailout {
+            // #region agent log
+            crate::debug_agent::log(
+                "D",
+                "perturb_kernel.rs:series_skip",
+                "series_skip_clamped_at_bailout",
+                &format!(
+                    "{{\"raw_would_continue\":true,\"clamp_n\":{n},\"dc2\":{}}}",
+                    (delta.dc.re.to_f64() * delta.dc.re.to_f64()
+                        + delta.dc.im.to_f64() * delta.dc.im.to_f64())
+                ),
+            );
+            // #endregion
+            skip = n;
+            break;
+        }
+    }
     if skip <= 1 {
         return;
     }
@@ -999,6 +1032,36 @@ impl SeatKernel<f64> for PerturbationKernel {
     }
 
     fn completion(&self, point: &mut Point<f64>) -> CompletedPoint<f64> {
-        direct_completion(point)
+        let out = direct_completion(point);
+        // #region agent log
+        if point.escapes {
+            let c2 = point.c.0 * point.c.0 + point.c.1 * point.c.1;
+            if c2 > 4.0 {
+                static OUTER_N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                let n = OUTER_N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if n < 30 || n % 200 == 0 {
+                    let zero = point
+                        .delta
+                        .as_ref()
+                        .map(|d| d.generation == 0)
+                        .unwrap_or(true);
+                    let et = match &out {
+                        CompletedPoint::Escapes { escape_time, small_time, .. } => (*escape_time, *small_time),
+                        _ => (999, 999),
+                    };
+                    crate::debug_agent::log(
+                        "A,C,D",
+                        "perturb_kernel.rs:completion",
+                        "outer_escape_completion",
+                        &format!(
+                            "{{\"c2\":{c2},\"et\":{},\"st\":{},\"zero_gen\":{zero},\"direct_only\":{},\"iters\":{}}}",
+                            et.0, et.1, point.direct_only, point.iterations
+                        ),
+                    );
+                }
+            }
+        }
+        // #endregion
+        out
     }
 }

@@ -32,3 +32,4 @@ pub mod series;
 pub mod delta_gear;
 pub mod perturb;
 pub mod assemblies;
+pub mod debug_agent;

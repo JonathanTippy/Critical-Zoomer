@@ -185,6 +185,53 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
                 output.push(value);
             }
 
+            // #region agent log
+            if crate::debug_agent::should_sample(25) {
+                let mut outer = 0u32;
+                let mut outer_bt0 = 0u32;
+                let mut outer_bt_nz = 0u32;
+                let mut outer_st_nz = 0u32;
+                let mut outer_worker_et_nz = 0u32;
+                let mut cont_bumped = 0u32;
+                let mut sample_c2 = 0.0f64;
+                let mut sample_bt = 0u32;
+                let mut sample_et = 0u32;
+                for i in 0..r.len() {
+                    let (cr, ci, et, st) = match &r[i] {
+                        CompletedPoint::Escapes { escape_time, small_time, start_location, .. } => {
+                            let cr: f64 = start_location.0.into();
+                            let ci: f64 = start_location.1.into();
+                            (cr, ci, *escape_time, *small_time)
+                        }
+                        _ => continue,
+                    };
+                    let c2 = cr * cr + ci * ci;
+                    if c2 <= 4.0 { continue; }
+                    outer += 1;
+                    if et != 0 { outer_worker_et_nz += 1; }
+                    match &output[i] {
+                        ScreenValue::Outside { big_time, small_time, .. } => {
+                            if *big_time == 0 { outer_bt0 += 1; } else { outer_bt_nz += 1; }
+                            if *small_time != 0 { outer_st_nz += 1; }
+                            if *big_time != et { cont_bumped += 1; }
+                            if outer == 1 {
+                                sample_c2 = c2;
+                                sample_bt = *big_time;
+                                sample_et = et;
+                            }
+                            let _ = st;
+                        }
+                        ScreenValue::Inside { .. } => {}
+                    }
+                }
+                let data = format!(
+                    "{{\"zoom\":{},\"outer\":{outer},\"outer_bt0\":{outer_bt0},\"outer_bt_nz\":{outer_bt_nz},\"outer_st_nz\":{outer_st_nz},\"outer_worker_et_nz\":{outer_worker_et_nz},\"cont_bumped\":{cont_bumped},\"sample_c2\":{sample_c2},\"sample_et\":{sample_et},\"sample_bt\":{sample_bt}}}",
+                    v.location.zoom_pot
+                );
+                crate::debug_agent::log("B,C", "escaper.rs:paint", "outer_ring_after_escape", &data);
+            }
+            // #endregion
+
             //info!("done escaping. result is {} pixels long.", output.len());
 
 

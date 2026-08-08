@@ -1378,6 +1378,112 @@ fn published_reference_matches_direct_on_shallow_view() {
     }
 }
 
+/// Headed OBO / missing r=2 ring: after a published reference WITH series is
+/// installed, exterior seats (|c|>2) must keep the same escape_time as
+/// DirectKernel (production convention: 0), not an inflated series-skip index.
+/// Runtime evidence (session 63a36f): zero-orbit outer et=0; reference-path
+/// outer et=2 exactly once series was live.
+#[test]
+// r[verify cz.depth.series-approximation+1]
+// r[verify cz.depth.delta-kernel+1]
+fn published_reference_with_series_matches_direct_outside_r2() {
+    use crate::series::SeriesApproximation;
+    let reference_c = (IntExp::from(-1).shift(-1), IntExp::ZERO); // -0.5
+    let orbit = ReferenceOrbit::compute(&reference_c, 128, 512);
+    let series = SeriesApproximation::from_orbit(&orbit, 4).expect("series");
+    let published = Arc::new(PublishedReference {
+        orbit,
+        c: reference_c,
+        generation: 42,
+        series: Some(series),
+    });
+    // |c|>2 must escape at production escape_time 0; also a few near-ring
+    // exterior points that series is tempted to overshoot.
+    for c in [(3.0, 0.0), (2.0, 2.0), (-2.5, 0.5), (0.0, 3.0), (1.5, 1.5)] {
+        let frame = (
+            ObjectivePosAndZoom {
+                pos: (IntExp::from(-1), IntExp::from(-1)),
+                zoom_pot: -3,
+            },
+            (4u32, 4u32),
+        );
+        let mut direct = from_stencil::<f64>(frame.clone(), None).expect("direct shell");
+        let mut perturb = from_stencil::<f64>(frame, None).expect("perturb shell");
+        perturb.latest_reference = Some(published.clone());
+        // Plant the same absolute c on seat 0 for both kernels.
+        direct.points[0].c = c;
+        direct.points[0].z = c;
+        direct.points[0].dc = (1.0, 0.0);
+        direct.points[0].initialized = true;
+        perturb.points[0].c = c;
+        perturb.points[0].z = c;
+        perturb.points[0].dc = (1.0, 0.0);
+        perturb.points[0].initialized = true;
+        DirectKernel.start_seat(&mut direct, (0, 0));
+        PerturbationKernel.start_seat(&mut perturb, (0, 0));
+        DirectKernel.iterate_bout(
+            &mut direct.points[0],
+            None,
+            4.0,
+            1e-15,
+            BoutCap::new(64),
+        );
+        PerturbationKernel.iterate_bout(
+            &mut perturb.points[0],
+            Some(&published.orbit),
+            4.0,
+            1e-15,
+            BoutCap::new(64),
+        );
+        assert!(
+            direct.points[0].escapes,
+            "fixture c={c:?} must escape under DirectKernel"
+        );
+        assert_eq!(
+            (
+                perturb.points[0].escapes,
+                perturb.points[0].iterations,
+                perturb.points[0].small_time
+            ),
+            (
+                direct.points[0].escapes,
+                direct.points[0].iterations,
+                direct.points[0].small_time
+            ),
+            "series+reference must not inflate escape_time/small_time for exterior c={c:?} (got et={} st={})",
+            perturb.points[0].iterations,
+            perturb.points[0].small_time
+        );
+    }
+}
+
+#[test]
+// r[verify cz.depth.series-approximation+1]
+fn series_safe_skip_does_not_pass_bailout_for_far_delta() {
+    use crate::series::SeriesApproximation;
+    let reference_c = (IntExp::from(-1).shift(-1), IntExp::ZERO);
+    let orbit = ReferenceOrbit::compute(&reference_c, 128, 256);
+    let series = SeriesApproximation::from_orbit(&orbit, 4).expect("series");
+    // Far exterior delta relative to -0.5 — the raw safe_skip may be >1, but
+    // Z_n+δz must already have escaped by n=1 (|c|≫2).
+    let dc = ComplexFloatExp::new(FloatExp::from(3.5), FloatExp::ZERO);
+    let raw = series.safe_skip(dc, orbit.iterates.len().saturating_sub(1));
+    let mut first_escape = None;
+    for n in 1..=raw.max(1) {
+        let dz = series.evaluate(n, dc).unwrap();
+        let z_ref = orbit.get(n as u32).unwrap();
+        if (z_ref + dz).norm_squared() > FloatExp::from(4.0) {
+            first_escape = Some(n);
+            break;
+        }
+    }
+    assert_eq!(
+        first_escape,
+        Some(1),
+        "far exterior delta must escape at series index 1; raw_skip={raw}"
+    );
+}
+
 #[test]
 // r[verify cz.depth.reference-generation-restart+1]
 fn generation_mismatch_restarts_delta() {
@@ -1597,6 +1703,8 @@ fn phase_two_perturbation_test_inventory_is_present() {
         "deep_frame_admitted_past_f64_collapse",
         "production_plane_coords_are_not_plain_f64",
         "series_skip_matches_delta_tail",
+        "published_reference_with_series_matches_direct_outside_r2",
+        "series_safe_skip_does_not_pass_bailout_for_far_delta",
         "series_never_publishes_guessed_completion",
         "live_series_skip_initializes_delta_prefix",
         "design_depth_zoom_pot_representable",

@@ -174,6 +174,18 @@ async fn internal_behavior<A: SteadyActor>(
             if !newest.orbit.escaped {
                 state.pending_reference = Some(newest.clone());
                 if let Some(live) = &mut state.work_context {
+                    // #region agent log
+                    crate::debug_agent::log(
+                        "A",
+                        "screen_worker/mod.rs:ref_install",
+                        "reference_installed_live",
+                        &format!(
+                            "{{\"generation\":{},\"orbit_len\":{}}}",
+                            newest.generation,
+                            newest.orbit.iterates.len()
+                        ),
+                    );
+                    // #endregion
                     live.context.latest_reference = Some(newest);
                 }
             }
@@ -234,6 +246,20 @@ async fn internal_behavior<A: SteadyActor>(
                                 new_ctx.latest_reference = None;
                             }
                         }
+                        // #region agent log
+                        crate::debug_agent::log(
+                            "A,E",
+                            "screen_worker/mod.rs:replace",
+                            "replace_shell",
+                            &format!(
+                                "{{\"has_ref\":{},\"zoom\":{},\"res\":[{},{}]}}",
+                                new_ctx.latest_reference.is_some(),
+                                frame_info.0.zoom_pot,
+                                frame_info.1.0,
+                                frame_info.1.1
+                            ),
+                        );
+                        // #endregion
                         state.work_context = Some(LiveTarget { context: new_ctx, frame_info: frame_info.clone() });
                         actor.try_send(
                             &mut updates_out,
