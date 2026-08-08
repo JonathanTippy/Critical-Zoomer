@@ -1121,6 +1121,7 @@ dependencies = [
 name = "critical_zoomer"
 version = "0.0.8"
 dependencies = [
+ "arboard",
  "clap",
  "criterion",
  "eframe",
@@ -1130,7 +1131,6 @@ dependencies = [
  "proptest",
  "rand 0.9.2",
  "rug",
- "smallvec",
  "steady_state",
  "winit",
 ]
@@ -3921,9 +3921,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.15.2"
+version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
+checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 
 [[package]]
 name = "smithay-client-toolkit"

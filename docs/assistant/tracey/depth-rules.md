@@ -1,0 +1,272 @@
+# Depth core rules
+
+These rules cover the perturbation core through the final compute-gear + series
+phase. See `../design/depth-design.md` and `../issue-stack.md`.
+
+r[cz.depth.c-generator-fails-closed+1]
+
+**Rule.** Objective-coordinate conversion is admitted only when the target compute type keeps
+every adjacent screen point distinct. Adjacency is checked at both axis ends (including the
+max-magnitude end where float ulp is worst), and generated coordinates reproduce v0.0.9's
+top-left, no-half-pixel grid exactly. Relative generation subtracts the reference in exact
+IntExp before narrowing.
+
+**Implementation.** `src/assemblies/workgroup/c_generator.rs` — `Mandelbrotable`,
+`CGenerator::new`, `new_relative`.
+
+**Verification.** `generator_matches_v009_grid_bit_for_bit`,
+`rejects_collapse_at_far_end`, `successful_generator_has_distinct_neighbors`,
+`relative_generator_subtracts_before_narrowing`.
+
+r[cz.depth.floatexp-range+1]
+
+**Rule.** Per-pixel deltas and stored reference iterates use a normalized f64 mantissa plus
+i64 exponent. Values far below f64's exponent floor remain nonzero; arithmetic agrees with
+high-precision rug arithmetic to stored-mantissa precision. Zero has correct ordering against
+arbitrarily small positive/negative values.
+
+**Implementation.** `src/floatexp.rs` — `FloatExp`, `ComplexFloatExp`.
+
+**Verification.** `add_and_multiply_agree_with_rug`,
+`does_not_underflow_far_beyond_f64`, `zero_is_canonical_and_exact`,
+`deep_delta_runs_without_f64_underflow`.
+
+r[cz.depth.reference-low-storage+1]
+
+**Rule.** Reference iterates are computed in depth-appropriate rug precision but stored as
+floatexp. Only constant-size high-precision state is retained: the tail and Brent
+cycle-detector cursors, so extension and exact cycle detection resume across bouts without
+an unbounded full-precision history. Proven periodic/preperiodic references index
+indefinitely by wrapping their finite cycle; escaping/nonperiodic references refuse unknown
+indices.
+
+**Implementation.** `src/reference.rs` — `ReferenceOrbit::{compute,extend,get}`,
+`bits_for_zoom`.
+
+**Verification.** `stored_orbit_matches_full_precision_rounding`,
+`extending_matches_one_shot`, `periodic_and_preperiodic_orbits_index_forever`,
+`escaping_reference_is_finite_and_honest`.
+
+r[cz.depth.perturb-never-wrong+1]
+
+**Rule.** Delta iteration implements Δz' = 2ZΔz + Δz² + Δc. Missing reference work,
+loss-of-significance at the bailout circle, and Pauldelbrot glitches never become
+guessed Mandelbrot answers. These are **distinct** honest outcomes (library
+`PerturbedOutcome` in `src/perturb.rs`):
+
+- **Missing iterate** (`orbit.get(n) == None`) → unfinished / soft-continue. Not a
+  glitch. Switch to the zero-orbit floor with `δz ← z` (reconstructed objective
+  state) and `δc ← c`, and keep iterating — same recurrence, no invented answer.
+- **Pauldelbrot glitch** → unfinished; rebind that seat to the zero-orbit floor
+  (reset; do not trust a corrupted reconstruct). Never publish a guessed answer.
+
+**Implementation.** `src/perturb.rs` — `iterate_pixel`, `PerturbedOutcome::{Glitch,
+Unfinished}`; `perturb_kernel.rs` — `rebind_to_zero_continuing` (exhaustion) vs
+`reset_for_glitch` (Pauldelbrot).
+
+**Verification.** `missing_reference_is_unfinished_not_wrong`,
+`missing_reference_iterate_stays_unfinished`,
+`glitch_sets_direct_only_and_never_publishes_guess`,
+`perturbation_matches_precision_doubling_oracle_for_exteriors`.
+
+r[cz.depth.oracle-doubling+1]
+
+**Rule.** The test-only naive oracle starts with enough rug bits to represent the dyadic input
+exactly, then doubles precision until two answers agree. Starting at a fixed low precision is
+forbidden: two insufficient precisions can agree only because both erased the same deep bit.
+A concluded oracle must be matched exactly or the perturbation path must report itself
+honestly incomplete.
+
+**Implementation/verification.** `src/perturb.rs` test module —
+`doubling_oracle`, `perturbation_matches_precision_doubling_oracle_for_exteriors`,
+`deep_delta_runs_without_f64_underflow`.
+
+r[cz.depth.reference-bout-law+1]
+
+**Rule.** Arbitrary-precision reference extension is resumable and checked
+against a wall-clock budget between individual iterations. A newer request
+therefore gets control after at most the current arithmetic iteration; no
+multi-iteration unbounded call is made by the actor.
+
+**Implementation.** `src/reference.rs` — `ReferenceOrbit::extend_for`;
+`src/assemblies/workgroup/reference_worker.rs` — `work_for` and the 10ms actor
+bout.
+
+**Verification.** `bout_sliced_extension_matches_one_shot`,
+`one_step_bouts_preserve_period_and_preperiod_detection`,
+`zero_budget_does_no_work`.
+
+r[cz.depth.reference-latest-wins+1]
+
+**Rule.** Reference requests are drained to newest before work starts. Replacing
+a request discards the in-progress target; there is exactly one live reference
+job and no backlog of stale computation.
+
+**Implementation.** `reference_worker.rs` — `ReferenceWorkerState::replace`
+and the input drain loop.
+
+**Verification.** `newer_request_replaces_in_progress_job`.
+
+r[cz.depth.reference-sticky-selection+1]
+
+**Rule.** Reference selection happens exactly once per screen pivot. It chooses
+the deepest delivered non-escaped interior seat known from the prior live view,
+or the new view center when none exists. Progress within a view never
+reselects. Precision is computed once from the new view depth.
+
+**Implementation.** `reference_worker.rs` — `select_reference_request`;
+`screen_worker/mod.rs` — the `Replace` arm is the sole caller.
+
+**Verification.**
+`selection_uses_deepest_completed_interior_then_center_fallback`,
+`precision_is_chosen_once_from_new_view_depth`.
+
+r[cz.depth.reference-whole-snapshot+1]
+
+**Rule.** A reference publication owns one complete `ReferenceOrbit`, its exact
+objective c, and a monotonically advancing generation. The screen worker installs
+the latest snapshot into the live `WorkContext` for the delta kernel; the worker
+never blocks waiting for a reference (the zero-orbit floor always runs).
+
+**Implementation.** `reference_worker.rs` — `PublishedReference` and
+`ReferenceWorkerState::work_for`; `screen_worker/mod.rs` — pending/live install;
+`WorkContext::latest_reference`.
+
+**Verification.**
+`publication_moves_one_complete_snapshot_and_increments_generation`.
+
+r[cz.depth.delta-kernel+1]
+
+**Rule.** Delta iteration lives behind the `SeatKernel` seam as
+`PerturbationKernel`. The golden scheduler (queues, attention, backpressure,
+publish protocol) is untouched. Per-seat state (`DeltaState`) is resumable
+across `BoutCap` bouts.
+
+**Implementation.** `screen_worker/perturb_kernel.rs`; `workshift.rs` —
+`DeltaState`, `Point::{delta,direct_only}`, `WorkContext::latest_reference`.
+
+**Verification.** `zero_orbit_floor_matches_direct_kernel_escape_times`,
+`published_reference_matches_direct_on_shallow_view`,
+`perturbation_kernel_matches_rug_doubling_oracle`,
+`perturbation_bout_obeys_cap_and_split_bouts_match`,
+`phase_two_perturbation_test_inventory_is_present`.
+Shallow DirectKernel comparisons are data-flow checks only; deep truth is the
+rug precision-doubling oracle.
+
+r[cz.depth.glitch-is-unfinished+1]
+
+**Rule.** A Pauldelbrot glitch permanently rebinds that seat to the zero-orbit
+floor (`direct_only`) through the same delta code path for the current
+published generation. The seat is reset unfinished; it never publishes a guessed
+answer from the glitched delta. A *newer* published generation may clear the
+bind and retry (exhaustion/false sticky poison must not outlive a retarget).
+
+**Implementation.** `perturb_kernel.rs` — `reset_for_glitch`, `bound_zero_generation`,
+`maybe_clear_zero_bind`.
+
+**Verification.** `glitch_sets_direct_only_and_never_publishes_guess`.
+
+r[cz.depth.reference-until-done+1]
+
+**Rule.** The reference worker publishes only when the orbit has an honest
+terminal state (period found or escaped). There is **no artificial length wall**
+(`max_iterations` / `MAX_BOUT` as a publish target). Incomplete interiors keep
+the zero-orbit floor until then. Extension is wall-clock bout-sliced
+(`r[cz.depth.reference-bout-law+1]`), same interruptibility as seats — not a
+length cap. Matches `r[cz.tenacious.no-max-iter+1]`.
+
+**Implementation.** `reference_worker.rs` — `work_for` done = period || escaped;
+`ReferenceRequest` carries `c` + precision only.
+
+**Verification.** `never_publishes_a_finite_incomplete_orbit`,
+`publication_moves_one_complete_snapshot_and_increments_generation`.
+
+r[cz.depth.reference-coverage+1]
+
+**Rule.** A previous published reference may be carried across a pivot only while
+its `c` still lies inside the new viewport. Uncovered sticky refs are dropped
+(zero-orbit interim). Sticky selection likewise falls back to the new center when
+the previous deepest interior is outside the new frame. Prevents classic
+glitch-blob clusters when zooming into hard areas / minibrots (dead-reckon goto
+to the same place stays clean).
+
+**Implementation.** `reference_c_covers_frame`; `from_stencil` carry filter;
+Replace pending install gate; `select_reference_request` coverage filter.
+
+**Verification.** `sticky_selection_drops_interior_outside_new_view`,
+`coverage_accepts_center_of_same_view`,
+`faux_user_zoom_to_hard_minibrot_matches_direct`.
+
+r[cz.depth.reference-generation-restart+1]
+
+**Rule.** A seat whose `delta.generation` differs from the installed reference's
+generation restarts its delta at zero. Stale deltas never survive a retarget.
+
+**Implementation.** `perturb_kernel.rs` — `start_seat` generation guard.
+
+**Verification.** `generation_mismatch_restarts_delta`.
+
+r[cz.depth.floatexp-host-coords+1]
+
+**Rule.** Seat samples are always relative to the view-center IntExp
+`coord_anchor` (one path). Absolute plane c for perturbation is
+`anchor + relative`. Live shallow/mid actors may use `f64` host seats when the
+generator admits them; deep admission uses FloatExp host in tests / deep path.
+`FloatExp.mantissa` remains f64 by design. Render/`Answer` may narrow at the
+collector. Mathematical deltas and stored reference iterates remain FloatExp
+storage regardless of host type.
+
+**Implementation.** `from_stencil` relative generators; `absolute_plane_c` /
+`abs_plane_f64`; screen worker monomorphized to f64 for live; FloatExp kernel
+module for depth tests.
+
+**Verification.** `deep_frame_admitted_past_f64_collapse`,
+`production_plane_coords_are_not_plain_f64`,
+`objective_c_matches_relative_generator_plus_anchor`,
+`home_reference_request_matches_c_generator`.
+
+r[cz.depth.series-approximation+1]
+
+**Rule.** When a reference publishes, it may include simple series-approximation
+coefficients (FloatExp) derived only from that orbit. Seats may skip a safe
+prefix of iterations by evaluating the series in Δc, then resume ordinary delta
+iteration. Skip never invents a final answer; unsafe skip leaves the seat
+unfinished or falls back to less skip / glitch honesty.
+
+**Implementation.** `reference_worker` `PublishedReference.series`;
+`perturb_kernel` `apply_series_skip`.
+
+**Verification.** `series_skip_matches_delta_tail`,
+`series_never_publishes_guessed_completion`,
+`live_series_skip_initializes_delta_prefix`.
+
+r[cz.depth.compute-gear+1]
+
+**Rule.** Per-pixel delta recurrence uses the compute gear ladder F64 →
+ScaledF64 → FloatExp. A delta at a gear's underflow/overflow floor promotes;
+it is never silently flushed to zero or rounded into a guessed completion.
+Zero-orbit F64 skips the `2Z·δz` term (Z=0). Legal mid-orbit promotions only;
+no reverse transition unless a separately proven reconstruction exists.
+Aggregate HUD gear may be MIXED when seats disagree.
+
+**Implementation.** `src/delta_gear.rs`; `DeltaState.gear` / `scale`;
+`perturb_kernel` gear branches; `refresh_active_gear`.
+
+**Verification.** `gear_promotes_at_f64_underflow_floor`,
+`scaled_f64_matches_floatexp_on_moderate_delta`,
+`zero_orbit_f64_skips_two_z_term`,
+`aggregate_seat_gears_reports_mixed`,
+`f64_gear_zero_orbit_center_reports_period_one`,
+`f64_gear_home_fills_without_per_seat_gear_scan`.
+
+r[cz.depth.gear-hud+1]
+
+**Rule.** The HUD displays the effective active compute gear and rolling IPS
+(iterations/sec) and PPS (completed points/sec). Mixed-seat views surface
+MIXED rather than a false single gear. No user setting selects the gear.
+
+**Implementation.** `WorkUpdate` telemetry → collector → window HUD overlay;
+`PpsCounter` / iteration accounting in `rolling.rs`.
+
+**Verification.** `hud_telemetry_carries_gear_and_rates`,
+`pps_counter_counts_completions_not_wip`.

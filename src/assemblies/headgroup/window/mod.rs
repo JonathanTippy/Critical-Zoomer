@@ -12,12 +12,12 @@ use std::collections::*;
 use std::cmp::*;
 
 use rug::*;
-use transforms::transform;
+
 use crate::assemblies::shadergroup::colorer::*;
 use crate::assemblies::workgroup::work_controller::*;
 
 use crate::settings::*;
-use crate::utils::*; use crate::intexp::*;
+use crate::utils::*;
 use crate::constants::*;
 use crate::assemblies::headgroup::window::rolling::*;
 use crate::assemblies::headgroup::window::widgetize::*;
@@ -25,14 +25,17 @@ use crate::assemblies::headgroup::window::widgetize::*;
 use crate::assemblies::structs::*;
 use crate::assemblies::headgroup::window::inputs::*;
 use crate::assemblies::headgroup::window::sampling::*;
+use crate::assemblies::headgroup::window::coords::*;
+use crate::assemblies::headgroup::window::transforms::transform;
 
-use crate::intexp::*;
 
 pub mod rolling;
 pub mod widgetize;
 pub mod inputs;
 pub mod sampling;
 pub mod transforms;
+pub mod coords;
+pub mod snip;
 
 const RECOVER_EGUI_CRASHES:bool = false;
 // ^ half implimented; in cases where the window is supposed to
@@ -93,6 +96,12 @@ pub struct WindowState {
     , pub controls_timer: Instant
     , pub stencil_serial_number_counter: u64
     , pub scroll_debt: f32
+    , pub coord_input: String
+    , pub startup_goto_applied: bool
+    // r[impl cz.depth.gear-hud+1]
+    , pub pps_counter: RateCounter
+    , pub ips_counter: RateCounter
+    , pub last_gear_label: &'static str
 }
 
 /// Entry point for the window actor.
@@ -101,7 +110,7 @@ pub async fn run(
     pixels_in: SteadyRx<View<Color32>>,
     stencil_out: SteadyTx<(PointStencil)>,
     settings_out: SteadyTxBundle<Settings,2>,
-    attention_out: SteadyTx<(i32, i32)>,
+    attention_out: SteadyTx<Option<(i32, i32)>>,
     state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
     internal_behavior(
@@ -121,7 +130,7 @@ async fn internal_behavior<A: SteadyActor>(
     pixels_in: SteadyRx<View<Color32>>,
     stencil_out: SteadyTx<(PointStencil)>,
     settings_out: SteadyTxBundle<Settings, 2>,
-    attention_out: SteadyTx<(i32, i32)>,
+    attention_out: SteadyTx<Option<(i32, i32)>>,
     state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
 
@@ -154,6 +163,11 @@ async fn internal_behavior<A: SteadyActor>(
         , controls_timer: Instant::now()
         , stencil_serial_number_counter: 0
         , scroll_debt: SCROLL_SPEED/2.0
+        , coord_input: String::new()
+        , startup_goto_applied: false
+        , pps_counter: RateCounter::default()
+        , ips_counter: RateCounter::default()
+        , last_gear_label: "F64"
     }).await;
 
     {
@@ -169,18 +183,12 @@ async fn internal_behavior<A: SteadyActor>(
 
     let viewport_options =
         egui::ViewportBuilder::default()
-            .with_inner_size(state.size.clone())
-            .with_icon(
-                eframe::icon_data::from_png_bytes(
-                    include_bytes!("../../../../icons/assembly_chain_crosshair.png"),
-                )
-                    .expect("failed to load app icon"),
-                //  ^ cannot happen during runtime due to file paths; image is baked in
-            )
-        ;
+        .with_inner_size(state.size.clone())
+            ;
+
     let viewport_options = match state.location {
-        Some(l) => viewport_options.with_position(l),
-        None => viewport_options,
+        Some(l) => {viewport_options.with_position(l)}
+        None => {viewport_options}
     };
 
     let options = eframe::NativeOptions {
@@ -244,7 +252,7 @@ struct EguiWindowPassthrough<'a, A> {
     pixels_in: SteadyRx<View<Color32>>,
     stencil_out: SteadyTx<(PointStencil)>,
     settings_out: SteadyTxBundle<Settings, 2>,
-    attention_out: SteadyTx<(i32, i32)>,
+    attention_out: SteadyTx<Option<(i32, i32)>>,
     portable_state:Arc<Mutex<StateGuard<'a, WindowState>>>
 }
 
@@ -310,16 +318,24 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             let size = (state.size.x as usize, state.size.y as usize);
             let pixels = size.0 * size.1;
 
-            //let mut sampler_buffer = vec!();//Vec::with_capacity(pixels);
+            let mut sampler_buffer = Vec::with_capacity(pixels);
 
             match actor.try_take(&mut pixels_in) {
                 Some(s) => {
+                    let now = Instant::now();
+                    state.pps_counter.record(s.hud.points_delta, now);
+                    state.ips_counter.record(s.hud.iterations_delta, now);
+                    state.last_gear_label = s.hud.gear.hud_label();
                     update_sampling_context(&mut state.sampling_context, s);
 
                 }
                 None => {}
             }
 
+            if state.sampling_context.screen.is_none() {
+                for _ in 0..pixels {sampler_buffer.push(Color32::PURPLE)};
+                //actor.try_send(&mut sampler_out, (state.sampling_context.relative_transforms.clone(), (state.size.x as u32, state.size.y as u32)));
+            }
 
             if state.sampling_context.updated
             {
@@ -330,8 +346,6 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     )
                     , resolution: (state.size.x as usize, state.size.y as usize)
                     , serial_number: state.stencil_serial_number_counter
-                    , focus: None
-                    , hover: None
                 });
                 state.stencil_serial_number_counter +=1;
                 state.sampling_context.updated = false;
@@ -339,17 +353,40 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             // sample
 
-            let (command_package, attention) = parse_inputs(&ctx, &mut state, size);
+            let (mut command_package, attention) = parse_inputs(&ctx, &mut state, size);
             actor.try_send(&mut attention_out, attention);
+
+            if !state.startup_goto_applied {
+                if let Ok(line) = std::env::var("CZ_GOTO") {
+                    if !line.trim().is_empty() {
+                        if let Some(cmds) = commands_from_goto_line(&line) {
+                            command_package.extend(cmds);
+                        }
+                    }
+                }
+                state.startup_goto_applied = true;
+            }
+            let goto_path = std::env::var("CZ_GOTOFILE")
+                .unwrap_or_else(|_| "/tmp/cz_ctl.goto".to_string());
+            if let Ok(line) = std::fs::read_to_string(&goto_path) {
+                let _ = std::fs::remove_file(&goto_path);
+                if let Some(cmds) = commands_from_goto_line(&line) {
+                    command_package.extend(cmds);
+                }
+            }
 
             state.sampling_context.screen_size = (size.0 as u32, size.1 as u32);
 
-            let sampler_buffer: Vec<Color32> = if state.sampling_context.screen.is_some() {
+            if state.sampling_context.screen.is_some() {
+                sample(command_package, &mut sampler_buffer, &mut state.sampling_context);
+            } else if !command_package.is_empty() {
                 transform(command_package, &mut state.sampling_context);
-                resample(&mut state.sampling_context)
-            } else {
-                (0..pixels).map(|x| -> Color32 { Color32::PURPLE}).collect()
-            };
+            }
+
+            crate::assemblies::headgroup::window::snip::maybe_write_viewport_snip(
+                size,
+                &sampler_buffer,
+            );
 
             let start = Instant::now();
 
@@ -391,14 +428,14 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 ui.put(
                     egui::Rect::from_min_size(
                         egui::pos2(10.0, 10.0),
-                        egui::vec2(300.0, 240.0)
+                        egui::vec2(560.0, 72.0)
                     ),
                     |ui: &mut egui::Ui| {
                         // Set transparent background
                         ui.style_mut().visuals.panel_fill = egui::Color32::TRANSPARENT;
 
                         // Increase text size
-                        ui.style_mut().text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 18.0;
+                        ui.style_mut().text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 16.0;
 
 
 
@@ -413,7 +450,19 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
                                 match rolling_frame_result.1 {
                                     Some(r) => {
-                                        response += format!("fps:{:.0} / 1s low: {:.1}", r.0.0 as f64 / 1000000000.0, 1.0 / r.1.0.as_secs_f64()).as_str();
+                                        let now = Instant::now();
+                                        let pps = state.pps_counter.rate(now);
+                                        let ips = state.ips_counter.rate(now);
+                                        // Keep metrics left of the center coord bar.
+                                        // r[impl cz.depth.gear-hud+1]
+                                        response += format!(
+                                            "fps:{:.0}  gear:{}\npps:{:.0}  ips:{:.0}  1s:{:.1}",
+                                            r.0.0 as f64 / 1000000000.0,
+                                            state.last_gear_label,
+                                            pps,
+                                            ips,
+                                            1.0 / r.1.0.as_secs_f64()
+                                        ).as_str();
 
                                     }
                                     None => {}
@@ -422,7 +471,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                 match rolling_frame_result.0 {
                                     Some(r) => {
 
-                                        response += format!(" / 10s low: {:.1}", 1.0 / r.1.0.as_secs_f64()).as_str();
+                                        response += format!("  10s low:{:.1}", 1.0 / r.1.0.as_secs_f64()).as_str();
                                     }
                                     None => {}
                                 }
@@ -440,6 +489,76 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                         }).inner
                     }
                 );
+
+                egui::Area::new(egui::Id::new("coord_bar"))
+                    .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 8.0))
+                    .order(egui::Order::Foreground)
+                    .show(ctx, |ui| {
+                        egui::Frame::popup(ui.style())
+                            .inner_margin(egui::Margin::symmetric(8, 6))
+                            .show(ui, |ui| {
+                                ui.set_min_width(520.0);
+                                let screen = (
+                                    state.size.x.max(1.0) as u32
+                                    , state.size.y.max(1.0) as u32
+                                );
+                                let (cre, cim) = viewport_center(
+                                    &state.sampling_context.location
+                                    , screen
+                                );
+                                let center_text = format_location_readout(
+                                    &cre
+                                    , &cim
+                                    , state.sampling_context.location.zoom_pot
+                                );
+                                ui.horizontal(|ui| {
+                                    ui.label("location");
+                                    let mut readonly = center_text.clone();
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut readonly)
+                                            .desired_width(320.0)
+                                            .interactive(true)
+                                    );
+                                    if ui.button("Copy").clicked() {
+                                        write_location_clipboard(&center_text);
+                                        ui.ctx().copy_text(center_text);
+                                    }
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("goto");
+                                    let response = ui.add(
+                                        egui::TextEdit::singleline(&mut state.coord_input)
+                                            .desired_width(240.0)
+                                            .hint_text("re, im  or  a+bi")
+                                    );
+                                    if response.gained_focus() && state.coord_input.is_empty() {
+                                        if let Some(text) = read_location_clipboard() {
+                                            let trimmed = text.trim().to_string();
+                                            if goto_line_is_valid(&trimmed) {
+                                                state.coord_input = trimmed;
+                                            }
+                                        }
+                                    }
+                                    if ui.button("Paste").clicked() {
+                                        if let Some(text) = read_location_clipboard() {
+                                            state.coord_input = text.trim().to_string();
+                                        }
+                                    }
+                                    let valid = goto_line_is_valid(&state.coord_input);
+                                    let apply = ui.add_enabled(valid, egui::Button::new("Apply"));
+                                    let go = apply.clicked()
+                                        || (valid
+                                            && response.lost_focus()
+                                            && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+                                    if go {
+                                        if let Some(cmds) = commands_from_goto_line(&state.coord_input) {
+                                            transform(cmds, &mut state.sampling_context);
+                                            state.sampling_context.updated = true;
+                                        }
+                                    }
+                                });
+                            });
+                    });
 
                 // Add a gear icon button in the top-right corner
                 ui.put(
@@ -471,7 +590,6 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                 pos: (IntExp::from(HOME_POSITION.0), IntExp::from(HOME_POSITION.1))
                                 , zoom_pot: HOME_POSITION.2
                             };
-                            state.sampling_context.screen = None;
                             state.sampling_context.updated = true;
                         }
                         return button_state;

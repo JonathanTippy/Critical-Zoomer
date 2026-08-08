@@ -1,0 +1,6 @@
+# Scoped excludes for full-tree runs. Prefer scripts/mutants_core.sh.
+exclude_globs = [
+  "src/main.rs",
+  "src/assemblies/headgroup/window/mod.rs",
+  "src/settings.rs",
+]

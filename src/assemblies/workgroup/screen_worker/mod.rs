@@ -1,43 +1,103 @@
-use std::cmp::{max, min};
-use std::ops::{Add, Mul, Sub};
-use eframe::epaint::Color32;
+use std::cmp::min;
 use steady_state::*;
-use crate::utils::{signed_shift, ObjectivePosAndZoom};
+use crate::assemblies::headgroup::window::sampling::{index_from_relative_location, relative_location_i32_row_and_seat, transform_relative_location_i32};
+use crate::assemblies::workgroup::c_generator::Mandelbrotable;
+use crate::assemblies::workgroup::reference_worker::{
+    select_reference_request, PublishedReference, ReferenceRequest,
+};
+use crate::delta_gear::ComputeGear;
+use crate::utils::ObjectivePosAndZoom;
 //use crate::actor::work_collector::*;
 use crate::assemblies::workgroup::work_controller::*;
 use crate::assemblies::workgroup::screen_worker::workshift::*;
 
 pub mod workshift;
+pub mod perturb_kernel;
+pub mod perturb_floatexp;
 
-pub struct WorkUpdate {
+#[cfg(test)]
+mod craftsmanship_tests;
+
+pub struct WorkUpdate<T> {
     pub frame_info: Option<(ObjectivePosAndZoom, (u32, u32))>,
-    pub completed_points: (Vec<(CompletedPoint, usize)>)
+    pub completed_points: (Vec<(CompletedPoint<T>, usize)>),
+    /// Aggregate active compute gear for HUD.
+    // r[impl cz.depth.gear-hud+1]
+    pub active_gear: crate::delta_gear::ComputeGear,
+    /// Iterations performed since the previous update.
+    pub iterations_delta: u64,
 }
 
-#[derive(Clone)]
-pub struct WorkerState {
-    work_context: Option<(WorkContext, (ObjectivePosAndZoom, (u32, u32)))>
+pub struct WorkerState<T: Mandelbrotable> {
+    /// At most one live render target. `LiveTarget` structurally pairs the
+    /// context with its `frame_info`, so a second live target cannot exist
+    /// without a deliberate second `LiveTarget` value.
+    // r[impl cz.craft.stencil-only-replace+2]
+    work_context: Option<LiveTarget<T>>
     , workshift_token_budget: u32
     , iteration_token_cost: u32
     , point_token_cost: u32
     , bout_token_cost: u32
     , workshift_token_cost: u32
     , total_workshifts: u32
+    // Held when a reference arrives before the first Replace; installed into
+    // the live context as soon as one exists.
+    , pending_reference: Option<std::sync::Arc<PublishedReference>>
+}
+
+/// The single live render target: a work context and the frame_info it was
+/// built from. The pairing is structural — the two can never be set or cleared
+/// independently.
+#[derive(Clone)]
+pub struct LiveTarget<T: Mandelbrotable> {
+    pub context: WorkContext<T>,
+    pub frame_info: (ObjectivePosAndZoom, (u32, u32)),
+}
+
+/// Reopen seats delivered against an older reference generation (craftsmanship tests).
+// r[impl cz.depth.reference-generation-restart+1]
+pub fn invalidate_stale_deliveries<T: Mandelbrotable>(
+    ctx: &mut WorkContext<T>,
+    new_generation: u64,
+) {
+    for p in &mut ctx.points {
+        if !p.delivered {
+            continue;
+        }
+        let stale = p
+            .delta
+            .as_ref()
+            .map(|d| d.generation != new_generation)
+            .unwrap_or(true);
+        if stale {
+            p.delivered = false;
+            p.initialized = false;
+            p.delta = None;
+            p.direct_only = false;
+        }
+    }
 }
 
 pub async fn run(
     actor: SteadyActorShadow,
     commands_in: SteadyRx<WorkerCommand>,
-    updates_out: SteadyTx<WorkUpdate>,
-    attention_in: SteadyRx<(i32, i32)>,
-    state: SteadyState<WorkerState>,
+    updates_out: SteadyTx<WorkUpdate<f64>>,
+    attention_in: SteadyRx<Option<(i32, i32)>>,
+    reference_requests_out: SteadyTx<ReferenceRequest>,
+    references_in: SteadyRx<PublishedReference>,
+    state: SteadyState<WorkerState<f64>>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
-        actor.into_spotlight([&commands_in, &attention_in], [&updates_out]),
+        actor.into_spotlight(
+            [&commands_in, &attention_in, &references_in],
+            [&updates_out, &reference_requests_out],
+        ),
         commands_in,
         updates_out,
         attention_in,
+        reference_requests_out,
+        references_in,
         state,
     )
         .await
@@ -46,9 +106,11 @@ pub async fn run(
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
     commands_in: SteadyRx<WorkerCommand>,
-    updates_out: SteadyTx<WorkUpdate>,
-    attention_in: SteadyRx<(i32, i32)>,
-    state: SteadyState<WorkerState>,
+    updates_out: SteadyTx<WorkUpdate<f64>>,
+    attention_in: SteadyRx<Option<(i32, i32)>>,
+    reference_requests_out: SteadyTx<ReferenceRequest>,
+    references_in: SteadyRx<PublishedReference>,
+    state: SteadyState<WorkerState<f64>>,
 ) -> Result<(), Box<dyn Error>> {
 
     //actor.loglevel(LogLevel::Debug);
@@ -56,6 +118,8 @@ async fn internal_behavior<A: SteadyActor>(
     let mut commands_in = commands_in.lock().await;
     let mut updates_out = updates_out.lock().await;
     let mut attention_in = attention_in.lock().await;
+    let mut reference_requests_out = reference_requests_out.lock().await;
+    let mut references_in = references_in.lock().await;
 
     let mut state = state.lock(|| WorkerState {
         work_context: None
@@ -65,6 +129,7 @@ async fn internal_behavior<A: SteadyActor>(
         , workshift_token_cost: 0
         , point_token_cost: 150
         , total_workshifts: 0
+        , pending_reference: None
     }).await;
 
     let max_sleep = Duration::from_millis(50);
@@ -73,8 +138,9 @@ async fn internal_behavior<A: SteadyActor>(
         || i!(updates_out.mark_closed())
     ) {
 
+        // r[impl cz.craft.load-proportional-ignorance+1]
         let working = match &state.work_context {
-            Some(ctx) => {ctx.0.percent_completed < 100.0}
+            Some(live) => {live.context.percent_completed < 100.0}
             , None => {false}
         };
 
@@ -91,13 +157,31 @@ async fn internal_behavior<A: SteadyActor>(
                 drop(stuff);
             };
             let attention = actor.try_take(&mut attention_in).expect("internal error");
-            if let Some((ctx, _)) = &mut state.work_context {
-                ctx.attention = attention;
+            if let Some(live) = &mut state.work_context {
+                set_attention(&mut live.context, attention);
+            }
+        }
+
+        if actor.avail_units(&mut references_in) > 0 {
+            while actor.avail_units(&mut references_in) > 1 {
+                drop(actor.try_take(&mut references_in).expect("published reference"));
+            }
+            let newest = std::sync::Arc::new(
+                actor.try_take(&mut references_in).expect("newest published reference"),
+            );
+            // Escaped references are proven bad; keep the zero-orbit floor until a
+            // usable interior snapshot arrives.
+            if !newest.orbit.escaped {
+                state.pending_reference = Some(newest.clone());
+                if let Some(live) = &mut state.work_context {
+                    live.context.latest_reference = Some(newest);
+                }
             }
         }
 
         if actor.avail_units(&mut commands_in) > 0 {
 
+            // r[impl cz.craft.drain-to-newest+1]
             while actor.avail_units(&mut commands_in) > 1 {
                 let stuff = actor.try_take(&mut commands_in).expect("internal error");
                 drop(stuff);
@@ -105,21 +189,56 @@ async fn internal_behavior<A: SteadyActor>(
 
             match actor.try_take(&mut commands_in).unwrap() {
 
-                WorkerCommand::Replace{frame_info: frame_info, context:ctx} => {
-                    if let Some((old_ctx, old_frame_info)) = &mut state.work_context {
-                        let U = work_update(old_ctx);
+                WorkerCommand::Replace{frame_info} => {
+                    // r[impl cz.craft.pivot-two-message-order+1]
+                    // r[impl cz.craft.stencil-only-replace+2]
+                    let request = select_reference_request(
+                        state
+                            .work_context
+                            .as_ref()
+                            .map(|live| (&live.context, &live.frame_info)),
+                        &frame_info,
+                    );
+                    actor.try_send(&mut reference_requests_out, request);
 
-                        if U.len() > 0 {
-                            actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:U});
+                    let previous = state.work_context.take();
+                    let previous_for_shell = match previous {
+                        Some(mut live) => {
+                            let old_zoom = live.frame_info.0.clone();
+                            let iters = live.context.total_iterations_today;
+                            let U = work_update(&mut live.context);
+                            if U.len() > 0 {
+                                actor.try_send(
+                                    &mut updates_out,
+                                    telemetry_update(None, U, Some(&live.context), iters as u64),
+                                );
+                            }
+                            Some((live.context, old_zoom))
                         }
+                        None => None,
+                    };
 
-                        state.work_context = Some((ctx, frame_info.clone()));
-                        actor.try_send(&mut updates_out, WorkUpdate{frame_info:Some(frame_info), completed_points:vec!()});
-
-                    } else {
-                        state.work_context = Some((ctx, frame_info.clone()));
-                        actor.try_send(&mut updates_out, WorkUpdate{frame_info:Some(frame_info), completed_points:vec!()});
-                        //debug!("screen worker got new context: \n{:?}", state.work_context);
+                    if let Some(mut new_ctx) = from_stencil(frame_info.clone(), previous_for_shell) {
+                        if let Some(pending) = state.pending_reference.clone() {
+                            // r[impl cz.depth.reference-coverage+1]
+                            if crate::assemblies::workgroup::reference_worker::reference_c_covers_frame(
+                                &pending.c,
+                                &frame_info,
+                            ) {
+                                new_ctx.latest_reference = Some(pending);
+                            } else {
+                                // Uncovered sticky refs cause classic glitch blobs when
+                                // zooming into hard areas; drop to zero-orbit until the
+                                // new-view reference arrives.
+                                state.pending_reference = None;
+                                new_ctx.latest_reference = None;
+                            }
+                        }
+                        state.work_context = Some(LiveTarget { context: new_ctx, frame_info: frame_info.clone() });
+                        actor.try_send(
+                            &mut updates_out,
+                            telemetry_update(Some(frame_info), vec!(), state.work_context.as_ref().map(|l| &l.context), 0),
+                        );
                     }
                 }
             }
@@ -131,26 +250,31 @@ async fn internal_behavior<A: SteadyActor>(
         let point_token_cost = state.point_token_cost.clone();
         
 
-        if let Some(ctx) = &mut state.work_context {
-            //let start = Instant::now();
+        let mut iters_delta = 0u64;
+        if let Some(live) = &mut state.work_context {
+            let iters_before = live.context.total_iterations_today;
             workshift (
                 token_budget
                 , iteration_token_cost
                 , bout_token_cost
                 , point_token_cost
-                , &mut ctx.0
+                , &mut live.context
             );
-            state.total_workshifts+=1;
-            //info!("workday completed. took {}ms.", start.elapsed().as_millis());
-            //info!("workshift {}", state.total_workshifts);
+            iters_delta = live
+                .context
+                .total_iterations_today
+                .saturating_sub(iters_before) as u64;
         }
-
-
+        state.total_workshifts += 1;
         if state.total_workshifts % 1 == 0 {
-            if let Some(ctx) = &mut state.work_context {
-                let c = work_update(&mut ctx.0);
+            if let Some(live) = &mut state.work_context {
+                let c = work_update(&mut live.context);
                 if c.len() > 0 {
-                    actor.try_send(&mut updates_out, WorkUpdate{frame_info:None, completed_points:c});
+                    // r[impl cz.craft.emergent-cadence+1]
+                    actor.try_send(
+                        &mut updates_out,
+                        telemetry_update(None, c, Some(&live.context), iters_delta),
+                    );
                 }
             }
         }
@@ -160,18 +284,29 @@ async fn internal_behavior<A: SteadyActor>(
     Ok(())
 }
 
-fn work_update(ctx: &mut WorkContext) -> Vec<(CompletedPoint, usize)> {
+fn telemetry_update<T>(
+    frame_info: Option<(ObjectivePosAndZoom, (u32, u32))>,
+    completed_points: Vec<(CompletedPoint<T>, usize)>,
+    ctx: Option<&WorkContext<T>>,
+    iterations_delta: u64,
+) -> WorkUpdate<T>
+where
+    T: Mandelbrotable,
+{
+    WorkUpdate {
+        frame_info,
+        completed_points,
+        active_gear: ctx.map(|c| c.active_gear).unwrap_or(ComputeGear::F64),
+        iterations_delta,
+    }
+}
 
-
-    //ctx.completed_points
-    let update_start = ctx.last_update;
+// r[impl cz.craft.lifo-drain+1]
+fn work_update<T: Mandelbrotable>(ctx: &mut WorkContext<T>) -> Vec<(CompletedPoint<T>, usize)> {
     let mut returned = vec!();
     for _ in 0..ctx.completed_points.len {
         returned.push(ctx.completed_points.try_pop().unwrap())
     }
-    /*returned.append(&mut ctx.completed_points);
-    ctx.completed_points = vec!();
-    ctx.last_update = ctx.index;*/
     returned
 }
 
@@ -213,91 +348,6 @@ pub fn relative_location_from_index(data_res: (u32, u32), index: usize) -> (i32,
 
     (
         index as i32 % (data_res.0) as i32
-        , index as i32 / (data_res.1) as i32
+        , index as i32 / (data_res.0) as i32
         )
-}
-
-
-//screen space uses fixed point i32, 1<<16 is 1.
-//multiplication results in an extra 1<<16 which means we have to >> 16
-//addition is fine as long as all values invloved are already fixed points
-//division cancels the 1<<16 so we have to add it back with << 16
-
-#[inline]
-fn sample_color(
-    pixels: &Vec<Color32>
-    , min_side: u32
-    , data_res: (u32, u32)
-    , data_len: usize
-    , row: usize
-    , seat: usize
-    //, res_recip: (u32, u32)
-    , min_side_recip: i64
-    , relative_pos: (i32, i32)
-    , relative_zoom_pot: i64
-) -> Color32 {
-    let color =
-        pixels[
-            index_from_relative_location(
-                transform_relative_location_i32(
-                    relative_location_i32_row_and_seat(seat, row)
-                    , (relative_pos.0, relative_pos.1)
-                    , relative_zoom_pot
-                )
-                , data_res
-                , data_len
-            )
-            ];
-    color
-}
-
-
-#[inline]
-pub fn relative_location_i32_row_and_seat(seat: usize, row: usize) -> (i32, i32) {
-    let seat = seat as u32;
-    let row = row as u32;
-
-    (
-        seat as i32
-        , row as i32
-    )
-}
-
-#[inline]
-pub fn index_from_relative_location(l: (i32, i32), data_res: (u32, u32), data_length: usize) -> usize {
-    let normalized_l = (
-        max(min(l.0, (data_res.0 - 1) as i32), 0)
-        , max(min(l.1, (data_res.1 - 1) as i32), 0)
-    );
-
-    let i =
-        (
-            (normalized_l.1 as u32 * data_res.0)
-                + normalized_l.0 as u32
-        ) as usize;
-
-    i
-}
-
-#[inline]
-pub fn optional_index_from_relative_location(l: (i32, i32), data_res: (u32, u32), data_length: usize) -> Option<usize> {
-    if l.0 >= 0 && l.0 <= (data_res.0 - 1) as i32 && l.1 >= 0 && l.1 <= (data_res.1 - 1) as i32 {
-        let i =
-            (
-                (l.1 as u32 * data_res.0)
-                    + l.0 as u32
-            ) as usize;
-
-        Some(i)
-    } else { None }
-}
-
-#[inline]
-pub fn transform_relative_location_i32(l: (i32, i32), m: (i32, i32), zoom: i64) -> (i32, i32) {
-    // move + zoom
-
-    (
-        signed_shift(l.0 - m.0, -zoom)
-        , signed_shift(l.1 - m.1, -zoom)
-    )
 }

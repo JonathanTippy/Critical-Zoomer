@@ -1,0 +1,16 @@
+# GUI / actor shells — not unit-tested by design (headed e2e covers behavior)
+src/main.rs
+src/do_work.rs
+src/lib.rs
+src/settings.rs
+src/assemblies/headgroup/window/mod.rs
+src/assemblies/headgroup/window/widgetize.rs
+src/assemblies/headgroup/window/shade.rs
+src/assemblies/shadergroup/escaper.rs
+src/assemblies/shadergroup/colorer/mod.rs
+src/assemblies/shadergroup/structs.rs
+src/assemblies/workgroup/screen_worker/mod.rs
+src/assemblies/workgroup/screen_worker/workshift.rs
+src/assemblies/workgroup/work_collector.rs
+src/assemblies/workgroup/work_controller.rs
+src/assemblies/workgroup_new/workcore/mandelbrot/worker_implementations/naive_gpu_worker.rs

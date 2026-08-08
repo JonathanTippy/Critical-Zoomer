@@ -1,0 +1,13 @@
+There must be no separate 'period detection phase.' 
+The period detector runs on all iterated points. 
+Points filled out with period bucket fill still must be computed for other results like small time and min magnitude.
+
+Period must be detected by first a loop detector: either tortiois and hare or POT iteratoin count snapshots. Equality must be checked at each iteration to obtain a correct period contender. Anytime a period is thought found, the two z values must undergo a twin test. The twin test iterates the two z values a maximum of const N iterations (configurable for best results). If they were determined to be equal spacially, and their derivatives also, through all of the N tests, they are decided to be twins.
+
+If they are twins, the possible period is determined to be the actual period.
+
+This algorithm may be adapted for GPU use if the branching twin test is too difficult to implement.
+The important thing is that:
+1. compute time is used efficiently, not wasting iterations. gpu should be blazing fast.
+2. the tile worker itself is properly calibrated and does not claim more knowledge than is really certain
+3. the twin test is respected for determining period

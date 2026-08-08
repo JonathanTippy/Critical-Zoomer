@@ -1,0 +1,12 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 63aef05bd9d57d64a272cb89bbc7e98197370abfb9bbcef5db6ab6a9c7aa6831 # shrinks to radius = 0.2605049951341873, angle = 2.735632032414098
+cc dd6d0d9afae3350bf020565b1e584c72061eb8eeeddc57e0ca92bf5a485bc342 # shrinks to radius = 0.8404551169100078, angle = 0.0
+cc 3c4080760a0c731d5a11ce0d3544de3acdae0bbf0b7bf7b3d65b5885c8663acd # shrinks to x = -0.014240481347538534, y = -0.22725989406971198
+cc b07448e86a4dae01c90c28b9e3ab84d2efd897b07a8961bf5d76b0e57299d203 # shrinks to depth = 24
+cc 0ee9f25486d45e97666db0ded17fcb0bd590dbf789c4e2048d4785737793f731 # shrinks to x = 0.12590040219668658, y = 0.006765992784337019
+cc 376ff6bfe487dc2850ecce0b6ead8cd5d5a356bdc50b6f8ac12806388616ebb0 # shrinks to real_numerator = 17, imag_numerator = 0, depth = 60

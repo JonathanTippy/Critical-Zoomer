@@ -1,0 +1,10 @@
+# Scroll-based probe toward the abs-f32 wall. One command per line.
+wait 2
+focus
+pointer 450 250
+scroll 20
+wait 2
+capture probe_scroll20.png
+scroll 20
+wait 2
+capture probe_scroll40.png

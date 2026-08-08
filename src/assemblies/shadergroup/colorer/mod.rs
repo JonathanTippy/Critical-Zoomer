@@ -2,7 +2,7 @@ use rand::Rng;
 use steady_state::*;
 use crate::assemblies::headgroup::window::sampling::*;
 
-use crate::utils::*; use crate::intexp::*;
+use crate::utils::*;
 
 use crate::assemblies::workgroup::work_collector::*;
 
@@ -132,7 +132,7 @@ async fn internal_behavior<A: SteadyActor>(
 
             actor.try_send(&mut screens_out, View{
                 data: output.clone()
-                , alignment: vec!(0u8; output.len())
+                , bitmap: vec!(0u8;output.len())
                 , stencil: PointStencil{
                     resolution: (v.res.0 as usize, v.res.1 as usize)
                     , location: (
@@ -141,10 +141,9 @@ async fn internal_behavior<A: SteadyActor>(
                         , v.objective_location.clone().zoom_pot
                     )
                     , serial_number: 0
-                    , focus: None
-                    , hover: None
-                }
-            });
+                },
+                hud: v.hud,
+});
             //info!("sent colors to window");
         }
         state.settings = settings;

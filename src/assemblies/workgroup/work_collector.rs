@@ -1,7 +1,6 @@
 use eframe::epaint::Color32;
 use steady_state::*;
-use crate::intexp::*;
-use crate::utils::*;
+
 use crate::assemblies::headgroup::window::*;
 use crate::assemblies::workgroup::screen_worker::workshift::*;
 use crate::assemblies::headgroup::window::sampling::*;
@@ -12,20 +11,22 @@ use crate::constants::*;
 use crate::assemblies::structs::*;
 
 use rand::prelude::SliceRandom;
-use crate::intexp::*;
+use crate::utils::*;
 
 
 #[derive(Clone, Debug)]
 
-pub struct ResultsPackage {
-    pub results: Vec<CompletedPoint>
+pub struct ResultsPackage<T> {
+    pub results: Vec<CompletedPoint<T>>
     , pub screen_res: (u32, u32)
     , pub location: ObjectivePosAndZoom
+    // r[impl cz.depth.gear-hud+1]
+    , pub hud: crate::assemblies::structs::ViewHud
 }
 
-pub struct WorkCollectorState {
-    completed_work: Option<ResultsPackage>
-    , surrounding_work: Option<ResultsPackage>
+pub struct WorkCollectorState<T> {
+    completed_work: Option<ResultsPackage<T>>
+    , surrounding_work: Option<ResultsPackage<T>>
 }
 
 
@@ -41,9 +42,9 @@ pub const PIXELS_PER_UNIT: u64 = 1<<(PIXELS_PER_UNIT_POT);
 
 pub async fn run(
     actor: SteadyActorShadow,
-    from_worker: SteadyRx<WorkUpdate>,
+    from_worker: SteadyRx<WorkUpdate<f64>>,
     answers_out: SteadyTx<View<Answer>>,
-    state: SteadyState<WorkCollectorState>,
+    state: SteadyState<WorkCollectorState<f64>>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
@@ -57,9 +58,9 @@ pub async fn run(
 
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
-    from_worker: SteadyRx<WorkUpdate>,
+    from_worker: SteadyRx<WorkUpdate<f64>>,
     answers_out: SteadyTx<View<Answer>>,
-    state: SteadyState<WorkCollectorState>,
+    state: SteadyState<WorkCollectorState<f64>>,
 ) -> Result<(), Box<dyn Error>> {
 
     let mut values_out = answers_out.lock().await;
@@ -97,6 +98,11 @@ async fn internal_behavior<A: SteadyActor>(
             if let Some(completed_work) = &mut state.completed_work {
                 if let Some(f) = U.frame_info {
                     *completed_work = sample_old_values(&completed_work, f.0, f.1);
+                    completed_work.hud = crate::assemblies::structs::ViewHud {
+                        gear: U.active_gear,
+                        points_delta: 0,
+                        iterations_delta: U.iterations_delta,
+                    };
                 } else {
                     //let j = U.completed_points;
                     let l = U.completed_points.len();
@@ -111,26 +117,29 @@ async fn internal_behavior<A: SteadyActor>(
                         let W = vs[i].clone();
                         completed_work.results[W.1] = W.0;
                     }
+                    completed_work.hud = crate::assemblies::structs::ViewHud {
+                        gear: U.active_gear,
+                        points_delta: l as u64,
+                        iterations_delta: U.iterations_delta,
+                    };
                     actor.try_send(&mut values_out,
                                    View{
                                        stencil: PointStencil{
                                            location: (completed_work.location.clone().pos.0, IntExp::ZERO-completed_work.location.clone().pos.1, completed_work.location.zoom_pot)
                                            , resolution: (completed_work.screen_res.0 as usize, completed_work.screen_res.1 as usize)
                                            , serial_number: 0
-, focus: None
-, hover: None
                                        }
                                        , data: completed_work.clone().results.into_iter().map(|x| -> Answer {
                                            match x {
-                                               CompletedPoint::Escapes{escape_time, escape_location, smallness, small_time, ..} => {
+                                               CompletedPoint::Escapes{escape_time, escape_location, escape_derivative, smallness, small_time, ..} => {
                                                    Answer{
                                                        result: MandelbrotResult::Outside {
                                                            escape_time_r2: escape_time as u64
                                                            , escape_z: (escape_location.0 as f32, escape_location.1 as f32)
+                                                           , escape_dc: (escape_derivative.0 as f32, escape_derivative.1 as f32)
                                                        }
                                                        , min_magnitude_time: small_time as u64
                                                        , min_magnitude: smallness
-                                                       , highlights: Highlights::new()
                                                    }
                                                }
                                                , CompletedPoint::Repeats{ period, smallness, small_time} => {
@@ -142,8 +151,6 @@ async fn internal_behavior<A: SteadyActor>(
                                                        min_magnitude_time: small_time as u64
                                                        ,
                                                        min_magnitude: smallness
-                                                       ,
-                                                       highlights: Highlights::new()
                                                    }
                                                }
                                                , CompletedPoint::Dummy{} => {
@@ -155,14 +162,13 @@ async fn internal_behavior<A: SteadyActor>(
                                                        min_magnitude_time: 0
                                                        ,
                                                        min_magnitude: 0.0
-                                                       ,
-                                                       highlights: Highlights::new()
                                                    }
                                                }
                                            }
                                        }).collect()
-                                       , alignment: vec!(0; completed_work.results.len())
-                                   });
+                                       , bitmap: vec!(0;completed_work.results.len()),
+                                       hud: completed_work.hud,
+});
                 }
             } else {
                 let f = U.frame_info.expect("work collector recieved an initial work update without any info");
@@ -171,6 +177,11 @@ async fn internal_behavior<A: SteadyActor>(
                         results: vec![CompletedPoint::Dummy{}; (f.1.0 * f.1.1) as usize]
                         , screen_res: f.1
                         , location: f.0
+                        , hud: crate::assemblies::structs::ViewHud {
+                            gear: U.active_gear,
+                            points_delta: U.completed_points.len() as u64,
+                            iterations_delta: U.iterations_delta,
+                        }
                     }
                 );
                 if let Some(completed_work) = &mut state.completed_work {
@@ -186,23 +197,23 @@ async fn internal_behavior<A: SteadyActor>(
                             ,
                             resolution: (completed_work.screen_res.0 as usize, completed_work.screen_res.1 as usize)
                             ,
-                            serial_number: 0, focus: None, hover: None
+                            serial_number: 0
                         }
                         ,
                         data: completed_work.clone().results.into_iter().map(|x| -> Answer {
                             match x {
-                                CompletedPoint::Escapes { escape_time, escape_location, smallness, small_time, .. } => {
+                                CompletedPoint::Escapes { escape_time, escape_location, escape_derivative, smallness, small_time, .. } => {
                                     Answer {
                                         result: MandelbrotResult::Outside {
                                             escape_time_r2: escape_time as u64
                                             ,
                                             escape_z: (escape_location.0 as f32, escape_location.1 as f32)
+                                            , escape_dc: (escape_derivative.0 as f32, escape_derivative.1 as f32)
                                         }
                                         ,
                                         min_magnitude_time: small_time as u64
                                         ,
                                         min_magnitude: smallness
-                                        , highlights: Highlights::new()
                                     }
                                 }
                                 ,
@@ -215,7 +226,6 @@ async fn internal_behavior<A: SteadyActor>(
                                         min_magnitude_time: small_time as u64
                                         ,
                                         min_magnitude: smallness
-                                        , highlights: Highlights::new()
                                     }
                                 }
                                 ,
@@ -228,14 +238,14 @@ async fn internal_behavior<A: SteadyActor>(
                                         min_magnitude_time: 0
                                         ,
                                         min_magnitude: 0.0
-                                        , highlights: Highlights::new()
                                     }
                                 }
                             }
                         }).collect()
                         ,
-                        alignment: vec!(0; completed_work.results.len())
-                    });
+                        bitmap: vec!(0; completed_work.results.len()),
+                        hud: completed_work.hud
+});
                 }
 
             }
@@ -246,11 +256,14 @@ async fn internal_behavior<A: SteadyActor>(
     Ok(())
 }
 
-fn sample_old_values(old_package: &ResultsPackage, new_location: ObjectivePosAndZoom, new_res: (u32, u32)) -> ResultsPackage {
+// r[impl cz.craft.clamped-remap-smear+1]
+// r[impl cz.craft.shared-remap-transform+1]
+pub(crate) fn sample_old_values<T:Clone>(old_package: &ResultsPackage<T>, new_location: ObjectivePosAndZoom, new_res: (u32, u32)) -> ResultsPackage<T> {
     let mut returned = ResultsPackage{
         results: vec!()
         , screen_res: new_res
         , location: new_location.clone()
+        , hud: old_package.hud
     };
 
     let old_size = old_package.screen_res.0 * old_package.screen_res.1;
@@ -320,15 +333,15 @@ fn get_random_mixmap(size: usize) -> Vec<usize> {
 
 
 #[inline]
-fn sample_value(
-    pixels: &Vec<CompletedPoint>
+fn sample_value<T: Clone>(
+    pixels: &Vec<CompletedPoint<T>>
     , data_res: (u32, u32)
     , data_len: usize
     , row: usize
     , seat: usize
     , relative_pos: (i32, i32)
     , relative_zoom_pot: i64
-) -> CompletedPoint {
+) -> CompletedPoint<T> {
     let color =
         pixels[
             index_from_relative_location(
@@ -343,5 +356,3 @@ fn sample_value(
             ].clone();
     color
 }
-
-

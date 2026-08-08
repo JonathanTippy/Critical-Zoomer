@@ -1,6 +1,6 @@
 use crate::settings::*;
 use crate::assemblies::shadergroup::escaper::*;
-use crate::utils::*; use crate::intexp::*;
+use crate::utils::*;
 use std::f64::consts::*;
 use std::time::*;
 
@@ -42,8 +42,8 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                             let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             let color = match value {
-                                FinishedAnswer::Inside{..} => {continue;}
-                                FinishedAnswer::Outside{big_time: escape_time, ..} => {
+                                ScreenValue::Inside{..} => {continue;}
+                                ScreenValue::Outside{big_time: escape_time, ..} => {
                                     let escape_time = *escape_time as f64;
                                     let escape_time = normalizing_method.normalize(&escape_time);
                                     let brightness = match shading_method.shading {
@@ -95,10 +95,10 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                             let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             let (smalltime, opacity) = match value {
-                                FinishedAnswer::Inside{small_time, ..} => {
+                                ScreenValue::Inside{small_time, ..} => {
                                     (small_time, &inside_opacity)
                                 }
-                                FinishedAnswer::Outside{small_time, ..} => {
+                                ScreenValue::Outside{small_time, ..} => {
                                     (small_time, &outside_opacity)
                                 }
                             };
@@ -146,10 +146,10 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                             let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             let (smallness, opacity) = match value {
-                                FinishedAnswer::Inside{smallness, ..} => {
+                                ScreenValue::Inside{smallness, ..} => {
                                     (smallness, &inside_opacity)
                                 }
-                                FinishedAnswer::Outside{smallness, ..} => {
+                                ScreenValue::Outside{smallness, ..} => {
                                     (smallness, &outside_opacity)
                                 }
                             };
@@ -177,8 +177,8 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                             let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             match value {
-                                FinishedAnswer::Inside{..} => {continue;}
-                                FinishedAnswer::Outside{..} => {
+                                ScreenValue::Inside{..} => {continue;}
+                                ScreenValue::Outside{..} => {
                                     let in_filament = is_in_filament(&values, pos);
                                     if in_filament {
                                         let color = (
@@ -206,7 +206,7 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                             let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             match value {
-                                FinishedAnswer::Inside{..} => {
+                                ScreenValue::Inside{..} => {
                                     let out_filament = is_out_filament(values, pos);
                                     if out_filament {
                                         let color = (
@@ -218,7 +218,7 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                                         returned[index]=layer_colors(returned[index], color)
                                     }
                                 }
-                                FinishedAnswer::Outside{..} => {continue;}
+                                ScreenValue::Outside{..} => {continue;}
                             }
                         }
                     }
@@ -235,11 +235,11 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                             let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             let (is_node, opacity) = match value {
-                                FinishedAnswer::Inside{..} => {
+                                ScreenValue::Inside{..} => {
                                     let node = is_node(values, pos, *thickness);
                                     (node, &inside_opacity)
                                 }
-                                FinishedAnswer::Outside{..} => {
+                                ScreenValue::Outside{..} => {
                                     let node = is_node(values, pos, *thickness);
                                     (node, &outside_opacity)
                                 }
@@ -268,11 +268,11 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                             let index = index_from_pos(&pos, res.0);
                             let value = &values.values[index];
                             let (is_edge, opacity) = match value {
-                                FinishedAnswer::Inside{..} => {
+                                ScreenValue::Inside{..} => {
                                     let edge = is_node_tree(values, pos);
                                     (edge, &inside_opacity)
                                 }
-                                FinishedAnswer::Outside{..} => {
+                                ScreenValue::Outside{..} => {
                                     let edge = is_node_tree(values, pos);
                                     (edge, &outside_opacity)
                                 }
@@ -327,7 +327,7 @@ if color_max + delta_b > 255 {delta_b = 255-color_max}
 }
 
 pub fn is_in_filament(values: &ZoomerValuesScreen, pos: (i32, i32)) -> bool {
-
+    // r[impl cz.craft.screen-space-derivative-edges+1]
     let points = [
         pos
         , (pos.0, pos.1-1) // up
@@ -336,17 +336,44 @@ pub fn is_in_filament(values: &ZoomerValuesScreen, pos: (i32, i32)) -> bool {
         , (pos.0+1, pos.1) // right
     ];
 
-    let values = [
-        get_escape_time(safe_sample(&values.values, points[0], values.res))
-        ,get_escape_time(safe_sample(&values.values, points[1], values.res))
-        ,get_escape_time(safe_sample(&values.values, points[2], values.res))
-        ,get_escape_time(safe_sample(&values.values, points[3], values.res))
-        ,get_escape_time(safe_sample(&values.values, points[4], values.res))
-    ];
+    // Each remapped sample describes a locally linear field at its source.
+    // Project that field to the center screen pixel before looking for a peak.
+    let sample = |sample_pos: (i32, i32)| -> Option<(f64, f64, f32)> {
+        match safe_sample(&values.values, sample_pos, values.res)? {
+            ScreenValue::Outside { big_time, gradient_angle, .. } => {
+                let offset = (
+                    (pos.0 - sample_pos.0) as f64,
+                    (pos.1 - sample_pos.1) as f64,
+                );
+                let projection = offset.0 * (*gradient_angle as f64).cos()
+                    + offset.1 * (*gradient_angle as f64).sin();
+                Some((*big_time as f64, *big_time as f64 + projection, *gradient_angle))
+            }
+            ScreenValue::Inside { .. } => None,
+        }
+    };
+    let samples = points.map(sample);
 
-    slope_sign_changed(
-        values[0], values[1], values[2], values[3], values[4]
-    )
+    // Axis peak with two layers of honesty:
+    // 1. Extrapolated peak keeps thin screen-space ridges past remap.
+    // 2. Raw escape times on that axis must not be a flat plateau. The old
+    //    integer test was deaf to equal-n neighborhoods; conjugation-symmetric
+    //    exterior rays (cusp / bulb-axis tendrils) live in those plateaus and
+    //    must stay dark. A true filament has a raw escape-time contrast.
+    let axis_peak = |a: usize, b: usize| -> bool {
+        let (Some((c_raw, c_ext, _)), Some((a_raw, a_ext, _)), Some((b_raw, b_ext, _))) =
+            (samples[0], samples[a], samples[b])
+        else {
+            return false;
+        };
+        let extrapolated_peak = c_ext > a_ext && c_ext > b_ext;
+        // Flat (±0) or near-flat (±1) raw neighborhoods are not filaments —
+        // boundary speckles / tendril edges live in those bands.
+        let raw_contrast = (c_raw - a_raw).abs() > 1.0 || (c_raw - b_raw).abs() > 1.0;
+        extrapolated_peak && raw_contrast
+    };
+
+    axis_peak(1, 2) || axis_peak(3, 4)
 }
 
 
@@ -533,47 +560,49 @@ pub fn is_local_minimum<T: PartialOrd > (value: Option<T>, up:Option<T>, down:Op
     false
 }
 
-pub fn get_loop_period(value: Option<&FinishedAnswer>) -> Option<u32> {
+pub fn get_loop_period(value: Option<&ScreenValue>) -> Option<u32> {
 
     if let Some(v) = value {
         match v {
-            FinishedAnswer::Outside{..} => {return None}
-            FinishedAnswer::Inside{loop_period, ..} => {
-                return Some(*loop_period)
+            ScreenValue::Outside{..} => {return None}
+            ScreenValue::Inside{loop_period, ..} => {
+                // Period 0 is "interior, period unknown", not a numeric period.
+                // Unknown values must not create filament edges.
+                return (*loop_period != 0).then_some(*loop_period)
             }
         }
     } else {None}
 
 }
 
-pub fn get_escape_time(value: Option<&FinishedAnswer>) -> Option<u32> {
+pub fn get_escape_time(value: Option<&ScreenValue>) -> Option<u32> {
 
     if let Some(v) = value {
         match v {
-            FinishedAnswer::Outside{big_time, ..} => {return Some(*big_time)}
-            FinishedAnswer::Inside{..} => {return None }
+            ScreenValue::Outside{big_time, ..} => {return Some(*big_time)}
+            ScreenValue::Inside{..} => {return None }
         }
     } else {None}
 
 }
 
-pub fn get_small_time(value: Option<&FinishedAnswer>) -> Option<u32> {
+pub fn get_small_time(value: Option<&ScreenValue>) -> Option<u32> {
 
     if let Some(v) = value {
         match v {
-            FinishedAnswer::Outside{small_time, ..} => {return Some(*small_time)}
-            FinishedAnswer::Inside{small_time, ..} => {return Some(*small_time)}
+            ScreenValue::Outside{small_time, ..} => {return Some(*small_time)}
+            ScreenValue::Inside{small_time, ..} => {return Some(*small_time)}
         }
     } else {None}
 
 }
 
-pub fn get_smallness(value: Option<&FinishedAnswer>) -> Option<f64> {
+pub fn get_smallness(value: Option<&ScreenValue>) -> Option<f64> {
 
     if let Some(v) = value {
         match v {
-            FinishedAnswer::Outside{smallness, ..} => {return Some(*smallness)}
-            FinishedAnswer::Inside{smallness, ..} => {return Some(*smallness)}
+            ScreenValue::Outside{smallness, ..} => {return Some(*smallness)}
+            ScreenValue::Inside{smallness, ..} => {return Some(*smallness)}
         }
     } else {None}
 
@@ -584,4 +613,268 @@ pub fn get_smallness(value: Option<&FinishedAnswer>) -> Option<f64> {
 use std::ops::*;
 pub fn safe_sample<T: Index<usize, Output=J>, J>(stuff:&T, pos:(i32, i32), res:(u32, u32)) -> Option<&J> {
     if let Some(i) = index_from_pos_safe(&pos, res) {Some(&stuff[i])} else {None}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::assemblies::shadergroup::escaper::{ScreenValue, ZoomerValuesScreen};
+    use crate::utils::ObjectivePosAndZoom;
+
+    fn inside(period: u32) -> ScreenValue {
+        ScreenValue::Inside { small_time: 0, loop_period: period, smallness: 0.0 }
+    }
+
+    fn outside(time: u32, angle: f32) -> ScreenValue {
+        ScreenValue::Outside {
+            big_time: time,
+            small_time: 0,
+            smallness: 0.0,
+            gradient_angle: angle,
+        }
+    }
+
+    fn screen(values: Vec<ScreenValue>) -> ZoomerValuesScreen {
+        ZoomerValuesScreen {
+            values,
+            res: (3, 3),
+            objective_location: ObjectivePosAndZoom {
+                pos: (crate::utils::IntExp::ZERO, crate::utils::IntExp::ZERO),
+                zoom_pot: 0,
+            },
+        hud: Default::default()
+    }
+    }
+
+    // verifies r[cz.craft.period-derivative-test+1]
+    #[test]
+    fn unknown_period_never_creates_out_filament() {
+        let center_verified = screen(vec![
+            inside(0), inside(2), inside(0),
+            inside(2), inside(2), inside(2),
+            inside(0), inside(2), inside(0),
+        ]);
+        assert!(!is_out_filament(&center_verified, (1, 1)),
+            "unknown neighboring periods must be ignored");
+
+        let center_unknown = screen(vec![
+            inside(2), inside(0), inside(2),
+            inside(0), inside(0), inside(0),
+            inside(2), inside(0), inside(2),
+        ]);
+        assert!(!is_out_filament(&center_unknown, (1, 1)),
+            "an unknown center must not light itself");
+    }
+
+    // verifies r[cz.craft.period-derivative-test+1]
+    #[test]
+    fn differing_verified_periods_still_create_out_filament() {
+        let values = screen(vec![
+            inside(1), inside(1), inside(1),
+            inside(1), inside(2), inside(1),
+            inside(1), inside(1), inside(1),
+        ]);
+        assert!(is_out_filament(&values, (1, 1)),
+            "real period boundaries must remain visible");
+    }
+
+    // r[verify cz.craft.screen-space-derivative-edges+1]
+    #[test]
+    fn caught_up_view_matches_old_raw_peak_oracle() {
+        // When the worker has caught up, every screen neighbor is a distinct
+        // data pixel. The old look is the strict raw escape-time peak. With
+        // zero angles, extrapolation is a no-op on the vertical axis and must
+        // reproduce that oracle exactly — including the dark cells.
+        let times = [
+            4u32, 8, 4,
+            4, 8, 4,
+            3, 5, 3,
+        ];
+        let values = ZoomerValuesScreen {
+            values: times.into_iter().map(|t| outside(t, 0.0)).collect(),
+            res: (3, 3),
+            objective_location: ObjectivePosAndZoom {
+                pos: (crate::utils::IntExp::ZERO, crate::utils::IntExp::ZERO),
+                zoom_pot: 0,
+            },
+        hud: Default::default()
+    };
+        for y in 0..3 {
+            for x in 0..3 {
+                let pos = (x, y);
+                let old = slope_sign_changed(
+                    get_escape_time(safe_sample(&values.values, pos, values.res)),
+                    get_escape_time(safe_sample(&values.values, (pos.0, pos.1 - 1), values.res)),
+                    get_escape_time(safe_sample(&values.values, (pos.0, pos.1 + 1), values.res)),
+                    get_escape_time(safe_sample(&values.values, (pos.0 - 1, pos.1), values.res)),
+                    get_escape_time(safe_sample(&values.values, (pos.0 + 1, pos.1), values.res)),
+                );
+                assert_eq!(is_in_filament(&values, pos), old,
+                    "caught-up parity broken at ({x},{y})");
+            }
+        }
+    }
+
+    // r[verify cz.craft.screen-space-derivative-edges+1]
+    #[test]
+    fn conjugation_axis_tendril_stays_dark() {
+        // Home-view false filaments: a flat escape-time band with conjugation
+        // symmetry. Opposite flanks point away from the axis, so naive
+        // extrapolation manufactures a peak the old integer test never saw.
+        // The whole horizontal mid-row must stay dark.
+        let mut samples = Vec::new();
+        for y in 0..5 {
+            for _x in 0..9 {
+                // Angles point away from the mid-row (y=2): up-flank down? 
+                // Away from axis: y<2 points up (-π/2 in screen y-down), y>2 points down.
+                let angle = if y < 2 {
+                    -FRAC_PI_2 as f32
+                } else if y > 2 {
+                    FRAC_PI_2 as f32
+                } else {
+                    0.0
+                };
+                samples.push(outside(20, angle));
+            }
+        }
+        let values = ZoomerValuesScreen {
+            values: samples,
+            res: (9, 5),
+            objective_location: ObjectivePosAndZoom {
+                pos: (crate::utils::IntExp::ZERO, crate::utils::IntExp::ZERO),
+                zoom_pot: 0,
+            },
+        hud: Default::default()
+    };
+        for x in 1..8 {
+            assert!(!is_in_filament(&values, (x, 2)),
+                "conjugation-axis tendril lit at ({x}, 2)");
+        }
+    }
+
+    // r[verify cz.craft.screen-space-derivative-edges+1]
+    #[test]
+    fn monotone_exterior_field_never_lights() {
+        // Smooth outside-set field: escape time falls to the right and every
+        // gradient points right (increasing |z|). No screen pixel is a ridge.
+        let mut samples = Vec::new();
+        for _y in 0..5 {
+            for x in 0..7 {
+                samples.push(outside(40 - x as u32, 0.0));
+            }
+        }
+        let values = ZoomerValuesScreen {
+            values: samples,
+            res: (7, 5),
+            objective_location: ObjectivePosAndZoom {
+                pos: (crate::utils::IntExp::ZERO, crate::utils::IntExp::ZERO),
+                zoom_pot: 2,
+            },
+        hud: Default::default()
+    };
+        for y in 1..4 {
+            for x in 1..6 {
+                assert!(!is_in_filament(&values, (x, y)),
+                    "monotone exterior field lit a false filament at ({x}, {y})");
+            }
+        }
+    }
+
+    // r[verify cz.craft.screen-space-derivative-edges+1]
+    #[test]
+    fn near_flat_escape_delta_one_stays_dark() {
+        // Boundary speckles: escape time only differs by one from neighbors.
+        // That is still a plateau for filament purposes — must stay dark.
+        let times = [
+            5u32, 5, 5,
+            5, 6, 5,
+            5, 5, 5,
+        ];
+        let values = ZoomerValuesScreen {
+            values: times.into_iter().map(|t| outside(t, FRAC_PI_2 as f32)).collect(),
+            res: (3, 3),
+            objective_location: ObjectivePosAndZoom {
+                pos: (crate::utils::IntExp::ZERO, crate::utils::IntExp::ZERO),
+                zoom_pot: 0,
+            },
+        hud: Default::default()
+    };
+        assert!(!is_in_filament(&values, (1, 1)),
+            "±1 escape-time bump must not light as a filament");
+    }
+
+    // r[verify cz.craft.screen-space-derivative-edges+1]
+    #[test]
+    fn true_ridge_stays_one_pixel_with_raw_contrast() {
+        // A real in-filament has an elevated escape-time spine. It must light
+        // exactly one screen column — the thin line the old look had — not a
+        // block of neighbors.
+        for width in [8i32, 16] {
+            let ridge = width / 2;
+            let mut samples = Vec::new();
+            for _y in 0..3 {
+                for x in 0..width {
+                    let (time, angle) = if x < ridge {
+                        (4, PI as f32)
+                    } else if x > ridge {
+                        (4, 0.0)
+                    } else {
+                        (8, FRAC_PI_2 as f32)
+                    };
+                    samples.push(outside(time, angle));
+                }
+            }
+            let values = ZoomerValuesScreen {
+                values: samples,
+                res: (width as u32, 3),
+                objective_location: ObjectivePosAndZoom {
+                    pos: (crate::utils::IntExp::ZERO, crate::utils::IntExp::ZERO),
+                    zoom_pot: if width == 8 { 1 } else { 2 },
+                },
+                            hud: Default::default()
+};
+            let lit: Vec<i32> = (1..width - 1)
+                .filter(|x| is_in_filament(&values, (*x, 1)))
+                .collect();
+            assert_eq!(lit, vec![ridge], "true ridge must stay exactly one screen pixel");
+        }
+    }
+
+    // r[verify cz.craft.screen-space-derivative-edges+1]
+    #[test]
+    fn remapped_duplicate_block_does_not_become_a_thick_band() {
+        // After a 2x remap a 1px ridge becomes a 2-wide block of identical
+        // elevated answers. Lighting every raw boundary of that block makes
+        // the "flashing big blocks" regression. At most one column may light;
+        // lighting none is also acceptable (interim honesty) — never two.
+        let mut samples = Vec::new();
+        // Cross-section: 4,4,8,8,4,4 — duplicated ridge block.
+        let row = [4u32, 4, 8, 8, 4, 4];
+        for _y in 0..3 {
+            for (x, &t) in row.iter().enumerate() {
+                let angle = if (x as i32) < 2 {
+                    PI as f32
+                } else if (x as i32) > 3 {
+                    0.0
+                } else {
+                    FRAC_PI_2 as f32
+                };
+                samples.push(outside(t, angle));
+            }
+        }
+        let values = ZoomerValuesScreen {
+            values: samples,
+            res: (6, 3),
+            objective_location: ObjectivePosAndZoom {
+                pos: (crate::utils::IntExp::ZERO, crate::utils::IntExp::ZERO),
+                zoom_pot: 1,
+            },
+        hud: Default::default()
+    };
+        let lit: Vec<i32> = (1..5)
+            .filter(|x| is_in_filament(&values, (*x, 1)))
+            .collect();
+        assert!(lit.len() <= 1,
+            "remapped ridge block thickened into {:?}; want at most one column", lit);
+    }
 }

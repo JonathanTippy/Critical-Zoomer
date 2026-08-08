@@ -1,0 +1,39 @@
+# Assistant docs
+
+Assistant-generated design-level docs. Not authoritative — `../authoritative/` wins on
+conflict. Ground rules are in `../delivery.md` and `../docs_structure.md` (both read-only).
+Trash is physically moved to `Trash/`, not banner-marked; dumpster diving there is welcome.
+
+## Reading flow
+
+1. **Rules of the house** — `../delivery.md`, `../docs_structure.md`
+2. **What the product must be** — `../authoritative/` (expectations, feasibility, requirements)
+3. **What we are building** — `design/design-target.md` (v0.0.9 semantics on GPU, views not
+   tiles), then `design/workgroup-virtues.md` (the golden invariants — read before touching
+   the workgroup), then `design/depth-design.md` (perturbation + background reference worker;
+   the depth plan)
+4. **Rules tied to code** — `tracey/` (each rule cites its code site; craftsmanship rules bind
+   the virtues-doc inventory to the exact lines that implement it; `depth-rules.md` binds the
+   isolated perturbation core and its differential oracle)
+5. **Measured performance** — `benchmarks.md` (fitness suite, committed baseline, regression
+   guard; fitness lives in benches, never in tests)
+6. **Live work** — `issue-stack.md` (open bugs, design gaps, cleanup list)
+7. **Product knowledge** — `collected-wisdom.md` (tier 1, vetted), then the tier-2 salvage
+   files: `salvage-from-trash.md` (unvetted doc leads) and `salvage-from-code.md` (portable
+   tile-era features, with evidence and v0.0.9 hook points — a porting menu, not yet ported)
+8. **Research library** — `mandelbrot-library/` (digested published Mandelbrot algorithms by
+   design problem: period determination, perturbation, series approximation, numerics,
+   rendering, reference strategy; start here before designing depth or GPU work)
+9. **Unit design** — `unit-design/` (developer decisions + live unit designs)
+10. **History** — `Trash/` (tile-era designs, reset test matrices, QC scorecards, experiments;
+    nothing in here is live)
+
+## Trust tiers
+
+- **Authoritative** — `../authoritative/`; assistant may not edit.
+- **Tier 1** — this tree's live docs; vetted against the restored v0.0.9 code.
+- **Tier 2** — `salvage-from-trash.md` (doc leads) and `salvage-from-code.md` (tile-era code
+  features); rescued, not yet vetted or ported. Promote doc entries into `collected-wisdom.md`
+  only after checking against code and, where behavioral, the developer; promote code entries
+  by porting them.
+- **Trash** — `Trash/`; superseded or historical. Source material only.

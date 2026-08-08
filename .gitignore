@@ -5,3 +5,4 @@ mutants.out/
 # Ide stuff
 /.idea/
 /.cursor/
+mutants.out.old/

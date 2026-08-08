@@ -1,0 +1,31 @@
+# Assistant unit design (non-authoritative)
+
+This tree closes practical gaps in the NASA-V **unit design** phase so unit testing can proceed even though authoritative `docs/authoritative/` is incomplete.
+
+**Not authoritative.** `docs/authoritative/` wins on conflict. These files only answer questions the authoritative unit docs leave open, or cover units that have no authoritative unit doc yet.
+
+> **2026-08-06 revert note.** Codebase reverted to v0.0.9 (e6a0560). The tile-era unit pack
+> (supplements, coverage matrix, actor graph, tile/GPU units) moved to
+> `../Trash/unit-design-tile-era/`. What remains below applies to the restored code.
+> `decisions.md` carries a standing-vs-suspended banner distinguishing the two eras' rulings.
+
+## Conventions
+
+- **Inferred** — forced by authoritative text or by decisions already recorded under `decisions.md`.
+- **Assumed** — picked so work can proceed; veto-friendly. Prefer searching `assumed` when reviewing.
+- Stable ids look like `UD-SHADE-1` so tests and notes can cite a single point of change.
+- Stay in the unit-design lane: behaviors, actors, relations, responsibilities — not implementation trivia.
+
+## Layout
+
+- `decisions.md` — developer rulings from the Q&A pass (source of truth for this tree; standing vs suspended sections marked)
+- `new/` — unit designs for units with no authoritative design file:
+  - `number_stack.md` — IntExp / numeric tower units (still relevant: `src/utils.rs` IntExp)
+  - `settings_and_coloring.md` — settings + layer/coloring units (matches restored `src/settings.rs`)
+  - `window_controls.md` — input/controls units (matches restored `headgroup/window/inputs.rs`)
+
+## How to use
+
+1. Read the matching authoritative design first (if any).
+2. Read the `new/` file for gaps.
+3. Treat `assumed` entries as provisional until confirmed or replaced in authoritative docs.

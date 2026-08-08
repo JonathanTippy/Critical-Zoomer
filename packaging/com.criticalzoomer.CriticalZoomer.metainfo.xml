@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.criticalzoomer.CriticalZoomer</id>
+  <name>Critical Zoomer</name>
+  <summary>GPU-accelerated Mandelbrot set explorer</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary</project_license>
+  <description>
+    <p>
+      Critical Zoomer explores the Mandelbrot set with seamless deep zoom,
+      GPU-accelerated perturbation rendering, and a focus on speed and
+      calibration at extreme magnification.
+    </p>
+  </description>
+  <launchable type="desktop-id">com.criticalzoomer.CriticalZoomer.desktop</launchable>
+  <url type="homepage">https://github.com/jonathan/critical-zoomer</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.0.8" date="2026-07-28">
+      <description>
+        <p>Initial packaged release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Critical Zoomer
+Comment=GPU-accelerated Mandelbrot set explorer
+Exec=critical_zoomer
+Icon=com.criticalzoomer.CriticalZoomer
+Terminal=false
+Categories=Graphics;Education;
+StartupWMClass=critical_zoomer
