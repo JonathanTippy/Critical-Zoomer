@@ -152,15 +152,15 @@ The app must not have a "max iteration count" setting;
 points must be iterated to completion. 
 This should keep up with the user but might not. Low-res interim systems are acceptable.
 
-r[cz.seamless.perturbation-always-on+1]
+r[cz.seamless.perturbation-always-on+2]
 
 The app must not have a perturbation toggle;
-perturbation must always be on.
+perturbation must always be on automatically if its needed / faster.
 
-r[cz.seamless.gpu-preferred+1]
+r[cz.seamless.gpu-preferred+2]
 
 The app must not have a GPU toggle;
-GPU acceleration must always be on.
+GPU acceleration must always be on if its faster.
 
 r[cz.seamless.reference-background+1]
 
