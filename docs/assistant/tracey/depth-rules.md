@@ -266,12 +266,14 @@ Aggregate HUD gear may be MIXED when seats disagree.
 
 r[cz.depth.gear-hud+1]
 
-**Rule.** The HUD displays the effective active compute gear and rolling IPS
-(iterations/sec) and PPS (completed points/sec). Mixed-seat views surface
-MIXED rather than a false single gear. No user setting selects the gear.
+**Rule.** The HUD displays host stack, compute path (zero/ref/glitch), effective
+active compute gear, and rolling IPS (iterations/sec) and PPS (completed
+points/sec). Mixed-seat views surface MIXED rather than a false single gear. No
+user setting selects the gear. Metrics overlay stays top-left; location/goto
+panel bottom-right (`r[cz.ui.coords-parse+2]`, `r[cz.ui.location-readout+2]`).
 
 **Implementation.** `WorkUpdate` telemetry → collector → window HUD overlay;
 `PpsCounter` / iteration accounting in `rolling.rs`.
 
 **Verification.** `hud_telemetry_carries_gear_and_rates`,
-`pps_counter_counts_completions_not_wip`.
+`pps_counter_counts_completions_not_wip`, `telemetry_path_zero_then_ref`.

@@ -111,6 +111,15 @@ Seats may promote mid-orbit independently. The HUD reports the aggregate
 active gear (`F64` / `S-F64` / `FE` / `MIXED`) plus rolling IPS and PPS
 (`r[cz.depth.gear-hud+1]`). f32 remains a typed extension point, deferred.
 
+**Three HUD layers (stack / path / gear).** Stack is the view-global host type
+(`f64` vs FloatExp) admitted by `CGenerator`. Path reports the reference floor
+in use today (`zero` / `ref` / `glitch`) until naive|pert kernel selection lands.
+Gear is the per-seat delta ladder under perturbation. The normative goal is
+view-global selection of the legal stack that maximizes completed points per
+second; a future soft probe (~100 ms) may switch naive vs perturbed when
+difficulty warrants it (`r[cz.perf.pps-selected-kernel+1]`). The transitional
+one-kernel rule (`r[cz.perf.one-kernel-path+1]`) still ships perturbation only.
+
 The worker retains a **constant-size high-precision state**: the current
 iterate plus Brent cycle-detector cursors. That buys resumability — including
 exact period/preperiod detection across 10ms bout boundaries — without keeping

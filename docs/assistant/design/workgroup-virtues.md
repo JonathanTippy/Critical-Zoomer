@@ -169,9 +169,10 @@ Read what this rotation *is*: **timeslicing between scheduling queues**. Each of
 The scheduler is deliberately separated from the numerical kernel it runs
 (`r[cz.craft.kernel-seam+1]`). `SeatKernel` owns only three operations:
 materialize one seat, run one `BoutCap`-bounded numerical bout, and map a
-finished seat to its answer. Production runs `PerturbationKernel` exclusively
-(`r[cz.perf.one-kernel-path+1]`); `DirectKernel` is the test-only parity oracle.
-The slot rotation, queues, attention hold, neighbor discovery, delivery
+finished seat to its answer. Production currently runs `PerturbationKernel`
+(`r[cz.perf.one-kernel-path+1]`, transitional); the destination is view-global
+PPS-selected naive vs perturbed kernel choice (`r[cz.perf.pps-selected-kernel+1]`).
+`DirectKernel` remains the parity oracle. The slot rotation, queues, attention
 backpressure, and wall-clock law remain outside the kernel. Swapping arithmetic
 does not rewrite any of the empirically proven scheduling machinery.
 

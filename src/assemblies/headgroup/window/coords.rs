@@ -33,7 +33,7 @@ pub fn decimal_str_to_intexp(s: &str) -> Option<IntExp> {
 
 /// UL location so viewport center is at (center_re, center_im) in math coords.
 /// Stored imag is negated (SetPos convention).
-// r[impl cz.ui.location-readout+1]
+// r[impl cz.ui.location-readout+2]
 pub fn ul_for_center(
     center_re: IntExp
     , center_im: IntExp
@@ -59,7 +59,7 @@ pub fn ul_for_center(
 }
 
 /// Viewport center in mathematical (re, im) from UL location.
-// r[impl cz.ui.location-readout+1]
+// r[impl cz.ui.location-readout+2]
 pub fn viewport_center(loc: &ObjectivePosAndZoom, screen: (u32, u32)) -> (IntExp, IntExp) {
     let half_w = IntExp {
         val: Integer::from(screen.0 / 2)
@@ -76,7 +76,7 @@ pub fn viewport_center(loc: &ObjectivePosAndZoom, screen: (u32, u32)) -> (IntExp
 }
 
 /// Compact decimal for the location HUD (avoid IntExp Display's "n...." truncation).
-// r[impl cz.ui.location-readout+1]
+// r[impl cz.ui.location-readout+2]
 pub fn format_intexp_readout(v: &IntExp) -> String {
     let f = f64::from(v.clone());
     if !f.is_finite() {
@@ -95,7 +95,7 @@ pub fn format_intexp_readout(v: &IntExp) -> String {
 }
 
 /// Read-only location field: center re/im + magnification pot (requirements).
-// r[impl cz.ui.location-readout+1]
+// r[impl cz.ui.location-readout+2]
 pub fn format_location_readout(re: &IntExp, im: &IntExp, zoom_pot: i32) -> String {
     let im_s = format_intexp_readout(im);
     let im_part = if im_s.starts_with('-') {
@@ -123,7 +123,7 @@ pub fn read_location_clipboard() -> Option<String> {
     arboard::Clipboard::new().ok()?.get_text().ok()
 }
 
-// r[impl cz.ui.coords-parse+1]
+// r[impl cz.ui.coords-parse+2]
 pub fn parse_complex(input: &str) -> Option<(IntExp, IntExp)> {
     let mut s = input.trim().to_string();
     for ch in ['(', ')', '[', ']', '{', '}'] {
@@ -241,13 +241,12 @@ pub fn commands_from_goto_line(line: &str) -> Option<Vec<ZoomerCommand>> {
         ]);
     }
     let (re, im, pot) = parse_location_or_pair(line)?;
+    let pot = pot?;
     // SetZoom must precede SetPos: ul_for_center uses the active zoom pot.
     // Emitting SetPos first made the same pasted location land differently
     // depending on the caller's current magnification (B-GOTO-2).
     let mut cmds = Vec::new();
-    if let Some(p) = pot {
-        cmds.push(ZoomerCommand::SetZoom { pot: p });
-    }
+    cmds.push(ZoomerCommand::SetZoom { pot });
     cmds.push(ZoomerCommand::SetPos { real: re, imag: im });
     Some(cmds)
 }
@@ -323,7 +322,7 @@ pub fn apply_button_enabled(line_valid: bool, _already_at_location: bool) -> boo
 mod tests {
     use super::*;
 
-    // r[verify cz.ui.coords-parse+1]
+    // r[verify cz.ui.coords-parse+2]
     #[test]
     fn parse_comma_pair() {
         let (re, im) = parse_complex("1.5, -2").unwrap();
@@ -331,7 +330,7 @@ mod tests {
         assert!((f64::from(im) + 2.0).abs() < 1e-9);
     }
 
-    // r[verify cz.ui.coords-parse+1]
+    // r[verify cz.ui.coords-parse+2]
     #[test]
     fn parse_plus_i_form() {
         let (re, im) = parse_complex("3+4i").unwrap();
@@ -339,7 +338,7 @@ mod tests {
         assert!((f64::from(im) - 4.0).abs() < 1e-9);
     }
 
-    // r[verify cz.ui.coords-parse+1]
+    // r[verify cz.ui.coords-parse+2]
     #[test]
     fn parse_imag_leading_parens() {
         // requirements: (5i + 6) = (6 + 5i)
@@ -378,7 +377,7 @@ mod tests {
         assert!(im1 > im0, "mouse-down grab must raise math imag; im0={im0} im1={im1}");
     }
 
-    // r[verify cz.ui.location-readout+1]
+    // r[verify cz.ui.location-readout+2]
     #[test]
     fn ul_for_center_zero_centers_viewport() {
         let loc = ul_for_center(IntExp::ZERO, IntExp::ZERO, 0, (800, 480));
@@ -389,7 +388,7 @@ mod tests {
         assert!(im_f.abs() < 1e-6, "im={im_f}");
     }
 
-    // r[verify cz.ui.location-readout+1]
+    // r[verify cz.ui.location-readout+2]
     #[test]
     fn location_readout_includes_magnification_pot() {
         let loc = ul_for_center(IntExp::from(1), IntExp::from(-1), 5, (800, 480));
@@ -404,7 +403,7 @@ mod tests {
         );
     }
 
-    // r[verify cz.ui.location-readout+1]
+    // r[verify cz.ui.location-readout+2]
     #[test]
     fn location_readout_tracks_center_not_ul() {
         let loc = ul_for_center(IntExp::from(2), IntExp::ZERO, 0, (800, 480));
@@ -414,7 +413,7 @@ mod tests {
         assert!((f64::from(re) - 2.0).abs() < 1e-6);
     }
 
-    // r[verify cz.ui.location-readout+1]
+    // r[verify cz.ui.location-readout+2]
     #[test]
     fn location_readout_string_has_center_and_mag() {
         let loc = ul_for_center(IntExp::from(0), IntExp::from(0), 3, (800, 480));
@@ -425,7 +424,7 @@ mod tests {
         assert!(!text.contains("..."), "must not use truncated IntExp Display; got {text}");
     }
 
-    // r[verify cz.ui.location-readout+1]
+    // r[verify cz.ui.location-readout+2]
     #[test]
     fn format_intexp_readout_avoids_ellipsis_truncation() {
         let v = f64_to_intexp(0.5);
@@ -438,7 +437,8 @@ mod tests {
     fn empty_goto_invalid() {
         assert!(!goto_line_is_valid(""));
         assert!(!goto_line_is_valid("   "));
-        assert!(goto_line_is_valid("0, 0"));
+        assert!(!goto_line_is_valid("0, 0"));
+        assert!(goto_line_is_valid("0, 0 mag 2^0"));
     }
 
     // r[verify cz.ui.coords-apply+1]
@@ -504,7 +504,7 @@ mod tests {
     #[test]
     fn goto_accepts_plus_imag_form_and_legacy_triplet() {
         assert!(goto_line_is_valid("0.5 + 0.25i mag 2^0"));
-        assert!(goto_line_is_valid("0, 0"));
+        assert!(!goto_line_is_valid("0, 0"));
         assert!(goto_line_is_valid("1.5 -2 7"));
         let cmds = commands_from_goto_line("1.5 -2 7").expect("legacy");
         assert!(matches!(cmds.first(), Some(ZoomerCommand::SetZoom { pot: 7 })));
@@ -620,7 +620,7 @@ mod tests {
         assert!((f64::from(ai) - f64::from(bi)).abs() < 1e-9);
     }
 
-    // r[verify cz.ui.coords-parse+1]
+    // r[verify cz.ui.coords-parse+2]
     // REQ-CTRL-PARSE
     #[test]
     fn parse_braces_and_extra_spaces() {
@@ -629,10 +629,19 @@ mod tests {
         assert!((f64::from(im) - 2.0).abs() < 1e-9);
     }
 
-    // r[verify cz.ui.coords-parse+1]
+    // r[verify cz.ui.coords-parse+2]
     #[test]
     fn parse_rejects_garbage() {
         assert!(parse_complex("not a coordinate").is_none());
         assert!(parse_complex("1").is_none());
+    }
+
+    // r[verify cz.ui.coords-parse+2]
+    #[test]
+    fn goto_requires_magnification_except_home() {
+        assert!(!goto_line_is_valid("1, 2"));
+        assert!(!goto_line_is_valid("1 + 2i"));
+        assert!(goto_line_is_valid("1 + 2i mag 2^3"));
+        assert!(goto_line_is_valid("home"));
     }
 }

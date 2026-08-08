@@ -205,13 +205,17 @@ mod tests {
     // r[verify cz.depth.gear-hud+1]
     #[test]
     fn hud_telemetry_carries_gear_and_rates() {
-        use crate::assemblies::structs::ViewHud;
+        use crate::assemblies::structs::{ComputePath, HostStack, ViewHud};
         use crate::delta_gear::ComputeGear;
         let hud = ViewHud {
+            stack: HostStack::F64,
+            path: ComputePath::Ref,
             gear: ComputeGear::ScaledF64,
             points_delta: 3,
             iterations_delta: 1000,
         };
+        assert_eq!(hud.stack.hud_label(), "f64");
+        assert_eq!(hud.path.hud_label(), "ref");
         assert_eq!(hud.gear.hud_label(), "S-F64");
         let mut pps = RateCounter::default();
         let mut ips = RateCounter::default();

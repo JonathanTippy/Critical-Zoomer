@@ -13,13 +13,51 @@ pub struct PointStencil {
     , pub serial_number: u64
 }
 
-/// Worker → display telemetry for HUD (gear + rate counters).
+/// Worker → display telemetry for HUD (stack, path, gear + rate counters).
 // r[impl cz.depth.gear-hud+1]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct ViewHud {
+    pub stack: HostStack,
+    pub path: ComputePath,
     pub gear: ComputeGear,
     pub points_delta: u64,
     pub iterations_delta: u64,
+}
+
+/// Host numeric stack for the view shell (`f64` vs FloatExp).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum HostStack {
+    #[default]
+    F64,
+    FloatExp,
+}
+
+impl HostStack {
+    pub fn hud_label(self) -> &'static str {
+        match self {
+            HostStack::F64 => "f64",
+            HostStack::FloatExp => "FE",
+        }
+    }
+}
+
+/// Reference floor in use (interim until naive|pert kernel HUD).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ComputePath {
+    #[default]
+    Zero,
+    Ref,
+    Glitch,
+}
+
+impl ComputePath {
+    pub fn hud_label(self) -> &'static str {
+        match self {
+            ComputePath::Zero => "zero",
+            ComputePath::Ref => "ref",
+            ComputePath::Glitch => "glitch",
+        }
+    }
 }
 
 #[derive(PartialEq, Clone, Debug)]

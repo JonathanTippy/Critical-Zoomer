@@ -24,6 +24,8 @@ pub struct WorkUpdate<T> {
     /// Aggregate active compute gear for HUD.
     // r[impl cz.depth.gear-hud+1]
     pub active_gear: crate::delta_gear::ComputeGear,
+    pub host_stack: crate::assemblies::structs::HostStack,
+    pub compute_path: crate::assemblies::structs::ComputePath,
     /// Iterations performed since the previous update.
     pub iterations_delta: u64,
 }
@@ -317,13 +319,47 @@ fn telemetry_update<T>(
     iterations_delta: u64,
 ) -> WorkUpdate<T>
 where
-    T: Mandelbrotable,
+    T: Mandelbrotable + 'static,
 {
+    use crate::assemblies::structs::{ComputePath, HostStack};
+    let (host_stack, compute_path, active_gear) = match ctx {
+        Some(c) => (
+            host_stack_for_context::<T>(),
+            classify_compute_path(c),
+            c.active_gear,
+        ),
+        None => (HostStack::F64, ComputePath::Zero, ComputeGear::F64),
+    };
     WorkUpdate {
         frame_info,
         completed_points,
-        active_gear: ctx.map(|c| c.active_gear).unwrap_or(ComputeGear::F64),
+        active_gear,
+        host_stack,
+        compute_path,
         iterations_delta,
+    }
+}
+
+/// Host stack admitted for this `WorkContext` monomorphization.
+pub fn host_stack_for_context<T: Mandelbrotable + 'static>() -> crate::assemblies::structs::HostStack {
+    use crate::assemblies::structs::HostStack;
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<crate::floatexp::FloatExp>() {
+        HostStack::FloatExp
+    } else {
+        HostStack::F64
+    }
+}
+
+/// Interim path telemetry until naive|pert kernel selection lands.
+pub fn classify_compute_path<T: Mandelbrotable>(ctx: &WorkContext<T>) -> crate::assemblies::structs::ComputePath {
+    use crate::assemblies::structs::ComputePath;
+    if ctx.points.iter().any(|p| p.direct_only) {
+        return ComputePath::Glitch;
+    }
+    if ctx.latest_reference.is_some() {
+        ComputePath::Ref
+    } else {
+        ComputePath::Zero
     }
 }
 

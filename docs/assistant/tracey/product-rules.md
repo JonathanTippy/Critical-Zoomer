@@ -169,9 +169,16 @@ r[cz.ui.coords-parse+1]
 
 **Normative summary.** Coordinate field accepts likely forms (space/comma/plus-i, parens,
 brackets, imag-leading) and rejects invalid input without user confusion.
+*Superseded by `+2` for placement and mag-required parse.*
+
+r[cz.ui.coords-parse+2]
+
+**Normative summary.** Goto field at bottom-right accepts likely coordinate forms
+and **requires** magnification (`mag 2^N` or equivalent). Rejects invalid input
+without user confusion.
 
 **Acceptance criteria.**
-- Ported: [`coords.rs`](../../src/assemblies/headgroup/window/coords.rs) parse/readout/Apply; HUD coord bar; `SetPos` center semantics. Verify tags on coords tests.
+- [`coords.rs`](../../src/assemblies/headgroup/window/coords.rs) parse/readout/Apply; HUD coord bar bottom-right; `SetPos` center semantics. Verify tags on coords tests.
 
 r[cz.ui.coords-apply+1]
 
@@ -185,9 +192,16 @@ r[cz.ui.location-readout+1]
 
 **Normative summary.** Read-only location field shows viewport center with copy;
 coordinates entry/display always includes magnification.
+*Superseded by `+2` for bottom-right placement.*
+
+r[cz.ui.location-readout+2]
+
+**Normative summary.** Read-only location field in the bottom-right panel (with
+goto) shows viewport center with copy; always includes magnification.
 
 **Acceptance criteria.**
-- Ported: location HUD string includes `mag 2^N`, Copy button, center (not UL).
+- Location HUD string includes `mag 2^N`, Copy button, center (not UL); panel
+  anchored bottom-right.
 
 r[cz.ui.viewport-fill+1]
 

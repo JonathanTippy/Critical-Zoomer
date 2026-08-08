@@ -1083,6 +1083,24 @@ fn install_covering_reference_with_series(
     }));
 }
 
+// r[verify cz.depth.gear-hud+1]
+#[test]
+fn telemetry_path_zero_then_ref() {
+    use crate::assemblies::structs::{ComputePath, HostStack};
+    use crate::assemblies::workgroup::screen_worker::{
+        classify_compute_path, host_stack_for_context,
+    };
+    run_big(|| {
+        let frame = home_frame();
+        let ctx = from_stencil(frame.clone(), None).expect("home view");
+        assert_eq!(classify_compute_path(&ctx), ComputePath::Zero);
+        assert_eq!(host_stack_for_context::<FloatExp>(), HostStack::FloatExp);
+        let mut ctx = ctx;
+        install_covering_reference_with_series(&mut ctx, &frame);
+        assert_eq!(classify_compute_path(&ctx), ComputePath::Ref);
+    });
+}
+
 fn fill_until_complete_perturb(ctx: &mut WorkContext<FloatExp>, max_shifts: usize) {
     for _ in 0..max_shifts {
         if ctx.percent_completed >= 100.0 {

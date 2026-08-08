@@ -206,3 +206,17 @@ never the algorithm. `DirectKernel` is test-only.
 - [x] `workshift` constructs `PerturbationKernel` only; `DirectKernel` is `#[cfg(test)]`.
 - [x] Zero-orbit floor and `direct_only` seats run the same delta code.
 - [x] Parity proptest vs the test-only oracle; benches measure the shipping path.
+
+r[cz.perf.pps-selected-kernel+1]
+
+**Normative summary.** Per view, run the legal stack (host type + kernel mode)
+that maximizes completed points per second for outstanding work. Stack is
+view-global and dead-reckoned from `CGenerator` admission. Kernel mode is
+view-global: default naive when legal; hard-bump to perturbed when naive cannot
+be honest; soft-probe perturbed for ~100 ms when avg iterations/point exceeds a
+difficulty threshold and a covering reference exists; stick with the winner
+until Replace / type change / ref generation change / cooldown re-probe.
+
+**Acceptance criteria.**
+- [ ] HUD reports stack + path + gear truthfully (`r[cz.depth.gear-hud+1]`).
+- [ ] Dual production kernel dispatch + probe controller (deferred follow-up).

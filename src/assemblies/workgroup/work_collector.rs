@@ -99,6 +99,8 @@ async fn internal_behavior<A: SteadyActor>(
                 if let Some(f) = U.frame_info {
                     *completed_work = sample_old_values(&completed_work, f.0, f.1);
                     completed_work.hud = crate::assemblies::structs::ViewHud {
+                        stack: U.host_stack,
+                        path: U.compute_path,
                         gear: U.active_gear,
                         points_delta: 0,
                         iterations_delta: U.iterations_delta,
@@ -121,6 +123,8 @@ async fn internal_behavior<A: SteadyActor>(
                         completed_work.results[W.1] = W.0;
                     }
                     completed_work.hud = crate::assemblies::structs::ViewHud {
+                        stack: U.host_stack,
+                        path: U.compute_path,
                         gear: U.active_gear,
                         points_delta: l as u64,
                         iterations_delta: U.iterations_delta,
@@ -186,6 +190,8 @@ async fn internal_behavior<A: SteadyActor>(
                         , screen_res: f.1
                         , location: f.0
                         , hud: crate::assemblies::structs::ViewHud {
+                            stack: U.host_stack,
+                            path: U.compute_path,
                             gear: U.active_gear,
                             points_delta: U.completed_points.len() as u64,
                             iterations_delta: U.iterations_delta,
