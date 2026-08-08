@@ -369,13 +369,18 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
         // Live f64 actors: absolute grid (banding-safe production path).
         (CGenerator::<T>::new(&compute_loc, obj.zoom_pot as i64, res)?, false)
     };
+    let (_, space) = c_generator.origin_and_space();
+    let pitch_epsilon = space.abs() * T::from(1.0 / 256.0);
     let view_gear = if use_floatexp_host {
         ComputeGear::FloatExp
     } else {
-        ComputeGear::F64
+        let pitch = pitch_epsilon.to_f64() * 256.0;
+        if pitch > 0.0 && pitch < crate::delta_gear::F64_PERTURB_USEFUL_FLOOR {
+            ComputeGear::ScaledF64
+        } else {
+            ComputeGear::F64
+        }
     };
-    let (_, space) = c_generator.origin_and_space();
-    let pitch_epsilon = space.abs() * T::from(1.0 / 256.0);
 
     // r[impl cz.craft.pan-zoom-slot0+1]
     // Zoom takes precedence over pan when both change; neither defaults to attention.

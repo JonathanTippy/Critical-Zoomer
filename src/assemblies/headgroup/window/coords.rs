@@ -111,6 +111,18 @@ pub fn format_location_readout(re: &IntExp, im: &IntExp, zoom_pot: i32) -> Strin
     )
 }
 
+/// Write location text to the OS clipboard (survives app restart).
+pub fn write_location_clipboard(text: &str) {
+    if let Ok(mut clip) = arboard::Clipboard::new() {
+        let _ = clip.set_text(text.to_owned());
+    }
+}
+
+/// Read plain text from the OS clipboard for goto paste.
+pub fn read_location_clipboard() -> Option<String> {
+    arboard::Clipboard::new().ok()?.get_text().ok()
+}
+
 // r[impl cz.ui.coords-parse+1]
 pub fn parse_complex(input: &str) -> Option<(IntExp, IntExp)> {
     let mut s = input.trim().to_string();

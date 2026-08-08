@@ -1121,6 +1121,7 @@ dependencies = [
 name = "critical_zoomer"
 version = "0.0.8"
 dependencies = [
+ "arboard",
  "clap",
  "criterion",
  "eframe",

@@ -1230,6 +1230,52 @@ fn f64_gear_home_fills_without_per_seat_gear_scan() {
 
 #[test]
 // r[verify cz.depth.compute-gear+1]
+fn seahorse_pot_19_f64_promotes_scaled_f64_and_delivers() {
+    use crate::delta_gear::ComputeGear;
+    use std::time::Instant;
+    run_big(|| {
+        let frame = frame_at_center(-0.743643887037151, 0.131825904205216, 19, (64, 48));
+        let req = select_reference_request::<FloatExp>(None, &frame);
+        let pub_ref = Arc::new(PublishedReference {
+            orbit: ReferenceOrbit::compute(&req.c, req.precision_bits, 512),
+            c: req.c.clone(),
+            generation: 1,
+            series: None,
+        });
+        let mut ctx = from_stencil::<f64>(frame, None).expect("seahorse admits f64 grid");
+        ctx.latest_reference = Some(pub_ref);
+        let pos = (10, 10);
+        PerturbationKernel.start_seat(&mut ctx, pos);
+        let idx = index_from_pos(&pos, ctx.res.0);
+        let delta = ctx.points[idx].delta.as_ref().expect("delta");
+        let dc_mag = delta.dc.re.to_f64().abs().max(delta.dc.im.to_f64().abs());
+        assert!(
+            delta.gear == ComputeGear::ScaledF64,
+            "deep view deltas must promote past plain f64 (dc_mag={dc_mag:.3e} gear={:?})",
+            delta.gear
+        );
+        let start = Instant::now();
+        let mut shifts = 0u32;
+        while ctx.points.iter().filter(|p| p.delivered).count() < 100 {
+            workshift(16_000_000, 2, 4, 150, &mut ctx);
+            while ctx.completed_points.try_pop().is_some() {}
+            shifts += 1;
+            assert!(
+                shifts < 5_000,
+                "seahorse pot 19 stalled: delivered={} gear={:?}",
+                ctx.points.iter().filter(|p| p.delivered).count(),
+                ctx.active_gear
+            );
+            assert!(
+                start.elapsed().as_secs() < 30,
+                "seahorse pot 19 timed out"
+            );
+        }
+    });
+}
+
+#[test]
+// r[verify cz.depth.compute-gear+1]
 fn f64_gear_zero_orbit_center_reports_period_one() {
     let frame = (
         ObjectivePosAndZoom {

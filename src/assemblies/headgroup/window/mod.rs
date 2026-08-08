@@ -520,6 +520,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                             .interactive(true)
                                     );
                                     if ui.button("Copy").clicked() {
+                                        write_location_clipboard(&center_text);
                                         ui.ctx().copy_text(center_text);
                                     }
                                 });
@@ -527,9 +528,22 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                     ui.label("goto");
                                     let response = ui.add(
                                         egui::TextEdit::singleline(&mut state.coord_input)
-                                            .desired_width(280.0)
+                                            .desired_width(240.0)
                                             .hint_text("re, im  or  a+bi")
                                     );
+                                    if response.gained_focus() && state.coord_input.is_empty() {
+                                        if let Some(text) = read_location_clipboard() {
+                                            let trimmed = text.trim().to_string();
+                                            if goto_line_is_valid(&trimmed) {
+                                                state.coord_input = trimmed;
+                                            }
+                                        }
+                                    }
+                                    if ui.button("Paste").clicked() {
+                                        if let Some(text) = read_location_clipboard() {
+                                            state.coord_input = text.trim().to_string();
+                                        }
+                                    }
                                     let valid = goto_line_is_valid(&state.coord_input);
                                     let apply = ui.add_enabled(valid, egui::Button::new("Apply"));
                                     let go = apply.clicked()

@@ -27,6 +27,9 @@ impl ComputeGear {
 
 /// Floor below which f64 delta components must promote (not flush to zero).
 const F64_UNDERFLOW_FLOOR: f64 = 1e-300;
+/// Below this magnitude, plain f64 perturbation loses precision vs the reference; use scaled-f64.
+/// Chosen above deep-view pixel pitch (2^-28 ≈ 3.7e-9 at pot 19) so filaments keep structure.
+pub const F64_PERTURB_USEFUL_FLOOR: f64 = 1e-7;
 /// Ceiling above which scaled-f64 inner values must rescale or promote.
 const F64_OVERFLOW_CEIL: f64 = 1e300;
 
@@ -93,13 +96,34 @@ pub fn f64_delta_admitted(re: f64, im: f64) -> bool {
     m == 0.0 || (m >= F64_UNDERFLOW_FLOOR && m <= F64_OVERFLOW_CEIL)
 }
 
+#[inline]
+fn pair_magnitude(v: (f64, f64)) -> f64 {
+    v.0.abs().max(v.1.abs())
+}
+
+/// Plain f64 perturbation is accurate enough at this delta magnitude.
+fn f64_perturbation_useful(re: f64, im: f64) -> bool {
+    let m = re.abs().max(im.abs());
+    m == 0.0 || m >= F64_PERTURB_USEFUL_FLOOR
+}
+
 /// Promote FloatExp complex delta to the strongest gear that still admits it.
 pub fn gear_for_delta(dc: ComplexFloatExp, dz: ComplexFloatExp) -> ComputeGear {
     let dc_f = fe_to_f64_pair(dc);
     let dz_f = fe_to_f64_pair(dz);
     match (dc_f, dz_f) {
-        (Some(dc), Some(dz)) if f64_delta_admitted(dc.0, dc.1) && f64_delta_admitted(dz.0, dz.1) => {
-            ComputeGear::F64
+        (Some(dc), Some(dz))
+            if f64_delta_admitted(dc.0, dc.1) && f64_delta_admitted(dz.0, dz.1) =>
+        {
+            let m = pair_magnitude(dc).max(pair_magnitude(dz));
+            if m > 0.0
+                && (!f64_perturbation_useful(dc.0, dc.1)
+                    || !f64_perturbation_useful(dz.0, dz.1))
+            {
+                ComputeGear::ScaledF64
+            } else {
+                ComputeGear::F64
+            }
         }
         _ => {
             // Scaled-f64 when inner f64 can hold scaled w after choosing scale from dz.
@@ -207,6 +231,13 @@ pub fn f64_step(
     if !f64_delta_admitted(dz_next.0, dz_next.1) || !f64_delta_admitted(dc.0, dc.1) {
         return (dz_next, dd_next, ComputeGear::ScaledF64);
     }
+    let m = pair_magnitude(dz_next).max(pair_magnitude(dc));
+    if m > 0.0
+        && (!f64_perturbation_useful(dz_next.0, dz_next.1)
+            || !f64_perturbation_useful(dc.0, dc.1))
+    {
+        return (dz_next, dd_next, ComputeGear::ScaledF64);
+    }
     (dz_next, dd_next, ComputeGear::F64)
 }
 
@@ -257,6 +288,25 @@ pub fn f64_from_fe(z: ComplexFloatExp) -> (f64, f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // r[verify cz.depth.compute-gear+1]
+    #[test]
+    fn gear_uses_scaled_f64_below_perturb_useful_floor() {
+        let tiny = ComplexFloatExp::new(FloatExp::from(1e-10), FloatExp::ZERO);
+        assert_eq!(gear_for_delta(tiny, tiny), ComputeGear::ScaledF64);
+        let homeish = ComplexFloatExp::new(FloatExp::from(1e-4), FloatExp::ZERO);
+        assert_eq!(gear_for_delta(homeish, homeish), ComputeGear::F64);
+    }
+
+    // r[verify cz.depth.compute-gear+1]
+    #[test]
+    fn gear_promotes_from_view_pitch() {
+        // Pixel pitch at pot 19: 2^-(19+9) = 2^-28.
+        let pitch = 2f64.powi(-28);
+        assert!(pitch < F64_PERTURB_USEFUL_FLOOR);
+        let dc = ComplexFloatExp::new(FloatExp::from(pitch), FloatExp::ZERO);
+        assert_eq!(gear_for_delta(dc, dc), ComputeGear::ScaledF64);
+    }
 
     // r[verify cz.depth.compute-gear+1]
     #[test]
