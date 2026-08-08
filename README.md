@@ -1,3 +1,8 @@
+
+
+https://github.com/user-attachments/assets/90da1254-4fd4-495d-b8f6-979036e106e8
+
+
 [![Leaderboard](https://my.kmf-lab.com/leaderboard/static/badge/JonathanTippy.svg)](https://my.kmf-lab.com/leaderboard/JonathanTippy/critical-zoomer)
 ![Untitled-Artwork_shortened](https://user-images.githubusercontent.com/54297927/212390663-ff8359e9-438a-4742-8cf6-3b7675a27f7a.jpg)
 Artwork by Deborah Tippy
