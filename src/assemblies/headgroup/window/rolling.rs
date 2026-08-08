@@ -217,7 +217,7 @@ mod tests {
         };
         assert_eq!(hud.stack.hud_label(), "f64");
         assert_eq!(hud.mode.hud_label(), "pert");
-        assert_eq!(hud.reference.hud_label(), "complete");
+        assert_eq!(hud.ref_hud_label(), "complete");
         assert_eq!(hud.gear.hud_label(), "S-F64");
         let mut pps = RateCounter::default();
         let mut ips = RateCounter::default();

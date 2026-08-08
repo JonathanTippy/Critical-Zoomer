@@ -173,7 +173,7 @@ async fn internal_behavior<A: SteadyActor>(
         , last_gear_label: "F64"
         , last_stack_label: "f64"
         , last_mode_label: "naive"
-        , last_ref_label: "wip"
+        , last_ref_label: "NA"
     }).await;
 
     {
@@ -334,7 +334,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     state.last_gear_label = s.hud.gear.hud_label();
                     state.last_stack_label = s.hud.stack.hud_label();
                     state.last_mode_label = s.hud.mode.hud_label();
-                    state.last_ref_label = s.hud.reference.hud_label();
+                    state.last_ref_label = s.hud.ref_hud_label();
                     update_sampling_context(&mut state.sampling_context, s);
 
                 }

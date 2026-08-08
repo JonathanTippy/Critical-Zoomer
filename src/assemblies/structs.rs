@@ -76,6 +76,17 @@ impl ReferenceStatus {
     }
 }
 
+impl ViewHud {
+    /// Ref column is NA when naive mode has no perturbation reference floor.
+    pub fn ref_hud_label(self) -> &'static str {
+        if self.mode == KernelMode::Naive {
+            "NA"
+        } else {
+            self.reference.hud_label()
+        }
+    }
+}
+
 #[derive(PartialEq, Clone, Debug)]
 pub struct View<T> {
     pub stencil: PointStencil

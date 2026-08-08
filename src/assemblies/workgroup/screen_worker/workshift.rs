@@ -159,6 +159,142 @@ pub struct WorkContext<T: Mandelbrotable> {
     , pub active_gear: ComputeGear
     // True when `c_generator` emits relative-to-`coord_anchor` samples.
     , pub coords_are_relative: bool
+    // Rolling ~1s HUD completion window for perturbation display gating.
+    , pub hud_points_window: u32
+    , pub hud_window_started: Instant
+    // True when seats may bind to `latest_reference`; trial-only, never sticky.
+    , pub reference_floor_active: bool
+    , pub pert_trial_shifts_left: u8
+    , pub pert_trial_cooldown: u32
+}
+
+/// Brief perturbation probe when direct is genuinely stuck (>2s to clear remaining).
+const PERT_TRIAL_SHIFTS: u8 = 3;
+const PERT_TRIAL_COOLDOWN_SHIFTS: u32 = 40;
+/// Seconds of remaining work at current PPS before a trial is warranted.
+const PERT_PROMOTE_REMAINING_SECS: f64 = 2.0;
+
+impl<T: Mandelbrotable> WorkContext<T> {
+    fn end_pert_trial(&mut self) {
+        self.reference_floor_active = false;
+        self.pert_trial_shifts_left = 0;
+        self.pert_trial_cooldown = PERT_TRIAL_COOLDOWN_SHIFTS;
+    }
+
+    fn struggling_to_clear(&self, remaining: u64, pps: f64) -> bool {
+        remaining > 0 && pps >= 1.0 && remaining as f64 / pps > PERT_PROMOTE_REMAINING_SECS
+    }
+
+    /// Called once per workshift after the kernel runs.
+    pub fn tick_pert_trial(&mut self) -> Option<&'static str> {
+        if !self.reference_floor_active {
+            return None;
+        }
+        if self.pert_trial_shifts_left > 0 {
+            self.pert_trial_shifts_left -= 1;
+        }
+        if self.pert_trial_shifts_left == 0 {
+            self.end_pert_trial();
+            return Some("trial_expired");
+        }
+        None
+    }
+    /// Reference published for seat binding this shift (zero-orbit when inactive).
+    pub fn floor_reference(&self) -> Option<&crate::assemblies::workgroup::reference_worker::PublishedReference> {
+        if self.reference_floor_active {
+            self.latest_reference.as_deref()
+        } else {
+            None
+        }
+    }
+
+    /// Read-only policy label for HUD telemetry (no side effects).
+    pub fn floor_policy_label(&self) -> &'static str {
+        let pps = self.hud_pps_estimate();
+        let remaining = self.points.iter().filter(|p| !p.delivered).count() as u64;
+        if self.reference_floor_active {
+            return "trial_active";
+        }
+        if self.pert_trial_cooldown > 0 {
+            return "cooldown";
+        }
+        if self.latest_reference.as_ref().is_none_or(|r| r.orbit.escaped) {
+            return if self.latest_reference.is_some() {
+                "ref_escaped"
+            } else {
+                "no_ref"
+            };
+        }
+        if remaining == 0 {
+            return "complete";
+        }
+        let min_samples = (self.screen_point_count() as u32 / 200).max(200);
+        if self.hud_points_window < min_samples {
+            return "warming_up";
+        }
+        if pps < 1.0 {
+            return "no_pps";
+        }
+        if self.struggling_to_clear(remaining, pps) {
+            return "would_trial";
+        }
+        "direct_fast_enough"
+    }
+
+    /// Brief perturbation trial when direct fill would take >2s at current PPS.
+    pub fn update_reference_floor_policy(&mut self) -> &'static str {
+        let pps = self.hud_pps_estimate();
+        let remaining = self.points.iter().filter(|p| !p.delivered).count() as u64;
+
+        if self.reference_floor_active {
+            return "trial_active";
+        }
+
+        if self.pert_trial_cooldown > 0 {
+            return "cooldown";
+        }
+
+        let Some(ref published) = self.latest_reference else {
+            return "no_ref";
+        };
+        if published.orbit.escaped {
+            return "ref_escaped";
+        }
+        if remaining == 0 {
+            return "complete";
+        }
+        let min_samples = (self.screen_point_count() as u32 / 200).max(200);
+        if self.hud_points_window < min_samples {
+            return "warming_up";
+        }
+        if pps < 1.0 {
+            return "no_pps";
+        }
+        if self.struggling_to_clear(remaining, pps) {
+            self.reference_floor_active = true;
+            self.pert_trial_shifts_left = PERT_TRIAL_SHIFTS;
+            return "promote_trial";
+        }
+        "direct_fast_enough"
+    }
+    /// Record completed seats for HUD points-per-second estimate.
+    pub fn record_hud_completion_batch(&mut self, n: u32) {
+        const WINDOW: std::time::Duration = std::time::Duration::from_secs(1);
+        if self.hud_window_started.elapsed() >= WINDOW {
+            self.hud_points_window = 0;
+            self.hud_window_started = Instant::now();
+        }
+        self.hud_points_window += n;
+    }
+
+    pub fn hud_pps_estimate(&self) -> f64 {
+        let secs = self.hud_window_started.elapsed().as_secs_f64().max(0.05);
+        self.hud_points_window as f64 / secs
+    }
+
+    pub fn screen_point_count(&self) -> u64 {
+        self.res.0 as u64 * self.res.1 as u64
+    }
 }
 
 
@@ -302,6 +438,28 @@ pub(crate) fn get_random_mixmap(size: usize) -> Vec<usize> {
     indices
 }
 
+/// Whether an f64 grid admits this stencil (absolute, or relative-to-center fallback).
+pub fn f64_stencil_admits(
+    compute_loc: &(IntExp, IntExp),
+    zoom_pot: i64,
+    res: (u32, u32),
+) -> bool {
+    if CGenerator::<f64>::new(compute_loc, zoom_pot, res).is_some() {
+        return true;
+    }
+    let anchor = view_center_compute(compute_loc, zoom_pot as i32, res);
+    CGenerator::<f64>::new_relative(compute_loc, &anchor, zoom_pot, res).is_some()
+}
+
+/// Absolute plane coordinate = IntExp anchor + relative seat sample (f64 host).
+#[inline]
+pub fn abs_plane_f64(c: (f64, f64), anchor: &(IntExp, IntExp)) -> (f64, f64) {
+    (
+        f64::from(anchor.0.clone()) + c.0,
+        f64::from(anchor.1.clone()) + c.1,
+    )
+}
+
 /// Compute-space center of a viewport (half-res seat), exact IntExp pitch.
 pub fn view_center_compute(
     compute_loc: &(IntExp, IntExp),
@@ -343,6 +501,16 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
                 &frame_info,
             )
         });
+    let (carried_hud_points, carried_hud_started, carried_trial_cooldown) = previous
+        .as_ref()
+        .map(|(old, _)| {
+            (
+                old.hud_points_window,
+                old.hud_window_started,
+                old.pert_trial_cooldown,
+            )
+        })
+        .unwrap_or((0, Instant::now(), 0));
 
     let (obj, res) = frame_info;
     let compute_loc = (obj.pos.0.clone(), IntExp::ZERO - obj.pos.1.clone());
@@ -366,20 +534,27 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
             ),
         }
     } else {
-        // Live f64 actors: absolute grid (banding-safe production path).
-        (CGenerator::<T>::new(&compute_loc, obj.zoom_pot as i64, res)?, false)
+        // Live f64 actors: absolute grid when it admits; else relative-to-center.
+        match CGenerator::<T>::new(&compute_loc, obj.zoom_pot as i64, res) {
+            Some(g) => (g, false),
+            None => (
+                CGenerator::<T>::new_relative(
+                    &compute_loc,
+                    &coord_anchor,
+                    obj.zoom_pot as i64,
+                    res,
+                )?,
+                true,
+            ),
+        }
     };
     let (_, space) = c_generator.origin_and_space();
-    let pitch_epsilon = space.abs() * T::from(1.0 / 256.0);
+    let seat_pitch_epsilon = space.abs() * T::from(1.0 / 256.0);
     let view_gear = if use_floatexp_host {
         ComputeGear::FloatExp
     } else {
-        let pitch = pitch_epsilon.to_f64() * 256.0;
-        if pitch > 0.0 && pitch < crate::delta_gear::F64_PERTURB_USEFUL_FLOOR {
-            ComputeGear::ScaledF64
-        } else {
-            ComputeGear::F64
-        }
+        // Direct/naive path is always plain f64; perturbation promotes via note_seat_gear.
+        ComputeGear::F64
     };
 
     // r[impl cz.craft.pan-zoom-slot0+1]
@@ -472,12 +647,17 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
         attention_index: 0,
         attention_current: None,
         c_generator,
-        pitch_epsilon,
+        pitch_epsilon: seat_pitch_epsilon,
         coord_anchor,
         view_gear,
         active_gear: view_gear,
         coords_are_relative,
         latest_reference: carried_reference,
+        hud_points_window: carried_hud_points,
+        hud_window_started: carried_hud_started,
+        reference_floor_active: false,
+        pert_trial_shifts_left: 0,
+        pert_trial_cooldown: carried_trial_cooldown,
     })
 }
 
@@ -684,6 +864,16 @@ where
     #[inline]
     fn start_seat(&self, context: &mut WorkContext<T>, pos: (i32, i32)) {
         ensure_started(context, pos);
+        if context.coords_are_relative {
+            let index = index_from_pos(&pos, context.res.0);
+            let point = &mut context.points[index];
+            let anchor = (
+                T::from(context.coord_anchor.0.clone()),
+                T::from(context.coord_anchor.1.clone()),
+            );
+            point.c = (anchor.0 + point.c.0, anchor.1 + point.c.1);
+            point.z = point.c;
+        }
     }
 
     #[inline]
@@ -740,14 +930,66 @@ pub fn workshift(
     bout_token_cost: u32,
     context: &mut WorkContext<f64>,
 ) {
-    workshift_with_kernel(
+    if context.pert_trial_cooldown > 0 {
+        context.pert_trial_cooldown -= 1;
+    }
+    let policy_before = context.update_reference_floor_policy();
+    run_workshift_kernel(
         day_token_allowance,
         iteration_token_cost,
         point_token_cost,
         bout_token_cost,
         context,
-        &super::perturb_kernel::PerturbationKernel,
     );
+    let trial_tick = context.tick_pert_trial();
+    let policy_after = context.update_reference_floor_policy();
+    if policy_before != policy_after
+        && (policy_after == "promote_trial"
+            || trial_tick == Some("trial_expired"))
+    {
+        // #region agent log
+        crate::debug_agent::log_hud(
+            "H6",
+            "screen_worker/workshift.rs:workshift",
+            "floor_policy_changed",
+            &format!(
+                "{{\"from\":\"{policy_before}\",\"to\":\"{policy_after}\",\"ref_floor\":{},\"pps\":{:.1},\"screen_pts\":{},\"remaining\":{}}}",
+                context.reference_floor_active,
+                context.hud_pps_estimate(),
+                context.screen_point_count(),
+                context.points.iter().filter(|p| !p.delivered).count(),
+            ),
+        );
+        // #endregion
+    }
+}
+
+fn run_workshift_kernel(
+    day_token_allowance: u32,
+    iteration_token_cost: u32,
+    point_token_cost: u32,
+    bout_token_cost: u32,
+    context: &mut WorkContext<f64>,
+) {
+    if context.reference_floor_active {
+        workshift_with_kernel(
+            day_token_allowance,
+            iteration_token_cost,
+            point_token_cost,
+            bout_token_cost,
+            context,
+            &super::perturb_kernel::PerturbationKernel,
+        );
+    } else {
+        workshift_with_kernel(
+            day_token_allowance,
+            iteration_token_cost,
+            point_token_cost,
+            bout_token_cost,
+            context,
+            &DirectKernel,
+        );
+    }
 }
 
 pub fn workshift_with_kernel<T, K>(
@@ -764,6 +1006,8 @@ where
 {
 
     context.time_workshift_started = Instant::now();
+
+    context.update_reference_floor_policy();
 
 
     context.total_bouts_today = 0;
@@ -892,7 +1136,7 @@ where
 
         // Disjoint fields: take the reference so we can mutably borrow the seat.
         let held_reference = context.latest_reference.take();
-        let orbit = if context.points[index].direct_only {
+        let orbit = if context.points[index].direct_only || !context.reference_floor_active {
             None
         } else {
             held_reference.as_ref().map(|r| &r.orbit)
@@ -971,7 +1215,8 @@ where
             }
 
 
-            context.total_points_today += 1
+            context.total_points_today += 1;
+            context.record_hud_completion_batch(1);
         } else {
             match step {
                 // r[impl cz.craft.out-rotates-in-stays+1]

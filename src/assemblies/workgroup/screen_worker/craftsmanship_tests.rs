@@ -110,6 +110,11 @@ fn make_context(workshifts: u32) -> WorkContext<FloatExp> {
         active_gear: crate::delta_gear::ComputeGear::FloatExp,
         coords_are_relative: false,
         latest_reference: None,
+        hud_points_window: 0,
+        hud_window_started: Instant::now(),
+        reference_floor_active: false,
+        pert_trial_shifts_left: 0,
+        pert_trial_cooldown: 0,
     }
 }
 
@@ -1094,6 +1099,11 @@ fn install_usable_interior_reference(
     }));
 }
 
+fn activate_reference_floor<T: Mandelbrotable>(ctx: &mut WorkContext<T>) {
+    ctx.reference_floor_active = true;
+    ctx.pert_trial_shifts_left = u8::MAX;
+}
+
 fn install_covering_reference_with_series(
     ctx: &mut WorkContext<FloatExp>,
     frame: &(ObjectivePosAndZoom, (u32, u32)),
@@ -1108,6 +1118,7 @@ fn install_covering_reference_with_series(
         generation: 1,
         series,
     }));
+    activate_reference_floor(ctx);
 }
 
 // r[verify cz.depth.gear-hud+2]
@@ -1125,8 +1136,59 @@ fn telemetry_mode_naive_then_pert() {
         assert_eq!(host_stack_for_context::<FloatExp>(), HostStack::FloatExp);
         let mut ctx = ctx;
         install_usable_interior_reference(&mut ctx, &frame, 1);
-        assert_eq!(classify_kernel_mode(&ctx), KernelMode::Pert);
+        assert_eq!(
+            classify_kernel_mode(&ctx),
+            KernelMode::Naive,
+            "ref alone must not flip HUD to pert"
+        );
         assert_eq!(classify_reference_status(&ctx), ReferenceStatus::Complete);
+        ctx.record_hud_completion_batch(100);
+        ctx.reference_floor_active = true;
+        assert_eq!(
+            classify_kernel_mode(&ctx),
+            KernelMode::Pert,
+            "active reference floor shows pert"
+        );
+    });
+}
+
+// r[verify cz.depth.gear-hud+2]
+#[test]
+fn reference_floor_trials_only_when_genuinely_stuck() {
+    run_big(|| {
+        let frame = home_frame();
+        let mut ctx = from_stencil::<FloatExp>(frame.clone(), None).expect("home view");
+        install_usable_interior_reference(&mut ctx, &frame, 1);
+        ctx.record_hud_completion_batch(100_000);
+        assert_eq!(
+            ctx.update_reference_floor_policy(),
+            "direct_fast_enough",
+            "fast direct fill must not trial perturbation"
+        );
+        ctx.hud_points_window = 2500;
+        ctx.hud_window_started =
+            std::time::Instant::now() - std::time::Duration::from_secs(1);
+        assert_eq!(
+            ctx.update_reference_floor_policy(),
+            "promote_trial",
+            "slow fill with usable ref should start a short trial"
+        );
+        assert_eq!(ctx.pert_trial_shifts_left, 3);
+    });
+}
+
+// r[verify cz.depth.gear-hud+2]
+#[test]
+fn reference_floor_trial_expires() {
+    run_big(|| {
+        let frame = home_frame();
+        let mut ctx = from_stencil::<FloatExp>(frame.clone(), None).expect("home view");
+        install_usable_interior_reference(&mut ctx, &frame, 1);
+        ctx.reference_floor_active = true;
+        ctx.pert_trial_shifts_left = 1;
+        assert_eq!(ctx.tick_pert_trial(), Some("trial_expired"));
+        assert!(!ctx.reference_floor_active);
+        assert!(ctx.pert_trial_cooldown > 0);
     });
 }
 
@@ -1143,7 +1205,7 @@ fn reference_complete_with_reused_ref() {
         install_usable_interior_reference(&mut ctx, &frame, 1);
         let old_obj = frame.0.clone();
         let reused = from_stencil::<FloatExp>(frame.clone(), Some((ctx, old_obj))).expect("reuse");
-        assert_eq!(classify_kernel_mode(&reused), KernelMode::Pert);
+        assert_eq!(classify_kernel_mode(&reused), KernelMode::Naive);
         assert_eq!(classify_reference_status(&reused), ReferenceStatus::Complete);
     });
 }
@@ -1207,6 +1269,24 @@ fn reference_wip_after_glitch_until_new_generation() {
     }));
     FloatExpPerturbationKernel.start_seat(&mut ctx, (0, 0));
     assert!(!ctx.points[0].direct_only);
+    assert_eq!(classify_reference_status(&ctx), ReferenceStatus::Complete);
+}
+
+// r[verify cz.depth.gear-hud+2]
+#[test]
+fn reference_complete_when_glitch_seats_already_delivered() {
+    use crate::assemblies::structs::ReferenceStatus;
+    use crate::assemblies::workgroup::screen_worker::classify_reference_status;
+    let mut ctx = make_context(0);
+    let reference_c = (IntExp::from(-1).shift(-1), IntExp::ZERO);
+    ctx.latest_reference = Some(Arc::new(PublishedReference {
+        orbit: ReferenceOrbit::compute(&reference_c, 128, 8),
+        c: reference_c,
+        generation: 7,
+        series: None,
+    }));
+    ctx.points[0].direct_only = true;
+    ctx.points[0].delivered = true;
     assert_eq!(classify_reference_status(&ctx), ReferenceStatus::Complete);
 }
 
@@ -1466,6 +1546,7 @@ fn seahorse_pot_19_f64_promotes_scaled_f64_and_delivers() {
         });
         let mut ctx = from_stencil::<f64>(frame, None).expect("seahorse admits f64 grid");
         ctx.latest_reference = Some(pub_ref);
+        activate_reference_floor(&mut ctx);
         let pos = (10, 10);
         PerturbationKernel.start_seat(&mut ctx, pos);
         let idx = index_from_pos(&pos, ctx.res.0);
@@ -1580,6 +1661,7 @@ fn published_reference_matches_direct_on_shallow_view() {
         direct_ctx.points[0].dc = (FloatExp::ONE, FloatExp::ZERO);
         let mut perturb_ctx = direct_ctx.clone();
         perturb_ctx.latest_reference = Some(published.clone());
+        activate_reference_floor(&mut perturb_ctx);
         DirectKernel.start_seat(&mut direct_ctx, (0, 0));
         FloatExpPerturbationKernel.start_seat(&mut perturb_ctx, (0, 0));
         DirectKernel.iterate_bout(
@@ -1632,6 +1714,7 @@ fn published_reference_with_series_matches_direct_outside_r2() {
         let mut direct = from_stencil::<f64>(frame.clone(), None).expect("direct shell");
         let mut perturb = from_stencil::<f64>(frame, None).expect("perturb shell");
         perturb.latest_reference = Some(published.clone());
+        activate_reference_floor(&mut perturb);
         // Plant the same absolute c on seat 0 for both kernels.
         direct.points[0].c = c;
         direct.points[0].z = c;
@@ -1975,6 +2058,7 @@ fn exterior_loci_with_series_match_direct_kernel_answers() {
         let mut direct = from_stencil::<f64>(frame.clone(), None).expect("direct");
         let mut perturb = from_stencil::<f64>(frame.clone(), None).expect("perturb");
         perturb.latest_reference = Some(published.clone());
+        activate_reference_floor(&mut perturb);
         for ctx in [&mut direct, &mut perturb] {
             ctx.points[0].c = c;
             ctx.points[0].z = c;
@@ -2036,6 +2120,7 @@ fn generation_mismatch_restarts_delta() {
         generation: 1,
             series: None,
         }));
+    activate_reference_floor(&mut ctx);
     FloatExpPerturbationKernel.start_seat(&mut ctx, (2, 0));
     let initial_dz = ctx.points[2].delta.as_ref().unwrap().dz;
     FloatExpPerturbationKernel.iterate_bout(
@@ -2772,6 +2857,7 @@ fn faux_user_zoom_to_hard_minibrot_matches_direct() {
         );
         let mut blob = from_stencil(hard.clone(), None).expect("blob");
         blob.latest_reference = Some(short_covering);
+        activate_reference_floor(&mut blob);
         fill_until(&mut blob, &FloatExpPerturbationKernel, 40);
         let (blob_disagree, blob_compared) = disagree_rate(&direct, &blob);
         assert!(
@@ -2818,6 +2904,34 @@ fn unfinished_frame_never_zero_pps_streak() {
 }
 
 
+
+#[test]
+fn f64_deep_zoom_admits_relative_stencil() {
+    use crate::assemblies::workgroup::screen_worker::workshift::f64_stencil_admits;
+    use crate::delta_gear::ComputeGear;
+    run_big(|| {
+        let compute_loc = (IntExp::from(-1).shift(-1), IntExp::ZERO);
+        let res = (1280u32, 720u32);
+        let zoom_pot = 50i64;
+        assert!(
+            f64_stencil_admits(&compute_loc, zoom_pot, res),
+            "deep f64 stencil must admit via relative fallback"
+        );
+        let frame = (
+            ObjectivePosAndZoom {
+                pos: (IntExp::from(-1).shift(-1), IntExp::ZERO),
+                zoom_pot: zoom_pot as i32,
+            },
+            res,
+        );
+        let ctx = from_stencil::<f64>(frame, None).expect("deep f64 shell");
+        assert!(
+            ctx.coords_are_relative,
+            "past-absolute-collapse frames must use relative f64 samples"
+        );
+        assert_eq!(ctx.view_gear, ComputeGear::F64);
+    });
+}
 
 #[test]
 fn relative_abs_matches_absolute_generator_home() {

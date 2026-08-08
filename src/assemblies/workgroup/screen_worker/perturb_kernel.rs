@@ -19,8 +19,8 @@ use crate::floatexp::{ComplexFloatExp, FloatExp};
 use crate::reference::ReferenceOrbit;
 
 use super::workshift::{
-    direct_completion, ensure_started, update_point_results, bailout_point, iterate, BoutCap,
-    CompletedPoint, DeltaState, Point, SeatKernel, WorkContext,
+    abs_plane_f64, direct_completion, ensure_started, update_point_results, bailout_point,
+    iterate, BoutCap, CompletedPoint, DeltaState, Point, SeatKernel, WorkContext,
 };
 
 /// The only production kernel. Always runs delta iteration.
@@ -34,13 +34,6 @@ pub struct PerturbationKernel;
 fn zero_orbit() -> &'static ReferenceOrbit {
     static ZERO: OnceLock<ReferenceOrbit> = OnceLock::new();
     ZERO.get_or_init(ReferenceOrbit::zero_orbit)
-}
-
-fn abs_plane_f64(c: (f64, f64), anchor: &(crate::utils::IntExp, crate::utils::IntExp)) -> (f64, f64) {
-    (
-        f64::from(anchor.0.clone()) + c.0,
-        f64::from(anchor.1.clone()) + c.1,
-    )
 }
 
 fn to_delta_c_f64(c: (f64, f64)) -> ComplexFloatExp {
@@ -871,17 +864,16 @@ impl SeatKernel<f64> for PerturbationKernel {
     fn start_seat(&self, context: &mut WorkContext<f64>, pos: (i32, i32)) {
         ensure_started(context, pos);
         let index = crate::utils::index_from_pos(&pos, context.res.0);
-        maybe_clear_zero_bind(
-            &mut context.points[index],
-            context.latest_reference.as_deref(),
-        );
-        let generation = active_generation(
-            &context.points[index],
-            context.latest_reference.as_deref(),
-        );
+        let published = if context.reference_floor_active {
+            context.latest_reference.as_deref()
+        } else {
+            None
+        };
+        maybe_clear_zero_bind(&mut context.points[index], published);
+        let generation = active_generation(&context.points[index], published);
         let orbit = active_orbit(
             &context.points[index],
-            context.latest_reference.as_ref().map(|r| &r.orbit),
+            published.map(|r| &r.orbit),
         );
         let needs_restart = match &context.points[index].delta {
             None => true,
@@ -894,10 +886,7 @@ impl SeatKernel<f64> for PerturbationKernel {
                 context.points[index].c
             };
             init_delta(&mut context.points[index], orbit, generation, abs_c);
-            apply_series_skip(
-                &mut context.points[index],
-                context.latest_reference.as_deref(),
-            );
+            apply_series_skip(&mut context.points[index], published);
         }
         // HUD gear aggregate is refreshed once per workshift — never per seat.
         // Scanning all seats here is O(n) per bout and collapses home fill.

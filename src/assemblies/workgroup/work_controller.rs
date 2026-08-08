@@ -193,8 +193,39 @@ fn should_send_replace(
     // Compute-grid loc matches get_points / CGenerator: frame_info imag is
     // already display-flipped once; flip again for the arithmetic origin.
     let compute_loc = (obj.pos.0.clone(), IntExp::ZERO - obj.pos.1.clone());
-    if CGenerator::<f64>::new(&compute_loc, obj.zoom_pot as i64, res).is_none() {
+    let abs_ok = CGenerator::<f64>::new(&compute_loc, obj.zoom_pot as i64, res).is_some();
+    let rel_ok = if abs_ok {
+        false
+    } else {
+        let anchor = view_center_compute(&compute_loc, obj.zoom_pot, res);
+        CGenerator::<f64>::new_relative(&compute_loc, &anchor, obj.zoom_pot as i64, res).is_some()
+    };
+    if !abs_ok && !rel_ok {
+        // #region agent log
+        crate::debug_agent::log_hud(
+            "H7",
+            "work_controller.rs:should_send_replace",
+            "replace_rejected",
+            &format!(
+                "{{\"zoom_pot\":{},\"res_w\":{},\"abs_ok\":false,\"rel_ok\":false}}",
+                obj.zoom_pot, res.0
+            ),
+        );
+        // #endregion
         return false;
+    }
+    if !abs_ok && rel_ok {
+        // #region agent log
+        crate::debug_agent::log_hud(
+            "H8",
+            "work_controller.rs:should_send_replace",
+            "replace_relative_fallback",
+            &format!(
+                "{{\"zoom_pot\":{},\"res_w\":{},\"abs_ok\":false,\"rel_ok\":true}}",
+                obj.zoom_pot, res.0
+            ),
+        );
+        // #endregion
     }
 
     state.worker_res = res;

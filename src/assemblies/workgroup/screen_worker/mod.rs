@@ -177,6 +177,7 @@ async fn internal_behavior<A: SteadyActor>(
             if !newest.orbit.escaped {
                 state.pending_reference = Some(newest.clone());
                 if let Some(live) = &mut state.work_context {
+                    let zoom_pot = live.frame_info.0.zoom_pot;
                     // #region agent log
                     crate::debug_agent::log(
                         "A",
@@ -188,9 +189,39 @@ async fn internal_behavior<A: SteadyActor>(
                             newest.orbit.iterates.len()
                         ),
                     );
+                    crate::debug_agent::log_hud(
+                        "H1",
+                        "screen_worker/mod.rs:ref_install",
+                        "reference_installed_live",
+                        &format!(
+                            "{{\"generation\":{},\"orbit_len\":{},\"escaped\":{},\"period\":{:?},\"zoom_pot\":{}}}",
+                            newest.generation,
+                            newest.orbit.iterates.len(),
+                            newest.orbit.escaped,
+                            newest.orbit.period,
+                            zoom_pot
+                        ),
+                    );
                     // #endregion
                     live.context.latest_reference = Some(newest);
                 }
+            } else {
+                // #region agent log
+                if let Some(live) = &state.work_context {
+                    let zoom_pot = live.frame_info.0.zoom_pot;
+                    crate::debug_agent::log_hud(
+                        "H2",
+                        "screen_worker/mod.rs:ref_rejected_escaped",
+                        "reference_escaped_not_installed",
+                        &format!(
+                            "{{\"generation\":{},\"orbit_len\":{},\"zoom_pot\":{}}}",
+                            newest.generation,
+                            newest.orbit.iterates.len(),
+                            zoom_pot
+                        ),
+                    );
+                }
+                // #endregion
             }
         }
 
@@ -225,7 +256,7 @@ async fn internal_behavior<A: SteadyActor>(
                             if U.len() > 0 {
                                 actor.try_send(
                                     &mut updates_out,
-                                    telemetry_update(None, U, Some(&live.context), iters as u64),
+                                    telemetry_update(None, U, Some(&mut live.context), iters as u64),
                                 );
                             }
                             Some((live.context, old_zoom))
@@ -266,7 +297,12 @@ async fn internal_behavior<A: SteadyActor>(
                         state.work_context = Some(LiveTarget { context: new_ctx, frame_info: frame_info.clone() });
                         actor.try_send(
                             &mut updates_out,
-                            telemetry_update(Some(frame_info), vec!(), state.work_context.as_ref().map(|l| &l.context), 0),
+                            telemetry_update(
+                                Some(frame_info),
+                                vec!(),
+                                state.work_context.as_mut().map(|l| &mut l.context),
+                                0,
+                            ),
                         );
                     }
                 }
@@ -302,7 +338,7 @@ async fn internal_behavior<A: SteadyActor>(
                     // r[impl cz.craft.emergent-cadence+1]
                     actor.try_send(
                         &mut updates_out,
-                        telemetry_update(None, c, Some(&live.context), iters_delta),
+                        telemetry_update(None, c, Some(&mut live.context), iters_delta),
                     );
                 }
             }
@@ -316,20 +352,31 @@ async fn internal_behavior<A: SteadyActor>(
 fn telemetry_update<T>(
     frame_info: Option<(ObjectivePosAndZoom, (u32, u32))>,
     completed_points: Vec<(CompletedPoint<T>, usize)>,
-    ctx: Option<&WorkContext<T>>,
+    mut ctx: Option<&mut WorkContext<T>>,
     iterations_delta: u64,
 ) -> WorkUpdate<T>
 where
     T: Mandelbrotable + 'static,
 {
     use crate::assemblies::structs::{HostStack, KernelMode, ReferenceStatus};
-    let (host_stack, kernel_mode, reference_status, active_gear) = match ctx {
-        Some(c) => (
-            host_stack_for_context::<T>(),
-            classify_kernel_mode(c),
-            classify_reference_status(c),
-            c.active_gear,
-        ),
+    let (host_stack, kernel_mode, reference_status, active_gear) = match ctx.as_mut() {
+        Some(c) => {
+            let batch = completed_points.len() as u32;
+            if batch > 0 {
+                c.record_hud_completion_batch(batch);
+            }
+            let kernel_mode = classify_kernel_mode(c);
+            (
+                host_stack_for_context::<T>(),
+                kernel_mode,
+                classify_reference_status(c),
+                if kernel_mode == KernelMode::Naive {
+                    ComputeGear::F64
+                } else {
+                    c.active_gear
+                },
+            )
+        }
         None => (
             HostStack::F64,
             KernelMode::Naive,
@@ -337,6 +384,9 @@ where
             ComputeGear::F64,
         ),
     };
+    if let Some(c) = ctx.as_ref() {
+        hud_telemetry_debug_log(c, kernel_mode, reference_status);
+    }
     WorkUpdate {
         frame_info,
         completed_points,
@@ -346,6 +396,75 @@ where
         reference_status,
         iterations_delta,
     }
+}
+
+fn hud_telemetry_debug_log<T: Mandelbrotable>(
+    ctx: &WorkContext<T>,
+    kernel_mode: crate::assemblies::structs::KernelMode,
+    reference_status: crate::assemblies::structs::ReferenceStatus,
+) {
+    use crate::assemblies::structs::{KernelMode, ReferenceStatus};
+    use std::sync::atomic::{AtomicU8, Ordering};
+    static LAST_MODE: AtomicU8 = AtomicU8::new(255);
+    static LAST_REF: AtomicU8 = AtomicU8::new(255);
+    let mode_tag = match kernel_mode {
+        KernelMode::Naive => 0u8,
+        KernelMode::Pert => 1u8,
+    };
+    let ref_tag = match reference_status {
+        ReferenceStatus::Wip => 0u8,
+        ReferenceStatus::Complete => 1u8,
+    };
+    let mode_changed = LAST_MODE.swap(mode_tag, Ordering::Relaxed) != mode_tag;
+    let ref_changed = LAST_REF.swap(ref_tag, Ordering::Relaxed) != ref_tag;
+    if !mode_changed && !ref_changed && !crate::debug_agent::should_sample(60) {
+        return;
+    }
+    let has_ref = ctx.latest_reference.is_some();
+    let escaped = ctx
+        .latest_reference
+        .as_ref()
+        .map(|r| r.orbit.escaped)
+        .unwrap_or(false);
+    let generation = ctx
+        .latest_reference
+        .as_ref()
+        .map(|r| r.generation)
+        .unwrap_or(0);
+    let direct_only = ctx.points.iter().filter(|p| p.direct_only).count();
+    let initialized = ctx.points.iter().filter(|p| p.initialized).count();
+    // #region agent log
+    let undelivered_glitch = ctx
+        .points
+        .iter()
+        .filter(|p| p.direct_only && !p.delivered)
+        .count();
+    let remaining = ctx.points.iter().filter(|p| !p.delivered).count();
+    let policy = ctx.floor_policy_label();
+    crate::debug_agent::log_hud(
+        if mode_changed { "H1" } else if ref_changed { "H3" } else { "H5" },
+        "screen_worker/mod.rs:telemetry_update",
+        if mode_changed { "hud_mode_changed" } else { "hud_telemetry_sample" },
+        &format!(
+            "{{\"mode\":\"{}\",\"ref\":\"{}\",\"has_ref\":{},\"escaped\":{},\"generation\":{},\"direct_only\":{},\"undelivered_glitch\":{},\"initialized\":{},\"pps\":{:.1},\"screen_pts\":{},\"ref_floor\":{},\"dispatch\":\"{}\",\"remaining\":{},\"policy\":\"{}\",\"res_w\":{}}}",
+            kernel_mode.hud_label(),
+            reference_status.hud_label(),
+            has_ref,
+            escaped,
+            generation,
+            direct_only,
+            undelivered_glitch,
+            initialized,
+            ctx.hud_pps_estimate(),
+            ctx.screen_point_count(),
+            ctx.reference_floor_active,
+            if ctx.reference_floor_active { "pert" } else { "direct" },
+            remaining,
+            policy,
+            ctx.res.0
+        ),
+    );
+    // #endregion
 }
 
 /// Host stack admitted for this `WorkContext` monomorphization.
@@ -366,14 +485,14 @@ pub fn usable_reference<T: Mandelbrotable>(ctx: &WorkContext<T>) -> bool {
 
 pub fn classify_kernel_mode<T: Mandelbrotable>(ctx: &WorkContext<T>) -> crate::assemblies::structs::KernelMode {
     use crate::assemblies::structs::KernelMode;
-    if usable_reference(ctx) {
+    if ctx.reference_floor_active {
         KernelMode::Pert
     } else {
         KernelMode::Naive
     }
 }
 
-/// Running snapshot: wip when no usable ref yet, or glitch recovery awaits newer generation.
+/// Running snapshot: wip when no usable ref yet, or undelivered glitch seats await newer generation.
 pub fn classify_reference_status<T: Mandelbrotable>(
     ctx: &WorkContext<T>,
 ) -> crate::assemblies::structs::ReferenceStatus {
@@ -381,7 +500,11 @@ pub fn classify_reference_status<T: Mandelbrotable>(
     if !usable_reference(ctx) {
         return ReferenceStatus::Wip;
     }
-    if ctx.points.iter().any(|p| p.direct_only) {
+    if ctx
+        .points
+        .iter()
+        .any(|p| p.direct_only && !p.delivered)
+    {
         return ReferenceStatus::Wip;
     }
     ReferenceStatus::Complete
