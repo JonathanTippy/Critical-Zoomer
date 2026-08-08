@@ -24,6 +24,9 @@ r[cz.math.mandelbrot-real-axis-symmetry+1]
 
 **Acceptance criteria.**
 - [x] For sampled `c`, conjugating imag preserves inside/outside and escape-time when finished.
+- [x] After a published reference with series, a real-axis-centered package keeps conjugate
+  seat pairs equal on classification, escape/period, and small_time
+  (`home_package_with_live_series_obeys_real_axis_symmetry`).
 
 r[cz.range.guess-biased-nearest+1]
 

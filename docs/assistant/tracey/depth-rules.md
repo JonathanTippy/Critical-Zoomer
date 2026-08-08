@@ -238,7 +238,12 @@ unfinished or falls back to less skip / glitch honesty.
 
 **Verification.** `series_skip_matches_delta_tail`,
 `series_never_publishes_guessed_completion`,
-`live_series_skip_initializes_delta_prefix`.
+`live_series_skip_initializes_delta_prefix`,
+`published_reference_with_series_matches_direct_outside_r2`,
+`series_safe_skip_does_not_pass_bailout_for_far_delta`,
+`home_package_with_live_series_obeys_real_axis_symmetry`,
+`home_package_with_live_series_matches_direct_kernel_answers`,
+`exterior_loci_with_series_match_direct_kernel_answers`.
 
 r[cz.depth.compute-gear+1]
 

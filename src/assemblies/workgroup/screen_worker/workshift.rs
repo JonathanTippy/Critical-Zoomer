@@ -882,6 +882,11 @@ where
             continue;
         }
 
+        // Capture before start_seat: series skip can jump iterations up, and a
+        // same-bout glitch restart can drop them again — never panic the IPS
+        // counter on that non-monotonic path.
+        let old_iterations = context.points[index].iterations;
+
         // r[impl cz.craft.stencil-only-replace+2]
         kernel.start_seat(context, pos);
 
@@ -892,8 +897,6 @@ where
         } else {
             held_reference.as_ref().map(|r| &r.orbit)
         };
-
-        let old_iterations = context.points[index].iterations;
 
         // r[impl cz.craft.attention-spiral+1]
         // Every bout is bounded — the worker may never make an unbounded call.
@@ -913,7 +916,9 @@ where
 
 
 
-        context.total_iterations_today += context.points[index].iterations - old_iterations;
+        context.total_iterations_today += context.points[index]
+            .iterations
+            .saturating_sub(old_iterations);
 
 
         if context.points[index].repeats || context.points[index].escapes {

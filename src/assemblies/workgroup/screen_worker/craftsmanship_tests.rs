@@ -1004,8 +1004,103 @@ fn home_frame() -> (ObjectivePosAndZoom, (u32, u32)) {
     )
 }
 
+/// Shallow view whose seat grid is conjugate-symmetric across the real axis:
+/// seat `(x, y)` and `(x, h-1-y)` have conjugate `c` (CGenerator: +row = −imag).
+/// Odd height keeps a mid-row exactly on the axis. Home itself is *not* this
+/// geometry (origin imag ≠ (h−1)·space/2), so tumor-style asymmetry needs this.
+fn real_axis_symmetric_shallow_frame(
+    res: (u32, u32),
+    zoom_pot: i32,
+    origin_real: i32,
+) -> (ObjectivePosAndZoom, (u32, u32)) {
+    assert!(res.1 % 2 == 1, "odd height keeps mid-row on the real axis");
+    let half_rows = (res.1 as i32 - 1) / 2;
+    // compute origin imag = half_rows * space; space = 2^(-(zoom+PIXELS_PER_UNIT_POT))
+    let origin_imag =
+        IntExp::from(half_rows).shift(-(zoom_pot + crate::constants::PIXELS_PER_UNIT_POT));
+    (
+        ObjectivePosAndZoom {
+            // Display Y is stored unflipped; from_stencil flips to compute.
+            pos: (IntExp::from(origin_real), IntExp::ZERO - origin_imag),
+            zoom_pot,
+        },
+        res,
+    )
+}
+
 fn outcome_key(p: &Point<FloatExp>) -> (bool, bool, u32, u32) {
     (p.escapes, p.repeats, p.iterations, p.period)
+}
+
+/// Wrong-answer oracle key: classification + escape/period times + small_time.
+fn answer_oracle_key(p: &Point<FloatExp>) -> (bool, bool, u32, u32, u32) {
+    (p.escapes, p.repeats, p.iterations, p.period, p.small_time)
+}
+
+/// Exterior escape oracle: the tumor inflated escape_time/small_time outside r=2.
+fn exterior_escape_oracle_key(p: &Point<FloatExp>) -> (u32, u32) {
+    (p.iterations, p.small_time)
+}
+
+fn is_strict_exterior_plane_c(cr: f64, ci: f64) -> bool {
+    cr * cr + ci * ci > 4.0
+}
+
+fn plane_c_f64(ctx: &WorkContext<FloatExp>, index: usize) -> (f64, f64) {
+    let (cr, ci) = if ctx.points[index].initialized {
+        (
+            ctx.points[index].c.0.to_f64(),
+            ctx.points[index].c.1.to_f64(),
+        )
+    } else {
+        let (x, y) = pos_from_index(index, ctx.res.0);
+        let gc = ctx.c_generator.get_c((x as u32, y as u32));
+        (gc.0.to_f64(), gc.1.to_f64())
+    };
+    if ctx.coords_are_relative {
+        (
+            FloatExp::from(ctx.coord_anchor.0.clone()).to_f64() + cr,
+            FloatExp::from(ctx.coord_anchor.1.clone()).to_f64() + ci,
+        )
+    } else {
+        (cr, ci)
+    }
+}
+
+fn install_covering_reference_with_series(
+    ctx: &mut WorkContext<FloatExp>,
+    frame: &(ObjectivePosAndZoom, (u32, u32)),
+) {
+    use crate::series::SeriesApproximation;
+    let req = select_reference_request::<FloatExp>(None, frame);
+    let orbit = ReferenceOrbit::compute(&req.c, req.precision_bits, 4096);
+    let series = SeriesApproximation::from_orbit(&orbit, 4);
+    ctx.latest_reference = Some(Arc::new(PublishedReference {
+        orbit,
+        c: req.c,
+        generation: 1,
+        series,
+    }));
+}
+
+fn fill_until_complete_perturb(ctx: &mut WorkContext<FloatExp>, max_shifts: usize) {
+    for _ in 0..max_shifts {
+        if ctx.percent_completed >= 100.0 {
+            break;
+        }
+        perturb_workshift(16_000_000, 2, 4, 150, ctx);
+        let _ = work_update(ctx);
+    }
+}
+
+fn fill_until_complete_direct(ctx: &mut WorkContext<FloatExp>, max_shifts: usize) {
+    for _ in 0..max_shifts {
+        if ctx.percent_completed >= 100.0 {
+            break;
+        }
+        workshift_with_kernel(16_000_000, 2, 4, 150, ctx, &DirectKernel);
+        let _ = work_update(ctx);
+    }
 }
 
 #[test]
@@ -1579,6 +1674,230 @@ fn series_safe_skip_does_not_pass_bailout_for_far_delta() {
     );
 }
 
+/// Frame-level real-axis symmetry after published reference+series.
+/// Headed tumor symptom: inflated exterior escape_time shattered conjugate
+/// symmetry (bottom bulge). Assert on worker answers, not pixels.
+#[test]
+// r[verify cz.math.mandelbrot-real-axis-symmetry+1]
+// r[verify cz.depth.series-approximation+1]
+fn home_package_with_live_series_obeys_real_axis_symmetry() {
+    run_big(|| {
+        // Origin real −2, zoom −2: covers the main cardioid plus |c|≳2 exterior.
+        let frame = real_axis_symmetric_shallow_frame((96, 65), -2, -2);
+        let mut ctx = from_stencil(frame.clone(), None).expect("symmetric shell");
+        install_covering_reference_with_series(&mut ctx, &frame);
+        fill_until_complete_perturb(&mut ctx, 8_000);
+        assert!(
+            ctx.percent_completed >= 100.0,
+            "symmetric frame must finish, got {:.1}%",
+            ctx.percent_completed
+        );
+
+        let w = ctx.res.0;
+        let h = ctx.res.1 as i32;
+        let mut compared = 0usize;
+        let mut mismatches = Vec::new();
+        for y in 0..(h / 2) {
+            for x in 0..w as i32 {
+                let i = index_from_pos(&(x, y), w);
+                let j = index_from_pos(&(x, h - 1 - y), w);
+                let a = &ctx.points[i];
+                let b = &ctx.points[j];
+                // Sanity: plane coords are conjugates.
+                let (ar, ai) = plane_c_f64(&ctx, i);
+                let (br, bi) = plane_c_f64(&ctx, j);
+                assert!(
+                    (ar - br).abs() < 1e-12 && (ai + bi).abs() < 1e-12,
+                    "fixture not conjugate at ({x},{y}): ({ar},{ai}) vs ({br},{bi})"
+                );
+                if !(a.escapes || a.repeats) || !(b.escapes || b.repeats) {
+                    continue;
+                }
+                compared += 1;
+                if answer_oracle_key(a) != answer_oracle_key(b) {
+                    mismatches.push(format!(
+                        "({x},{y})↔({x},{}) a={:?} b={:?}",
+                        h - 1 - y,
+                        answer_oracle_key(a),
+                        answer_oracle_key(b)
+                    ));
+                }
+            }
+        }
+        assert!(
+            compared >= 200,
+            "need enough finished conjugate pairs, got {compared}"
+        );
+        assert!(
+            mismatches.is_empty(),
+            "real-axis answer symmetry broken after series ({}):\n{}",
+            mismatches.len(),
+            mismatches.iter().take(12).cloned().collect::<Vec<_>>().join("\n")
+        );
+    });
+}
+
+/// Whole-package DirectKernel oracle after reference+series: every strict-exterior
+/// escaping seat finished on both paths must match escape_time and small_time.
+/// Interior iteration depth can differ under perturbation; the tumor class was
+/// inflated exterior escape_time after series skip.
+#[test]
+// r[verify cz.depth.series-approximation+1]
+// r[verify cz.depth.delta-kernel+1]
+fn home_package_with_live_series_matches_direct_kernel_answers() {
+    run_big(|| {
+        let frame = real_axis_symmetric_shallow_frame((96, 65), -2, -2);
+        let mut direct = from_stencil(frame.clone(), None).expect("direct");
+        let mut perturb = from_stencil(frame.clone(), None).expect("perturb");
+        install_covering_reference_with_series(&mut perturb, &frame);
+        // Direct ignores the reference; install anyway so shells stay aligned.
+        install_covering_reference_with_series(&mut direct, &frame);
+
+        fill_until_complete_direct(&mut direct, 8_000);
+        fill_until_complete_perturb(&mut perturb, 8_000);
+        assert!(
+            direct.percent_completed >= 100.0 && perturb.percent_completed >= 100.0,
+            "both packages must finish (direct={:.1}% perturb={:.1}%)",
+            direct.percent_completed,
+            perturb.percent_completed
+        );
+
+        let mut exterior_escapes = 0usize;
+        let mut mismatches = Vec::new();
+        for i in 0..direct.points.len() {
+            let d = &direct.points[i];
+            let p = &perturb.points[i];
+            if !d.escapes || !p.escapes {
+                continue;
+            }
+            let (cr, ci) = plane_c_f64(&direct, i);
+            if !is_strict_exterior_plane_c(cr, ci) {
+                continue;
+            }
+            exterior_escapes += 1;
+            if exterior_escape_oracle_key(d) != exterior_escape_oracle_key(p) {
+                mismatches.push(format!(
+                    "seat {i} c=({cr:.4},{ci:.4}) direct={:?} perturb={:?}",
+                    exterior_escape_oracle_key(d),
+                    exterior_escape_oracle_key(p)
+                ));
+            }
+        }
+        assert!(
+            exterior_escapes >= 40,
+            "need |c|>2 exterior escape seats so r=2 tumor cannot hide, got {exterior_escapes}"
+        );
+        assert!(
+            mismatches.is_empty(),
+            "exterior package vs DirectKernel mismatches ({}):\n{}",
+            mismatches.len(),
+            mismatches.iter().take(12).cloned().collect::<Vec<_>>().join("\n")
+        );
+    });
+}
+
+/// Dense exterior sample under reference+series must match DirectKernel on
+/// escape_time and small_time (generalizes the five-fixture tumor lock).
+#[test]
+// r[verify cz.depth.series-approximation+1]
+// r[verify cz.depth.delta-kernel+1]
+fn exterior_loci_with_series_match_direct_kernel_answers() {
+    use crate::assemblies::workgroup::screen_worker::perturb_kernel::PerturbationKernel;
+    use crate::series::SeriesApproximation;
+    let reference_c = (IntExp::from(-1).shift(-1), IntExp::ZERO); // -0.5
+    let orbit = ReferenceOrbit::compute(&reference_c, 128, 512);
+    let series = SeriesApproximation::from_orbit(&orbit, 4).expect("series");
+    let published = Arc::new(PublishedReference {
+        orbit,
+        c: reference_c,
+        generation: 42,
+        series: Some(series),
+    });
+    let frame = (
+        ObjectivePosAndZoom {
+            pos: (IntExp::from(-1), IntExp::from(-1)),
+            zoom_pot: -3,
+        },
+        (4u32, 4u32),
+    );
+
+    // Far exterior + near-bailout ring (angles around the circle).
+    let mut loci = vec![
+        (3.0, 0.0),
+        (2.0, 2.0),
+        (-2.5, 0.5),
+        (0.0, 3.0),
+        (1.5, 1.5),
+        (-3.0, -1.0),
+        (2.5, -2.5),
+    ];
+    for k in 0..32 {
+        let theta = std::f64::consts::TAU * (k as f64) / 32.0;
+        loci.push((2.05 * theta.cos(), 2.05 * theta.sin()));
+        loci.push((2.5 * theta.cos(), 2.5 * theta.sin()));
+        loci.push((4.0 * theta.cos(), 4.0 * theta.sin()));
+    }
+
+    let mut compared = 0usize;
+    let mut mismatches = Vec::new();
+    for c in loci {
+        assert!(
+            c.0 * c.0 + c.1 * c.1 > 4.0,
+            "fixture must be exterior |c|>2: {c:?}"
+        );
+        let mut direct = from_stencil::<f64>(frame.clone(), None).expect("direct");
+        let mut perturb = from_stencil::<f64>(frame.clone(), None).expect("perturb");
+        perturb.latest_reference = Some(published.clone());
+        for ctx in [&mut direct, &mut perturb] {
+            ctx.points[0].c = c;
+            ctx.points[0].z = c;
+            ctx.points[0].dc = (1.0, 0.0);
+            ctx.points[0].initialized = true;
+        }
+        DirectKernel.start_seat(&mut direct, (0, 0));
+        PerturbationKernel.start_seat(&mut perturb, (0, 0));
+        DirectKernel.iterate_bout(
+            &mut direct.points[0],
+            None,
+            4.0,
+            1e-15,
+            BoutCap::new(64),
+        );
+        PerturbationKernel.iterate_bout(
+            &mut perturb.points[0],
+            Some(&published.orbit),
+            4.0,
+            1e-15,
+            BoutCap::new(64),
+        );
+        assert!(
+            direct.points[0].escapes,
+            "exterior fixture must escape under DirectKernel: {c:?}"
+        );
+        compared += 1;
+        let d = (
+            direct.points[0].escapes,
+            direct.points[0].iterations,
+            direct.points[0].small_time,
+        );
+        let p = (
+            perturb.points[0].escapes,
+            perturb.points[0].iterations,
+            perturb.points[0].small_time,
+        );
+        if d != p {
+            mismatches.push(format!("c={c:?} direct={d:?} perturb={p:?}"));
+        }
+    }
+    assert!(compared >= 100, "dense exterior sample too small: {compared}");
+    assert!(
+        mismatches.is_empty(),
+        "exterior series+ref vs DirectKernel ({}):\n{}",
+        mismatches.len(),
+        mismatches.iter().take(16).cloned().collect::<Vec<_>>().join("\n")
+    );
+}
+
 #[test]
 // r[verify cz.depth.reference-generation-restart+1]
 fn generation_mismatch_restarts_delta() {
@@ -1800,6 +2119,9 @@ fn phase_two_perturbation_test_inventory_is_present() {
         "series_skip_matches_delta_tail",
         "published_reference_with_series_matches_direct_outside_r2",
         "series_safe_skip_does_not_pass_bailout_for_far_delta",
+        "home_package_with_live_series_obeys_real_axis_symmetry",
+        "home_package_with_live_series_matches_direct_kernel_answers",
+        "exterior_loci_with_series_match_direct_kernel_answers",
         "series_never_publishes_guessed_completion",
         "live_series_skip_initializes_delta_prefix",
         "design_depth_zoom_pot_representable",
