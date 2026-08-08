@@ -76,7 +76,7 @@ The later machine kept the coalescing *function* (`coalesce_scheduler_commands`)
 When a stencil changes, the worker builds the next world from `frame_info` alone:
 
 - **`points`** — a full-screen dense `Vec<Point>`, one entry per pixel. Seats start `initialized == false`; the first time the scheduler starts a seat, `ensure_started` materializes `c = z = generator.get_c(seat)`, `dc = (1, 0)`. The schedule and the working state are still the same vector; there is no registry of "tasks" separate from "progress". A point's index *is* its seat. This is why work-skipping bugs (README: "fix work skipping") have no place to live: there is no task list that can disagree with the point state; the point state is all there is.
-- **`c_generator`** — fail-closed objective→compute converter for this frame; also the source of `pitch_epsilon`.
+- **`c_generator`** — fail-closed objective→compute converter for this frame (`r[cz.depth.c-generator-fails-closed+1]`): O(1) IntExp probe at admission, stored `T` origin+space, blazing `get_c` multiply-add per seat; relative anchor is reference `c` when installed; rebuild on reference generation change. Also source of `pitch_epsilon`.
 - **`random_map` (mixmap)** — a shuffled permutation of seat indices, regenerated when the resolution changes. Random order is a specific lesson: raster-order traversal of the Mandelbrot set creates visible banding, because neighboring pixels have correlated costs and correlated completion. A shuffled order spreads both easy and hard pixels uniformly across the screen, so partial progress *looks like* uniform refinement rather than crawling stripes. (An interlaced variant exists in the code as an alternative — same intent.)
 - **`scredge_poses`** — the *shuffled perimeter* of the screen, computed at shell install. This is the scheduling face of the architecture's "smear/extrude" rule: the seats most likely to be newly exposed by motion are the edges, so the edges are seeded as work from birth, before any completion has occurred anywhere.
 - **Four queues** — `scredge_poses`, `edge_queue`, `out_queue`, `in_queue`. All seeded empty except scredge. Queues are `VecDeque`s of `(position, difficulty-or-period)`.
@@ -169,10 +169,9 @@ Read what this rotation *is*: **timeslicing between scheduling queues**. Each of
 The scheduler is deliberately separated from the numerical kernel it runs
 (`r[cz.craft.kernel-seam+1]`). `SeatKernel` owns only three operations:
 materialize one seat, run one `BoutCap`-bounded numerical bout, and map a
-finished seat to its answer. Production currently runs `PerturbationKernel`
-(`r[cz.perf.one-kernel-path+1]`, transitional); the destination is view-global
-PPS-selected naive vs perturbed kernel choice (`r[cz.perf.pps-selected-kernel+1]`).
-`DirectKernel` remains the parity oracle. The slot rotation, queues, attention
+finished seat to its answer. Production dispatches **`DirectKernel`** (naive) or
+**`PerturbationKernel`** (pert) per view (`r[cz.perf.pps-selected-kernel+1]`).
+`DirectKernel` is also the parity oracle in tests. The slot rotation, queues, attention
 backpressure, and wall-clock law remain outside the kernel. Swapping arithmetic
 does not rewrite any of the empirically proven scheduling machinery.
 

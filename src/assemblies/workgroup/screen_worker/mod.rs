@@ -203,7 +203,18 @@ async fn internal_behavior<A: SteadyActor>(
                         ),
                     );
                     // #endregion
-                    live.context.latest_reference = Some(newest);
+                    live.context.latest_reference = Some(newest.clone());
+                    let compute_loc = (
+                        live.frame_info.0.pos.0.clone(),
+                        crate::utils::IntExp::ZERO - live.frame_info.0.pos.1.clone(),
+                    );
+                    rebuild_generator_for_reference(
+                        &mut live.context,
+                        &compute_loc,
+                        live.frame_info.0.zoom_pot as i64,
+                        live.frame_info.1,
+                        newest.as_ref(),
+                    );
                 }
             } else {
                 // #region agent log
@@ -271,7 +282,18 @@ async fn internal_behavior<A: SteadyActor>(
                                 &pending.c,
                                 &frame_info,
                             ) {
-                                new_ctx.latest_reference = Some(pending);
+                                new_ctx.latest_reference = Some(pending.clone());
+                                let compute_loc = (
+                                    frame_info.0.pos.0.clone(),
+                                    crate::utils::IntExp::ZERO - frame_info.0.pos.1.clone(),
+                                );
+                                rebuild_generator_for_reference(
+                                    &mut new_ctx,
+                                    &compute_loc,
+                                    frame_info.0.zoom_pot as i64,
+                                    frame_info.1,
+                                    pending.as_ref(),
+                                );
                             } else {
                                 // Uncovered sticky refs cause classic glitch blobs when
                                 // zooming into hard areas; drop to zero-orbit until the

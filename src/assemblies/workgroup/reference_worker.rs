@@ -9,7 +9,7 @@ use std::time::Duration;
 use steady_state::*;
 
 use crate::assemblies::workgroup::screen_worker::workshift::{view_center_compute, WorkContext};
-use crate::assemblies::workgroup::c_generator::{CGenerator, Mandelbrotable};
+use crate::assemblies::workgroup::c_generator::{admit_generator, GeneratorAdmission, Mandelbrotable};
 use crate::constants::PIXELS_PER_UNIT_POT;
 use crate::reference::ReferenceOrbit;
 use crate::series::SeriesApproximation;
@@ -143,18 +143,22 @@ fn objective_c(
         frame.0.pos.0.clone(),
         IntExp::ZERO - frame.0.pos.1.clone(),
     );
-    let anchor = view_center_compute(&compute_loc, frame.0.zoom_pot, frame.1);
-    if let Some(generator) = CGenerator::<f64>::new_relative(
+    let view_center = view_center_compute(&compute_loc, frame.0.zoom_pot, frame.1);
+    if let Some(admission) = admit_generator::<f64>(
         &compute_loc,
-        &anchor,
         frame.0.zoom_pot as i64,
         frame.1,
+        None,
+        &view_center,
     ) {
-        let (re, im) = generator.get_c((seat, row));
-        return (
-            anchor.0.clone() + f64_to_intexp(re),
-            anchor.1.clone() + f64_to_intexp(im),
-        );
+        let (re, im) = admission.generator().get_c((seat, row));
+        return match admission {
+            GeneratorAdmission::Absolute(_) => (f64_to_intexp(re), f64_to_intexp(im)),
+            GeneratorAdmission::Relative { anchor, .. } => (
+                anchor.0.clone() + f64_to_intexp(re),
+                anchor.1.clone() + f64_to_intexp(im),
+            ),
+        };
     }
     let exponent = frame.0.zoom_pot.saturating_add(PIXELS_PER_UNIT_POT);
     let pitch = IntExp::from(1).shift(exponent.saturating_neg());

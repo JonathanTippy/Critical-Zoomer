@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use std::collections::*;
 use std::cmp::*;
-use crate::assemblies::workgroup::c_generator::{CGenerator, Mandelbrotable};
+use crate::assemblies::workgroup::c_generator::{admit_generator, CGenerator, GeneratorAdmission, Mandelbrotable};
 use crate::assemblies::workgroup::reference_worker::PublishedReference;
 use crate::delta_gear::{ComputeGear, view_gear_from_generators};
 use crate::floatexp::{ComplexFloatExp, FloatExp};
@@ -166,6 +166,8 @@ pub struct WorkContext<T: Mandelbrotable> {
     , pub reference_floor_active: bool
     , pub pert_trial_shifts_left: u8
     , pub pert_trial_cooldown: u32
+    // Bumped when `c_generator` is rebuilt for a new reference generation.
+    , pub generator_generation: u64
 }
 
 /// Brief perturbation probe when direct is genuinely stuck (>2s to clear remaining).
@@ -438,17 +440,64 @@ pub(crate) fn get_random_mixmap(size: usize) -> Vec<usize> {
     indices
 }
 
-/// Whether an f64 grid admits this stencil (absolute, or relative-to-center fallback).
+/// Whether an f64 grid admits this stencil (absolute, or relative fallback).
 pub fn f64_stencil_admits(
     compute_loc: &(IntExp, IntExp),
     zoom_pot: i64,
     res: (u32, u32),
 ) -> bool {
-    if CGenerator::<f64>::new(compute_loc, zoom_pot, res).is_some() {
-        return true;
+    let view_center = view_center_compute(compute_loc, zoom_pot as i32, res);
+    admit_generator::<f64>(compute_loc, zoom_pot, res, None, &view_center).is_some()
+}
+
+/// Apply admitted generator fields and invalidate undelivered seats on generation bump.
+pub fn apply_generator_admission<T: Mandelbrotable + From<f32>>(
+    ctx: &mut WorkContext<T>,
+    admission: GeneratorAdmission<T>,
+    view_center: (IntExp, IntExp),
+    generation: u64,
+) {
+    let (c_generator, coord_anchor, coords_are_relative) = match admission {
+        GeneratorAdmission::Absolute(generator) => (generator, view_center, false),
+        GeneratorAdmission::Relative { generator, anchor } => (generator, anchor, true),
+    };
+    if ctx.generator_generation != generation {
+        for p in &mut ctx.points {
+            if !p.delivered {
+                p.initialized = false;
+                p.delta = None;
+            }
+        }
     }
-    let anchor = view_center_compute(compute_loc, zoom_pot as i32, res);
-    CGenerator::<f64>::new_relative(compute_loc, &anchor, zoom_pot, res).is_some()
+    ctx.c_generator = c_generator;
+    ctx.coord_anchor = coord_anchor;
+    ctx.coords_are_relative = coords_are_relative;
+    let (_, space) = c_generator.origin_and_space();
+    ctx.pitch_epsilon = space.abs() * T::from(1.0 / 256.0);
+    ctx.generator_generation = generation;
+}
+
+/// Rebuild `c_generator` relative to a published reference anchor.
+// r[impl cz.depth.c-generator-fails-closed+1]
+pub fn rebuild_generator_for_reference<T: Mandelbrotable + From<f32>>(
+    ctx: &mut WorkContext<T>,
+    compute_loc: &(IntExp, IntExp),
+    zoom_pot: i64,
+    res: (u32, u32),
+    published: &PublishedReference,
+) -> bool {
+    let view_center = view_center_compute(compute_loc, zoom_pot as i32, res);
+    let Some(admission) = admit_generator::<T>(
+        compute_loc,
+        zoom_pot,
+        res,
+        Some(&published.c),
+        &view_center,
+    ) else {
+        return false;
+    };
+    apply_generator_admission(ctx, admission, view_center, published.generation);
+    true
 }
 
 /// Absolute plane coordinate = IntExp anchor + relative seat sample (f64 host).
@@ -514,42 +563,29 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
 
     let (obj, res) = frame_info;
     let compute_loc = (obj.pos.0.clone(), IntExp::ZERO - obj.pos.1.clone());
-    let coord_anchor = view_center_compute(&compute_loc, obj.zoom_pot, res);
-    let use_floatexp_host = std::any::TypeId::of::<T>()
-        == std::any::TypeId::of::<crate::floatexp::FloatExp>();
-    let (c_generator, coords_are_relative) = if use_floatexp_host {
-        // Prefer absolute FloatExp when the grid admits; relative only when
-        // absolute collapses (deep views past f64).
-        // r[impl cz.depth.floatexp-host-coords+1]
-        match CGenerator::<T>::new(&compute_loc, obj.zoom_pot as i64, res) {
-            Some(g) => (g, false),
-            None => (
-                CGenerator::<T>::new_relative(
-                    &compute_loc,
-                    &coord_anchor,
-                    obj.zoom_pot as i64,
-                    res,
-                )?,
-                true,
-            ),
-        }
-    } else {
-        // Live f64 actors: absolute grid when it admits; else relative-to-center.
-        match CGenerator::<T>::new(&compute_loc, obj.zoom_pot as i64, res) {
-            Some(g) => (g, false),
-            None => (
-                CGenerator::<T>::new_relative(
-                    &compute_loc,
-                    &coord_anchor,
-                    obj.zoom_pot as i64,
-                    res,
-                )?,
-                true,
-            ),
-        }
+    let view_center = view_center_compute(&compute_loc, obj.zoom_pot, res);
+    let relative_anchor = carried_reference.as_ref().map(|r| &r.c);
+    let generator_generation = carried_reference
+        .as_ref()
+        .map(|r| r.generation)
+        .unwrap_or(0);
+    let admission = admit_generator::<T>(
+        &compute_loc,
+        obj.zoom_pot as i64,
+        res,
+        relative_anchor,
+        &view_center,
+    )?;
+    let coords_are_relative = admission.is_relative();
+    let c_generator = *admission.generator();
+    let coord_anchor = match admission {
+        GeneratorAdmission::Absolute(_) => view_center,
+        GeneratorAdmission::Relative { anchor, .. } => anchor,
     };
     let (_, space) = c_generator.origin_and_space();
     let seat_pitch_epsilon = space.abs() * T::from(1.0 / 256.0);
+    let use_floatexp_host = std::any::TypeId::of::<T>()
+        == std::any::TypeId::of::<crate::floatexp::FloatExp>();
     let view_gear = if use_floatexp_host {
         ComputeGear::FloatExp
     } else {
@@ -658,6 +694,7 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
         reference_floor_active: false,
         pert_trial_shifts_left: 0,
         pert_trial_cooldown: carried_trial_cooldown,
+        generator_generation,
     })
 }
 
@@ -849,11 +886,8 @@ where
     fn completion(&self, point: &mut Point<T>) -> CompletedPoint<T>;
 }
 
-/// Direct Mandelbrot iteration — test-only parity oracle.
-/// Oracle / bench-only direct recurrence. Production always runs
-/// [`PerturbationKernel`] (including the zero-orbit floor).
-/// Oracles live in test/bench code; the production path never branches on them.
-// r[impl cz.perf.one-kernel-path+1]
+/// Production naive Mandelbrot iteration (`mode:naive`).
+// r[impl cz.perf.pps-selected-kernel+1]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DirectKernel;
 

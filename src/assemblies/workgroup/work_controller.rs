@@ -2,7 +2,7 @@ use steady_state::*;
 
 use crate::assemblies::headgroup::window::sampling::*;
 use crate::assemblies::structs::*;
-use crate::assemblies::workgroup::c_generator::CGenerator;
+use crate::assemblies::workgroup::c_generator::admit_generator;
 use crate::assemblies::workgroup::screen_worker::*;
 use crate::assemblies::workgroup::screen_worker::workshift::*;
 use crate::constants::*;
@@ -174,7 +174,7 @@ pub fn get_points<
     out
 }
 
-/// Fail-closed stencil gate: unchanged views are suppressed; views whose f64
+/// Stencil admission gate: unchanged views are suppressed; views whose f64
 /// grid would collapse are suppressed. The worker builds the world from the
 /// stencil alone.
 fn should_send_replace(
@@ -193,39 +193,17 @@ fn should_send_replace(
     // Compute-grid loc matches get_points / CGenerator: frame_info imag is
     // already display-flipped once; flip again for the arithmetic origin.
     let compute_loc = (obj.pos.0.clone(), IntExp::ZERO - obj.pos.1.clone());
-    let abs_ok = CGenerator::<f64>::new(&compute_loc, obj.zoom_pot as i64, res).is_some();
-    let rel_ok = if abs_ok {
-        false
-    } else {
-        let anchor = view_center_compute(&compute_loc, obj.zoom_pot, res);
-        CGenerator::<f64>::new_relative(&compute_loc, &anchor, obj.zoom_pot as i64, res).is_some()
-    };
-    if !abs_ok && !rel_ok {
-        // #region agent log
-        crate::debug_agent::log_hud(
-            "H7",
-            "work_controller.rs:should_send_replace",
-            "replace_rejected",
-            &format!(
-                "{{\"zoom_pot\":{},\"res_w\":{},\"abs_ok\":false,\"rel_ok\":false}}",
-                obj.zoom_pot, res.0
-            ),
-        );
-        // #endregion
+    let view_center = view_center_compute(&compute_loc, obj.zoom_pot, res);
+    if admit_generator::<f64>(
+        &compute_loc,
+        obj.zoom_pot as i64,
+        res,
+        None,
+        &view_center,
+    )
+    .is_none()
+    {
         return false;
-    }
-    if !abs_ok && rel_ok {
-        // #region agent log
-        crate::debug_agent::log_hud(
-            "H8",
-            "work_controller.rs:should_send_replace",
-            "replace_relative_fallback",
-            &format!(
-                "{{\"zoom_pot\":{},\"res_w\":{},\"abs_ok\":false,\"rel_ok\":true}}",
-                obj.zoom_pot, res.0
-            ),
-        );
-        // #endregion
     }
 
     state.worker_res = res;

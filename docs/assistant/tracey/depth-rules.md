@@ -6,17 +6,22 @@ phase. See `../design/depth-design.md` and `../issue-stack.md`.
 r[cz.depth.c-generator-fails-closed+1]
 
 **Rule.** Objective-coordinate conversion is admitted only when the target compute type keeps
-every adjacent screen point distinct. Adjacency is checked at both axis ends (including the
-max-magnitude end where float ulp is worst), and generated coordinates reproduce v0.0.9's
-top-left, no-half-pixel grid exactly. Relative generation subtracts the reference in exact
-IntExp before narrowing.
+every adjacent screen point distinct. Admission is O(1): compute exact `IntExp` origin and
+pixel pitch, probe only the near and far ends of each axis (including the max-magnitude end
+where float ulp is worst), convert probe points through `T: From<IntExp>`, and verify
+adjacency in `T`. On success store `origin` and `space` as `T`; hot `get_c` is pure `T`
+multiply-add with no per-seat IntExp. Generated coordinates reproduce v0.0.9's top-left,
+no-half-pixel grid exactly. Relative generation subtracts the anchor in exact `IntExp` before
+narrowing; anchor is `published.c` when a reference exists, else view center. Rebuild the
+generator when reference generation changes so seats bind to the matching grid.
 
 **Implementation.** `src/assemblies/workgroup/c_generator.rs` — `Mandelbrotable`,
-`CGenerator::new`, `new_relative`.
+`CGenerator::new`, `new_relative`, `admit_generator`, `rebuild_generator_for_reference`.
 
 **Verification.** `generator_matches_v009_grid_bit_for_bit`,
 `rejects_collapse_at_far_end`, `successful_generator_has_distinct_neighbors`,
-`relative_generator_subtracts_before_narrowing`.
+`relative_generator_subtracts_before_narrowing`, `from_stencil_carried_ref_anchors_to_ref_c`,
+`reference_install_rebuilds_c_generator`.
 
 r[cz.depth.floatexp-range+1]
 
@@ -208,10 +213,11 @@ generation restarts its delta at zero. Stale deltas never survive a retarget.
 
 r[cz.depth.floatexp-host-coords+1]
 
-**Rule.** Seat samples are always relative to the view-center IntExp
-`coord_anchor` (one path). Absolute plane c for perturbation is
-`anchor + relative`. Live shallow/mid actors may use `f64` host seats when the
-generator admits them; deep admission uses FloatExp host in tests / deep path.
+**Rule.** Seat samples relative to the generator anchor (`coord_anchor`). Absolute plane c
+for perturbation is `anchor + relative` when the generator is relative. Anchor is
+`published.c` when a reference scoped the generator, else view center. Live shallow/mid
+actors use `f64` host seats when the generator admits them; deep admission may use relative
+f64 or FloatExp host in tests / deep path.
 `FloatExp.mantissa` remains f64 by design. Render/`Answer` may narrow at the
 collector. Mathematical deltas and stored reference iterates remain FloatExp
 storage regardless of host type.
@@ -272,7 +278,9 @@ r[cz.depth.gear-hud+2]
 
 **Rule.** The HUD displays host stack, kernel mode (`naive`|`pert`), reference status
 (`wip`|`complete`), effective active compute gear, and rolling IPS and PPS. Mode names
-the reference floor inside the single perturbation kernel. Ref is a running snapshot:
+which production kernel runs: **`naive`** = `DirectKernel`; **`pert`** =
+`PerturbationKernel`. Gear applies under **`mode:pert`** only (delta ladder); naive
+reports `F64`. Ref is a running snapshot:
 `wip` when no usable published reference exists yet or any seat is in `direct_only` glitch
 recovery awaiting a newer reference generation; `complete` when a usable reference is
 installed and no seats are glitched. Mixed-seat views surface MIXED rather than a false

@@ -53,7 +53,7 @@ Developer acceptance test failed on the tile machine. Most items were tile-era i
 - **GPU port of the golden design** (`docs/assistant/design/design-target.md`): views not tiles, full remap of old work, v0.0.9 semantics on GPU. Not started; design must follow `docs/assistant/design/workgroup-virtues.md`.
 - **Certified `Boundary` completion state.** Dyadic pixel centers can only hit algebraically certifiable boundary parameters: exact parabolic points via rational cycle/multiplier checks, and Misiurewicz points via exact preperiodic repetition. Add a third completion state and separate coloring; do not impose an app effort cap. Explicitly deferred from the perturbation-core round, not forgotten.
 - **Lookahead/hoard across mags**: v0.0.9 remaps one screen only. The tile era's thin-tower lookahead failed by fragmenting the truth store; any future lookahead must extend the remap discipline, not replace it (virtues §3, §11).
-- **PPS-selected kernel (naive vs pert)** (`r[cz.perf.pps-selected-kernel+1]`): open — view-global probe not implemented; production still perturbation-only (`one-kernel-path+1` transitional).
+- **PPS-selected kernel (naive vs pert)** (`r[cz.perf.pps-selected-kernel+1]`): **in progress** — dual `DirectKernel` / `PerturbationKernel` dispatch; soft trial policy partial.
 - **Headgroup/shadergroup test strategy** (open problem): the workgroup now has property tests bound to its craftsmanship rules; the headgroup does not. The screenshot harness is the only net for visual bugs but needs use on every edit and image-description trust is imperfect; oracles can rot when output legitimately changes; the only known visual property so far is real-axis reflection symmetry. Needs a stronger strategy before the GPU shade port — the shadergroup was cut back last time partly for lack of tests. In-app PPM snip (`snip.rs` / `CZ_SNIPREQ`) is a start for faux-user paths. **Partial close (answer layer, 2026-08-08):** workgroup now has frame-level real-axis answer symmetry + whole-package DirectKernel oracle after reference+series (`home_package_with_live_series_obeys_real_axis_symmetry`, `home_package_with_live_series_matches_direct_kernel_answers`, `exterior_loci_with_series_match_direct_kernel_answers`).   Paint/headgroup still screenshot-only.
 - **HUD truth (2026-08-08):** metrics top-left show stack/mode/ref/gear; location+goto
   panel bottom-right (`coords-parse+2`, `location-readout+2`); mode flips
@@ -80,11 +80,10 @@ Not bugs; provisional mechanisms that shipped because they beat nothing. None is
 
 ## Done (recent)
 
-- Perturbation delta kernel (milestone 2) — **closed for correctness** (final phase
-  supersedes home ≤20% gate):
-  `PerturbationKernel` is the only production path; zero-orbit floor; glitch →
-  `direct_only` via same code; generation-guarded restarts; `DirectKernel` test-only.
-  Final phase continues: FloatExp host coords + series approximation.
+- Perturbation delta kernel (milestone 2) — **closed for correctness** (gear ladder,
+  series, glitch handling). Production dispatch migrating to PPS-selected naive vs pert
+  (`r[cz.perf.pps-selected-kernel+1]`); `DirectKernel` is production naive path and
+  test oracle.
 - In-filament detection now carries the Mandelbrot derivative through remap and extrapolates
   the escape field across the four screen neighbors before applying the existing one-pixel
   peak test. Derivative, convergence, and 2x/4x ridge-survival tests are green. Pending headed

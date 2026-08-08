@@ -197,15 +197,14 @@ change when panning vs stationary; sampling shader always the same path.
 
 r[cz.perf.one-kernel-path+1]
 
-**Normative summary.** Exactly one numerical kernel is constructed on the
-production path. Easier conditions (no published reference, shallow zoom,
-post-glitch seats) change the *reference* (current → previous → zero orbit),
-never the algorithm. `DirectKernel` is test-only.
+**Normative summary.** *Transitional milestone — superseded by
+`r[cz.perf.pps-selected-kernel+1]`.* During the perturbation correctness push, production
+shipped `PerturbationKernel` only (including zero-orbit floor). Destination: dual production
+dispatch — `DirectKernel` for naive when fast/legal, `PerturbationKernel` for pert.
 
-**Acceptance criteria.**
-- [x] `workshift` constructs `PerturbationKernel` only; `DirectKernel` is `#[cfg(test)]`.
-- [x] Zero-orbit floor and `direct_only` seats run the same delta code.
-- [x] Parity proptest vs the test-only oracle; benches measure the shipping path.
+**Acceptance criteria (historical).**
+- [x] Perturbation correctness path landed with zero-orbit floor and gear ladder.
+- [ ] Superseded by `pps-selected-kernel+1` dual dispatch acceptance.
 
 r[cz.perf.pps-selected-kernel+1]
 

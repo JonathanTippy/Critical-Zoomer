@@ -115,6 +115,7 @@ fn make_context(workshifts: u32) -> WorkContext<FloatExp> {
         reference_floor_active: false,
         pert_trial_shifts_left: 0,
         pert_trial_cooldown: 0,
+        generator_generation: 0,
     }
 }
 
@@ -2904,6 +2905,100 @@ fn unfinished_frame_never_zero_pps_streak() {
 }
 
 
+
+#[test]
+// r[verify cz.depth.c-generator-fails-closed+1]
+fn zoom_past_f64_absolute_wall_admits_replace() {
+    use crate::assemblies::workgroup::c_generator::admit_generator;
+    run_big(|| {
+        let compute_loc = (IntExp::from(-1).shift(-1), IntExp::ZERO);
+        let res = (1280u32, 720u32);
+        let zoom_pot = 50i64;
+        let view_center = view_center_compute(&compute_loc, zoom_pot as i32, res);
+        assert!(
+            CGenerator::<f64>::new(&compute_loc, zoom_pot, res).is_none(),
+            "absolute f64 must collapse past the precision wall"
+        );
+        assert!(
+            admit_generator::<f64>(&compute_loc, zoom_pot, res, None, &view_center).is_some(),
+            "stencil admission gate must admit relative fallback"
+        );
+    });
+}
+
+#[test]
+// r[verify cz.depth.c-generator-fails-closed+1]
+fn from_stencil_carried_ref_anchors_to_ref_c() {
+    use crate::assemblies::workgroup::reference_worker::{
+        reference_c_covers_frame, select_reference_request, PublishedReference,
+    };
+    use std::sync::Arc;
+    use crate::reference::ReferenceOrbit;
+    run_big(|| {
+        let frame = (
+            ObjectivePosAndZoom {
+                pos: (IntExp::from(-1).shift(-1), IntExp::ZERO),
+                zoom_pot: 50,
+            },
+            (1280u32, 720u32),
+        );
+        let mut shell = from_stencil::<f64>(frame.clone(), None).expect("deep shell");
+        let ref_req = select_reference_request::<f64>(None, &frame);
+        assert!(reference_c_covers_frame(&ref_req.c, &frame));
+        let orbit = ReferenceOrbit::compute(&ref_req.c, ref_req.precision_bits, 4096);
+        shell.latest_reference = Some(Arc::new(PublishedReference {
+            orbit,
+            c: ref_req.c.clone(),
+            generation: 11,
+            series: None,
+        }));
+        let carried =
+            from_stencil(frame.clone(), Some((shell, frame.0.clone()))).expect("carried");
+        assert!(carried.coords_are_relative);
+        assert_eq!(carried.coord_anchor, ref_req.c);
+        assert_eq!(carried.generator_generation, 11);
+    });
+}
+
+#[test]
+// r[verify cz.depth.c-generator-fails-closed+1]
+fn reference_install_rebuilds_c_generator() {
+    use crate::assemblies::workgroup::reference_worker::{
+        reference_c_covers_frame, select_reference_request, PublishedReference,
+    };
+    use crate::reference::ReferenceOrbit;
+    run_big(|| {
+        let frame = (
+            ObjectivePosAndZoom {
+                pos: (IntExp::from(-1).shift(-1), IntExp::ZERO),
+                zoom_pot: 50,
+            },
+            (1280u32, 720u32),
+        );
+        let mut ctx = from_stencil::<f64>(frame.clone(), None).expect("shell");
+        let ref_req = select_reference_request::<f64>(None, &frame);
+        assert!(reference_c_covers_frame(&ref_req.c, &frame));
+        let published = PublishedReference {
+            orbit: ReferenceOrbit::compute(&ref_req.c, ref_req.precision_bits, 4096),
+            c: ref_req.c.clone(),
+            generation: 42,
+            series: None,
+        };
+        let compute_loc = (
+            frame.0.pos.0.clone(),
+            IntExp::ZERO - frame.0.pos.1.clone(),
+        );
+        assert!(rebuild_generator_for_reference(
+            &mut ctx,
+            &compute_loc,
+            frame.0.zoom_pot as i64,
+            frame.1,
+            &published,
+        ));
+        assert_eq!(ctx.coord_anchor, ref_req.c);
+        assert_eq!(ctx.generator_generation, 42);
+    });
+}
 
 #[test]
 fn f64_deep_zoom_admits_relative_stencil() {

@@ -1,4 +1,4 @@
-//! Perturbation delta kernel — the sole production numerical path (f64 seats).
+//! Perturbation delta kernel (`mode:pert` production path for f64 seats).
 //!
 //! Inner recurrence uses the compute gear ladder (f64 → scaled-f64 → FloatExp).
 //! Depth tests use `perturb_floatexp` (`SeatKernel<FloatExp>`).
@@ -23,9 +23,9 @@ use super::workshift::{
     iterate, BoutCap, CompletedPoint, DeltaState, Point, SeatKernel, WorkContext,
 };
 
-/// The only production kernel. Always runs delta iteration.
+/// Perturbation delta kernel (`mode:pert`).
 // r[impl cz.depth.delta-kernel+1]
-// r[impl cz.perf.one-kernel-path+1]
+// r[impl cz.perf.pps-selected-kernel+1]
 // r[impl cz.ref.zero-orbit-same-path+1]
 // r[impl cz.depth.compute-gear+1]
 #[derive(Clone, Copy, Debug, Default)]

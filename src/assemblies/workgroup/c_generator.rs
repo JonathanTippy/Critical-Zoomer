@@ -50,10 +50,86 @@ impl Mandelbrotable for f64 {
     }
 }
 
+/// Admitted generator for one frame: absolute plane coords, or relative to an
+/// IntExp anchor (reference `c` when installed, else view center).
+#[derive(Clone, Debug)]
+pub enum GeneratorAdmission<T: Mandelbrotable> {
+    Absolute(CGenerator<T>),
+    Relative {
+        generator: CGenerator<T>,
+        anchor: (IntExp, IntExp),
+    },
+}
+
+impl<T: Mandelbrotable> GeneratorAdmission<T> {
+    pub fn is_relative(&self) -> bool {
+        matches!(self, Self::Relative { .. })
+    }
+
+    pub fn generator(&self) -> &CGenerator<T> {
+        match self {
+            Self::Absolute(g) | Self::Relative { generator: g, .. } => g,
+        }
+    }
+}
+
+/// Shallowest host stack whose generator admits this stencil.
+#[derive(Clone, Debug)]
+pub enum AdmittedHostStack {
+    F64(GeneratorAdmission<f64>),
+    FloatExp(GeneratorAdmission<crate::floatexp::FloatExp>),
+}
+
+/// O(1) admission: absolute first, then relative to `relative_anchor` or
+/// `view_center` when no anchor is supplied.
+// r[impl cz.depth.c-generator-fails-closed+1]
+pub fn admit_generator<T: Mandelbrotable>(
+    compute_loc: &(IntExp, IntExp),
+    zoom_pot: i64,
+    res: (u32, u32),
+    relative_anchor: Option<&(IntExp, IntExp)>,
+    view_center: &(IntExp, IntExp),
+) -> Option<GeneratorAdmission<T>> {
+    if let Some(generator) = CGenerator::<T>::new(compute_loc, zoom_pot, res) {
+        return Some(GeneratorAdmission::Absolute(generator));
+    }
+    let anchor = relative_anchor
+        .map(|a| (a.0.clone(), a.1.clone()))
+        .unwrap_or_else(|| (view_center.0.clone(), view_center.1.clone()));
+    CGenerator::<T>::new_relative(compute_loc, &anchor, zoom_pot, res)
+        .map(|generator| GeneratorAdmission::Relative { generator, anchor })
+}
+
+/// f64 before FloatExp — stack order for stencil admission probes.
+pub fn pick_stack_admission(
+    compute_loc: &(IntExp, IntExp),
+    zoom_pot: i64,
+    res: (u32, u32),
+    relative_anchor: Option<&(IntExp, IntExp)>,
+    view_center: &(IntExp, IntExp),
+) -> Option<AdmittedHostStack> {
+    if let Some(admission) =
+        admit_generator::<f64>(compute_loc, zoom_pot, res, relative_anchor, view_center)
+    {
+        return Some(AdmittedHostStack::F64(admission));
+    }
+    admit_generator::<crate::floatexp::FloatExp>(
+        compute_loc,
+        zoom_pot,
+        res,
+        relative_anchor,
+        view_center,
+    )
+    .map(AdmittedHostStack::FloatExp)
+}
+
 /// Fail-closed objective-coordinate to compute-coordinate conversion.
 ///
 /// The grid follows v0.0.9 exactly: `origin` is the top-left sample, +seat is
 /// +real, +row is -imag, and there is no half-pixel offset.
+///
+/// Admission is O(1): only the near and far ends of each axis are probed in
+/// `T`; the hot `get_c` loop never touches `IntExp`.
 #[derive(Clone, Copy, Debug)]
 pub struct CGenerator<T: Mandelbrotable> {
     origin: (T, T),
@@ -157,6 +233,43 @@ mod tests {
         for seat in 0..799 {
             assert_ne!(generator.get_c((seat, 0)), generator.get_c((seat + 1, 0)));
         }
+    }
+
+    #[test]
+    fn stack_picker_f64_before_floatexp() {
+        let loc = (IntExp::from(-2), IntExp::from(1));
+        let res = (17, 11);
+        let view_center = (
+            loc.0.clone() + IntExp::from(8),
+            loc.1.clone() - IntExp::from(5),
+        );
+        let picked = pick_stack_admission(&loc, 0, res, None, &view_center).unwrap();
+        assert!(matches!(picked, AdmittedHostStack::F64(_)));
+    }
+
+    #[test]
+    fn admit_generator_probes_only_constant_work() {
+        let loc = (IntExp::from(-2), IntExp::from(1));
+        let res = (800, 480);
+        let view_center = view_center_for_test(&loc, 12, res);
+        let start = std::time::Instant::now();
+        for _ in 0..10_000 {
+            let _ = admit_generator::<f64>(&loc, 12, res, None, &view_center);
+        }
+        assert!(start.elapsed() < std::time::Duration::from_millis(500));
+    }
+
+    fn view_center_for_test(
+        compute_loc: &(IntExp, IntExp),
+        zoom_pot: i32,
+        res: (u32, u32),
+    ) -> (IntExp, IntExp) {
+        let exponent = zoom_pot.saturating_add(crate::constants::PIXELS_PER_UNIT_POT);
+        let pitch = IntExp::from(1).shift(exponent.saturating_neg());
+        (
+            compute_loc.0.clone() + pitch.clone() * IntExp::from((res.0 / 2) as i32),
+            compute_loc.1.clone() - pitch * IntExp::from((res.1 / 2) as i32),
+        )
     }
 
     #[test]
