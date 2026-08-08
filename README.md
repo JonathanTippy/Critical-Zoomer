@@ -23,19 +23,58 @@ a mandelbrot set zoomer written in rust
 ## Opinions
 - The mandelbrot set is the only nontrivial fractal that isn't ugly.
 
-## NASA V (v0.0.10) WIP...
+## Da plan (subject to change)
 
-- algoritm study | 20%
-- expectations | done
-- requirements | done
-- architecture | done
-- assemblies arch | 80%
-- units arch | 30%
-- unit tests |
-- integration tests |
-- e2e tests |
-- system verification |
-- system validation |
+### The MVP 0 (0.0.1)  done!
+- blazing fast window exists | ✔️
+- workday-based worker exists | ✔️
+- window and worker communicate | ✔️
+- ️no iteration count; all results are always calculated completely until escape or loop. | ✔️
+  
+### Fix the jank (0.0.2) done!
+- window / worker linkakge is stable during quick inputs | ✔️
+- fix drag after zoom | ✔️
+- fix drag too far | ✔️
+- window / worker handle resolution changes | ✔️
+- fix zoom while drag | ✔️
+- implement home button functionality | ✔️
+
+### workgroup rewrite (0.0.3) done!
+
+- worker no longer workday based, but workshift and checks its in channel every shift | ✔️
+- rework worker resolution and updates; add work collector after worker so worker can send updates at a fixed rate | ✔️
+- fix work cancellation | ✔️
+- fix work skipping | ✔️
+- rewrite WC / window linkage | ✔️
+- fix zoom while drag | ✔️
+- fix home button | ✔️
+- fix screen resizing | ✔️
+
+### work saving (0.0.4) done! (for now)
+
+- add work collector actor | ✔️
+- implement work saving when zooming in | ✔️
+- implement CD | ✔️
+
+### work saving 2 + flood fill (0.0.5) done!
+
+- work saving when moving | ✔️
+- flood fill out points | ✔️
+
+### settings (0.0.6) done
+
+- fix zoom too far | ✔️
+- settings page allows custom layering of colorings | ✔️
+- also allows animation of variables | ✔️
+
+## KMF (v0.0.7) done
+
+- misc
+
+## minor bugfix (v0.0.8) done
+
+- fix work noncomplete | done
+- fix unclean shutdown | done
 
 
 
