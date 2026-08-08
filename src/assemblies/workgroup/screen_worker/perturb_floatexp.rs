@@ -204,6 +204,25 @@ fn apply_series_skip(
         return;
     };
     let dd = delta.dd;
+    let dc = delta.dc;
+    let abs_c = delta.abs_c;
+    for n in 0..=skip {
+        let rad = if n == 0 {
+            abs_c.norm_squared().to_f64()
+        } else {
+            let Some(dz_n) = series.evaluate(n, dc) else {
+                break;
+            };
+            let Some(z_ref_n) = pub_ref.orbit.get(n as u32) else {
+                break;
+            };
+            (z_ref_n + dz_n).norm_squared().to_f64()
+        };
+        if rad < point.smallness_squared.to_f64() {
+            point.smallness_squared = FloatExp::from(rad);
+            point.small_time = n.saturating_sub(1) as u32;
+        }
+    }
     delta.dz = dz;
     point.iterations = skip.saturating_sub(1) as u32;
     let z_ref = pub_ref

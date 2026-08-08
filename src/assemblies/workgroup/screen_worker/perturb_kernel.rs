@@ -283,6 +283,30 @@ fn apply_series_skip(
         return;
     };
     let dd = delta.dd;
+    let dc = delta.dc;
+    // Series skip advances Z/δz but must still collect min-|z| along the
+    // skipped prefix — otherwise small_time sticks at the skip index (square
+    // STE bands) while escape_time is already correct.
+    // r[impl cz.depth.series-approximation+1]
+    let abs_c = delta.abs_c;
+    for n in 0..=skip {
+        let rad = if n == 0 {
+            abs_c.norm_squared().to_f64()
+        } else {
+            let Some(dz_n) = series.evaluate(n, dc) else {
+                break;
+            };
+            let Some(z_ref_n) = pub_ref.orbit.get(n as u32) else {
+                break;
+            };
+            (z_ref_n + dz_n).norm_squared().to_f64()
+        };
+        if rad < point.smallness_squared {
+            point.smallness_squared = rad;
+            // Series step n lands at perturb iterations n-1 (see skip assignment).
+            point.small_time = n.saturating_sub(1) as u32;
+        }
+    }
     delta.dz = dz;
     delta.gear = gear_for_delta(delta.dc, dz);
     delta.scale = scaled_scale_from_dz(dz);
@@ -292,6 +316,20 @@ fn apply_series_skip(
         .get(point.iterations.saturating_add(1))
         .unwrap_or(ComplexFloatExp::ZERO);
     sync_point_from_delta_fe(point, z_ref, dz, dd);
+    // #region agent log
+    {
+        let st_after = point.small_time;
+        crate::debug_agent::log(
+            "A",
+            "perturb_kernel.rs:series_skip",
+            "series_skip_small_time_after_scan",
+            &format!(
+                "{{\"skip\":{skip},\"iters\":{},\"st\":{st_after},\"min_rad\":{}}}",
+                point.iterations, point.smallness_squared
+            ),
+        );
+    }
+    // #endregion
 }
 
 fn fe_pair(z: ComplexFloatExp) -> (f64, f64) {
@@ -1034,9 +1072,24 @@ impl SeatKernel<f64> for PerturbationKernel {
     fn completion(&self, point: &mut Point<f64>) -> CompletedPoint<f64> {
         let out = direct_completion(point);
         // #region agent log
-        if point.escapes {
+        {
             let c2 = point.c.0 * point.c.0 + point.c.1 * point.c.1;
-            if c2 > 4.0 {
+            let st = match &out {
+                CompletedPoint::Escapes { small_time, .. }
+                | CompletedPoint::Repeats { small_time, .. } => *small_time,
+                _ => 999,
+            };
+            if c2 <= 4.0 && (point.escapes || point.repeats) {
+                crate::debug_agent::log(
+                    "B,E",
+                    "perturb_kernel.rs:completion",
+                    "interior_small_time",
+                    &format!(
+                        "{{\"c2\":{c2},\"st\":{st},\"et\":{},\"escapes\":{},\"repeats\":{}}}",
+                        point.iterations, point.escapes, point.repeats
+                    ),
+                );
+            } else if point.escapes && c2 > 4.0 {
                 static OUTER_N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
                 let n = OUTER_N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 if n < 30 || n % 200 == 0 {

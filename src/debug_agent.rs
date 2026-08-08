@@ -6,8 +6,8 @@ use std::io::Write;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const LOG_PATH: &str = "/home/jonathan/git/Critical-Zoomer/.cursor/debug-63a36f.log";
-const SESSION: &str = "63a36f";
+const LOG_PATH: &str = "/home/jonathan/git/Critical-Zoomer/.cursor/debug-c33634.log";
+const SESSION: &str = "c33634";
 
 static SEQ: AtomicU64 = AtomicU64::new(0);
 static SAMPLE: AtomicU64 = AtomicU64::new(0);

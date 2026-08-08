@@ -1457,6 +1457,101 @@ fn published_reference_with_series_matches_direct_outside_r2() {
     }
 }
 
+/// Diagnostic: perturbation small_time must match DirectKernel (iteration index
+/// of minimum |z|). Escape-time parity alone is insufficient for STE shading.
+#[test]
+fn small_time_matches_direct_kernel_on_interior() {
+    use crate::assemblies::workgroup::screen_worker::perturb_kernel::PerturbationKernel;
+    use crate::series::SeriesApproximation;
+    let frame = (
+        ObjectivePosAndZoom {
+            pos: (IntExp::from(-1), IntExp::from(-1)),
+            zoom_pot: -3,
+        },
+        (4u32, 4u32),
+    );
+    let reference_c = (IntExp::from(-1).shift(-1), IntExp::ZERO);
+    let orbit = ReferenceOrbit::compute(&reference_c, 128, 512);
+    let series = SeriesApproximation::from_orbit(&orbit, 4).expect("series");
+    let published = Arc::new(PublishedReference {
+        orbit,
+        c: reference_c,
+        generation: 42,
+        series: Some(series),
+    });
+    let cases: [((f64, f64), bool); 10] = [
+        ((-0.75, 0.1), false),
+        ((0.0, 0.0), false),
+        ((-0.5, 0.5), false),
+        ((-0.49, 0.01), true),
+        ((-0.55, 0.08), true),
+        ((-0.4, -0.15), true),
+        ((0.25, 0.0), false),
+        ((0.4, 0.4), false),
+        ((3.0, 0.0), true),
+        ((1.5, 1.5), true),
+    ];
+    let mut mismatches = Vec::new();
+    for (c, with_ref) in cases {
+        let mut direct = from_stencil::<f64>(frame.clone(), None).expect("direct");
+        let mut perturb = from_stencil::<f64>(frame.clone(), None).expect("perturb");
+        if with_ref {
+            perturb.latest_reference = Some(published.clone());
+        }
+        for ctx in [&mut direct, &mut perturb] {
+            ctx.points[0].c = c;
+            ctx.points[0].z = c;
+            ctx.points[0].dc = (1.0, 0.0);
+            ctx.points[0].initialized = true;
+        }
+        DirectKernel.start_seat(&mut direct, (0, 0));
+        PerturbationKernel.start_seat(&mut perturb, (0, 0));
+        for _ in 0..500 {
+            if direct.points[0].escapes || direct.points[0].repeats {
+                break;
+            }
+            DirectKernel.iterate_bout(
+                &mut direct.points[0],
+                None,
+                4.0,
+                1e-15,
+                BoutCap::new(256),
+            );
+        }
+        for _ in 0..500 {
+            if perturb.points[0].escapes || perturb.points[0].repeats {
+                break;
+            }
+            PerturbationKernel.iterate_bout(
+                &mut perturb.points[0],
+                perturb
+                    .latest_reference
+                    .as_ref()
+                    .map(|r| &r.orbit),
+                4.0,
+                1e-15,
+                BoutCap::new(256),
+            );
+        }
+        let d = &direct.points[0];
+        let p = &perturb.points[0];
+        if (d.escapes, d.repeats, d.iterations) != (p.escapes, p.repeats, p.iterations) {
+            continue;
+        }
+        if p.small_time != d.small_time {
+            mismatches.push(format!(
+                "c={c:?} ref={with_ref} et={} direct_st={} perturb_st={}",
+                d.iterations, d.small_time, p.small_time
+            ));
+        }
+    }
+    assert!(
+        mismatches.is_empty(),
+        "small_time mismatches:\n{}",
+        mismatches.join("\n")
+    );
+}
+
 #[test]
 // r[verify cz.depth.series-approximation+1]
 fn series_safe_skip_does_not_pass_bailout_for_far_delta() {
