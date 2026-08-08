@@ -428,14 +428,14 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 ui.put(
                     egui::Rect::from_min_size(
                         egui::pos2(10.0, 10.0),
-                        egui::vec2(300.0, 240.0)
+                        egui::vec2(560.0, 72.0)
                     ),
                     |ui: &mut egui::Ui| {
                         // Set transparent background
                         ui.style_mut().visuals.panel_fill = egui::Color32::TRANSPARENT;
 
                         // Increase text size
-                        ui.style_mut().text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 18.0;
+                        ui.style_mut().text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 16.0;
 
 
 
@@ -453,12 +453,14 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                         let now = Instant::now();
                                         let pps = state.pps_counter.rate(now);
                                         let ips = state.ips_counter.rate(now);
+                                        // Keep metrics left of the center coord bar.
+                                        // r[impl cz.depth.gear-hud+1]
                                         response += format!(
-                                            "fps:{:.0} / pps:{:.0} / ips:{:.0} / gear:{} / 1s low: {:.1}",
+                                            "fps:{:.0}  gear:{}\npps:{:.0}  ips:{:.0}  1s:{:.1}",
                                             r.0.0 as f64 / 1000000000.0,
+                                            state.last_gear_label,
                                             pps,
                                             ips,
-                                            state.last_gear_label,
                                             1.0 / r.1.0.as_secs_f64()
                                         ).as_str();
 
@@ -469,7 +471,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                 match rolling_frame_result.0 {
                                     Some(r) => {
 
-                                        response += format!(" / 10s low: {:.1}", 1.0 / r.1.0.as_secs_f64()).as_str();
+                                        response += format!("  10s low:{:.1}", 1.0 / r.1.0.as_secs_f64()).as_str();
                                     }
                                     None => {}
                                 }

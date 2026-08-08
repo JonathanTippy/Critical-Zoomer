@@ -7,7 +7,7 @@ use std::collections::*;
 use std::cmp::*;
 use crate::assemblies::workgroup::c_generator::{CGenerator, Mandelbrotable};
 use crate::assemblies::workgroup::reference_worker::PublishedReference;
-use crate::delta_gear::{aggregate_seat_gears, ComputeGear, view_gear_from_generators};
+use crate::delta_gear::{ComputeGear, view_gear_from_generators};
 use crate::floatexp::{ComplexFloatExp, FloatExp};
 use crate::reference::ReferenceOrbit;
 use crate::utils::*;
@@ -489,18 +489,24 @@ pub fn absolute_plane_c(
     )
 }
 
-/// Refresh HUD aggregate gear from per-seat delta gears.
-pub fn refresh_active_gear<T: Mandelbrotable>(ctx: &mut WorkContext<T>) {
-    let gears: Vec<ComputeGear> = ctx
-        .points
-        .iter()
-        .filter_map(|p| p.delta.as_ref().map(|d| d.gear))
-        .collect();
-    if gears.is_empty() {
-        ctx.active_gear = ctx.view_gear;
-    } else {
-        ctx.active_gear = aggregate_seat_gears(&gears);
+/// Refresh HUD aggregate gear from seats touched this shift (O(1) per seat).
+/// Full-frame scans are forbidden here — they made home fill O(n²).
+// r[impl cz.depth.gear-hud+1]
+#[inline]
+pub fn note_seat_gear<T: Mandelbrotable>(ctx: &mut WorkContext<T>, seat_gear: ComputeGear) {
+    if seat_gear == ctx.view_gear || seat_gear == ComputeGear::Mixed {
+        return;
     }
+    if ctx.active_gear == ctx.view_gear {
+        ctx.active_gear = seat_gear;
+    } else if ctx.active_gear != seat_gear {
+        ctx.active_gear = ComputeGear::Mixed;
+    }
+}
+
+/// Legacy name: reset to view gear then rely on `note_seat_gear` during the shift.
+pub fn refresh_active_gear<T: Mandelbrotable>(ctx: &mut WorkContext<T>) {
+    ctx.active_gear = ctx.view_gear;
 }
 
 /// Materialize seat coordinates from the generator on first start.
@@ -659,15 +665,13 @@ where
 }
 
 /// Direct Mandelbrot iteration — test-only parity oracle.
-///
-/// Production always runs [`PerturbationKernel`] (including the zero-orbit floor).
-/// Oracles live in test code; the production path never branches on them.
+/// Oracle / bench-only direct recurrence. Production always runs
+/// [`PerturbationKernel`] (including the zero-orbit floor).
+/// Oracles live in test/bench code; the production path never branches on them.
 // r[impl cz.perf.one-kernel-path+1]
-#[cfg(test)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DirectKernel;
 
-#[cfg(test)]
 impl<T> SeatKernel<T> for DirectKernel
 where
     T: Mandelbrotable + std::fmt::Debug + Finite + Gt + Abs + From<f32> + Into<f64>,
@@ -761,6 +765,8 @@ where
     context.total_iterations_today = 0;
     context.total_points_today = 0;
     context.spent_tokens_today = 0;
+    // r[impl cz.depth.gear-hud+1]
+    refresh_active_gear(context);
 
 
 
@@ -896,6 +902,9 @@ where
             BoutCap::STANDARD,
         );
         context.latest_reference = held_reference;
+        if let Some(d) = context.points[index].delta.as_ref() {
+            note_seat_gear(context, d.gear);
+        }
 
 
 

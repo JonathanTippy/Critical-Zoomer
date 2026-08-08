@@ -1167,6 +1167,107 @@ fn zero_orbit_center_reports_period_one() {
 }
 
 #[test]
+// r[verify cz.depth.compute-gear+1]
+// r[verify cz.depth.gear-hud+1]
+fn f64_gear_home_fills_without_per_seat_gear_scan() {
+    use std::time::Instant;
+    run_big(|| {
+        let mut direct_ctx = from_stencil::<f64>(home_frame(), None).expect("home direct");
+        let direct_start = Instant::now();
+        let mut direct_shifts = 0u32;
+        while !direct_ctx.points.iter().all(|p| p.delivered) {
+            workshift_with_kernel(0, 0, 0, 0, &mut direct_ctx, &DirectKernel);
+            while direct_ctx.completed_points.try_pop().is_some() {}
+            direct_shifts += 1;
+            assert!(direct_start.elapsed().as_secs() < 8, "direct home fill stalled");
+            if direct_shifts > 5_000 {
+                panic!("direct home did not finish");
+            }
+        }
+
+        let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home f64");
+        let start = Instant::now();
+        let mut shifts = 0u32;
+        while !ctx.points.iter().all(|p| p.delivered) {
+            workshift(0, 0, 0, 0, &mut ctx);
+            while ctx.completed_points.try_pop().is_some() {}
+            shifts += 1;
+            assert!(
+                start.elapsed().as_secs() < 8,
+                "f64 home fill stalled: shifts={shifts} pct={:.1} gear={:?}",
+                ctx.percent_completed,
+                ctx.active_gear
+            );
+            if shifts > 5_000 {
+                panic!(
+                    "f64 home did not finish in 5000 shifts (pct={:.1})",
+                    ctx.percent_completed
+                );
+            }
+        }
+        if cfg!(debug_assertions) {
+            assert!(
+                shifts < 500,
+                "f64 gear shift storm: {shifts} (direct {direct_shifts})"
+            );
+        } else {
+            let wall_ms_limit = (direct_start.elapsed().as_millis() as u128)
+                .saturating_mul(2)
+                .max(750);
+            assert!(
+                start.elapsed().as_millis() < wall_ms_limit,
+                "f64 home fill too slow: {:?} shifts={shifts} (direct {:?} / {direct_shifts} shifts)",
+                start.elapsed(),
+                direct_start.elapsed()
+            );
+            assert!(
+                shifts <= direct_shifts.saturating_mul(2).max(60),
+                "f64 gear shifts={shifts} far above DirectKernel={direct_shifts}"
+            );
+        }
+    });
+}
+
+#[test]
+// r[verify cz.depth.compute-gear+1]
+fn f64_gear_zero_orbit_center_reports_period_one() {
+    let frame = (
+        ObjectivePosAndZoom {
+            pos: (IntExp::ZERO, IntExp::ZERO),
+            zoom_pot: 0,
+        },
+        (8u32, 8u32),
+    );
+    let mut ctx = from_stencil::<f64>(frame, None).expect("f64 grid");
+    // Force seat 0 to c=0 (period-1 center).
+    ctx.points[0].initialized = false;
+    // Patch generator output by initializing then overwriting c after start.
+    PerturbationKernel.start_seat(&mut ctx, (0, 0));
+    ctx.points[0].c = (0.0, 0.0);
+    ctx.points[0].initialized = false;
+    ctx.points[0].delta = None;
+    PerturbationKernel.start_seat(&mut ctx, (0, 0));
+    // After re-init, force abs_c/dc to 0 via re-init_delta path: overwrite delta dc.
+    if let Some(d) = ctx.points[0].delta.as_mut() {
+        d.dc = ComplexFloatExp::ZERO;
+        d.abs_c = ComplexFloatExp::ZERO;
+        d.dz = ComplexFloatExp::ZERO;
+    }
+    ctx.points[0].c = (0.0, 0.0);
+    ctx.points[0].z = (0.0, 0.0);
+    PerturbationKernel.iterate_bout(
+        &mut ctx.points[0], None, 4.0, ctx.pitch_epsilon, BoutCap::new(4),
+    );
+    assert!(
+        ctx.points[0].repeats,
+        "f64 gear must detect period at c=0; iters={} esc={} gear={:?}",
+        ctx.points[0].iterations,
+        ctx.points[0].escapes,
+        ctx.points[0].delta.as_ref().map(|d| d.gear),
+    );
+}
+
+#[test]
 // r[verify cz.ref.zero-orbit-same-path+1 cz.depth.delta-kernel+1]
 fn zero_orbit_floor_matches_direct_kernel_escape_times() {
     // Shallow f64-valid comparator only; deep truth is the rug doubling oracle.
@@ -2922,3 +3023,5 @@ fn home_pipeline_no_vertical_black_columns() {
         );
     });
 }
+
+

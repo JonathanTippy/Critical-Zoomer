@@ -255,7 +255,9 @@ Aggregate HUD gear may be MIXED when seats disagree.
 **Verification.** `gear_promotes_at_f64_underflow_floor`,
 `scaled_f64_matches_floatexp_on_moderate_delta`,
 `zero_orbit_f64_skips_two_z_term`,
-`aggregate_seat_gears_reports_mixed`.
+`aggregate_seat_gears_reports_mixed`,
+`f64_gear_zero_orbit_center_reports_period_one`,
+`f64_gear_home_fills_without_per_seat_gear_scan`.
 
 r[cz.depth.gear-hud+1]
 

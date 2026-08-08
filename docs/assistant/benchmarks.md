@@ -75,26 +75,24 @@ Benchmarks vary run to run; this is not an exact science and that's fine.
 | time_to_full_frame_with_reference (post docs/test lock) **REJECTED** | 1.681 s (1.621–1.919 s; ~7.4× vs last accepted; ~5.6–6.9e6 ips) | 2026-08-07 | grok-probation | improved vs prior rejected ref row; still not a baseline |
 | worker_1080p_full_frame (post docs/test lock) **REJECTED** | 4.648 s (4.009–4.808 s) | 2026-08-07 | grok-probation | not a baseline |
 | time_to_full_frame (always-relative coord_anchor; one path) **REJECTED** | 1.531 s (1.500–1.562 s; ~6.7× vs last accepted ~228 ms; ~7.0–7.7e6 ips) | 2026-08-07 | grok-probation | always `new_relative`; not a baseline |
+| time_to_first_publish (f64 gear ladder) | ~90.5 ms (89.7–91.4 ms) | 2026-08-07 | grok-probation | production `WorkContext<f64>` + `PerturbationKernel` |
+| time_to_full_frame (f64 gear ladder) **ACCEPTED** | ~356.6 ms (351.3–363.5 ms; wall ~270–290 ms / 22–24 shifts; ~3.7e7 ips) | 2026-08-07 | grok-probation | parity-or-better vs DirectKernel f64 oracle |
+| time_to_full_frame_with_reference (f64 gear) | ~366.1 ms (359.3–373.6 ms; wall ~277–300 ms) | 2026-08-07 | grok-probation | published reference + series present |
+| time_to_full_frame_direct_oracle (f64 DirectKernel) | ~377.6 ms (353.5–422.5 ms; wall ~268–290 ms typical) | 2026-08-07 | grok-probation | fair f64-host oracle |
+| gear_micro scaled_f64_1k_steps | ~8.19 µs | 2026-08-07 | grok-probation | ~4.6× vs floatexp_1k (~37.6 µs) |
+| gear_micro floatexp_1k_steps | ~37.6 µs | 2026-08-07 | grok-probation | all-FloatExp delta step train |
+| gear_micro f64_1k_steps | ~5.74 µs | 2026-08-07 | grok-probation | plain f64 step train |
 
-### Perturbation-path note (2026-08-07) — rejected measurements
+### Perturbation gear ladder (2026-08-07) — accepted
 
-**These rows are diagnostic only and are not accepted baselines.** The fitness
-bench drives `workshift` with no published reference, so every seat runs the
-**zero-orbit floor** through floatexp delta arithmetic — the only production path
-(`r[cz.perf.one-kernel-path+1]`). The ~14× full-frame and ~7× 1080p regressions
-versus the last accepted direct-kernel row exceed the ≤20% acceptance gate and
-were **superseded as a phase-two gate** (2026-08-07 final phase): home ≤20% vs
-DirectKernel is unreachable on FloatExp deltas alone; speed recovery is series
-approximation. Keep these rows historical. New acceptance metrics: deep fill
-with SA, home with SA, past-f64 capacity — not DirectKernel parity.
+Production seats are `f64` with compute gears F64 → ScaledF64 → FloatExp. Home
+zero-orbit floor stays on F64 and matches DirectKernel wall time within noise
+(Criterion medians ~357 ms vs ~378 ms). Scaled-f64 microbench is ~4.6× faster
+than all-FloatExp steps. Series approximation publishes with the reference and
+initializes delta prefixes without inventing delivery. HUD shows fps / pps /
+ips / gear.
 
-**2026-08-07 follow-up (still rejected):** after removing a cheating
-zero-orbit→`iterate_max_n_times` bypass and applying same-path opts (hoisted
-constants, one post-advance sync, FloatExp period check, inlined FloatExp ops),
-zero-orbit full-frame is ~1.33 s (~5.9×) and published-reference ~1.29 s (~5.7×).
-Still far above the ≤20% gate (~273 ms). Closing the gap without a second
-production path needs a deliberate design decision (e.g. deeper FloatExp
-representation work), not a DirectKernel shortcut.
+Historical FloatExp-only rejection rows above remain diagnostic history.
 
 Pre-change test baseline: `cargo test` ran 39 tests; 38 passed and only the known
 `assemblies::views::zoom_in_associativity_test` failed, reproducing
