@@ -22,10 +22,11 @@ pub struct WorkUpdate<T> {
     pub frame_info: Option<(ObjectivePosAndZoom, (u32, u32))>,
     pub completed_points: (Vec<(CompletedPoint<T>, usize)>),
     /// Aggregate active compute gear for HUD.
-    // r[impl cz.depth.gear-hud+1]
+    // r[impl cz.depth.gear-hud+2]
     pub active_gear: crate::delta_gear::ComputeGear,
     pub host_stack: crate::assemblies::structs::HostStack,
-    pub compute_path: crate::assemblies::structs::ComputePath,
+    pub kernel_mode: crate::assemblies::structs::KernelMode,
+    pub reference_status: crate::assemblies::structs::ReferenceStatus,
     /// Iterations performed since the previous update.
     pub iterations_delta: u64,
 }
@@ -321,21 +322,28 @@ fn telemetry_update<T>(
 where
     T: Mandelbrotable + 'static,
 {
-    use crate::assemblies::structs::{ComputePath, HostStack};
-    let (host_stack, compute_path, active_gear) = match ctx {
+    use crate::assemblies::structs::{HostStack, KernelMode, ReferenceStatus};
+    let (host_stack, kernel_mode, reference_status, active_gear) = match ctx {
         Some(c) => (
             host_stack_for_context::<T>(),
-            classify_compute_path(c),
+            classify_kernel_mode(c),
+            classify_reference_status(c),
             c.active_gear,
         ),
-        None => (HostStack::F64, ComputePath::Zero, ComputeGear::F64),
+        None => (
+            HostStack::F64,
+            KernelMode::Naive,
+            ReferenceStatus::Wip,
+            ComputeGear::F64,
+        ),
     };
     WorkUpdate {
         frame_info,
         completed_points,
         active_gear,
         host_stack,
-        compute_path,
+        kernel_mode,
+        reference_status,
         iterations_delta,
     }
 }
@@ -350,17 +358,33 @@ pub fn host_stack_for_context<T: Mandelbrotable + 'static>() -> crate::assemblie
     }
 }
 
-/// Interim path telemetry until naive|pert kernel selection lands.
-pub fn classify_compute_path<T: Mandelbrotable>(ctx: &WorkContext<T>) -> crate::assemblies::structs::ComputePath {
-    use crate::assemblies::structs::ComputePath;
-    if ctx.points.iter().any(|p| p.direct_only) {
-        return ComputePath::Glitch;
-    }
-    if ctx.latest_reference.is_some() {
-        ComputePath::Ref
+pub fn usable_reference<T: Mandelbrotable>(ctx: &WorkContext<T>) -> bool {
+    ctx.latest_reference
+        .as_ref()
+        .is_some_and(|r| !r.orbit.escaped)
+}
+
+pub fn classify_kernel_mode<T: Mandelbrotable>(ctx: &WorkContext<T>) -> crate::assemblies::structs::KernelMode {
+    use crate::assemblies::structs::KernelMode;
+    if usable_reference(ctx) {
+        KernelMode::Pert
     } else {
-        ComputePath::Zero
+        KernelMode::Naive
     }
+}
+
+/// Running snapshot: wip when no usable ref yet, or glitch recovery awaits newer generation.
+pub fn classify_reference_status<T: Mandelbrotable>(
+    ctx: &WorkContext<T>,
+) -> crate::assemblies::structs::ReferenceStatus {
+    use crate::assemblies::structs::ReferenceStatus;
+    if !usable_reference(ctx) {
+        return ReferenceStatus::Wip;
+    }
+    if ctx.points.iter().any(|p| p.direct_only) {
+        return ReferenceStatus::Wip;
+    }
+    ReferenceStatus::Complete
 }
 
 // r[impl cz.craft.lifo-drain+1]

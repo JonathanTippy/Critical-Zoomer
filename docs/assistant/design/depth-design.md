@@ -109,14 +109,16 @@ handed off, never flushed to zero.
 
 Seats may promote mid-orbit independently. The HUD reports the aggregate
 active gear (`F64` / `S-F64` / `FE` / `MIXED`) plus rolling IPS and PPS
-(`r[cz.depth.gear-hud+1]`). f32 remains a typed extension point, deferred.
+(`r[cz.depth.gear-hud+2]`). f32 remains a typed extension point, deferred.
 
-**Three HUD layers (stack / path / gear).** Stack is the view-global host type
-(`f64` vs FloatExp) admitted by `CGenerator`. Path reports the reference floor
-in use today (`zero` / `ref` / `glitch`) until naive|pert kernel selection lands.
-Gear is the per-seat delta ladder under perturbation. The normative goal is
-view-global selection of the legal stack that maximizes completed points per
-second; a future soft probe (~100 ms) may switch naive vs perturbed when
+**Three HUD layers (stack / mode / ref / gear).** Stack is the view-global host type
+(`f64` vs FloatExp) admitted by `CGenerator`. Mode reports the reference floor inside
+the single perturbation kernel (`naive` = zero-orbit floor, `pert` = published reference).
+Ref is a running snapshot (`wip` = no usable ref yet or glitch recovery awaiting a newer
+generation; `complete` = steady state with reused ref). Gear is the per-seat delta ladder
+under perturbation. Per-seat `direct_only` glitch recovery is not a view-global HUD mode.
+The normative goal is view-global selection of the legal stack that maximizes completed
+points per second; a future soft probe (~100 ms) may switch naive vs perturbed when
 difficulty warrants it (`r[cz.perf.pps-selected-kernel+1]`). The transitional
 one-kernel rule (`r[cz.perf.one-kernel-path+1]`) still ships perturbation only.
 
@@ -283,6 +285,6 @@ Satisfies: `r[cz.seamless.perturbation-always-on+1]`, `r[cz.seamless.reference-b
 `r[cz.deep.min-zoom-pot-capacity+1]`, `r[cz.deep.snappy-at-depth+1]`,
 `r[cz.tenacious.no-max-iter+1]`, `r[cz.hoarding.no-compute-settings+1]`,
 `r[cz.system.memory-default-1gb+1]`, `r[cz.system.tile-manager-protect-current-lookahead+1]`,
-`r[cz.depth.compute-gear+1]`, `r[cz.depth.gear-hud+1]`, `r[cz.depth.series-approximation+1]`.
+`r[cz.depth.compute-gear+1]`, `r[cz.depth.gear-hud+2]`, `r[cz.depth.series-approximation+1]`.
 Constrains and is constrained by: `design-target.md`, `workgroup-virtues.md` §2–§5.
 Math research: private sister repo `Critical-Zoomer-Math-Library` (not in this tree).

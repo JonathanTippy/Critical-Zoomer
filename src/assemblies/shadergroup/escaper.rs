@@ -42,7 +42,7 @@ pub struct ZoomerValuesScreen {
     pub values: Vec<ScreenValue>
     , pub res: (u32, u32)
     , pub objective_location: ObjectivePosAndZoom
-    // r[impl cz.depth.gear-hud+1]
+    // r[impl cz.depth.gear-hud+2]
     , pub hud: crate::assemblies::structs::ViewHud
 }
 

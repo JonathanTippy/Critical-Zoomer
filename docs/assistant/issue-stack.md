@@ -55,9 +55,10 @@ Developer acceptance test failed on the tile machine. Most items were tile-era i
 - **Lookahead/hoard across mags**: v0.0.9 remaps one screen only. The tile era's thin-tower lookahead failed by fragmenting the truth store; any future lookahead must extend the remap discipline, not replace it (virtues §3, §11).
 - **PPS-selected kernel (naive vs pert)** (`r[cz.perf.pps-selected-kernel+1]`): open — view-global probe not implemented; production still perturbation-only (`one-kernel-path+1` transitional).
 - **Headgroup/shadergroup test strategy** (open problem): the workgroup now has property tests bound to its craftsmanship rules; the headgroup does not. The screenshot harness is the only net for visual bugs but needs use on every edit and image-description trust is imperfect; oracles can rot when output legitimately changes; the only known visual property so far is real-axis reflection symmetry. Needs a stronger strategy before the GPU shade port — the shadergroup was cut back last time partly for lack of tests. In-app PPM snip (`snip.rs` / `CZ_SNIPREQ`) is a start for faux-user paths. **Partial close (answer layer, 2026-08-08):** workgroup now has frame-level real-axis answer symmetry + whole-package DirectKernel oracle after reference+series (`home_package_with_live_series_obeys_real_axis_symmetry`, `home_package_with_live_series_matches_direct_kernel_answers`, `exterior_loci_with_series_match_direct_kernel_answers`).   Paint/headgroup still screenshot-only.
-- **HUD truth (2026-08-08):** metrics top-left show stack/path/gear; location+goto
-  panel bottom-right (`coords-parse+2`, `location-readout+2`); path flips
-  `zero`→`ref` when reference installs.
+- **HUD truth (2026-08-08):** metrics top-left show stack/mode/ref/gear; location+goto
+  panel bottom-right (`coords-parse+2`, `location-readout+2`); mode flips
+  `naive`→`pert` when reference installs; ref stays `complete` with reused refs,
+  `wip` on cold start or post-glitch until newer generation installs.
 
 ## Salvage ports (from `salvage-from-code.md` — detail and evidence there)
 

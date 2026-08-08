@@ -13,12 +13,13 @@ pub struct PointStencil {
     , pub serial_number: u64
 }
 
-/// Worker → display telemetry for HUD (stack, path, gear + rate counters).
-// r[impl cz.depth.gear-hud+1]
+/// Worker → display telemetry for HUD (stack, mode, ref, gear + rate counters).
+// r[impl cz.depth.gear-hud+2]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct ViewHud {
     pub stack: HostStack,
-    pub path: ComputePath,
+    pub mode: KernelMode,
+    pub reference: ReferenceStatus,
     pub gear: ComputeGear,
     pub points_delta: u64,
     pub iterations_delta: u64,
@@ -41,21 +42,36 @@ impl HostStack {
     }
 }
 
-/// Reference floor in use (interim until naive|pert kernel HUD).
+/// Reference floor inside the single perturbation kernel (zero-orbit vs published ref).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum ComputePath {
+pub enum KernelMode {
     #[default]
-    Zero,
-    Ref,
-    Glitch,
+    Naive,
+    Pert,
 }
 
-impl ComputePath {
+impl KernelMode {
     pub fn hud_label(self) -> &'static str {
         match self {
-            ComputePath::Zero => "zero",
-            ComputePath::Ref => "ref",
-            ComputePath::Glitch => "glitch",
+            KernelMode::Naive => "naive",
+            KernelMode::Pert => "pert",
+        }
+    }
+}
+
+/// Running reference pipeline status for the HUD.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ReferenceStatus {
+    #[default]
+    Wip,
+    Complete,
+}
+
+impl ReferenceStatus {
+    pub fn hud_label(self) -> &'static str {
+        match self {
+            ReferenceStatus::Wip => "wip",
+            ReferenceStatus::Complete => "complete",
         }
     }
 }

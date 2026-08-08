@@ -218,5 +218,5 @@ difficulty threshold and a covering reference exists; stick with the winner
 until Replace / type change / ref generation change / cooldown re-probe.
 
 **Acceptance criteria.**
-- [ ] HUD reports stack + path + gear truthfully (`r[cz.depth.gear-hud+1]`).
+- [ ] HUD reports stack + mode + ref + gear truthfully (`r[cz.depth.gear-hud+2]`).
 - [ ] Dual production kernel dispatch + probe controller (deferred follow-up).

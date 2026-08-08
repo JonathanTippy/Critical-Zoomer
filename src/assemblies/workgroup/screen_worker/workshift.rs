@@ -496,7 +496,7 @@ pub fn absolute_plane_c(
 
 /// Refresh HUD aggregate gear from seats touched this shift (O(1) per seat).
 /// Full-frame scans are forbidden here — they made home fill O(n²).
-// r[impl cz.depth.gear-hud+1]
+// r[impl cz.depth.gear-hud+2]
 #[inline]
 pub fn note_seat_gear<T: Mandelbrotable>(ctx: &mut WorkContext<T>, seat_gear: ComputeGear) {
     if seat_gear == ctx.view_gear || seat_gear == ComputeGear::Mixed {
@@ -770,7 +770,7 @@ where
     context.total_iterations_today = 0;
     context.total_points_today = 0;
     context.spent_tokens_today = 0;
-    // r[impl cz.depth.gear-hud+1]
+    // r[impl cz.depth.gear-hud+2]
     refresh_active_gear(context);
 
 

@@ -266,14 +266,23 @@ Aggregate HUD gear may be MIXED when seats disagree.
 
 r[cz.depth.gear-hud+1]
 
-**Rule.** The HUD displays host stack, compute path (zero/ref/glitch), effective
-active compute gear, and rolling IPS (iterations/sec) and PPS (completed
-points/sec). Mixed-seat views surface MIXED rather than a false single gear. No
-user setting selects the gear. Metrics overlay stays top-left; location/goto
-panel bottom-right (`r[cz.ui.coords-parse+2]`, `r[cz.ui.location-readout+2]`).
+**Rule.** *Superseded by `+2` for mode/ref terminology.*
+
+r[cz.depth.gear-hud+2]
+
+**Rule.** The HUD displays host stack, kernel mode (`naive`|`pert`), reference status
+(`wip`|`complete`), effective active compute gear, and rolling IPS and PPS. Mode names
+the reference floor inside the single perturbation kernel. Ref is a running snapshot:
+`wip` when no usable published reference exists yet or any seat is in `direct_only` glitch
+recovery awaiting a newer reference generation; `complete` when a usable reference is
+installed and no seats are glitched. Mixed-seat views surface MIXED rather than a false
+single gear. No user setting selects the gear. Metrics overlay stays top-left;
+location/goto panel bottom-right (`r[cz.ui.coords-parse+2]`, `r[cz.ui.location-readout+2]`).
 
 **Implementation.** `WorkUpdate` telemetry → collector → window HUD overlay;
 `PpsCounter` / iteration accounting in `rolling.rs`.
 
 **Verification.** `hud_telemetry_carries_gear_and_rates`,
-`pps_counter_counts_completions_not_wip`, `telemetry_path_zero_then_ref`.
+`pps_counter_counts_completions_not_wip`, `telemetry_mode_naive_then_pert`,
+`reference_complete_with_reused_ref`, `reference_wip_while_started_seats_await_ref`,
+`reference_wip_after_glitch_until_new_generation`.

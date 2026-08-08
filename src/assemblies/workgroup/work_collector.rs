@@ -20,7 +20,7 @@ pub struct ResultsPackage<T> {
     pub results: Vec<CompletedPoint<T>>
     , pub screen_res: (u32, u32)
     , pub location: ObjectivePosAndZoom
-    // r[impl cz.depth.gear-hud+1]
+    // r[impl cz.depth.gear-hud+2]
     , pub hud: crate::assemblies::structs::ViewHud
 }
 
@@ -100,7 +100,8 @@ async fn internal_behavior<A: SteadyActor>(
                     *completed_work = sample_old_values(&completed_work, f.0, f.1);
                     completed_work.hud = crate::assemblies::structs::ViewHud {
                         stack: U.host_stack,
-                        path: U.compute_path,
+                        mode: U.kernel_mode,
+                        reference: U.reference_status,
                         gear: U.active_gear,
                         points_delta: 0,
                         iterations_delta: U.iterations_delta,
@@ -124,7 +125,8 @@ async fn internal_behavior<A: SteadyActor>(
                     }
                     completed_work.hud = crate::assemblies::structs::ViewHud {
                         stack: U.host_stack,
-                        path: U.compute_path,
+                        mode: U.kernel_mode,
+                        reference: U.reference_status,
                         gear: U.active_gear,
                         points_delta: l as u64,
                         iterations_delta: U.iterations_delta,
@@ -191,7 +193,8 @@ async fn internal_behavior<A: SteadyActor>(
                         , location: f.0
                         , hud: crate::assemblies::structs::ViewHud {
                             stack: U.host_stack,
-                            path: U.compute_path,
+                            mode: U.kernel_mode,
+                            reference: U.reference_status,
                             gear: U.active_gear,
                             points_delta: U.completed_points.len() as u64,
                             iterations_delta: U.iterations_delta,

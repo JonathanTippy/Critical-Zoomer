@@ -98,12 +98,13 @@ pub struct WindowState {
     , pub scroll_debt: f32
     , pub coord_input: String
     , pub startup_goto_applied: bool
-    // r[impl cz.depth.gear-hud+1]
+    // r[impl cz.depth.gear-hud+2]
     , pub pps_counter: RateCounter
     , pub ips_counter: RateCounter
     , pub last_gear_label: &'static str
     , pub last_stack_label: &'static str
-    , pub last_path_label: &'static str
+    , pub last_mode_label: &'static str
+    , pub last_ref_label: &'static str
 }
 
 /// Entry point for the window actor.
@@ -171,7 +172,8 @@ async fn internal_behavior<A: SteadyActor>(
         , ips_counter: RateCounter::default()
         , last_gear_label: "F64"
         , last_stack_label: "f64"
-        , last_path_label: "zero"
+        , last_mode_label: "naive"
+        , last_ref_label: "wip"
     }).await;
 
     {
@@ -331,7 +333,8 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     state.ips_counter.record(s.hud.iterations_delta, now);
                     state.last_gear_label = s.hud.gear.hud_label();
                     state.last_stack_label = s.hud.stack.hud_label();
-                    state.last_path_label = s.hud.path.hud_label();
+                    state.last_mode_label = s.hud.mode.hud_label();
+                    state.last_ref_label = s.hud.reference.hud_label();
                     update_sampling_context(&mut state.sampling_context, s);
 
                 }
@@ -459,12 +462,13 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                         let now = Instant::now();
                                         let pps = state.pps_counter.rate(now);
                                         let ips = state.ips_counter.rate(now);
-                                        // r[impl cz.depth.gear-hud+1]
+                                        // r[impl cz.depth.gear-hud+2]
                                         response += format!(
-                                            "fps:{:.0}  stack:{}  path:{}  gear:{}\npps:{:.0}  ips:{:.0}  1s:{:.1}",
+                                            "fps:{:.0}  stack:{}  mode:{}  ref:{}  gear:{}\npps:{:.0}  ips:{:.0}  1s:{:.1}",
                                             r.0.0 as f64 / 1000000000.0,
                                             state.last_stack_label,
-                                            state.last_path_label,
+                                            state.last_mode_label,
+                                            state.last_ref_label,
                                             state.last_gear_label,
                                             pps,
                                             ips,

@@ -1067,6 +1067,33 @@ fn plane_c_f64(ctx: &WorkContext<FloatExp>, index: usize) -> (f64, f64) {
     }
 }
 
+fn install_usable_interior_reference(
+    ctx: &mut WorkContext<FloatExp>,
+    frame: &(ObjectivePosAndZoom, (u32, u32)),
+    generation: u64,
+) {
+    use crate::series::SeriesApproximation;
+    let req = select_reference_request::<FloatExp>(None, frame);
+    let mut orbit = ReferenceOrbit::start(&req.c, req.precision_bits);
+    orbit.extend(4096);
+    let (c, orbit) = if orbit.escaped {
+        // Default home center c can be exterior; use a known interior ref for HUD fixtures.
+        let reference_c = (IntExp::from(-1).shift(-1), IntExp::ZERO);
+        let orbit = ReferenceOrbit::compute(&reference_c, 128, 4096);
+        assert!(!orbit.escaped, "interior fixture ref must not escape");
+        (reference_c, orbit)
+    } else {
+        (req.c, orbit)
+    };
+    let series = SeriesApproximation::from_orbit(&orbit, 4);
+    ctx.latest_reference = Some(Arc::new(PublishedReference {
+        orbit,
+        c,
+        generation,
+        series,
+    }));
+}
+
 fn install_covering_reference_with_series(
     ctx: &mut WorkContext<FloatExp>,
     frame: &(ObjectivePosAndZoom, (u32, u32)),
@@ -1083,22 +1110,104 @@ fn install_covering_reference_with_series(
     }));
 }
 
-// r[verify cz.depth.gear-hud+1]
+// r[verify cz.depth.gear-hud+2]
 #[test]
-fn telemetry_path_zero_then_ref() {
-    use crate::assemblies::structs::{ComputePath, HostStack};
+fn telemetry_mode_naive_then_pert() {
+    use crate::assemblies::structs::{HostStack, KernelMode, ReferenceStatus};
     use crate::assemblies::workgroup::screen_worker::{
-        classify_compute_path, host_stack_for_context,
+        classify_kernel_mode, classify_reference_status, host_stack_for_context,
     };
     run_big(|| {
         let frame = home_frame();
-        let ctx = from_stencil(frame.clone(), None).expect("home view");
-        assert_eq!(classify_compute_path(&ctx), ComputePath::Zero);
+        let ctx = from_stencil::<FloatExp>(frame.clone(), None).expect("home view");
+        assert_eq!(classify_kernel_mode(&ctx), KernelMode::Naive);
+        assert_eq!(classify_reference_status(&ctx), ReferenceStatus::Wip);
         assert_eq!(host_stack_for_context::<FloatExp>(), HostStack::FloatExp);
         let mut ctx = ctx;
-        install_covering_reference_with_series(&mut ctx, &frame);
-        assert_eq!(classify_compute_path(&ctx), ComputePath::Ref);
+        install_usable_interior_reference(&mut ctx, &frame, 1);
+        assert_eq!(classify_kernel_mode(&ctx), KernelMode::Pert);
+        assert_eq!(classify_reference_status(&ctx), ReferenceStatus::Complete);
     });
+}
+
+// r[verify cz.depth.gear-hud+2]
+#[test]
+fn reference_complete_with_reused_ref() {
+    use crate::assemblies::structs::{KernelMode, ReferenceStatus};
+    use crate::assemblies::workgroup::screen_worker::{
+        classify_kernel_mode, classify_reference_status,
+    };
+    run_big(|| {
+        let frame = home_frame();
+        let mut ctx = from_stencil::<FloatExp>(frame.clone(), None).expect("home view");
+        install_usable_interior_reference(&mut ctx, &frame, 1);
+        let old_obj = frame.0.clone();
+        let reused = from_stencil::<FloatExp>(frame.clone(), Some((ctx, old_obj))).expect("reuse");
+        assert_eq!(classify_kernel_mode(&reused), KernelMode::Pert);
+        assert_eq!(classify_reference_status(&reused), ReferenceStatus::Complete);
+    });
+}
+
+// r[verify cz.depth.gear-hud+2]
+#[test]
+fn reference_wip_while_started_seats_await_ref() {
+    use crate::assemblies::structs::{KernelMode, ReferenceStatus};
+    use crate::assemblies::workgroup::screen_worker::{
+        classify_kernel_mode, classify_reference_status,
+    };
+    run_big(|| {
+        let frame = home_frame();
+        let ctx = from_stencil::<FloatExp>(frame.clone(), None).expect("home view");
+        assert_eq!(classify_kernel_mode(&ctx), KernelMode::Naive);
+        assert_eq!(classify_reference_status(&ctx), ReferenceStatus::Wip);
+    });
+}
+
+// r[verify cz.depth.gear-hud+2]
+#[test]
+fn reference_wip_after_glitch_until_new_generation() {
+    use crate::assemblies::structs::ReferenceStatus;
+    use crate::assemblies::workgroup::screen_worker::classify_reference_status;
+    use crate::floatexp::{ComplexFloatExp, FloatExp};
+    let mut ctx = make_context(0);
+    let reference_c = (IntExp::from(-1).shift(-1), IntExp::ZERO);
+    ctx.latest_reference = Some(Arc::new(PublishedReference {
+        orbit: ReferenceOrbit::compute(&reference_c, 128, 8),
+        c: reference_c.clone(),
+        generation: 7,
+        series: None,
+    }));
+    ctx.points[0] = make_point((0.0, 0.0));
+    ctx.points[0].iterations = 1;
+    ctx.points[0].delta = Some(DeltaState {
+        dz: ComplexFloatExp::new(FloatExp::from(0.25), FloatExp::ZERO),
+        checkpoint: ComplexFloatExp::ZERO,
+        checkpoint_n: 0,
+        dc: ComplexFloatExp::ZERO,
+        abs_c: ComplexFloatExp::ZERO,
+        dd: ComplexFloatExp::new(FloatExp::ONE, FloatExp::ZERO),
+        generation: 7,
+        gear: crate::delta_gear::ComputeGear::FloatExp,
+        scale: FloatExp::ONE,
+    });
+    FloatExpPerturbationKernel.iterate_bout(
+        &mut ctx.points[0],
+        ctx.latest_reference.as_ref().map(|r| &r.orbit),
+        FloatExp::from(4.0),
+        FloatExp::from(1e-15),
+        BoutCap::new(1),
+    );
+    assert!(ctx.points[0].direct_only);
+    assert_eq!(classify_reference_status(&ctx), ReferenceStatus::Wip);
+    ctx.latest_reference = Some(Arc::new(PublishedReference {
+        orbit: ReferenceOrbit::compute(&reference_c, 128, 8),
+        c: reference_c,
+        generation: 8,
+        series: None,
+    }));
+    FloatExpPerturbationKernel.start_seat(&mut ctx, (0, 0));
+    assert!(!ctx.points[0].direct_only);
+    assert_eq!(classify_reference_status(&ctx), ReferenceStatus::Complete);
 }
 
 fn fill_until_complete_perturb(ctx: &mut WorkContext<FloatExp>, max_shifts: usize) {
@@ -1281,7 +1390,7 @@ fn zero_orbit_center_reports_period_one() {
 
 #[test]
 // r[verify cz.depth.compute-gear+1]
-// r[verify cz.depth.gear-hud+1]
+// r[verify cz.depth.gear-hud+2]
 fn f64_gear_home_fills_without_per_seat_gear_scan() {
     use std::time::Instant;
     run_big(|| {
