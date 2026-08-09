@@ -207,7 +207,7 @@ mod tests {
             for row in 0..res.1 {
                 for seat in 0..res.0 {
                     let index = (row * res.0 + seat) as usize;
-                    assert_eq!(generator.get_c((seat, row)), old[index].little_c);
+                    assert_eq!(generator.get_c((seat, row)), old[index].delta_c);
                 }
             }
         }
@@ -260,16 +260,16 @@ mod tests {
     }
 
     #[test]
-    fn abs_plane_f64_preserves_intexp_precision_at_depth() {
+    fn abs_c_f64_preserves_intexp_precision_at_depth() {
         use crate::assemblies::headgroup::window::coords::f64_to_intexp;
-        use crate::assemblies::workgroup::screen_worker::workshift::abs_plane_f64;
+        use crate::assemblies::workgroup::screen_worker::workshift::abs_c_f64;
         let anchor = (IntExp::from(-1).shift(40), IntExp::ZERO);
         let rel = (2.0f64.powi(-50), 0.0);
         let bad = (
             f64::from(anchor.0.clone()) + rel.0,
             f64::from(anchor.1.clone()) + rel.1,
         );
-        let good = abs_plane_f64(rel, &anchor);
+        let good = abs_c_f64(rel, &anchor);
         let exact = (
             f64::from(anchor.0.clone() + f64_to_intexp(rel.0)),
             f64::from(anchor.1.clone() + f64_to_intexp(rel.1)),

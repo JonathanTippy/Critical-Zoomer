@@ -1,3 +1,6 @@
+//! Deferred: not on the live path until membership pins stay green
+//! (`pin_exterior_not_marked_in_at_zoom_52`, `pin_not_blocky_delta_c_at_zoom_49`).
+//!
 //! Simple series approximation (Martin / Heiland-Allen): skip a safe prefix of
 //! per-pixel delta iterations using coefficients that depend only on the reference.
 

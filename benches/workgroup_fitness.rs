@@ -55,12 +55,10 @@ fn home_context_f64_with_reference() -> WorkContext<f64> {
     let req = select_reference_request::<f64>(None, &frame);
     let mut ctx = from_stencil(frame, None).expect("home f64");
     let orbit = ReferenceOrbit::compute(&req.c, req.precision_bits, 4096);
-    let series = critical_zoomer::series::SeriesApproximation::from_orbit(&orbit, 4);
     ctx.latest_reference = Some(Arc::new(PublishedReference {
         orbit,
         c: req.c,
         generation: 1,
-        series,
     }));
     ctx
 }

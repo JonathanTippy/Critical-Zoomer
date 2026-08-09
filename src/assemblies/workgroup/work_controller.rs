@@ -150,9 +150,9 @@ pub fn get_points<
             );
 
             out.push(Point {
-                little_c: point.clone(),
-                plane_c: point.clone(),
-                plane_z: point.clone(),
+                delta_c: point.clone(),
+                c: point.clone(),
+                z: point.clone(),
                 dc: (1.0.into(), 0.0.into()),
                 real_squared: 0.0.into(),
                 imag_squared: 0.0.into(),

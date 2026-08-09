@@ -12,7 +12,6 @@ use crate::assemblies::workgroup::screen_worker::workshift::{view_center_compute
 use crate::assemblies::workgroup::c_generator::{admit_generator, GeneratorAdmission, Mandelbrotable};
 use crate::constants::PIXELS_PER_UNIT_POT;
 use crate::reference::ReferenceOrbit;
-use crate::series::SeriesApproximation;
 use crate::utils::{IntExp, ObjectivePosAndZoom};
 
 #[derive(Clone)]
@@ -23,11 +22,9 @@ pub struct ReferenceRequest {
 
 pub struct PublishedReference {
     pub orbit: ReferenceOrbit,
+    /// reference_c — exact objective parameter for this orbit.
     pub c: (IntExp, IntExp),
     pub generation: u64,
-    /// Simple series coeffs for this orbit (same generation snapshot).
-    // r[impl cz.depth.series-approximation+1]
-    pub series: Option<SeriesApproximation>,
 }
 
 impl std::fmt::Debug for PublishedReference {
@@ -86,24 +83,11 @@ impl ReferenceWorkerState {
 
         let job = self.job.take().expect("completed job exists");
         self.generation = self.generation.wrapping_add(1);
-        let series = SeriesApproximation::from_orbit(&job.orbit, series_order_for(&job.orbit));
         Some(PublishedReference {
             orbit: job.orbit,
             c: job.request.c,
             generation: self.generation,
-            series,
         })
-    }
-}
-
-fn series_order_for(orbit: &ReferenceOrbit) -> usize {
-    let len = orbit.iterates.len();
-    if len < 16 {
-        2
-    } else if len < 256 {
-        4
-    } else {
-        8
     }
 }
 

@@ -1,7 +1,24 @@
 # Depth core rules
 
-These rules cover the perturbation core through the final compute-gear + series
-phase. See `../design/depth-design.md` and `../issue-stack.md`.
+These rules cover the perturbation core through the final compute-gear phase.
+See `../design/depth-design.md` and `../issue-stack.md`.
+
+## Vocabulary (normative)
+
+| Meaning | Name | Forbidden |
+|--------|------|-----------|
+| Absolute Mandelbrot parameter | `c` | `plane_c`, “plain c” |
+| Absolute iterate | `z` | `plane_z`, “plain z” |
+| Reference parameter | `reference_c` | bare “c” when context is the reference |
+| Reference iterate at step n | `reference_z` (`orbit.get(n)`) | bare “z” when meaning Z_ref |
+| Seat−reference sample / perturbation δc | `delta_c` | `little_c` |
+| Perturbation δz | `delta_z` | `little_z` |
+| Escape derivative ∂z/∂c | `dc` (derivative only) | conflating with `c` / `delta_c` |
+
+**Invariant.** Relative shell + live reference: recurrence uses `delta_c` + `reference_z`.
+Zero-orbit / soft-continue: the δc slot holds absolute `c` (same math as naive). Never put
+generator `delta_c` in that slot — that marks exterior as interior (flat black / “in”).
+Do not iterate deep relative seats with collapsed f64 absolute `c` alone — that is blocky.
 
 r[cz.depth.c-generator-fails-closed+1]
 
@@ -60,8 +77,9 @@ guessed Mandelbrot answers. These are **distinct** honest outcomes (library
 `PerturbedOutcome` in `src/perturb.rs`):
 
 - **Missing iterate** (`orbit.get(n) == None`) → unfinished / soft-continue. Not a
-  glitch. Switch to the zero-orbit floor with `δz ← z` (reconstructed objective
-  state) and `δc ← c`, and keep iterating — same recurrence, no invented answer.
+  glitch. Switch to the zero-orbit floor with `delta_z ← z` (reconstructed absolute
+  iterate) and `delta_c ← c` (absolute parameter), and keep iterating — same
+  recurrence, no invented answer.
 - **Pauldelbrot glitch** → unfinished; rebind that seat to the zero-orbit floor
   (reset; do not trust a corrupted reconstruct). Never publish a guessed answer.
 
@@ -213,43 +231,39 @@ generation restarts its delta at zero. Stale deltas never survive a retarget.
 
 r[cz.depth.floatexp-host-coords+1]
 
-**Rule.** Seat samples relative to the generator anchor (`coord_anchor`). Absolute plane c
-for perturbation is `anchor + relative` when the generator is relative. Anchor is
-`published.c` when a reference scoped the generator, else view center. Live shallow/mid
-actors use `f64` host seats when the generator admits them; deep admission may use relative
-f64 or FloatExp host in tests / deep path.
+**Rule.** Seat samples relative to the generator anchor (`coord_anchor`) are `delta_c`.
+Absolute `c` for naive/zero-orbit is `reference_c`/`anchor + delta_c` when the generator
+is relative. Anchor is `reference_c` when a reference scoped the generator, else view
+center. Live shallow/mid actors use `f64` host seats when the generator admits them; deep
+admission may use relative f64 or FloatExp host in tests / deep path.
 `FloatExp.mantissa` remains f64 by design. Render/`Answer` may narrow at the
 collector. Mathematical deltas and stored reference iterates remain FloatExp
 storage regardless of host type.
 
-**Implementation.** `from_stencil` relative generators; `absolute_plane_c` /
-`abs_plane_f64`; screen worker monomorphized to f64 for live; FloatExp kernel
+**Implementation.** `from_stencil` relative generators; `c_from_delta_c_*` /
+`c_for_seat_*`; screen worker monomorphized to f64 for live; FloatExp kernel
 module for depth tests.
 
 **Verification.** `deep_frame_admitted_past_f64_collapse`,
 `production_plane_coords_are_not_plain_f64`,
 `objective_c_matches_relative_generator_plus_anchor`,
-`home_reference_request_matches_c_generator`.
+`home_reference_request_matches_c_generator`,
+`pin_exterior_not_marked_in_at_zoom_52`,
+`pin_not_blocky_delta_c_at_zoom_49`.
 
 r[cz.depth.series-approximation+1]
 
-**Rule.** When a reference publishes, it may include simple series-approximation
-coefficients (FloatExp) derived only from that orbit. Seats may skip a safe
-prefix of iterations by evaluating the series in Δc, then resume ordinary delta
-iteration. Skip never invents a final answer; unsafe skip leaves the seat
-unfinished or falls back to less skip / glitch honesty.
+**Rule.** *Deferred (open issue).* Series approximation is not on the live path until
+relative `delta_c` + escaped-ref soft-continue membership stay green under
+`pin_exterior_not_marked_in_at_zoom_52` and `pin_not_blocky_delta_c_at_zoom_49`.
+When re-enabled: a published reference may include series coefficients; seats may skip a
+safe prefix by evaluating the series in `delta_c`, then resume ordinary delta iteration.
+Skip never invents a final answer.
 
-**Implementation.** `reference_worker` `PublishedReference.series`;
-`perturb_kernel` `apply_series_skip`.
+**Implementation.** Dormant: `src/series.rs`. Not attached from `reference_worker`;
+no `apply_series_skip` in production kernels.
 
-**Verification.** `series_skip_matches_delta_tail`,
-`series_never_publishes_guessed_completion`,
-`live_series_skip_initializes_delta_prefix`,
-`published_reference_with_series_matches_direct_outside_r2`,
-`series_safe_skip_does_not_pass_bailout_for_far_delta`,
-`home_package_with_live_series_obeys_real_axis_symmetry`,
-`home_package_with_live_series_matches_direct_kernel_answers`,
-`exterior_loci_with_series_match_direct_kernel_answers`.
+**Verification.** *(parked / ignored until re-enable)* former series package tests.
 
 r[cz.depth.compute-gear+1]
 

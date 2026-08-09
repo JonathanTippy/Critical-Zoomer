@@ -174,7 +174,7 @@ async fn internal_behavior<A: SteadyActor>(
             );
             // Interior refs are preferred. Escaped refs are still installed on
             // relative (hard-bump) shells so the generator stays orbit-relative;
-            // rejecting them left deep exterior on zero-orbit with blocky f64 plane_c.
+            // rejecting them left deep exterior on zero-orbit with blocky f64 c.
             let install = !newest.orbit.escaped
                 || state
                     .work_context
