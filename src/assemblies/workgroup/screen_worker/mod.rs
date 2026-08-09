@@ -412,8 +412,11 @@ async fn internal_behavior<A: SteadyActor>(
         if state.total_workshifts % 1 == 0 {
             if let Some(live) = &mut state.work_context {
                 let c = work_update(&mut live.context);
-                if c.len() > 0 {
+                // Send even when this shift only advanced iterations (no finals):
+                // otherwise HUD IPS drops to 0 on iterate-heavy interior work.
+                if !c.is_empty() || iters_delta > 0 {
                     // r[impl cz.craft.emergent-cadence+1]
+                    // r[impl cz.depth.gear-hud+2]
                     actor.try_send(
                         &mut updates_out,
                         telemetry_update(None, c, Some(&mut live.context), iters_delta),

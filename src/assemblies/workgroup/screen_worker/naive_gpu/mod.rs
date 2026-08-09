@@ -274,6 +274,7 @@ pub fn workshift_naive_gpu(
 
         let mut published_indices: HashSet<usize> = HashSet::new();
         let mut buffer_full = false;
+        let mut need_reupload = false;
         for fin in &finishes {
             let index = fin.seat_index as usize;
             if index >= context.points.len() {
@@ -300,7 +301,10 @@ pub fn workshift_naive_gpu(
                 && context.points[index].iterations < 8_192
                 && !confirm_repeat_or_keep_wip(&mut context.points[index], epsilon)
             {
-                resident = false;
+                // Drop from this WIP wave so the next arm re-uploads cleared host state.
+                // One re-upload per shift max — not per rejected seat (PPS killer).
+                skip.remove(&index);
+                need_reupload = true;
                 continue;
             }
             if matches!(step, Step::Attention) {
@@ -349,8 +353,14 @@ pub fn workshift_naive_gpu(
             break;
         }
 
-        // Keep unfinished seats resident on GPU — including rejected false repeats.
-        wip.retain(|m| !published_indices.contains(&m.index));
+        // Keep unfinished seats resident on GPU — including rejected false repeats
+        // until the coalesced re-upload below.
+        if need_reupload {
+            wip.retain(|m| !published_indices.contains(&m.index));
+            resident = false;
+        } else {
+            wip.retain(|m| !published_indices.contains(&m.index));
+        }
         context.total_bouts_today += 1;
 
         if context.time_workshift_started.elapsed().as_millis() > 9 && wave_n > 2048 {

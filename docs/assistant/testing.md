@@ -25,7 +25,8 @@ that prove numbers and invariants still flow through the machine.
 | Layer | Location | Role |
 |---|---|---|
 | Screen worker alone | `craftsmanship_tests.rs` (`steady_state_screen_worker_*`) | Fill + IPS floors on DirectKernel / naive-GPU path |
-| Workgroup chain | `craftsmanship_tests.rs` (`steady_state_workgroup_*`) | `iterations_delta` survives into HUD `RateCounter` |
+| Workgroup chain | `craftsmanship_tests.rs` (`steady_state_workgroup_*`) | `iterations_delta` / `points_delta` survive into HUD `RateCounter` |
+| Home PPS ratio | `steady_state_home_pps_gpu_vs_cpu_ratio` | GPU vs CPU wall PPS (climb toward ~FLOP ratio) |
 | Probe / FLOP ratio | `naive_gpu` smoke tests | GPU vs CPU ratio method (D-NGPU-5) |
 | Fitness trends | `benches/workgroup_fitness.rs` | Wall-clock baselines, eye regression guard |
 

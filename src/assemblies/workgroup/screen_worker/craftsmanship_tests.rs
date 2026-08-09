@@ -4588,6 +4588,7 @@ fn steady_state_screen_worker_home_ips_naive_gpu_path() {
 
 /// Whole workgroup speed chain: workshift → WorkUpdate.iterations_delta → ViewHud → RateCounter.
 /// Catches the class of bug where the worker does work but HUD IPS stays ~0.
+/// Also records PPS (`points_delta`) on the same path.
 // r[verify cz.depth.gear-hud+2]
 #[test]
 fn steady_state_workgroup_ips_delta_reaches_hud_rate_counter() {
@@ -4595,8 +4596,11 @@ fn steady_state_workgroup_ips_delta_reaches_hud_rate_counter() {
     run_big(|| {
         let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
         let mut ips = RateCounter::default();
+        let mut pps = RateCounter::default();
         let mut total_recorded = 0u64;
+        let mut total_points = 0u64;
         let mut shifts_with_delta = 0u32;
+        let mut shifts_with_points = 0u32;
         let mut shifts = 0u32;
         let t0 = Instant::now();
         while !ctx.points.iter().all(|p| p.delivered) && shifts < 200 {
@@ -4619,14 +4623,22 @@ fn steady_state_workgroup_ips_delta_reaches_hud_rate_counter() {
             };
             let now = Instant::now();
             ips.record(hud.iterations_delta, now);
+            pps.record(hud.points_delta, now);
             total_recorded += hud.iterations_delta;
+            total_points += hud.points_delta;
             if hud.iterations_delta > 0 {
                 shifts_with_delta += 1;
+            }
+            if hud.points_delta > 0 {
+                shifts_with_points += 1;
             }
             shifts += 1;
         }
         let elapsed = t0.elapsed();
+        let secs = elapsed.as_secs_f64().max(1e-9);
         let rate = ips.rate(Instant::now());
+        let pps_rate = pps.rate(Instant::now());
+        let wall_pps = total_points as f64 / secs;
         assert!(
             ctx.points.iter().all(|p| p.delivered),
             "workgroup steady-state fill incomplete"
@@ -4636,18 +4648,123 @@ fn steady_state_workgroup_ips_delta_reaches_hud_rate_counter() {
             "expected multiple shifts with nonzero iterations_delta; got {shifts_with_delta}/{shifts}"
         );
         assert!(
+            shifts_with_points >= 3,
+            "expected multiple shifts with nonzero points_delta; got {shifts_with_points}/{shifts}"
+        );
+        assert!(
             total_recorded > 100_000,
             "HUD chain recorded only {total_recorded} iterations across {shifts} shifts"
+        );
+        assert_eq!(
+            total_points,
+            ctx.points.len() as u64,
+            "HUD points_delta must count every delivered seat exactly once"
         );
         // RateCounter is a short window; require it saw real work, not a stuck zero.
         assert!(
             rate > 0.0 || total_recorded > 0,
             "RateCounter rate={rate} with total_recorded={total_recorded}"
         );
+        assert!(
+            wall_pps > 1.0e5,
+            "home wall PPS {wall_pps:.3e} below smoke floor"
+        );
         eprintln!(
-            "steady_state workgroup IPS chain: recorded={total_recorded} shifts_with_delta={shifts_with_delta}/{shifts} rate≈{rate:.3e} wall={elapsed:?}"
+            "steady_state workgroup IPS/PPS chain: recorded_iters={total_recorded} recorded_pts={total_points} shifts_ips={shifts_with_delta}/{shifts} shifts_pps={shifts_with_points}/{shifts} ips_window≈{rate:.3e} pps_window≈{pps_rate:.3e} wall_pps≈{wall_pps:.3e} wall={elapsed:?}"
         );
     });
 }
 
+/// Iterate-only telemetry must still reach the HUD: a shift can burn iterations
+/// with zero completions (deep interior) and must not drop `iterations_delta`.
+// r[verify cz.depth.gear-hud+2]
+#[test]
+fn steady_state_ips_delta_sent_without_completions() {
+    use crate::assemblies::structs::ViewHud;
+    let update = telemetry_update::<f64>(None, vec![], None, 12_345);
+    assert_eq!(update.iterations_delta, 12_345);
+    assert!(update.completed_points.is_empty());
+    let hud = ViewHud {
+        stack: update.host_stack,
+        mode: update.kernel_mode,
+        reference: update.reference_status,
+        gear: update.active_gear,
+        points_delta: update.completed_points.len() as u64,
+        iterations_delta: update.iterations_delta,
+    };
+    let mut ips = RateCounter::default();
+    let now = Instant::now();
+    ips.record(hud.iterations_delta, now);
+    assert!((ips.rate(now) - 12_345.0).abs() < 1e-9);
+}
 
+/// Home PPS: GPU vs CPU DirectKernel wall rate (fill completions / time).
+/// Target class is ~FLOP ratio (~160× on this 1080 Ti); shallow home is
+/// finish/scheduling heavy so the ratio is a progress metric, not the IPS bar.
+#[test]
+fn steady_state_home_pps_gpu_vs_cpu_ratio() {
+    run_big(|| {
+        let _gpu_guard = super::naive_gpu::lock_gpu_tests();
+
+        let cpu_pps = {
+            let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
+            let t0 = Instant::now();
+            let mut shifts = 0u32;
+            let mut points = 0u64;
+            while !ctx.points.iter().all(|p| p.delivered) && shifts < 500 {
+                workshift_with_kernel(0, 0, 0, 0, &mut ctx, &DirectKernel);
+                let completed = work_update(&mut ctx);
+                points += completed.len() as u64;
+                shifts += 1;
+            }
+            let secs = t0.elapsed().as_secs_f64().max(1e-9);
+            assert_eq!(points, ctx.points.len() as u64);
+            points as f64 / secs
+        };
+
+        let Some(mut gpu) = super::naive_gpu::NaiveGpuContext::try_new() else {
+            eprintln!("steady_state_home_pps_gpu_vs_cpu_ratio: no GPU — skipped");
+            return;
+        };
+        let gpu_pps = {
+            let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
+            let t0 = Instant::now();
+            let mut shifts = 0u32;
+            let mut points = 0u64;
+            // Bulk GPU fill only — residual mop is correctness, not the PPS bar.
+            while shifts < 2000 {
+                workshift(0, 0, 0, 0, &mut ctx, Some(&mut gpu));
+                let completed = work_update(&mut ctx);
+                points += completed.len() as u64;
+                shifts += 1;
+                let delivered = ctx.points.iter().filter(|p| p.delivered).count();
+                if delivered as f64 / ctx.points.len().max(1) as f64 >= 0.90 {
+                    break;
+                }
+            }
+            let secs = t0.elapsed().as_secs_f64().max(1e-9);
+            let fill = points as f64 / ctx.points.len().max(1) as f64;
+            assert!(
+                fill >= 0.90,
+                "GPU home fill too low for PPS probe: points={points}/{} fill={fill:.4}",
+                ctx.points.len()
+            );
+            points as f64 / secs
+        };
+
+        let ratio = gpu_pps / cpu_pps.max(1.0);
+        eprintln!(
+            "steady_state home PPS: cpu={cpu_pps:.3e} gpu={gpu_pps:.3e} ratio={ratio:.2}× (aspiration ≈160× FLOP-class)"
+        );
+        assert!(
+            gpu_pps > 1.0e4 && cpu_pps > 1.0e4,
+            "home PPS floor missed: cpu={cpu_pps:.3e} gpu={gpu_pps:.3e}"
+        );
+        // Tracking probe — ratio climb is the grind; do not fail the suite on <1× yet.
+        if ratio < 1.0 {
+            eprintln!(
+                "WARN: GPU home PPS below CPU ({ratio:.2}×); finish/scheduling tax dominates shallow floods"
+            );
+        }
+    });
+}
