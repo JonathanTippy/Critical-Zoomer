@@ -1469,20 +1469,31 @@ fn zero_orbit_center_reports_period_one() {
 fn f64_gear_home_fills_without_per_seat_gear_scan() {
     use std::time::Instant;
     run_big(|| {
-        let mut direct_ctx = from_stencil::<f64>(home_frame(), None).expect("home direct");
+        // Small home-centered frame: this pins f64 gear fill, not full-window soak.
+        let frame = (
+            ObjectivePosAndZoom {
+                pos: (
+                    IntExp::from(HOME_POSITION.0),
+                    IntExp::from(HOME_POSITION.1),
+                ),
+                zoom_pot: HOME_POSITION.2,
+            },
+            (64u32, 48u32),
+        );
+        let mut direct_ctx = from_stencil::<f64>(frame.clone(), None).expect("home direct");
         let direct_start = Instant::now();
         let mut direct_shifts = 0u32;
         while !direct_ctx.points.iter().all(|p| p.delivered) {
             workshift_with_kernel(0, 0, 0, 0, &mut direct_ctx, &DirectKernel);
             while direct_ctx.completed_points.try_pop().is_some() {}
             direct_shifts += 1;
-            assert!(direct_start.elapsed().as_secs() < 30, "direct home fill stalled");
+            assert!(direct_start.elapsed().as_secs() < 8, "direct home fill stalled");
             if direct_shifts > 5_000 {
                 panic!("direct home did not finish");
             }
         }
 
-        let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home f64");
+        let mut ctx = from_stencil::<f64>(frame, None).expect("home f64");
         let start = Instant::now();
         let mut shifts = 0u32;
         while !ctx.points.iter().all(|p| p.delivered) {
@@ -1490,7 +1501,7 @@ fn f64_gear_home_fills_without_per_seat_gear_scan() {
             while ctx.completed_points.try_pop().is_some() {}
             shifts += 1;
             assert!(
-                start.elapsed().as_secs() < 30,
+                start.elapsed().as_secs() < 8,
                 "f64 home fill stalled: shifts={shifts} pct={:.1} gear={:?}",
                 ctx.percent_completed,
                 ctx.active_gear
