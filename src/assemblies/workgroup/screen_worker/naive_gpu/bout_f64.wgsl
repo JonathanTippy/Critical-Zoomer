@@ -91,7 +91,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         s.dc_x = ndx;
         s.dc_y = ndy;
         s.iterations = s.iterations + 1u;
-        if (near(s.z_x, s.z_y, s.loop_zx, s.loop_zy, params.epsilon)) {
+        if (s.iterations >= 32u && near(s.z_x, s.z_y, s.loop_zx, s.loop_zy, params.epsilon)) {
             s.flags = s.flags | 4u;
             break;
         }

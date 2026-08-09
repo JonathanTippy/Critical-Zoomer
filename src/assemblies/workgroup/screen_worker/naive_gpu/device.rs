@@ -1,4 +1,5 @@
-pub const MAX_WAVE: u32 = 8192;
+/// Wide enough that shallow home amortizes one upload/harvest sync over many seats.
+pub const MAX_WAVE: u32 = 32768;
 /// Soft target for iterate-heavy compact maps; shallow floods may copy the full wave.
 pub const SPARSE_FINISH_CAP: u32 = 1024;
 
@@ -33,8 +34,13 @@ pub struct NaiveGpuContext {
     pub(crate) params_buf: wgpu::Buffer,
     pub(crate) finish_staging: wgpu::Buffer,
     pub(crate) seat_staging: wgpu::Buffer,
-    /// [finish_count:u32][iter_total:u32][finishes…] for one-map sparse harvest.
-    pub(crate) sparse_staging: wgpu::Buffer,
+    /// Ping-pong sparse harvest staging so a shallow re-upload can submit the next
+    /// wave before mapping the previous (overlap GPU with host publish).
+    pub(crate) sparse_staging: [wgpu::Buffer; 2],
+    /// Next staging slot to write (0|1).
+    pub(crate) sparse_write: std::cell::Cell<u8>,
+    /// WIP count recorded per staging slot at submit time.
+    pub(crate) sparse_wip: [std::cell::Cell<u32>; 2],
     pub(crate) header_staging: wgpu::Buffer,
     pub(crate) seat_stride: u64,
     pub(crate) finish_stride: u64,
@@ -195,9 +201,15 @@ impl NaiveGpuContext {
             seat_stride_max * MAX_WAVE as u64,
             wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         );
-        let sparse_staging = make_buf(
+        let sparse_staging_0 = make_buf(
             &device,
-            "sparse_staging",
+            "sparse_staging_0",
+            16 + finish_stride_max * MAX_WAVE as u64,
+            wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        );
+        let sparse_staging_1 = make_buf(
+            &device,
+            "sparse_staging_1",
             16 + finish_stride_max * MAX_WAVE as u64,
             wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         );
@@ -258,10 +270,11 @@ impl NaiveGpuContext {
         let _ = std::fs::write(
             "/tmp/cz_naive_gpu_status.txt",
             format!(
-                "ok precision={precision:?} has_f64={} adapter={:?} backend={:?} wave_n=4096\n",
+                "ok precision={precision:?} has_f64={} adapter={:?} backend={:?} wave_n={}\n",
                 f64_pipeline.is_some(),
                 info.name,
-                info.backend
+                info.backend,
+                MAX_WAVE
             ),
         );
 
@@ -270,7 +283,7 @@ impl NaiveGpuContext {
             queue,
             precision,
             generation: 0,
-            wave_n: 4096.min(MAX_WAVE),
+            wave_n: MAX_WAVE,
             last_wip_count: std::sync::atomic::AtomicU32::new(0),
             pipeline,
             bind_group_layout,
@@ -288,7 +301,9 @@ impl NaiveGpuContext {
             params_buf,
             finish_staging,
             seat_staging,
-            sparse_staging,
+            sparse_staging: [sparse_staging_0, sparse_staging_1],
+            sparse_write: std::cell::Cell::new(0),
+            sparse_wip: [std::cell::Cell::new(0), std::cell::Cell::new(0)],
             header_staging,
             seat_stride,
             finish_stride,

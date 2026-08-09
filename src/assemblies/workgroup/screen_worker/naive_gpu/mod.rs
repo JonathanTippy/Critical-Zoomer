@@ -15,10 +15,10 @@ use crate::assemblies::workgroup::screen_worker::workshift::{
     PushOutcome, SeatKernel, Step, WorkContext, iterate_max_n_times,
 };
 use crate::utils::index_from_pos;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
-pub const DEFAULT_WAVE_N: u32 = 4096;
+pub const DEFAULT_WAVE_N: u32 = device::MAX_WAVE;
 pub const MIN_WAVE_N: u32 = 64;
 
 /// Claim the next undelivered seat using the same slot rotation as the CPU workshift.
@@ -27,7 +27,7 @@ pub fn claim_next_undelivered_seat(
     skip: &HashSet<usize>,
 ) -> Option<((i32, i32), Step)> {
     let total = context.points.len().max(1);
-    for _ in 0..total.min(8192) {
+    for _ in 0..total.min(device::MAX_WAVE as usize) {
         let (pos, step) = select_candidate(context)?;
         let index = index_from_pos(&pos, context.res.0);
         if context.points[index].delivered || skip.contains(&index) {
@@ -205,8 +205,65 @@ pub fn workshift_naive_gpu(
     // published some points (never starve a shift of visible completions).
     let mut bouts_per_dispatch: u32 = 1;
     let mut points_published_this_shift: u32 = 0;
+    // Shallow re-upload pipeline: submit next wave before mapping prior staging.
+    let mut pending: Option<(u8, Vec<WipMeta>)> = None;
 
     while context.time_workshift_started.elapsed().as_millis() < 10 {
+        // Publish prior wave first so dispatch below overlaps GPU with host work.
+        if let Some((slot, prev_wip)) = pending.take() {
+            let (finishes, iter_delta) = match gpu.harvest_sparse_slot(slot) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("naive_gpu harvest failed: {e}");
+                    break;
+                }
+            };
+            gpu.clear_finish_accumulators();
+            context.total_iterations_today += iter_delta;
+            context.total_iterations = context.total_iterations.saturating_add(iter_delta);
+            let gpu_final_n = finishes.iter().filter(|f| (f.flags & 6) != 0).count();
+            let wip_n = prev_wip.len().max(1);
+            if points_published_this_shift == 0 || gpu_final_n * 4 >= wip_n {
+                bouts_per_dispatch = 1;
+            } else if gpu_final_n * 16 < wip_n {
+                bouts_per_dispatch = 16;
+            } else {
+                bouts_per_dispatch = 8;
+            }
+            let outcome = publish_gpu_finishes(
+                context,
+                &kernel,
+                gpu.precision,
+                epsilon,
+                &prev_wip,
+                &finishes,
+                &mut skip,
+                &mut points_published_this_shift,
+            );
+            if outcome.buffer_full {
+                break;
+            }
+            // Restore unfinished seats for resident continue; re-arm if confirm rejected.
+            wip.clear();
+            for m in prev_wip {
+                let p = &context.points[m.index];
+                if p.delivered || p.escapes || p.repeats {
+                    continue;
+                }
+                skip.insert(m.index);
+                wip.push(m);
+            }
+            if outcome.need_reupload {
+                resident = false;
+            } else if !wip.is_empty() {
+                resident = true;
+                resident_n = wip.len() as u32;
+            } else {
+                resident = false;
+            }
+            context.total_bouts_today += 1;
+        }
+
         // Refill host WIP list; only re-upload when residency breaks.
         let before_len = wip.len();
         while (wip.len() as u32) < wave_n {
@@ -226,152 +283,66 @@ pub fn workshift_naive_gpu(
         }
         let grew = wip.len() > before_len;
 
-        if !resident || grew {
-            let owned: Vec<(u32, Point<f64>)> = wip
+        let slot = if !resident || grew {
+            // Borrow points for upload only — no Point clone storm (PPS killer on shallow).
+            let upload_refs: Vec<(u32, &Point<f64>)> = wip
                 .iter()
-                .map(|m| (m.index as u32, context.points[m.index].clone()))
+                .map(|m| (m.index as u32, &context.points[m.index]))
                 .collect();
-            let upload_refs: Vec<(u32, &Point<f64>)> =
-                owned.iter().map(|(i, p)| (*i, p)).collect();
             resident_n = upload_refs.len() as u32;
-            if let Err(e) = gpu.dispatch_wave_multi_sparse(
+            match gpu.dispatch_wave_multi_sparse(
                 &upload_refs,
                 4.0,
                 epsilon,
                 BoutCap::STANDARD,
                 bouts_per_dispatch,
             ) {
-                eprintln!("naive_gpu dispatch failed: {e}");
-                break;
-            }
-            resident = true;
-        } else if let Err(e) = gpu.dispatch_continue_multi(resident_n, bouts_per_dispatch, false)
-        {
-            eprintln!("naive_gpu continue failed: {e}");
-            break;
-        }
-
-        let (finishes, iter_delta) = match gpu.harvest_sparse_finals() {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("naive_gpu harvest failed: {e}");
-                break;
-            }
-        };
-        // Prevent re-applying the same finals on the next resident continue.
-        gpu.clear_finish_accumulators();
-        context.total_iterations_today += iter_delta;
-        context.total_iterations = context.total_iterations.saturating_add(iter_delta);
-
-        let gpu_final_n = finishes.iter().filter(|f| (f.flags & 6) != 0).count();
-
-        // Adapt bout count after harvest. Keep bout=1 until this shift has
-        // emitted points (≤10 ms continuous output). Then amortize only if
-        // finals are sparse (iterate-heavy).
-        let wip_n = wip.len().max(1);
-        if points_published_this_shift == 0 || gpu_final_n * 4 >= wip_n {
-            bouts_per_dispatch = 1;
-        } else if gpu_final_n * 16 < wip_n {
-            bouts_per_dispatch = 16;
-        } else {
-            bouts_per_dispatch = 8;
-        }
-
-        let mut published_indices: HashSet<usize> = HashSet::new();
-        let mut buffer_full = false;
-        let mut need_reupload = false;
-        for fin in &finishes {
-            let index = fin.seat_index as usize;
-            if index >= context.points.len() {
-                continue;
-            }
-            if context.points[index].delivered {
-                continue;
-            }
-            let meta = wip.iter().find(|m| m.index == index).cloned();
-            apply_finish_to_point(&mut context.points[index], fin);
-            let pos = meta
-                .as_ref()
-                .map(|m| m.pos)
-                .unwrap_or_else(|| pos_from_index(index, context.res.0));
-            let step = meta.as_ref().map(|m| m.step).unwrap_or(Step::Out);
-
-            if !(context.points[index].repeats || context.points[index].escapes) {
-                continue;
-            }
-            // F32 period-detect can false-mark shallow exterior seats as interior
-            // (black speckles). Re-check low-iter repeats on host f64.
-            if context.points[index].repeats
-                && matches!(gpu.precision, GpuPrecision::F32)
-                && context.points[index].iterations < 8_192
-                && !confirm_repeat_or_keep_wip(&mut context.points[index], epsilon)
-            {
-                // Drop from this WIP wave so the next arm re-uploads cleared host state.
-                // One re-upload per shift max — not per rejected seat (PPS killer).
-                skip.remove(&index);
-                need_reupload = true;
-                continue;
-            }
-            if matches!(step, Step::Attention) {
-                context.attention_current = None;
-            }
-            let completed_point = kernel.completion(&mut context.points[index]);
-            if context.points[index].repeats {
-                queue_incomplete_neighbors_in(
-                    &pos,
-                    context.res,
-                    &context.points,
-                    &mut context.in_queue,
-                );
-            } else {
-                queue_incomplete_neighbors(
-                    &pos,
-                    context.res,
-                    &context.points,
-                    &mut context.out_queue,
-                );
-            }
-            if let Some(e) = point_is_edge(&pos, context.res, &context.points) {
-                queue_incomplete_neighbors_of_edge(
-                    &e.0,
-                    &e.1,
-                    context.res,
-                    &context.points,
-                    &mut context.edge_queue,
-                );
-            }
-            match context.push_delivery(Delivery::Final(completed_point), index) {
-                PushOutcome::Published => {
-                    context.total_points_today += 1;
-                    context.record_hud_completion_batch(1);
-                    skip.remove(&index);
-                    published_indices.insert(index);
-                    points_published_this_shift += 1;
+                Ok(slot) => {
+                    resident = true;
+                    slot
                 }
-                PushOutcome::BufferFull => {
-                    skip.remove(&index);
-                    buffer_full = true;
+                Err(e) => {
+                    eprintln!("naive_gpu dispatch failed: {e}");
                     break;
                 }
             }
-        }
-        if buffer_full {
-            break;
-        }
-
-        // Keep unfinished seats resident on GPU — including rejected false repeats
-        // until the coalesced re-upload below.
-        if need_reupload {
-            wip.retain(|m| !published_indices.contains(&m.index));
-            resident = false;
         } else {
-            wip.retain(|m| !published_indices.contains(&m.index));
-        }
-        context.total_bouts_today += 1;
+            match gpu.dispatch_continue_multi(resident_n, bouts_per_dispatch, false) {
+                Ok(slot) => slot,
+                Err(e) => {
+                    eprintln!("naive_gpu continue failed: {e}");
+                    break;
+                }
+            }
+        };
+
+        // Park WIP with the staging slot; next loop harvests before refill/dispatch.
+        pending = Some((slot, std::mem::take(&mut wip)));
+        resident = false; // residency restored from unfinished after harvest
 
         if context.time_workshift_started.elapsed().as_millis() > 9 && wave_n > 2048 {
             wave_n = ((wave_n * 3) / 4).max(2048);
             gpu.set_wave_n(wave_n);
+        }
+    }
+
+    // Flush the last in-flight wave.
+    if let Some((slot, prev_wip)) = pending.take() {
+        if let Ok((finishes, iter_delta)) = gpu.harvest_sparse_slot(slot) {
+            gpu.clear_finish_accumulators();
+            context.total_iterations_today += iter_delta;
+            context.total_iterations = context.total_iterations.saturating_add(iter_delta);
+            let _ = publish_gpu_finishes(
+                context,
+                &kernel,
+                gpu.precision,
+                epsilon,
+                &prev_wip,
+                &finishes,
+                &mut skip,
+                &mut points_published_this_shift,
+            );
+            context.total_bouts_today += 1;
         }
     }
 
@@ -388,6 +359,103 @@ pub fn workshift_naive_gpu(
     context.percent_completed = delivered as f64 / (total_points as f64) * 100.0;
 }
 
+struct PublishFinishOutcome {
+    buffer_full: bool,
+    need_reupload: bool,
+}
+
+fn publish_gpu_finishes(
+    context: &mut WorkContext<f64>,
+    kernel: &DirectKernel,
+    precision: GpuPrecision,
+    epsilon: f64,
+    wip: &[WipMeta],
+    finishes: &[HarvestedFinish],
+    skip: &mut HashSet<usize>,
+    points_published_this_shift: &mut u32,
+) -> PublishFinishOutcome {
+    let meta_by_index: HashMap<usize, WipMeta> =
+        wip.iter().map(|m| (m.index, m.clone())).collect();
+    let mut buffer_full = false;
+    let mut need_reupload = false;
+    for fin in finishes {
+        let index = fin.seat_index as usize;
+        if index >= context.points.len() {
+            continue;
+        }
+        if context.points[index].delivered {
+            continue;
+        }
+        let meta = meta_by_index.get(&index);
+        apply_finish_to_point(&mut context.points[index], fin);
+        let pos = meta
+            .map(|m| m.pos)
+            .unwrap_or_else(|| pos_from_index(index, context.res.0));
+        let step = meta.map(|m| m.step).unwrap_or(Step::Out);
+
+        if !(context.points[index].repeats || context.points[index].escapes) {
+            continue;
+        }
+        // F32 period-detect can false-mark shallow exterior seats as interior
+        // (black speckles). Re-check only very-low-iter repeats on host f64;
+        // shader already suppresses period-detect below 32.
+        if context.points[index].repeats
+            && matches!(precision, GpuPrecision::F32)
+            && context.points[index].iterations < 64
+            && !confirm_repeat_or_keep_wip(&mut context.points[index], epsilon)
+        {
+            skip.remove(&index);
+            need_reupload = true;
+            continue;
+        }
+        if matches!(step, Step::Attention) {
+            context.attention_current = None;
+        }
+        let completed_point = kernel.completion(&mut context.points[index]);
+        if context.points[index].repeats {
+            queue_incomplete_neighbors_in(
+                &pos,
+                context.res,
+                &context.points,
+                &mut context.in_queue,
+            );
+        } else {
+            queue_incomplete_neighbors(
+                &pos,
+                context.res,
+                &context.points,
+                &mut context.out_queue,
+            );
+        }
+        if let Some(e) = point_is_edge(&pos, context.res, &context.points) {
+            queue_incomplete_neighbors_of_edge(
+                &e.0,
+                &e.1,
+                context.res,
+                &context.points,
+                &mut context.edge_queue,
+            );
+        }
+        match context.push_delivery(Delivery::Final(completed_point), index) {
+            PushOutcome::Published => {
+                context.total_points_today += 1;
+                context.record_hud_completion_batch(1);
+                skip.remove(&index);
+                *points_published_this_shift += 1;
+            }
+            PushOutcome::BufferFull => {
+                skip.remove(&index);
+                buffer_full = true;
+                break;
+            }
+        }
+    }
+    PublishFinishOutcome {
+        buffer_full,
+        need_reupload,
+    }
+}
+
 /// Publish host seats that already escaped/repeated but never made it into the buffer.
 fn publish_finished_undelivered(context: &mut WorkContext<f64>, kernel: &DirectKernel) {
     let n = context.points.len();
@@ -399,7 +467,7 @@ fn publish_finished_undelivered(context: &mut WorkContext<f64>, kernel: &DirectK
             continue;
         }
         if context.points[index].repeats
-            && context.points[index].iterations < 8_192
+            && context.points[index].iterations < 64
             && !confirm_repeat_or_keep_wip(&mut context.points[index], context.pitch_epsilon)
         {
             continue;

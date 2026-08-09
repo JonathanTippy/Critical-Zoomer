@@ -51,9 +51,11 @@ impl NaiveGpuContext {
         bouts: u32,
     ) -> Result<(), String> {
         self.dispatch_multi(seats, r_squared, epsilon, cap, bouts, true)
+            .map(|_| ())
     }
 
     /// Hot path: no seats staging copy (partials stay on GPU; use harvest_sparse_finals).
+    /// Returns the sparse-staging slot written (for pipelined harvest).
     pub fn dispatch_wave_multi_sparse(
         &self,
         seats: &[(u32, &Point<f64>)],
@@ -61,7 +63,7 @@ impl NaiveGpuContext {
         epsilon: f64,
         cap: BoutCap,
         bouts: u32,
-    ) -> Result<(), String> {
+    ) -> Result<u8, String> {
         self.dispatch_multi(seats, r_squared, epsilon, cap, bouts, false)
     }
 
@@ -111,15 +113,17 @@ impl NaiveGpuContext {
         cap: BoutCap,
         bouts: u32,
         copy_seats: bool,
-    ) -> Result<(), String> {
+    ) -> Result<u8, String> {
         let wip_count = seats.len() as u32;
         if wip_count == 0 || bouts == 0 {
-            return Ok(());
+            return Ok(self.sparse_write.get());
         }
         if wip_count > MAX_WAVE {
             return Err(format!("WIP {wip_count} exceeds MAX_WAVE"));
         }
         self.upload_seats_and_params(seats, r_squared, epsilon, cap, wip_count)?;
+        let slot = self.sparse_write.get() & 1;
+        let staging = &self.sparse_staging[slot as usize];
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -135,17 +139,16 @@ impl NaiveGpuContext {
             pass.dispatch_workgroups((wip_count + 255) / 256, 1, 1);
         }
         // Header + compact finish prefix in the same submit (no second GPU sync).
-        // Header + finish records for the whole WIP (shallow home can finish all seats).
         let sparse_n = wip_count.min(MAX_WAVE);
-        encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, &self.sparse_staging, 0, 4);
-        encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, &self.sparse_staging, 4, 4);
+        encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, staging, 0, 4);
+        encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, staging, 4, 4);
         encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, &self.header_staging, 0, 4);
         encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, &self.header_staging, 4, 4);
         if sparse_n > 0 {
             encoder.copy_buffer_to_buffer(
                 &self.finishes_buf,
                 0,
-                &self.sparse_staging,
+                staging,
                 16,
                 self.finish_stride * sparse_n as u64,
             );
@@ -162,7 +165,9 @@ impl NaiveGpuContext {
         self.queue.submit(Some(encoder.finish()));
         self.last_wip_count
             .store(wip_count, std::sync::atomic::Ordering::Relaxed);
-        Ok(())
+        self.sparse_wip[slot as usize].set(wip_count);
+        self.sparse_write.set(1 - slot);
+        Ok(slot)
     }
 
     fn upload_seats_and_params(
@@ -221,18 +226,21 @@ impl NaiveGpuContext {
     }
 
     /// Continue resident seats without re-upload (finish counter accumulates).
+    /// Returns sparse-staging slot written.
     pub fn dispatch_continue_multi(
         &self,
         wip_count: u32,
         bouts: u32,
         copy_seats: bool,
-    ) -> Result<(), String> {
+    ) -> Result<u8, String> {
         if wip_count == 0 || bouts == 0 {
-            return Ok(());
+            return Ok(self.sparse_write.get());
         }
         if wip_count > MAX_WAVE {
             return Err(format!("WIP {wip_count} exceeds MAX_WAVE"));
         }
+        let slot = self.sparse_write.get() & 1;
+        let staging = &self.sparse_staging[slot as usize];
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -248,15 +256,15 @@ impl NaiveGpuContext {
             pass.dispatch_workgroups((wip_count + 255) / 256, 1, 1);
         }
         let sparse_n = wip_count.min(MAX_WAVE);
-        encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, &self.sparse_staging, 0, 4);
-        encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, &self.sparse_staging, 4, 4);
+        encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, staging, 0, 4);
+        encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, staging, 4, 4);
         encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, &self.header_staging, 0, 4);
         encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, &self.header_staging, 4, 4);
         if sparse_n > 0 {
             encoder.copy_buffer_to_buffer(
                 &self.finishes_buf,
                 0,
-                &self.sparse_staging,
+                staging,
                 16,
                 self.finish_stride * sparse_n as u64,
             );
@@ -273,7 +281,9 @@ impl NaiveGpuContext {
         self.queue.submit(Some(encoder.finish()));
         self.last_wip_count
             .store(wip_count, std::sync::atomic::Ordering::Relaxed);
-        Ok(())
+        self.sparse_wip[slot as usize].set(wip_count);
+        self.sparse_write.set(1 - slot);
+        Ok(slot)
     }
 
     pub fn harvest_iters_only(&self) -> Result<u32, String> {
@@ -281,20 +291,21 @@ impl NaiveGpuContext {
         Ok(u32::from_ne_bytes([header[4], header[5], header[6], header[7]]))
     }
 
-    /// Finals from the finish prefix copied with compute (up to full WIP).
-    pub fn harvest_sparse_finals(&self) -> Result<(Vec<HarvestedFinish>, u32), String> {
-        let header = map_bytes(&self.device, &self.header_staging, 8)?;
-        let count = u32::from_ne_bytes([header[0], header[1], header[2], header[3]]);
-        let iter_delta = u32::from_ne_bytes([header[4], header[5], header[6], header[7]]);
-        let n_fin = count.min(MAX_WAVE) as usize;
+    /// Finals from a sparse-staging slot (header+finishes, one map).
+    pub fn harvest_sparse_slot(&self, slot: u8) -> Result<(Vec<HarvestedFinish>, u32), String> {
+        let slot = (slot & 1) as usize;
+        let wip = self.sparse_wip[slot].get().min(MAX_WAVE);
+        let map_bytes_n = 16 + self.finish_stride * wip as u64;
+        let bytes = map_bytes(&self.device, &self.sparse_staging[slot], map_bytes_n)?;
+        let count = u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+        let iter_delta = u32::from_ne_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+        let n_fin = count.min(wip).min(MAX_WAVE) as usize;
         if n_fin == 0 {
             return Ok((Vec::new(), iter_delta));
         }
-        let finish_bytes = self.finish_stride * n_fin as u64;
-        let bytes = map_bytes_offset(&self.device, &self.sparse_staging, 16, finish_bytes)?;
         let mut finals = Vec::with_capacity(n_fin);
         for i in 0..n_fin {
-            let off = i * self.finish_stride as usize;
+            let off = 16 + i * self.finish_stride as usize;
             match self.precision {
                 GpuPrecision::F32 => {
                     finals.push(finish_from_f32(pod_read_unaligned(&bytes[off..off + 64])));
@@ -305,6 +316,12 @@ impl NaiveGpuContext {
             }
         }
         Ok((finals, iter_delta))
+    }
+
+    /// Finals from the most recently written sparse slot (non-pipelined callers).
+    pub fn harvest_sparse_finals(&self) -> Result<(Vec<HarvestedFinish>, u32), String> {
+        let slot = 1 - (self.sparse_write.get() & 1);
+        self.harvest_sparse_slot(slot)
     }
 
     /// Copy seats GPU→staging and map (no compute). Sync unfinished before re-upload.
