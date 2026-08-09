@@ -24,16 +24,21 @@ Run (house rule — nice, center-half CPUs):
 taskset -c 3-8 nice -n 15 cargo bench --bench workgroup_fitness
 ```
 
-## Regression guard
+## Regression guard — FIX NOW
 
-Benchmarks vary run to run; this is not an exact science and that's fine.
+Benchmarks vary run to run; noise is normal. Trends matter.
 
-- After any code edit touching the workgroup or headgroup, rerun the suite and compare against
-  the baseline below **by eye**.
-- A regression beyond ~20% must be investigated before the change is accepted. Noise is normal;
-  trends matter, single runs don't.
-- When a change intentionally alters performance, update the baseline **in the same commit** as
-  the change.
+- After any code edit touching the workgroup or headgroup, rerun **both**
+  `workgroup_fitness` and `my_bench` and compare against the **accepted**
+  baseline below.
+- A regression beyond ~20% on an accepted row is **FIX NOW**
+  (`docs/assistant/quality-doctrine.md`): fix the code before checkpointing
+  or continuing feature grind. Do **not** soften asserts, `#[ignore]` the
+  bench, or rewrite the baseline to hide a slip.
+- When a change intentionally alters performance, update the baseline **in the
+  same commit** and document why.
+- Rows marked **REJECTED** / “not a baseline” are diagnostic history only —
+  never treat them as permission to ship that slow path.
 
 ## Baseline
 

@@ -1695,7 +1695,6 @@ fn published_reference_matches_direct_on_shallow_view() {
 /// Runtime evidence (session 63a36f): zero-orbit outer et=0; reference-path
 /// outer et=2 exactly once series was live.
 #[test]
-#[ignore = "series approximation deferred"]
 // r[verify cz.depth.series-approximation+1]
 // r[verify cz.depth.delta-kernel+1]
 fn published_reference_with_series_matches_direct_outside_r2() {
@@ -1867,7 +1866,6 @@ fn small_time_matches_direct_kernel_on_interior() {
 }
 
 #[test]
-#[ignore = "series approximation deferred"]
 // r[verify cz.depth.series-approximation+1]
 fn series_safe_skip_does_not_pass_bailout_for_far_delta() {
     use crate::series::SeriesApproximation;
@@ -1898,7 +1896,6 @@ fn series_safe_skip_does_not_pass_bailout_for_far_delta() {
 /// Headed tumor symptom: inflated exterior escape_time shattered conjugate
 /// symmetry (bottom bulge). Assert on worker answers, not pixels.
 #[test]
-#[ignore = "series approximation deferred"]
 // r[verify cz.math.mandelbrot-real-axis-symmetry+1]
 // r[verify cz.depth.series-approximation+1]
 fn home_package_with_live_series_obeys_real_axis_symmetry() {
@@ -1963,7 +1960,6 @@ fn home_package_with_live_series_obeys_real_axis_symmetry() {
 /// Interior iteration depth can differ under perturbation; the tumor class was
 /// inflated exterior escape_time after series skip.
 #[test]
-#[ignore = "series approximation deferred"]
 // r[verify cz.depth.series-approximation+1]
 // r[verify cz.depth.delta-kernel+1]
 fn home_package_with_live_series_matches_direct_kernel_answers() {
@@ -2021,7 +2017,6 @@ fn home_package_with_live_series_matches_direct_kernel_answers() {
 /// Dense exterior sample under reference+series must match DirectKernel on
 /// escape_time and small_time (generalizes the five-fixture tumor lock).
 #[test]
-#[ignore = "series approximation deferred"]
 // r[verify cz.depth.series-approximation+1]
 // r[verify cz.depth.delta-kernel+1]
 fn exterior_loci_with_series_match_direct_kernel_answers() {
@@ -2427,7 +2422,6 @@ fn production_coords_are_not_plain_f64() {
 }
 
 #[test]
-#[ignore = "series approximation deferred"]
 // r[verify cz.depth.series-approximation+1]
 fn series_skip_matches_delta_tail() {
     use crate::series::SeriesApproximation;
@@ -2455,7 +2449,6 @@ fn series_skip_matches_delta_tail() {
 }
 
 #[test]
-#[ignore = "series approximation deferred"]
 // r[verify cz.depth.series-approximation+1]
 fn series_never_publishes_guessed_completion() {
     use crate::series::SeriesApproximation;
@@ -2479,7 +2472,6 @@ fn series_never_publishes_guessed_completion() {
 }
 
 #[test]
-#[ignore = "series approximation deferred"]
 // r[verify cz.depth.series-approximation+1]
 fn live_series_skip_initializes_delta_prefix() {
     use crate::series::SeriesApproximation;
@@ -3475,13 +3467,17 @@ fn relative_perturb_matches_direct_at_user_zoom_49() {
 }
 
 #[test]
-#[ignore = "retired: f64 DirectKernel is not a deep membership oracle; see pin_exterior_not_marked_in_at_zoom_52"]
 // r[verify cz.perf.pps-selected-kernel+1]
 // r[verify cz.depth.delta-kernel+1]
+// r[verify cz.depth.oracle-gear+1]
 /// Headed report: (0.95703125, −0.08984375i) at 2^74 went black on escaping seats.
+/// f64 DirectKernel is not the deep membership oracle — compare pert to Oracle gear.
 fn deep_relative_exterior_not_instant_black_at_reported_location() {
     use super::perturb_kernel::PerturbationKernel;
     use crate::assemblies::headgroup::window::coords::{decimal_str_to_intexp, ul_for_center};
+    use crate::floatexp::FloatExp;
+    use crate::gearbox::oracle::{OracleAnswer, OracleKernel};
+    use super::workshift::c_floatexp_from_delta_c;
     run_big(|| {
         let res = (32u32, 32u32);
         let zoom_pot = 74i32;
@@ -3489,10 +3485,9 @@ fn deep_relative_exterior_not_instant_black_at_reported_location() {
         let center_im = decimal_str_to_intexp("-0.08984375").unwrap();
         let obj = ul_for_center(center_re, center_im, zoom_pot, res);
         let frame = (obj, res);
-        let mut direct = from_stencil::<f64>(frame.clone(), None).expect("direct shell");
         let mut perturb = from_stencil::<f64>(frame, None).expect("perturb shell");
         assert!(
-            direct.coords_are_relative,
+            perturb.coords_are_relative,
             "zoom 74 must use relative f64 admission"
         );
         let held_ref = perturb.latest_reference.clone();
@@ -3504,19 +3499,28 @@ fn deep_relative_exterior_not_instant_black_at_reported_location() {
         let mut exterior_compared = 0usize;
         let mut instant_black = Vec::new();
         let mut mismatches = Vec::new();
+        let oracle = OracleKernel;
+        let r2 = FloatExp::from(4.0);
+        let eps = FloatExp::from(1e-30);
         for y in 0..res.1 as i32 {
             for x in 0..res.0 as i32 {
                 let pos = (x, y);
                 let idx = index_from_pos(&pos, res.0);
-                DirectKernel.start_seat(&mut direct, pos);
                 PerturbationKernel.start_seat(&mut perturb, pos);
-                DirectKernel.iterate_bout(
-                    &mut direct.points[idx],
-                    None,
-                    4.0,
-                    direct.pitch_epsilon,
-                    BoutCap::new(512),
+                let c_fe = c_floatexp_from_delta_c(
+                    perturb.points[idx].delta_c,
+                    &perturb.coord_anchor,
                 );
+                let oracle_ans = oracle.conclude((c_fe.re, c_fe.im), r2, eps, 512);
+                let oracle_escapes = matches!(oracle_ans, OracleAnswer::Escapes { .. });
+                let oracle_et = match oracle_ans {
+                    OracleAnswer::Escapes { escape_time } => escape_time,
+                    OracleAnswer::Repeats { iterations } => iterations,
+                    OracleAnswer::Unfinished { iterations, .. } => iterations,
+                };
+                if !oracle_escapes {
+                    continue;
+                }
                 PerturbationKernel.iterate_bout(
                     &mut perturb.points[idx],
                     held_ref.as_ref().map(|r| &r.orbit),
@@ -3524,25 +3528,17 @@ fn deep_relative_exterior_not_instant_black_at_reported_location() {
                     perturb.pitch_epsilon,
                     BoutCap::new(512),
                 );
-                let d = &direct.points[idx];
                 let p = &perturb.points[idx];
-                if !d.escapes {
-                    continue;
-                }
                 exterior_compared += 1;
-                if d.iterations > 2
-                    && p.escapes
-                    && p.iterations <= 2
-                {
+                if oracle_et > 2 && p.escapes && p.iterations <= 2 {
                     instant_black.push(format!(
-                        "({x},{y}) direct_et={} perturb_et={}",
-                        d.iterations, p.iterations
+                        "({x},{y}) oracle_et={oracle_et} perturb_et={}",
+                        p.iterations
                     ));
                 }
-                if (d.escapes, d.iterations, d.repeats) != (p.escapes, p.iterations, p.repeats) {
+                if !p.escapes || p.iterations != oracle_et {
                     mismatches.push(format!(
-                        "({x},{y}) direct={:?} perturb={:?}",
-                        (d.escapes, d.iterations, d.repeats),
+                        "({x},{y}) oracle_et={oracle_et} perturb={:?}",
                         (p.escapes, p.iterations, p.repeats)
                     ));
                 }
@@ -3559,7 +3555,7 @@ fn deep_relative_exterior_not_instant_black_at_reported_location() {
         );
         assert!(
             mismatches.is_empty(),
-            "perturb vs direct mismatches ({}):\n{}",
+            "perturb vs Oracle mismatches ({}):\n{}",
             mismatches.len(),
             mismatches.iter().take(12).cloned().collect::<Vec<_>>().join("\n")
         );
@@ -3635,7 +3631,14 @@ fn f64_deep_zoom_admits_relative_stencil() {
             ctx.coords_are_relative,
             "past-absolute-collapse frames must use relative f64 samples"
         );
-        assert_eq!(ctx.view_gear, ComputeGear::F64);
+        // Deep relative admission floors view_gear at ScaledF64 (precision wall /
+        // gear:F64 HUD snap fix) — never claim plain F64 as the deep view gear.
+        assert_eq!(
+            ctx.view_gear,
+            ComputeGear::ScaledF64,
+            "deep relative shell must advertise ScaledF64 view_gear floor, got {:?}",
+            ctx.view_gear
+        );
     });
 }
 
@@ -5047,19 +5050,16 @@ fn steady_state_home_pps_gpu_vs_cpu_ratio() {
             best_gpu > 1.0e4 && cpu_pps > 1.0e4,
             "home PPS floor missed: cpu={cpu_pps:.3e} gpu={best_gpu:.3e}"
         );
-        // Honest host queue discovery on every Final taxes shallow PPS; FLOP-class
-        // ~160× remains the aspiration. Soft floor: not catastrophically below CPU.
+        // Honest host queue discovery taxes shallow PPS; FLOP-class ~160× remains
+        // the aspiration. Hard floor: GPU must not be slower than CPU on home fill
+        // (quality-doctrine: no soft floor). Fix publish/sync if this fails.
         assert!(
-            ratio >= 0.5,
-            "GPU home PPS best-of-3 far below CPU: ratio={ratio:.2}× (cpu={cpu_pps:.3e} gpu={best_gpu:.3e})"
+            ratio >= 1.0,
+            "GPU home PPS best-of-3 below CPU: ratio={ratio:.2}× (cpu={cpu_pps:.3e} gpu={best_gpu:.3e}); FIX the GPU path — do not soften"
         );
-        if ratio < 1.0 {
+        if ratio < 10.0 {
             eprintln!(
-                "WARN: GPU home PPS {ratio:.2}× < 1× CPU with honest queue discovery (publish/sync tax); aspiration ≈160×"
-            );
-        } else if ratio < 10.0 {
-            eprintln!(
-                "WARN: GPU home PPS {ratio:.2}× still ≪ ~160× FLOP-class aspiration"
+                "NOTE: GPU home PPS {ratio:.2}× still ≪ ~160× FLOP-class aspiration"
             );
         }
     });
@@ -5246,6 +5246,72 @@ fn steady_state_naive_gpu_deep_cusp_never_stalls() {
                 "unfinished center stuck at {max_center_iters} iters — likely missed halt or abandoned WIP"
             );
         }
+    });
+}
+
+/// Series must stay off the production kernels until membership pins stay green.
+/// Hard pin — never `#[ignore]` (quality-doctrine).
+// r[verify cz.depth.series-approximation+1]
+#[test]
+fn series_approximation_not_wired_into_production_kernels() {
+    let pert = include_str!("perturb_kernel.rs");
+    let floatexp = include_str!("perturb_floatexp.rs");
+    assert!(
+        !pert.contains("apply_series_skip("),
+        "perturb_kernel must not invoke apply_series_skip("
+    );
+    assert!(
+        !floatexp.contains("apply_series_skip("),
+        "perturb_floatexp must not invoke apply_series_skip("
+    );
+}
+
+/// Production dispatch must never select the test-only Oracle gear.
+// r[verify cz.depth.oracle-gear+1]
+#[test]
+fn production_workshift_never_dispatches_oracle_gear() {
+    let workshift = include_str!("workshift.rs");
+    let screen_mod = include_str!("mod.rs");
+    assert!(
+        !workshift.contains("OracleKernel") && !screen_mod.contains("OracleKernel"),
+        "OracleKernel is test-only; production screen_worker must not reference it"
+    );
+    assert!(
+        workshift.contains("DirectKernel") && workshift.contains("PerturbationKernel"),
+        "production must keep DirectKernel + PerturbationKernel dispatch"
+    );
+}
+
+/// v0.0.9-era naive f64 home fill: same counted iteration budget identity and
+/// completion under DirectKernel (guards silent slowdowns / wrong work).
+// r[verify cz.perf.min-300m-ips-cpu+2]
+#[test]
+fn naive_f64_direct_kernel_home_preserves_v009_iteration_budget() {
+    run_big(|| {
+        let _gpu_guard = super::naive_gpu::lock_gpu_tests();
+        let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
+        let mut shifts = 0u32;
+        let mut iters = 0u64;
+        while !ctx.points.iter().all(|p| p.delivered) && shifts < 500 {
+            workshift_with_kernel(0, 0, 0, 0, &mut ctx, &DirectKernel);
+            iters += shift_iterations_delta(&ctx);
+            let _ = work_update(&mut ctx);
+            shifts += 1;
+        }
+        assert!(
+            ctx.points.iter().all(|p| p.delivered),
+            "DirectKernel home must complete (v0.0.9 baseline); shifts={shifts}"
+        );
+        // Post period-pipeline accepted identity (benchmarks.md): 10,302,563
+        // counted Mandelbrot iterations for default home 854×480.
+        assert_eq!(
+            iters, 10_302_563,
+            "DirectKernel home iteration budget drifted from v0.0.9-era accepted identity; iters={iters} shifts={shifts}"
+        );
+        assert!(
+            !ctx.perturbation_kernel_required(),
+            "shallow home must remain legal for naive DirectKernel (not forced pert)"
+        );
     });
 }
 

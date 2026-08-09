@@ -8,10 +8,17 @@ Assistant-owned index for this folder. The developer's files speak for themselve
 - `naive-gpu-design.md` — Naive GPU port design lock (2026-08-08): wgpu, F32 + optional F64, control-plane queues / parallel bouts, FLOP-ratio IPS bar. **First pass implemented** (live `mode:naive-gpu`); FLOP→IPS tuning still open.
 - `workgroup-virtues.md` — enshrined study of the v0.0.9 workgroup (commit e6a0560): the mechanisms and invariants that kept it from getting behind pivots, confusing work storage, stalling, or publishing stale work. **Read before changing anything in the workgroup.** Every later regression traced to breaking one of its seven invariants; they are not to be re-broken.
 - `depth-design.md` — perturbation with background reference worker; partially implemented (see file status). CGenerator admission + PPS-selected kernel dispatch in progress.
+- `gearbox.md` — compute-gear policy + test-only FloatExp Oracle (`src/gearbox/`).
 
-## Stale
+## Quality
 
-- `Stale/` — the tile-era design set (the old architecture and standards docs live in `../Trash/`). Kept for reference only; the tile machine proved too complicated to get right (see `design-target.md`). Do not implement from these without an explicit developer request.
+- `../quality-doctrine.md` — no ignore / soft-skip / soft floor; FIX NOW on Criterion.
+- `../quality-slip-review.md` — how the bar softened after v0.0.9 and how to stop.
+
+## Trashed tile-era design
+
+Tile-era design prose: `../Trash/design-Stale-tile-era/`. Do not implement from it
+without an explicit developer request.
 
 ## Code baseline
 

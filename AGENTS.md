@@ -71,6 +71,10 @@ Dense PPS grind loop prompt (fixed `/loop`, full regression gate each tick):
 `docs/assistant/pps-grind-loop-prompt.md`. Pause loops with
 `.cursor/hooks/stop-agent-loops.sh` only.
 
+Quality grind / no soft-skip: `docs/assistant/quality-doctrine.md` and
+`docs/assistant/quality-slip-review.md`. Never `#[ignore]` / soft-floor a
+failing invariant; Criterion ≥20% slip is FIX NOW.
+
 **Steady-state Rust integration tests are the lifeblood of testing** (see
 `docs/assistant/testing.md`). When changing scheduling, naive GPU, or HUD
 telemetry, extend `steady_state_*` tests in `craftsmanship_tests.rs` so IPS and
