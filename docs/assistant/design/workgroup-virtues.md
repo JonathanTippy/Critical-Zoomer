@@ -356,6 +356,10 @@ view, whole-truth publishes, pivot order, provisional ≠ final, and
 per bounded wave) behind the kernel seam; it does not multiply live targets or
 replace the host scheduling queues with a second authority. FLOP→IPS tracking is a
 performance bar on that kernel, not a license to reopen the tile-era seals.
+Skipping flood-fill neighbor discovery on GPU finals (or mopping holes with a
+late CPU `DirectKernel` phase) reopens the “work skipping / noncomplete” class
+of failures; that is not an allowed GPU optimization
+(`r[cz.craft.gpu-host-queue-discovery+1]`).
 
 ---
 

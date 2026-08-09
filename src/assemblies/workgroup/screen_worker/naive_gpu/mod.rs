@@ -248,33 +248,6 @@ pub fn workshift_naive_gpu(
 ) {
     let kernel = DirectKernel;
 
-    // Near-complete frames: GPU starves Dummy holes. Hand the whole shift to the
-    // production DirectKernel scheduler. Bulk GPU publish skips neighbor queues,
-    // so seed undelivered seats into out_queue or the CPU path exits empty-handed.
-    if context.percent_completed >= 90.0
-        && context.points.iter().any(|p| !p.delivered)
-    {
-        context.last_used_naive_gpu = false;
-        publish_finished_undelivered(context, &kernel);
-        gpu.orphan_publish.set(false);
-        gpu.carry_indices.borrow_mut().clear();
-        gpu.carry_n.set(0);
-        seed_undelivered_out_queue(context);
-        workshift_with_kernel(
-            day_token_allowance,
-            iteration_token_cost,
-            point_token_cost,
-            bout_token_cost,
-            context,
-            &kernel,
-        );
-        let delivered = context.points.iter().filter(|p| p.delivered).count();
-        let total = context.points.len().max(1);
-        context.percent_completed = delivered as f64 / (total as f64) * 100.0;
-        gpu.end_shift_keep_generation();
-        return;
-    }
-
     context.time_workshift_started = Instant::now();
     context.update_reference_floor_policy();
     context.total_bouts_today = 0;
@@ -622,7 +595,7 @@ pub fn workshift_naive_gpu(
         gpu.carry_n.set(0);
     }
 
-    // Keep percent honest near the mop gate; bulk shifts stay incremental.
+    // Keep percent honest near completion; bulk shifts stay incremental.
     if context.percent_completed >= 90.0
         || (delivered_n as f64 / total_points as f64) >= 0.85
     {
@@ -652,8 +625,8 @@ fn publish_gpu_finishes(
     skip: &mut SeatSkip,
     points_published_this_shift: &mut u32,
 ) -> PublishFinishOutcome {
-    // Large shallow floods: skip per-seat neighbor/edge queue churn — undelivered
-    // seats are already fed by scan fill. Small waves keep frontier queues.
+    // r[impl cz.craft.gpu-host-queue-discovery+1]
+    // Slim field apply for large floods is OK; skipping neighbor/edge discovery is not.
     let bulk = finishes.len() >= 128;
     let attention_idx = context
         .attention_current
@@ -694,9 +667,8 @@ fn publish_gpu_finishes(
         if attention_idx == Some(index) {
             context.attention_current = None;
         }
-        // Bulk shallow floods: skip per-seat period twin-test (period unknown).
-        // Scan fill already covers seats; twin-test is the IPS/period path, not
-        // the points-out rate. Small waves keep full completion().
+        // Bulk floods may skip period twin-test (period unknown / IPS path);
+        // neighbor discovery always runs — flood fill must announce itself.
         let completed_point = if bulk {
             if context.points[index].repeats {
                 context.points[index].period = 0;
@@ -719,31 +691,29 @@ fn publish_gpu_finishes(
         } else {
             kernel.completion(&mut context.points[index])
         };
-        if !bulk {
-            if context.points[index].repeats {
-                queue_incomplete_neighbors_in(
-                    &pos,
-                    context.res,
-                    &context.points,
-                    &mut context.in_queue,
-                );
-            } else {
-                queue_incomplete_neighbors(
-                    &pos,
-                    context.res,
-                    &context.points,
-                    &mut context.out_queue,
-                );
-            }
-            if let Some(e) = point_is_edge(&pos, context.res, &context.points) {
-                queue_incomplete_neighbors_of_edge(
-                    &e.0,
-                    &e.1,
-                    context.res,
-                    &context.points,
-                    &mut context.edge_queue,
-                );
-            }
+        if context.points[index].repeats {
+            queue_incomplete_neighbors_in(
+                &pos,
+                context.res,
+                &context.points,
+                &mut context.in_queue,
+            );
+        } else {
+            queue_incomplete_neighbors(
+                &pos,
+                context.res,
+                &context.points,
+                &mut context.out_queue,
+            );
+        }
+        if let Some(e) = point_is_edge(&pos, context.res, &context.points) {
+            queue_incomplete_neighbors_of_edge(
+                &e.0,
+                &e.1,
+                context.res,
+                &context.points,
+                &mut context.edge_queue,
+            );
         }
         match context.push_delivery(Delivery::Final(completed_point), index) {
             PushOutcome::Published => {
@@ -765,20 +735,6 @@ fn publish_gpu_finishes(
     PublishFinishOutcome {
         buffer_full,
         need_reupload,
-    }
-}
-
-/// Feed DirectKernel mop with seats bulk-GPU never announced to neighbor queues.
-fn seed_undelivered_out_queue(context: &mut WorkContext<f64>) {
-    context.out_queue.clear();
-    let w = context.res.0;
-    for (index, p) in context.points.iter().enumerate() {
-        if p.delivered {
-            continue;
-        }
-        context
-            .out_queue
-            .push_back((pos_from_index(index, w), 0));
     }
 }
 

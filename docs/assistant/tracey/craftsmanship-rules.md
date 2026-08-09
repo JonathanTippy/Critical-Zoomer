@@ -531,3 +531,32 @@ the compatibility `workshift` wrapper, and generic `workshift_with_kernel`;
 (`craftsmanship_tests.rs`) compares the compatibility path with explicit
 `DirectKernel` dispatch; the full craftsmanship suite pins all scheduler
 policies.
+
+r[cz.craft.gpu-host-queue-discovery+1]
+
+**Normative summary.** Naive GPU finals are still host-scheduler events. Every
+published Final from `publish_gpu_finishes` must run the same neighbor / edge
+queue discovery as CPU (`queue_incomplete_neighbors`,
+`queue_incomplete_neighbors_in`, edge push-front). Work announces itself; scan
+fill is only a cold-start / empty-queue fallback. **Forbidden:** skipping queue
+updates for PPS (including “bulk flood” shortcuts); treating linear undelivered
+scan as the steady fill authority; any ≥N% CPU mop / residual phase / seeded
+fake `out_queue` to hide Dummy holes. BufferFull orphan republish
+(`publish_finished_undelivered`) remains undeliver-on-full honesty, not a mop.
+Precision escalate to CPU when shader F64 is unavailable for a collapsed F32
+view is allowed for that shift only.
+
+**Code site.** `screen_worker/naive_gpu/mod.rs` — `publish_gpu_finishes` always
+queues neighbors; `workshift_naive_gpu` has no percent-based DirectKernel mop.
+
+**Acceptance criteria.**
+- [ ] After the first home GPU Final, host out/in/edge queues grow (or are
+  already non-empty from discovery).
+- [ ] Home fills to 100% delivered on the naive GPU path without a CPU mop gate.
+- [ ] Collector grid has no Dummy holes after GPU home fill.
+
+**Test.** `steady_state_naive_gpu_home_neighbor_queues_grow`,
+`steady_state_naive_gpu_home_fills_without_cpu_mop`,
+`steady_state_naive_gpu_home_no_dummy_holes`,
+`steady_state_screen_worker_home_ips_naive_gpu_path`
+(craftsmanship_tests.rs).

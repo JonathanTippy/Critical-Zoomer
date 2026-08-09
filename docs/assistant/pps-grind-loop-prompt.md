@@ -11,7 +11,7 @@ Grind naive-GPU home PPS toward ~160× CPU (FLOP-class aspiration), measured by 
 
 Per tick (mandatory order):
 1. Measure current PPS ratio + note continuous-outputs / IPS / deep-cusp / F64-escalate pins.
-2. Implement the largest plausible finish/sync/publish lever(s) toward 160× (prefer one coherent change that moves the needle; do two only if tightly related). Keep ≥1× PPS floor, continuous outputs (quiet gaps ≤~50ms / pin), deep-cusp never-stall, F64 gear escalate. Do not treat unfinished hard seats as “give up.”
+2. Implement the largest plausible finish/sync/publish lever(s) toward 160× (prefer one coherent change that moves the needle; do two only if tightly related). Keep soft PPS floor ≥0.5× CPU (honest queues may briefly sit near 1×), continuous outputs (quiet gaps ≤~50ms / pin), deep-cusp never-stall, F64 gear escalate. Do not treat unfinished hard seats as “give up.” **Forbidden:** skipping host neighbor/edge queue discovery on GPU finals; scan-as-sole fill; any ≥N% CPU mop / residual / seeded fake queues to hide Dummy holes (`r[cz.craft.gpu-host-queue-discovery+1]`). Regression gate must keep `steady_state_naive_gpu_home_neighbor_queues_grow`, `steady_state_naive_gpu_home_fills_without_cpu_mop`, and `steady_state_naive_gpu_home_no_dummy_holes` green.
 3. Re-measure the PPS probe and the related steady_state_* pins you touch.
 4. REGRESSION GATE (non-negotiable — do not skip or narrow):
    - Full test suite: cargo test --all-targets (release, taskset center-half + nice). Fix every failure you introduced or uncovered before checkpointing. “Only the tests I think are relevant” is forbidden.

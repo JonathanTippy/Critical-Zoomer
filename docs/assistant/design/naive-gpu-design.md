@@ -159,3 +159,19 @@ tick design from the virtues wall-clock workshift, not from the suspended
       ~12× readings were first-submit warmup, not finish-buffer tax.
 - [x] Queues remain index control plane; WIP width sufficient that queue time is
       noise in the iterate-heavy profile.
+
+## Anti-patterns (do not reintroduce)
+
+These were tried during the 2026-08-09 PPS grind and **regressed** host
+control-plane ownership. They are forbidden:
+
+1. **Skipping neighbor/edge queue updates on “bulk” harvests** (≥128 finishes)
+   to save host time, then relying on linear `scan_undelivered_seat` as the
+   steady fill authority. Queues die; Dummy holes appear near completion.
+2. **≥N% CPU mop / residual phase** (`DirectKernel` handoff, seeded fake
+   `out_queue`, “patch the last holes on CPU”). That papers over (1); it is not
+   an allowed seal. Home must close on the naive GPU path with live queue
+   discovery (`r[cz.craft.gpu-host-queue-discovery+1]`).
+
+Allowed (not mop): `BufferFull` → undeliver + `publish_finished_undelivered`;
+F32→F64 escalate or no-shader-F64 CPU fallback for that shift only.
