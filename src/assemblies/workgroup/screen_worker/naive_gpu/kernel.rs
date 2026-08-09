@@ -1,7 +1,7 @@
 use super::buffers::*;
 use super::device::{GpuPrecision, NaiveGpuContext, MAX_WAVE};
 use crate::assemblies::workgroup::screen_worker::workshift::{BoutCap, Point, Step};
-use bytemuck::{bytes_of, cast_slice, pod_read_unaligned};
+use bytemuck::{bytes_of, pod_read_unaligned};
 use std::sync::mpsc;
 
 #[derive(Clone, Debug)]
@@ -184,12 +184,17 @@ impl NaiveGpuContext {
             .write_buffer(&self.iter_total_buf, 0, &0u32.to_ne_bytes());
         match self.precision {
             GpuPrecision::F32 => {
-                let packed: Vec<SeatF32> = seats
-                    .iter()
-                    .map(|(i, p)| SeatF32::from_point(*i, p))
-                    .collect();
-                self.queue
-                    .write_buffer(&self.seats_buf, 0, cast_slice(&packed));
+                let nbytes = (seats.len() * std::mem::size_of::<SeatF32>()) as u64;
+                if let Some(size) = std::num::NonZeroU64::new(nbytes) {
+                    let mut view = self
+                        .queue
+                        .write_buffer_with(&self.seats_buf, 0, size)
+                        .ok_or_else(|| "write_buffer_with seats f32 failed".to_string())?;
+                    let out: &mut [SeatF32] = bytemuck::cast_slice_mut(view.as_mut());
+                    for (dst, (i, p)) in out.iter_mut().zip(seats.iter()) {
+                        *dst = SeatF32::from_point(*i, p);
+                    }
+                }
                 let params = ParamsF32 {
                     r_squared: r_squared as f32,
                     epsilon: epsilon as f32,
@@ -204,12 +209,17 @@ impl NaiveGpuContext {
                     .write_buffer(&self.params_buf, 0, bytes_of(&params));
             }
             GpuPrecision::F64 => {
-                let packed: Vec<SeatF64> = seats
-                    .iter()
-                    .map(|(i, p)| SeatF64::from_point(*i, p))
-                    .collect();
-                self.queue
-                    .write_buffer(&self.seats_buf, 0, cast_slice(&packed));
+                let nbytes = (seats.len() * std::mem::size_of::<SeatF64>()) as u64;
+                if let Some(size) = std::num::NonZeroU64::new(nbytes) {
+                    let mut view = self
+                        .queue
+                        .write_buffer_with(&self.seats_buf, 0, size)
+                        .ok_or_else(|| "write_buffer_with seats f64 failed".to_string())?;
+                    let out: &mut [SeatF64] = bytemuck::cast_slice_mut(view.as_mut());
+                    for (dst, (i, p)) in out.iter_mut().zip(seats.iter()) {
+                        *dst = SeatF64::from_point(*i, p);
+                    }
+                }
                 let params = ParamsF64 {
                     r_squared,
                     epsilon,

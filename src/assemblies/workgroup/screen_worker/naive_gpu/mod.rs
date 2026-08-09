@@ -15,16 +15,50 @@ use crate::assemblies::workgroup::screen_worker::workshift::{
     PushOutcome, SeatKernel, Step, WorkContext, iterate_max_n_times,
 };
 use crate::utils::index_from_pos;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::time::Instant;
 
 pub const DEFAULT_WAVE_N: u32 = device::MAX_WAVE;
 pub const MIN_WAVE_N: u32 = 64;
 
+/// Dense seat mask for WIP skip — O(1) without HashSet allocate/probe tax.
+struct SeatSkip {
+    bits: Vec<u64>,
+}
+
+impl SeatSkip {
+    fn new(n: usize) -> Self {
+        Self {
+            bits: vec![0u64; n.div_ceil(64)],
+        }
+    }
+
+    #[inline]
+    fn insert(&mut self, index: usize) {
+        if let Some(word) = self.bits.get_mut(index / 64) {
+            *word |= 1u64 << (index % 64);
+        }
+    }
+
+    #[inline]
+    fn remove(&mut self, index: usize) {
+        if let Some(word) = self.bits.get_mut(index / 64) {
+            *word &= !(1u64 << (index % 64));
+        }
+    }
+
+    #[inline]
+    fn contains(&self, index: usize) -> bool {
+        self.bits
+            .get(index / 64)
+            .is_some_and(|word| word & (1u64 << (index % 64)) != 0)
+    }
+}
+
 /// Claim the next undelivered seat using the same slot rotation as the CPU workshift.
 pub fn claim_next_undelivered_seat(
     context: &mut WorkContext<f64>,
-    skip: &HashSet<usize>,
+    skip: &SeatSkip,
 ) -> Option<((i32, i32), Step)> {
     let total = context.points.len().max(1);
     for _ in 0..total.min(device::MAX_WAVE as usize) {
@@ -52,7 +86,7 @@ pub fn claim_next_undelivered_seat(
             }
             continue;
         }
-        if skip.contains(&index) {
+        if skip.contains(index) {
             // Already armed in this wave. Keep attention hold (tenacity); arm
             // other undelivered seats instead of aborting the fill.
             if matches!(step, Step::Attention)
@@ -84,7 +118,7 @@ pub fn claim_next_undelivered_seat(
 /// Advances `context.random_index` so filling a wave is O(wave), not O(wave×N).
 fn scan_undelivered_seat(
     context: &mut WorkContext<f64>,
-    skip: &HashSet<usize>,
+    skip: &SeatSkip,
 ) -> Option<((i32, i32), Step)> {
     let n = context.points.len();
     if n == 0 {
@@ -93,7 +127,7 @@ fn scan_undelivered_seat(
     let start = (context.random_index as usize) % n;
     for off in 0..n {
         let index = (start + off) % n;
-        if context.points[index].delivered || skip.contains(&index) {
+        if context.points[index].delivered || skip.contains(index) {
             continue;
         }
         context.random_index = (index + 1) % n;
@@ -106,7 +140,7 @@ fn scan_undelivered_seat(
 
 fn select_candidate(
     context: &mut WorkContext<f64>,
-    skip: &HashSet<usize>,
+    skip: &SeatSkip,
 ) -> Option<((i32, i32), Step)> {
     match context.workshifts % 5 {
         0 => {
@@ -121,7 +155,7 @@ fn select_candidate(
                 let index = index_from_pos(&pos, context.res.0);
                 if context.points[index].delivered {
                     context.attention_current = None;
-                } else if !skip.contains(&index) {
+                } else if !skip.contains(index) {
                     return Some((pos, Step::Attention));
                 }
                 // Held + already WIP: keep hold, fill other seats this round.
@@ -260,9 +294,14 @@ pub fn workshift_naive_gpu(
         return;
     }
 
+    let total_points = context.points.len().max(1);
+    let mut delivered_n =
+        ((context.percent_completed / 100.0) * total_points as f64).round() as usize;
+    delivered_n = delivered_n.min(total_points);
+
     let mut wave_n = gpu.wave_n();
     let mut wip: Vec<WipMeta> = Vec::new();
-    let mut skip: HashSet<usize> = HashSet::new();
+    let mut skip = SeatSkip::new(total_points);
     let mut resident = false;
     let mut resident_n: u32 = 0;
     // Smoothness = continuous outputs: prefer harvest-every-bout so each ~10 ms
@@ -333,13 +372,8 @@ pub fn workshift_naive_gpu(
             }
             context.total_bouts_today += 1;
 
-            let mut terminal: HashSet<usize> = HashSet::with_capacity(gpu_final_n);
-            for f in &finishes {
-                if (f.flags & 6) != 0 {
-                    terminal.insert(f.seat_index as usize);
-                }
-            }
-            let wave_fully_finished = prev_wip.iter().all(|m| terminal.contains(&m.index));
+            let wave_fully_finished =
+                finishes.len() == prev_wip.len() && gpu_final_n == prev_wip.len();
 
             if wave_fully_finished {
                 // Old seats stay in `skip` until publish; claim the next wave now.
@@ -562,16 +596,26 @@ pub fn workshift_naive_gpu(
     }
 
     // Near-complete: publish missed finals + CPU mop (no pull_seats — too expensive).
-    if context.percent_completed >= 90.0 {
-        publish_finished_undelivered(context, &kernel);
-        cpu_residual_undelivered(context, &kernel);
+    // Avoid a full delivered scan every shift while still far from done — recount
+    // when approaching the 90% mop gate so the gate stays honest.
+    if context.percent_completed >= 90.0
+        || (delivered_n as f64 / total_points as f64) >= 0.85
+    {
+        let delivered = context.points.iter().filter(|p| p.delivered).count();
+        delivered_n = delivered;
+        context.percent_completed = delivered as f64 / (total_points as f64) * 100.0;
+        if context.percent_completed >= 90.0 {
+            publish_finished_undelivered(context, &kernel);
+            cpu_residual_undelivered(context, &kernel);
+            delivered_n = context.points.iter().filter(|p| p.delivered).count();
+        }
+    } else {
+        delivered_n = delivered_n.saturating_add(points_published_this_shift as usize);
     }
 
     gpu.end_shift_keep_generation();
     context.workshifts += 1;
-    let delivered = context.points.iter().filter(|p| p.delivered).count();
-    let total_points = context.points.len().max(1);
-    context.percent_completed = delivered as f64 / (total_points as f64) * 100.0;
+    context.percent_completed = delivered_n.min(total_points) as f64 / (total_points as f64) * 100.0;
 }
 
 struct PublishFinishOutcome {
@@ -586,7 +630,7 @@ fn publish_gpu_finishes(
     epsilon: f64,
     _wip: &[WipMeta],
     finishes: &[HarvestedFinish],
-    skip: &mut HashSet<usize>,
+    skip: &mut SeatSkip,
     points_published_this_shift: &mut u32,
 ) -> PublishFinishOutcome {
     // Large shallow floods: skip per-seat neighbor/edge queue churn — undelivered
@@ -620,7 +664,7 @@ fn publish_gpu_finishes(
             && context.points[index].iterations < 64
             && !confirm_repeat_or_keep_wip(&mut context.points[index], epsilon)
         {
-            skip.remove(&index);
+            skip.remove(index);
             need_reupload = true;
             continue;
         }
@@ -670,11 +714,11 @@ fn publish_gpu_finishes(
             PushOutcome::Published => {
                 context.total_points_today += 1;
                 published_batch += 1;
-                skip.remove(&index);
+                skip.remove(index);
                 *points_published_this_shift += 1;
             }
             PushOutcome::BufferFull => {
-                skip.remove(&index);
+                skip.remove(index);
                 buffer_full = true;
                 break;
             }
