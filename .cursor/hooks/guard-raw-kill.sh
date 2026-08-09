@@ -21,8 +21,8 @@ for k in ("command", "shell_command", "cmd"):
 PY
 )"
 
-# Approved reaper only.
-if [[ "$CMD" == *kill-test-zombies.sh* ]]; then
+# Approved reaper / loop-stop only.
+if [[ "$CMD" == *kill-test-zombies.sh* || "$CMD" == *stop-agent-loops.sh* ]]; then
   printf '%s\n' '{"permission":"allow"}'
   exit 0
 fi
@@ -42,7 +42,8 @@ msg = (
     "Raw kill/pkill/killall is blocked in this repo so Auto-review is never "
     "prompted. Cleanup already ran via .cursor/hooks/kill-test-zombies.sh. "
     "Hooks also reap before/after cargo test|bench|xvfb_screenshot_check and "
-    "on agent stop. Manual sweep: .cursor/hooks/kill-test-zombies.sh only."
+    "on agent stop. Manual sweep: .cursor/hooks/kill-test-zombies.sh only. "
+    "To pause /loop sleepers: .cursor/hooks/stop-agent-loops.sh only."
 )
 print(json.dumps({
     "permission": "deny",

@@ -57,11 +57,19 @@ Five layers, cheapest-first:
 
 ## Verify
 
-Run the full test suite after workgroup/colorer edits. Keep tracey links intact
-(every `r[impl ...]` resolves to a rule; every rule's tests exist). Prefer
-`cargo test` and `cargo bench` over shell. `scripts/` is **only** for the
-isolated Xvfb screenshot check — see `scripts/README.md`; do not add new e2e
-shell suites or check in PNGs there.
+Run the **full** test suite after workgroup/colorer edits — not a hand-picked
+subset. Prefer `cargo test --all-targets` (and release when performance pins
+matter). Keep tracey links intact (every `r[impl ...]` resolves to a rule; every
+rule's tests exist); run `tracey validate` when docs/markers move. Prefer
+`cargo test` and `cargo bench` over shell. After workgroup/headgroup perf-affecting
+edits, run **both** Criterion benches (`workgroup_fitness` and `my_bench`) and
+compare to `docs/assistant/benchmarks.md` (~20% regression bar). `scripts/` is
+**only** for the isolated Xvfb screenshot check — see `scripts/README.md`; do not
+add new e2e shell suites or check in PNGs there.
+
+Dense PPS grind loop prompt (fixed `/loop`, full regression gate each tick):
+`docs/assistant/pps-grind-loop-prompt.md`. Pause loops with
+`.cursor/hooks/stop-agent-loops.sh` only.
 
 **Steady-state Rust integration tests are the lifeblood of testing** (see
 `docs/assistant/testing.md`). When changing scheduling, naive GPU, or HUD

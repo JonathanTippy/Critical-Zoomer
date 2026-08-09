@@ -8,7 +8,8 @@ alwaysApply: true
 Do **not** run `kill`, `pkill`, or `killall` at all for cleanup (including
 `kill <pid>` after `pgrep`). Those commands trip safety/Auto-review prompts.
 **Any approval card kills an active loop/plan until the developer returns** —
-see `.cursor/rules/no-approval-during-loops.mdc`.
+see `.cursor/rules/no-approval-during-loops.mdc`. To pause `/loop` sleepers use
+`.cursor/hooks/stop-agent-loops.sh` only.
 
 Cleanup is automatic:
 

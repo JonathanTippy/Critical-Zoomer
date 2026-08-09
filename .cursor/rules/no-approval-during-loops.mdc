@@ -25,6 +25,7 @@ or any multi-step plan, only use paths that never need approval.
 | Need | Approval-free path |
 |------|--------------------|
 | Recurring ticks | Arm a **fixed** `while true; do sleep; echo sentinel; done` **once** at loop start (Cursor `/loop` skill), or rely on an already-running sleeper — do not invent approval-gated re-arms |
+| Pause / stop a loop | `.cursor/hooks/stop-agent-loops.sh` only (never raw `kill`) |
 | Test leftover cleanup | `.cursor/hooks/kill-test-zombies.sh` only |
 | Builds / tests | `taskset` + `nice` + `cargo` as usual |
 | Checkpoints | Normal `git commit` on the feature branch per AGENTS.md |
