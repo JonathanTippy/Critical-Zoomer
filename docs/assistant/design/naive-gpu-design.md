@@ -118,7 +118,10 @@ continuous visible output — not longer blocking GPU waits.
 
 - Prefer GPU F32 when it distinguishes the view’s seats.
 - Escalate to GPU F64 when features allow and F32 cannot honestly represent the
-  view.
+  view (adjacent seats collapse under `as f32` — typically near pot ~20). Live
+  path calls `ensure_precision(F64)` automatically; HUD `gear:` follows
+  `GpuPrecision` (`F32`/`F64`). If the adapter has no shader F64, fall back to
+  CPU naive for that shift rather than a walled F32 image.
 - Beyond that, CPU gears / perturbation (depth design) — do not pretend naive
   GPU covers deep zoom alone.
 

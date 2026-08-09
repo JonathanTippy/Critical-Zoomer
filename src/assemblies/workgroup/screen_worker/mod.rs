@@ -450,7 +450,9 @@ where
                 host_stack_for_context::<T>(),
                 kernel_mode,
                 classify_reference_status(c),
-                if kernel_mode == KernelMode::Naive || kernel_mode == KernelMode::NaiveGpu {
+                // CPU naive is host f64 iterate. Naive GPU reports real device precision
+                // (set on context.active_gear in workshift_naive_gpu).
+                if kernel_mode == KernelMode::Naive {
                     ComputeGear::F64
                 } else {
                     c.active_gear

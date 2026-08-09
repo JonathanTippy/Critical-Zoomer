@@ -19,6 +19,13 @@ pub struct NaiveGpuContext {
     pub(crate) pipeline: wgpu::ComputePipeline,
     pub(crate) bind_group_layout: wgpu::BindGroupLayout,
     pub(crate) bind_group: wgpu::BindGroup,
+    /// Optional F64 gear for mid-session escalate when F32 collapses seats.
+    f64_pipeline: Option<wgpu::ComputePipeline>,
+    f64_bind_group_layout: Option<wgpu::BindGroupLayout>,
+    f64_bind_group: Option<wgpu::BindGroup>,
+    f32_pipeline: Option<wgpu::ComputePipeline>,
+    f32_bind_group_layout: Option<wgpu::BindGroupLayout>,
+    f32_bind_group: Option<wgpu::BindGroup>,
     pub(crate) seats_buf: wgpu::Buffer,
     pub(crate) finishes_buf: wgpu::Buffer,
     pub(crate) finish_count_buf: wgpu::Buffer,
@@ -98,11 +105,12 @@ impl NaiveGpuContext {
             }
         };
         let info = adapter.get_info();
-        // F32 is the IPS baseline (consumer FP64 is often ~1/32). Opt into F64 with CZ_NAIVE_GPU_F64=1.
+        // F32 is the IPS baseline; keep F64 pipeline ready when the adapter allows
+        // so we can escalate past the F32 precision wall without restarting.
         let prefer_f64 = std::env::var("CZ_NAIVE_GPU_F64").ok().as_deref() == Some("1");
-        let want_f64 = prefer_f64 && adapter.features().contains(wgpu::Features::SHADER_F64);
+        let adapter_has_f64 = adapter.features().contains(wgpu::Features::SHADER_F64);
         let mut required = wgpu::Features::empty();
-        if want_f64 {
+        if adapter_has_f64 {
             required |= wgpu::Features::SHADER_F64;
         }
 
@@ -129,31 +137,32 @@ impl NaiveGpuContext {
             }
         };
 
-        let (precision, seat_stride, finish_stride, bind_group_layout, pipeline) =
-            if want_f64 && device.features().contains(wgpu::Features::SHADER_F64) {
-                match create_pipeline(&device, include_str!("bout_f64.wgsl")).await {
-                    Some((bgl, pipe)) => (GpuPrecision::F64, 120u64, 96u64, bgl, pipe),
-                    None => {
-                        let (bgl, pipe) =
-                            create_pipeline(&device, include_str!("bout_f32.wgsl")).await?;
-                        (GpuPrecision::F32, 72, 64, bgl, pipe)
-                    }
-                }
-            } else {
-                let (bgl, pipe) = create_pipeline(&device, include_str!("bout_f32.wgsl")).await?;
-                (GpuPrecision::F32, 72, 64, bgl, pipe)
-            };
+        let (bgl_f32, pipe_f32) =
+            create_pipeline(&device, include_str!("bout_f32.wgsl")).await?;
+        let f64_gear = if device.features().contains(wgpu::Features::SHADER_F64) {
+            create_pipeline(&device, include_str!("bout_f64.wgsl")).await
+        } else {
+            None
+        };
+
+        const SEAT_F32: u64 = 72;
+        const FIN_F32: u64 = 64;
+        const SEAT_F64: u64 = 120;
+        const FIN_F64: u64 = 96;
+        // Buffers sized for the wider gear so F32↔F64 switches do not realloc.
+        let seat_stride_max = if f64_gear.is_some() { SEAT_F64 } else { SEAT_F32 };
+        let finish_stride_max = if f64_gear.is_some() { FIN_F64 } else { FIN_F32 };
 
         let seats_buf = make_buf(
             &device,
             "seats",
-            seat_stride * MAX_WAVE as u64,
+            seat_stride_max * MAX_WAVE as u64,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
         );
         let finishes_buf = make_buf(
             &device,
             "finishes",
-            finish_stride * MAX_WAVE as u64,
+            finish_stride_max * MAX_WAVE as u64,
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
         );
         let finish_count_buf = make_buf(
@@ -177,23 +186,21 @@ impl NaiveGpuContext {
         let finish_staging = make_buf(
             &device,
             "finish_staging",
-            finish_stride * MAX_WAVE as u64,
+            finish_stride_max * MAX_WAVE as u64,
             wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         );
         let seat_staging = make_buf(
             &device,
             "seat_staging",
-            seat_stride * MAX_WAVE as u64,
+            seat_stride_max * MAX_WAVE as u64,
             wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         );
-        // [count:u32][iters:u32][up to SPARSE_FINISH_CAP finishes]
         let sparse_staging = make_buf(
             &device,
             "sparse_staging",
-            16 + finish_stride * SPARSE_FINISH_CAP as u64,
+            16 + finish_stride_max * SPARSE_FINISH_CAP as u64,
             wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         );
-        // [finish_count:u32][iter_total:u32] — one map instead of two.
         let header_staging = make_buf(
             &device,
             "header_staging",
@@ -201,38 +208,60 @@ impl NaiveGpuContext {
             wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         );
 
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("naive_bg"),
-            layout: &bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: seats_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: finishes_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: finish_count_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: params_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: iter_total_buf.as_entire_binding(),
-                },
-            ],
-        });
+        let bg_f32 = make_bind_group(
+            &device,
+            &bgl_f32,
+            &seats_buf,
+            &finishes_buf,
+            &finish_count_buf,
+            &params_buf,
+            &iter_total_buf,
+        );
+        let (f64_pipeline, f64_bgl, f64_bg) = match f64_gear {
+            Some((bgl, pipe)) => {
+                let bg = make_bind_group(
+                    &device,
+                    &bgl,
+                    &seats_buf,
+                    &finishes_buf,
+                    &finish_count_buf,
+                    &params_buf,
+                    &iter_total_buf,
+                );
+                (Some(pipe), Some(bgl), Some(bg))
+            }
+            None => (None, None, None),
+        };
+
+        let use_f64 = prefer_f64 && f64_pipeline.is_some();
+        let (precision, seat_stride, finish_stride, bind_group_layout, pipeline, bind_group) =
+            if use_f64 {
+                (
+                    GpuPrecision::F64,
+                    SEAT_F64,
+                    FIN_F64,
+                    f64_bgl.clone().unwrap(),
+                    f64_pipeline.clone().unwrap(),
+                    f64_bg.clone().unwrap(),
+                )
+            } else {
+                (
+                    GpuPrecision::F32,
+                    SEAT_F32,
+                    FIN_F32,
+                    bgl_f32.clone(),
+                    pipe_f32.clone(),
+                    bg_f32.clone(),
+                )
+            };
 
         let _ = std::fs::write(
             "/tmp/cz_naive_gpu_status.txt",
             format!(
-                "ok precision={precision:?} adapter={:?} backend={:?} wave_n=4096\n",
-                info.name, info.backend
+                "ok precision={precision:?} has_f64={} adapter={:?} backend={:?} wave_n=4096\n",
+                f64_pipeline.is_some(),
+                info.name,
+                info.backend
             ),
         );
 
@@ -246,6 +275,12 @@ impl NaiveGpuContext {
             pipeline,
             bind_group_layout,
             bind_group,
+            f64_pipeline,
+            f64_bind_group_layout: f64_bgl,
+            f64_bind_group: f64_bg,
+            f32_pipeline: Some(pipe_f32),
+            f32_bind_group_layout: Some(bgl_f32),
+            f32_bind_group: Some(bg_f32),
             seats_buf,
             finishes_buf,
             finish_count_buf,
@@ -272,7 +307,101 @@ impl NaiveGpuContext {
         self.generation = self.generation.wrapping_add(1);
     }
 
+    pub fn has_f64(&self) -> bool {
+        self.f64_pipeline.is_some()
+    }
+
+    /// Switch active shader gear. Returns false if the requested gear is unavailable.
+    /// Bumps generation so resident WIP is re-uploaded after a switch.
+    pub fn ensure_precision(&mut self, want: GpuPrecision) -> bool {
+        if self.precision == want {
+            return true;
+        }
+        match want {
+            GpuPrecision::F32 => {
+                let (Some(pipe), Some(bgl), Some(bg)) = (
+                    self.f32_pipeline.clone(),
+                    self.f32_bind_group_layout.clone(),
+                    self.f32_bind_group.clone(),
+                ) else {
+                    return false;
+                };
+                self.pipeline = pipe;
+                self.bind_group_layout = bgl;
+                self.bind_group = bg;
+                self.seat_stride = 72;
+                self.finish_stride = 64;
+                self.precision = GpuPrecision::F32;
+                self.bump_generation();
+                true
+            }
+            GpuPrecision::F64 => {
+                let (Some(pipe), Some(bgl), Some(bg)) = (
+                    self.f64_pipeline.clone(),
+                    self.f64_bind_group_layout.clone(),
+                    self.f64_bind_group.clone(),
+                ) else {
+                    return false;
+                };
+                self.pipeline = pipe;
+                self.bind_group_layout = bgl;
+                self.bind_group = bg;
+                self.seat_stride = 120;
+                self.finish_stride = 96;
+                self.precision = GpuPrecision::F64;
+                self.bump_generation();
+                true
+            }
+        }
+    }
+
+    /// Clear finish/iter atomics after a harvest so the next resident continue
+    /// does not re-report the same finals (was re-applying every wave → CPU-like).
+    pub fn clear_finish_accumulators(&self) {
+        self.queue
+            .write_buffer(&self.finish_count_buf, 0, &0u32.to_ne_bytes());
+        self.queue
+            .write_buffer(&self.iter_total_buf, 0, &0u32.to_ne_bytes());
+    }
+
     pub fn end_shift_keep_generation(&mut self) {}
+}
+
+fn make_bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    seats: &wgpu::Buffer,
+    finishes: &wgpu::Buffer,
+    finish_count: &wgpu::Buffer,
+    params: &wgpu::Buffer,
+    iter_total: &wgpu::Buffer,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("naive_bg"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: seats.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: finishes.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: finish_count.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: params.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: iter_total.as_entire_binding(),
+            },
+        ],
+    })
 }
 
 fn make_buf(device: &wgpu::Device, label: &str, size: u64, usage: wgpu::BufferUsages) -> wgpu::Buffer {

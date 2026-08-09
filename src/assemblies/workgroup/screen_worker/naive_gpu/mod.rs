@@ -11,8 +11,8 @@ pub use kernel::{HarvestedFinish, WipMeta};
 use crate::assemblies::workgroup::screen_worker::workshift::{
     next_attention_spiral_pos, point_is_edge, queue_incomplete_neighbors,
     queue_incomplete_neighbors_in, queue_incomplete_neighbors_of_edge, refresh_active_gear,
-    BoutCap, CompletedPoint, Delivery, DirectKernel, Motion, Point, PushOutcome, SeatKernel,
-    Step, WorkContext,
+    workshift_with_kernel, BoutCap, CompletedPoint, Delivery, DirectKernel, Motion, Point,
+    PushOutcome, SeatKernel, Step, WorkContext,
 };
 use crate::utils::index_from_pos;
 use std::collections::HashSet;
@@ -134,10 +134,10 @@ fn claim(context: &mut WorkContext<f64>, step: Step, pos: (i32, i32)) {
 
 /// GPU naive workshift: arm WIP once, resident continues, sparse finals harvest.
 pub fn workshift_naive_gpu(
-    _day_token_allowance: u32,
-    _iteration_token_cost: u32,
-    _point_token_cost: u32,
-    _bout_token_cost: u32,
+    day_token_allowance: u32,
+    iteration_token_cost: u32,
+    point_token_cost: u32,
+    bout_token_cost: u32,
     context: &mut WorkContext<f64>,
     gpu: &mut NaiveGpuContext,
 ) {
@@ -148,6 +148,32 @@ pub fn workshift_naive_gpu(
     context.total_points_today = 0;
     context.spent_tokens_today = 0;
     refresh_active_gear(context);
+
+    // F32→F64 escalate when adjacent seats collapse in f32 (precision wall ~pot 20).
+    let want = if f32_collapses_neighbors(context) {
+        GpuPrecision::F64
+    } else {
+        GpuPrecision::F32
+    };
+    if !gpu.ensure_precision(want) {
+        if want == GpuPrecision::F64 {
+            // No GPU F64 — honest CPU naive rather than a walled F32 image.
+            context.last_used_naive_gpu = false;
+            workshift_with_kernel(
+                day_token_allowance,
+                iteration_token_cost,
+                point_token_cost,
+                bout_token_cost,
+                context,
+                &DirectKernel,
+            );
+            return;
+        }
+    }
+    context.active_gear = match gpu.precision {
+        GpuPrecision::F32 => crate::delta_gear::ComputeGear::F32,
+        GpuPrecision::F64 => crate::delta_gear::ComputeGear::F64,
+    };
     context.last_used_naive_gpu = true;
 
     let epsilon = context.pitch_epsilon;
@@ -157,6 +183,8 @@ pub fn workshift_naive_gpu(
     let mut skip: HashSet<usize> = HashSet::new();
     let mut resident = false;
     let mut resident_n: u32 = 0;
+    // Shallow/home: harvest every bout. Iterate-heavy: amortize with multi-bout.
+    let mut bouts_per_dispatch: u32 = 8;
 
     while context.time_workshift_started.elapsed().as_millis() < 10 {
         // Refill host WIP list; only re-upload when residency breaks.
@@ -186,18 +214,21 @@ pub fn workshift_naive_gpu(
             let upload_refs: Vec<(u32, &Point<f64>)> =
                 owned.iter().map(|(i, p)| (*i, p)).collect();
             resident_n = upload_refs.len() as u32;
-            if let Err(e) =
-                gpu.dispatch_wave_multi_sparse(&upload_refs, 4.0, epsilon, BoutCap::STANDARD, 8)
-            {
+            if let Err(e) = gpu.dispatch_wave_multi_sparse(
+                &upload_refs,
+                4.0,
+                epsilon,
+                BoutCap::STANDARD,
+                bouts_per_dispatch,
+            ) {
                 eprintln!("naive_gpu dispatch failed: {e}");
                 break;
             }
             resident = true;
-        } else {
-            if let Err(e) = gpu.dispatch_continue_multi(resident_n, 8, false) {
-                eprintln!("naive_gpu continue failed: {e}");
-                break;
-            }
+        } else if let Err(e) = gpu.dispatch_continue_multi(resident_n, bouts_per_dispatch, false)
+        {
+            eprintln!("naive_gpu continue failed: {e}");
+            break;
         }
 
         let (finishes, iter_delta) = match gpu.harvest_sparse_finals() {
@@ -207,6 +238,8 @@ pub fn workshift_naive_gpu(
                 break;
             }
         };
+        // Prevent re-applying the same finals on the next resident continue.
+        gpu.clear_finish_accumulators();
         context.total_iterations_today += iter_delta;
         context.total_iterations = context.total_iterations.saturating_add(iter_delta);
 
@@ -216,10 +249,23 @@ pub fn workshift_naive_gpu(
             .map(|f| f.seat_index as usize)
             .collect();
 
+        // Adapt bout count: finish floods → sync every bout; iterate-heavy → amortize.
+        let wip_n = wip.len().max(1);
+        if final_indices.len() * 4 >= wip_n {
+            bouts_per_dispatch = 1;
+        } else if final_indices.len() * 16 < wip_n {
+            bouts_per_dispatch = 16;
+        } else {
+            bouts_per_dispatch = 8;
+        }
+
         let mut buffer_full = false;
         for fin in &finishes {
             let index = fin.seat_index as usize;
             if index >= context.points.len() {
+                continue;
+            }
+            if context.points[index].delivered {
                 continue;
             }
             let meta = wip.iter().find(|m| m.index == index).cloned();
@@ -282,20 +328,21 @@ pub fn workshift_naive_gpu(
         wip.retain(|m| !final_indices.contains(&m.index));
         context.total_bouts_today += 1;
 
-        if context.time_workshift_started.elapsed().as_millis() > 9 && wave_n > MIN_WAVE_N {
-            wave_n = ((wave_n * 3) / 4).max(MIN_WAVE_N);
+        if context.time_workshift_started.elapsed().as_millis() > 9 && wave_n > 2048 {
+            wave_n = ((wave_n * 3) / 4).max(2048);
             gpu.set_wave_n(wave_n);
         }
     }
 
-    // End-of-shift: sync unfinished resident progress to host once.
-    if resident {
+    // End-of-shift: sync unfinished resident progress once (skip if wave drained).
+    if resident && !wip.is_empty() {
         if let Ok(seats) = gpu.pull_seats() {
             for seat in &seats {
                 let index = seat.seat_index as usize;
                 if index < context.points.len()
                     && !context.points[index].escapes
                     && !context.points[index].repeats
+                    && !context.points[index].delivered
                 {
                     apply_finish_to_point(&mut context.points[index], seat);
                 }
@@ -308,6 +355,29 @@ pub fn workshift_naive_gpu(
     let delivered = context.points.iter().filter(|p| p.delivered).count();
     let total_points = context.points.len().max(1);
     context.percent_completed = delivered as f64 / (total_points as f64) * 100.0;
+}
+
+/// True when f32 cannot distinguish neighboring seats (F32 precision wall).
+fn f32_collapses_neighbors(context: &WorkContext<f64>) -> bool {
+    let w = context.res.0 as usize;
+    if w < 2 || context.points.len() < 2 {
+        return false;
+    }
+    let limit = w.saturating_sub(1).min(64);
+    for i in 0..limit {
+        let a = &context.points[i];
+        let b = &context.points[i + 1];
+        if !a.initialized || !b.initialized {
+            continue;
+        }
+        if a.c.0 == b.c.0 && a.c.1 == b.c.1 {
+            continue;
+        }
+        if (a.c.0 as f32) == (b.c.0 as f32) && (a.c.1 as f32) == (b.c.1 as f32) {
+            return true;
+        }
+    }
+    false
 }
 
 fn apply_finish_to_point(point: &mut Point<f64>, fin: &HarvestedFinish) {
