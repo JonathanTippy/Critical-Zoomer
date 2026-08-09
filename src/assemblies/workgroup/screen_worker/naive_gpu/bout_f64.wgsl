@@ -64,6 +64,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (i >= params.wip_count) { return; }
     var s = seats[i];
     if ((s.flags & 1u) == 0u) { return; }
+    if ((s.flags & 6u) != 0u) { return; }
 
     let iters_before = s.iterations;
     var n = 0u;
@@ -106,17 +107,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     atomicAdd(&iter_total[0], delta);
     seats[i] = s;
 
-    if (delta > 0u || (s.flags & 6u) != 0u) {
-        var flags = s.flags;
-        if ((flags & 6u) != 0u) {
-            flags = flags & (~1u);
-            s.flags = flags;
-            seats[i] = s;
-        }
+    if ((s.flags & 6u) != 0u) {
+        s.flags = s.flags & (~1u);
+        seats[i] = s;
         let slot = atomicAdd(&finish_count[0], 1u);
         finishes[slot] = Finish(
             s.seat_index,
-            flags,
+            s.flags,
             s.iterations,
             s.small_time,
             s.smallness,

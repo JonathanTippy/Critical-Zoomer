@@ -186,12 +186,14 @@ pub fn workshift_naive_gpu(
         let upload_refs: Vec<(u32, &Point<f64>)> =
             owned.iter().map(|(i, p)| (*i, p)).collect();
 
-        if let Err(e) = gpu.dispatch_wave(&upload_refs, 4.0, epsilon, BoutCap::STANDARD) {
+        if let Err(e) =
+            gpu.dispatch_wave_multi_sparse(&upload_refs, 4.0, epsilon, BoutCap::STANDARD, 8)
+        {
             eprintln!("naive_gpu dispatch failed: {e}");
             break;
         }
 
-        let (finishes, iter_delta) = match gpu.harvest_finishes() {
+        let (finishes, iter_delta) = match gpu.harvest_sparse_finals() {
             Ok(v) => v,
             Err(e) => {
                 eprintln!("naive_gpu harvest failed: {e}");
@@ -202,6 +204,8 @@ pub fn workshift_naive_gpu(
         context.total_iterations_today += iter_delta;
         context.total_iterations = context.total_iterations.saturating_add(iter_delta);
 
+        // Sparse finals only while seats stay resident. Sync unfinished via a
+        // seats-inclusive harvest when the WIP set will be rebuilt (below).
         let final_indices: HashSet<usize> = finishes
             .iter()
             .filter(|f| (f.flags & 6) != 0)
@@ -268,6 +272,16 @@ pub fn workshift_naive_gpu(
         }
         if buffer_full {
             break;
+        }
+
+        // Pull resident unfinished progress before rebuilding / re-uploading WIP.
+        if let Ok(seats) = gpu.pull_seats() {
+            for seat in &seats {
+                let index = seat.seat_index as usize;
+                if index < context.points.len() && !final_indices.contains(&index) {
+                    apply_finish_to_point(&mut context.points[index], seat);
+                }
+            }
         }
 
         let mut next_wip = Vec::new();
@@ -436,9 +450,11 @@ mod smoke_tests {
             .map(|(i, p)| (i as u32, p))
             .collect();
         let t_fs = Instant::now();
-        gpu.dispatch_wave_multi(&upload_fs, 4.0, 1e-15, BoutCap::STANDARD, 16)
-            .expect("dispatch_multi");
-        let (_fins, delta_fs) = gpu.harvest_finishes().expect("harvest");
+        // Hot path: one upload+16 resident bouts, header map + sparse finish copy.
+        let t_fs = Instant::now();
+        gpu.dispatch_wave_multi_sparse(&upload_fs, 4.0, 1e-15, BoutCap::STANDARD, 16)
+            .expect("dispatch_sparse");
+        let (_fins, delta_fs) = gpu.harvest_sparse_finals().expect("sparse");
         let fs_s = t_fs.elapsed().as_secs_f64().max(1e-9);
         let fs_ips = delta_fs as f64 / fs_s;
 

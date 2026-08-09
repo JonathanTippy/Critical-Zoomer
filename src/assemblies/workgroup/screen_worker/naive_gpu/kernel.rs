@@ -38,92 +38,10 @@ impl NaiveGpuContext {
         epsilon: f64,
         cap: BoutCap,
     ) -> Result<(), String> {
-        let wip_count = seats.len() as u32;
-        if wip_count == 0 {
-            return Ok(());
-        }
-        if wip_count > MAX_WAVE {
-            return Err(format!("WIP {wip_count} exceeds MAX_WAVE"));
-        }
-
-        self.queue
-            .write_buffer(&self.finish_count_buf, 0, &0u32.to_ne_bytes());
-        self.queue
-            .write_buffer(&self.iter_total_buf, 0, &0u32.to_ne_bytes());
-
-        match self.precision {
-            GpuPrecision::F32 => {
-                let packed: Vec<SeatF32> = seats
-                    .iter()
-                    .map(|(i, p)| SeatF32::from_point(*i, p))
-                    .collect();
-                self.queue
-                    .write_buffer(&self.seats_buf, 0, cast_slice(&packed));
-                let params = ParamsF32 {
-                    r_squared: r_squared as f32,
-                    epsilon: epsilon as f32,
-                    cap: cap.get(),
-                    wip_count,
-                    generation: self.generation,
-                    _p0: 0,
-                    _p1: 0,
-                    _p2: 0,
-                };
-                self.queue
-                    .write_buffer(&self.params_buf, 0, bytes_of(&params));
-            }
-            GpuPrecision::F64 => {
-                let packed: Vec<SeatF64> = seats
-                    .iter()
-                    .map(|(i, p)| SeatF64::from_point(*i, p))
-                    .collect();
-                self.queue
-                    .write_buffer(&self.seats_buf, 0, cast_slice(&packed));
-                let params = ParamsF64 {
-                    r_squared,
-                    epsilon,
-                    cap: cap.get(),
-                    wip_count,
-                    generation: self.generation,
-                    _p0: 0,
-                };
-                self.queue
-                    .write_buffer(&self.params_buf, 0, bytes_of(&params));
-            }
-        }
-
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("naive_enc"),
-            });
-        {
-            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("naive_pass"),
-                timestamp_writes: None,
-            });
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &self.bind_group, &[]);
-            let groups = (wip_count + 255) / 256;
-            pass.dispatch_workgroups(groups, 1, 1);
-        }
-        let finish_bytes = self.finish_stride * wip_count as u64;
-        encoder.copy_buffer_to_buffer(&self.finishes_buf, 0, &self.finish_staging, 0, finish_bytes);
-        encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, &self.header_staging, 0, 4);
-        encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, &self.header_staging, 4, 4);
-        self.queue.submit(Some(encoder.finish()));
-        self.last_wip_count
-            .store(wip_count, std::sync::atomic::Ordering::Relaxed);
-        Ok(())
+        self.dispatch_wave_multi(seats, r_squared, epsilon, cap, 1)
     }
 
-    /// Upload once, run `bouts` compute passes on resident seats, one harvest copy.
-    /// Finishes from early bouts are preserved because done seats stay inactive and
-    /// each bout appends into finishes only for seats that progressed *this* bout;
-    /// early finals are not re-copied. To avoid losing them, we copy finishes after
-    /// every bout into a host-side merge via staging ring — here we use a simpler
-    /// approach: one long effective bout by repeating compute without clearing
-    /// seats, and emitting finishes every bout into consecutive staging slots.
+    /// Resident multi-bout; copies finishes+header. Seats staging optional via `with_seats`.
     pub fn dispatch_wave_multi(
         &self,
         seats: &[(u32, &Point<f64>)],
@@ -132,96 +50,21 @@ impl NaiveGpuContext {
         cap: BoutCap,
         bouts: u32,
     ) -> Result<(), String> {
-        let wip_count = seats.len() as u32;
-        if wip_count == 0 || bouts == 0 {
-            return Ok(());
-        }
-        if wip_count > MAX_WAVE {
-            return Err(format!("WIP {wip_count} exceeds MAX_WAVE"));
-        }
-        if bouts == 1 {
-            return self.dispatch_wave(seats, r_squared, epsilon, cap);
-        }
-        // For multi-bout IPS: upload once, N dispatches, accumulate iter_total,
-        // copy seats is not done — instead harvest only iter header by running
-        // N passes and reading iter_total; finishes from last pass only.
-        // Production workshift still uses single dispatch_wave.
-        self.queue
-            .write_buffer(&self.finish_count_buf, 0, &0u32.to_ne_bytes());
-        self.queue
-            .write_buffer(&self.iter_total_buf, 0, &0u32.to_ne_bytes());
-        match self.precision {
-            GpuPrecision::F32 => {
-                let packed: Vec<SeatF32> = seats
-                    .iter()
-                    .map(|(i, p)| SeatF32::from_point(*i, p))
-                    .collect();
-                self.queue
-                    .write_buffer(&self.seats_buf, 0, cast_slice(&packed));
-                let params = ParamsF32 {
-                    r_squared: r_squared as f32,
-                    epsilon: epsilon as f32,
-                    cap: cap.get(),
-                    wip_count,
-                    generation: self.generation,
-                    _p0: 0,
-                    _p1: 0,
-                    _p2: 0,
-                };
-                self.queue
-                    .write_buffer(&self.params_buf, 0, bytes_of(&params));
-            }
-            GpuPrecision::F64 => {
-                let packed: Vec<SeatF64> = seats
-                    .iter()
-                    .map(|(i, p)| SeatF64::from_point(*i, p))
-                    .collect();
-                self.queue
-                    .write_buffer(&self.seats_buf, 0, cast_slice(&packed));
-                let params = ParamsF64 {
-                    r_squared,
-                    epsilon,
-                    cap: cap.get(),
-                    wip_count,
-                    generation: self.generation,
-                    _p0: 0,
-                };
-                self.queue
-                    .write_buffer(&self.params_buf, 0, bytes_of(&params));
-            }
-        }
-
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("naive_multi"),
-            });
-        for bout in 0..bouts {
-            if bout > 0 {
-                encoder.clear_buffer(&self.finish_count_buf, 0, Some(4));
-            }
-            {
-                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("naive_pass"),
-                    timestamp_writes: None,
-                });
-                pass.set_pipeline(&self.pipeline);
-                pass.set_bind_group(0, &self.bind_group, &[]);
-                let groups = (wip_count + 255) / 256;
-                pass.dispatch_workgroups(groups, 1, 1);
-            }
-        }
-        let finish_bytes = self.finish_stride * wip_count as u64;
-        encoder.copy_buffer_to_buffer(&self.finishes_buf, 0, &self.finish_staging, 0, finish_bytes);
-        encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, &self.header_staging, 0, 4);
-        encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, &self.header_staging, 4, 4);
-        self.queue.submit(Some(encoder.finish()));
-        self.last_wip_count
-            .store(wip_count, std::sync::atomic::Ordering::Relaxed);
-        Ok(())
+        self.dispatch_multi(seats, r_squared, epsilon, cap, bouts, true)
     }
 
-    /// Like `dispatch_wave_multi` but only copies the iter header (no finish payload).
+    /// Hot path: no seats staging copy (partials stay on GPU; use harvest_sparse_finals).
+    pub fn dispatch_wave_multi_sparse(
+        &self,
+        seats: &[(u32, &Point<f64>)],
+        r_squared: f64,
+        epsilon: f64,
+        cap: BoutCap,
+        bouts: u32,
+    ) -> Result<(), String> {
+        self.dispatch_multi(seats, r_squared, epsilon, cap, bouts, false)
+    }
+
     pub fn dispatch_wave_multi_iters_only(
         &self,
         seats: &[(u32, &Point<f64>)],
@@ -237,6 +80,88 @@ impl NaiveGpuContext {
         if wip_count > MAX_WAVE {
             return Err(format!("WIP {wip_count} exceeds MAX_WAVE"));
         }
+        self.upload_seats_and_params(seats, r_squared, epsilon, cap, wip_count)?;
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("naive_multi_iters"),
+            });
+        for _ in 0..bouts {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("naive_pass"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &self.bind_group, &[]);
+            pass.dispatch_workgroups((wip_count + 255) / 256, 1, 1);
+        }
+        encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, &self.header_staging, 0, 4);
+        encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, &self.header_staging, 4, 4);
+        self.queue.submit(Some(encoder.finish()));
+        self.last_wip_count
+            .store(wip_count, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn dispatch_multi(
+        &self,
+        seats: &[(u32, &Point<f64>)],
+        r_squared: f64,
+        epsilon: f64,
+        cap: BoutCap,
+        bouts: u32,
+        copy_seats: bool,
+    ) -> Result<(), String> {
+        let wip_count = seats.len() as u32;
+        if wip_count == 0 || bouts == 0 {
+            return Ok(());
+        }
+        if wip_count > MAX_WAVE {
+            return Err(format!("WIP {wip_count} exceeds MAX_WAVE"));
+        }
+        self.upload_seats_and_params(seats, r_squared, epsilon, cap, wip_count)?;
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("naive_multi"),
+            });
+        for _ in 0..bouts {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("naive_pass"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &self.bind_group, &[]);
+            pass.dispatch_workgroups((wip_count + 255) / 256, 1, 1);
+        }
+        let finish_bytes = self.finish_stride * wip_count as u64;
+        if copy_seats {
+            encoder.copy_buffer_to_buffer(
+                &self.seats_buf,
+                0,
+                &self.seat_staging,
+                0,
+                self.seat_stride * wip_count as u64,
+            );
+        }
+        // Finishes copied sparsely in harvest_sparse_finals after count is known.
+        let _ = finish_bytes;
+        encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, &self.header_staging, 0, 4);
+        encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, &self.header_staging, 4, 4);
+        self.queue.submit(Some(encoder.finish()));
+        self.last_wip_count
+            .store(wip_count, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn upload_seats_and_params(
+        &self,
+        seats: &[(u32, &Point<f64>)],
+        r_squared: f64,
+        epsilon: f64,
+        cap: BoutCap,
+        wip_count: u32,
+    ) -> Result<(), String> {
         self.queue
             .write_buffer(&self.finish_count_buf, 0, &0u32.to_ne_bytes());
         self.queue
@@ -281,112 +206,256 @@ impl NaiveGpuContext {
                     .write_buffer(&self.params_buf, 0, bytes_of(&params));
             }
         }
+        Ok(())
+    }
+
+    /// Continue resident seats without re-upload (finish counter accumulates).
+    pub fn dispatch_continue_multi(
+        &self,
+        wip_count: u32,
+        bouts: u32,
+        copy_seats: bool,
+    ) -> Result<(), String> {
+        if wip_count == 0 || bouts == 0 {
+            return Ok(());
+        }
+        if wip_count > MAX_WAVE {
+            return Err(format!("WIP {wip_count} exceeds MAX_WAVE"));
+        }
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("naive_multi_iters"),
+                label: Some("naive_continue"),
             });
-        for bout in 0..bouts {
-            if bout > 0 {
-                encoder.clear_buffer(&self.finish_count_buf, 0, Some(4));
-            }
-            {
-                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("naive_pass"),
-                    timestamp_writes: None,
-                });
-                pass.set_pipeline(&self.pipeline);
-                pass.set_bind_group(0, &self.bind_group, &[]);
-                let groups = (wip_count + 255) / 256;
-                pass.dispatch_workgroups(groups, 1, 1);
-            }
+        for _ in 0..bouts {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("naive_pass"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &self.bind_group, &[]);
+            pass.dispatch_workgroups((wip_count + 255) / 256, 1, 1);
         }
-        encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, &self.header_staging, 4, 4);
-        // finish_count unused; zero high dword already from prior clears / init
+        let finish_bytes = self.finish_stride * wip_count as u64;
+        if copy_seats {
+            encoder.copy_buffer_to_buffer(
+                &self.seats_buf,
+                0,
+                &self.seat_staging,
+                0,
+                self.seat_stride * wip_count as u64,
+            );
+        }
         encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, &self.header_staging, 0, 4);
+        encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, &self.header_staging, 4, 4);
+        let _ = finish_bytes;
         self.queue.submit(Some(encoder.finish()));
         self.last_wip_count
             .store(wip_count, std::sync::atomic::Ordering::Relaxed);
         Ok(())
     }
 
-    /// Map only the iter/finish-count header (no finish payload). For compute-amortized probes.
     pub fn harvest_iters_only(&self) -> Result<u32, String> {
-        let header = map_header_only(&self.device, &self.header_staging)?;
+        let header = map_bytes(&self.device, &self.header_staging, 8)?;
         Ok(u32::from_ne_bytes([header[4], header[5], header[6], header[7]]))
     }
 
-    pub fn harvest_finishes(&self) -> Result<(Vec<HarvestedFinish>, u32), String> {
+    /// Map header, then copy+map only `count` finish records (true sparse readback).
+    pub fn harvest_sparse_finals(&self) -> Result<(Vec<HarvestedFinish>, u32), String> {
         let wip = self
             .last_wip_count
             .load(std::sync::atomic::Ordering::Relaxed)
-            .max(1);
-        let finish_bytes = self.finish_stride * wip as u64;
-        let (header, bytes) =
-            map_header_and_finishes(&self.device, &self.header_staging, &self.finish_staging, finish_bytes)?;
+            .min(MAX_WAVE);
+        let header = map_bytes(&self.device, &self.header_staging, 8)?;
         let count = u32::from_ne_bytes([header[0], header[1], header[2], header[3]]);
         let iter_delta = u32::from_ne_bytes([header[4], header[5], header[6], header[7]]);
-        let n = count.min(wip).min(MAX_WAVE) as usize;
-        if n == 0 {
+        let n_fin = count.min(wip).min(MAX_WAVE) as usize;
+        if n_fin == 0 {
             return Ok((Vec::new(), iter_delta));
         }
-        let mut out = Vec::with_capacity(n);
-        match self.precision {
-            GpuPrecision::F32 => {
-                for i in 0..n {
-                    let off = i * self.finish_stride as usize;
-                    let fin: FinishF32 = pod_read_unaligned(&bytes[off..off + 64]);
-                    out.push(HarvestedFinish {
-                        seat_index: fin.seat_index,
-                        flags: fin.flags,
-                        iterations: fin.iterations,
-                        small_time: fin.small_time,
-                        smallness: fin.smallness as f64,
-                        iter_delta: fin.iter_delta,
-                        z_x: fin.z_x as f64,
-                        z_y: fin.z_y as f64,
-                        dc_x: fin.dc_x as f64,
-                        dc_y: fin.dc_y as f64,
-                        c_x: fin.c_x as f64,
-                        c_y: fin.c_y as f64,
-                        loop_zx: fin.loop_zx as f64,
-                        loop_zy: fin.loop_zy as f64,
-                        loop_iter: fin.loop_iter,
-                    });
+        let finish_bytes = self.finish_stride * n_fin as u64;
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("naive_sparse_finishes"),
+            });
+        encoder.copy_buffer_to_buffer(
+            &self.finishes_buf,
+            0,
+            &self.finish_staging,
+            0,
+            finish_bytes,
+        );
+        self.queue.submit(Some(encoder.finish()));
+        let bytes = map_bytes(&self.device, &self.finish_staging, finish_bytes)?;
+        let mut finals = Vec::with_capacity(n_fin);
+        for i in 0..n_fin {
+            let off = i * self.finish_stride as usize;
+            match self.precision {
+                GpuPrecision::F32 => {
+                    finals.push(finish_from_f32(pod_read_unaligned(&bytes[off..off + 64])));
                 }
-            }
-            GpuPrecision::F64 => {
-                for i in 0..n {
-                    let off = i * self.finish_stride as usize;
-                    let fin: FinishF64 = pod_read_unaligned(&bytes[off..off + 96]);
-                    out.push(HarvestedFinish {
-                        seat_index: fin.seat_index,
-                        flags: fin.flags,
-                        iterations: fin.iterations,
-                        small_time: fin.small_time,
-                        smallness: fin.smallness,
-                        iter_delta: fin.iter_delta,
-                        z_x: fin.z_x,
-                        z_y: fin.z_y,
-                        dc_x: fin.dc_x,
-                        dc_y: fin.dc_y,
-                        c_x: fin.c_x,
-                        c_y: fin.c_y,
-                        loop_zx: fin.loop_zx,
-                        loop_zy: fin.loop_zy,
-                        loop_iter: fin.loop_iter,
-                    });
+                GpuPrecision::F64 => {
+                    finals.push(finish_from_f64(pod_read_unaligned(&bytes[off..off + 96])));
                 }
             }
         }
-        Ok((out, iter_delta))
+        Ok((finals, iter_delta))
+    }
+
+    /// Copy seats GPU→staging and map (no compute). Sync unfinished before re-upload.
+    pub fn pull_seats(&self) -> Result<Vec<HarvestedFinish>, String> {
+        let wip = self
+            .last_wip_count
+            .load(std::sync::atomic::Ordering::Relaxed)
+            .min(MAX_WAVE);
+        if wip == 0 {
+            return Ok(Vec::new());
+        }
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("naive_pull_seats"),
+            });
+        encoder.copy_buffer_to_buffer(
+            &self.seats_buf,
+            0,
+            &self.seat_staging,
+            0,
+            self.seat_stride * wip as u64,
+        );
+        self.queue.submit(Some(encoder.finish()));
+        let bytes = map_bytes(
+            &self.device,
+            &self.seat_staging,
+            self.seat_stride * wip as u64,
+        )?;
+        Ok(parse_seats(
+            self.precision,
+            &bytes,
+            self.seat_stride,
+            wip as usize,
+        ))
+    }
+
+    pub fn harvest_finishes(&self) -> Result<(Vec<HarvestedFinish>, Vec<HarvestedFinish>, u32), String> {
+        let (finals, iters) = self.harvest_sparse_finals()?;
+        let wip = self
+            .last_wip_count
+            .load(std::sync::atomic::Ordering::Relaxed)
+            .min(MAX_WAVE) as usize;
+        if wip == 0 {
+            return Ok((finals, Vec::new(), iters));
+        }
+        let bytes = map_bytes(
+            &self.device,
+            &self.seat_staging,
+            self.seat_stride * wip as u64,
+        )?;
+        let seats = parse_seats(self.precision, &bytes, self.seat_stride, wip);
+        Ok((finals, seats, iters))
     }
 }
 
-fn map_header_only(device: &wgpu::Device, header: &wgpu::Buffer) -> Result<Vec<u8>, String> {
-    let h = header.slice(0..8);
+fn finish_from_f32(fin: FinishF32) -> HarvestedFinish {
+    HarvestedFinish {
+        seat_index: fin.seat_index,
+        flags: fin.flags,
+        iterations: fin.iterations,
+        small_time: fin.small_time,
+        smallness: fin.smallness as f64,
+        iter_delta: fin.iter_delta,
+        z_x: fin.z_x as f64,
+        z_y: fin.z_y as f64,
+        dc_x: fin.dc_x as f64,
+        dc_y: fin.dc_y as f64,
+        c_x: fin.c_x as f64,
+        c_y: fin.c_y as f64,
+        loop_zx: fin.loop_zx as f64,
+        loop_zy: fin.loop_zy as f64,
+        loop_iter: fin.loop_iter,
+    }
+}
+
+fn finish_from_f64(fin: FinishF64) -> HarvestedFinish {
+    HarvestedFinish {
+        seat_index: fin.seat_index,
+        flags: fin.flags,
+        iterations: fin.iterations,
+        small_time: fin.small_time,
+        smallness: fin.smallness,
+        iter_delta: fin.iter_delta,
+        z_x: fin.z_x,
+        z_y: fin.z_y,
+        dc_x: fin.dc_x,
+        dc_y: fin.dc_y,
+        c_x: fin.c_x,
+        c_y: fin.c_y,
+        loop_zx: fin.loop_zx,
+        loop_zy: fin.loop_zy,
+        loop_iter: fin.loop_iter,
+    }
+}
+
+fn parse_seats(
+    precision: GpuPrecision,
+    bytes: &[u8],
+    stride: u64,
+    n: usize,
+) -> Vec<HarvestedFinish> {
+    let mut out = Vec::with_capacity(n);
+    for i in 0..n {
+        let off = i * stride as usize;
+        match precision {
+            GpuPrecision::F32 => {
+                let s: SeatF32 = pod_read_unaligned(&bytes[off..off + 72]);
+                out.push(HarvestedFinish {
+                    seat_index: s.seat_index,
+                    flags: s.flags,
+                    iterations: s.iterations,
+                    small_time: s.small_time,
+                    smallness: s.smallness as f64,
+                    iter_delta: 0,
+                    z_x: s.z_x as f64,
+                    z_y: s.z_y as f64,
+                    dc_x: s.dc_x as f64,
+                    dc_y: s.dc_y as f64,
+                    c_x: s.c_x as f64,
+                    c_y: s.c_y as f64,
+                    loop_zx: s.loop_zx as f64,
+                    loop_zy: s.loop_zy as f64,
+                    loop_iter: s.loop_iter,
+                });
+            }
+            GpuPrecision::F64 => {
+                let s: SeatF64 = pod_read_unaligned(&bytes[off..off + 120]);
+                out.push(HarvestedFinish {
+                    seat_index: s.seat_index,
+                    flags: s.flags,
+                    iterations: s.iterations,
+                    small_time: s.small_time,
+                    smallness: s.smallness,
+                    iter_delta: 0,
+                    z_x: s.z_x,
+                    z_y: s.z_y,
+                    dc_x: s.dc_x,
+                    dc_y: s.dc_y,
+                    c_x: s.c_x,
+                    c_y: s.c_y,
+                    loop_zx: s.loop_zx,
+                    loop_zy: s.loop_zy,
+                    loop_iter: s.loop_iter,
+                });
+            }
+        }
+    }
+    out
+}
+
+fn map_bytes(device: &wgpu::Device, buf: &wgpu::Buffer, size: u64) -> Result<Vec<u8>, String> {
+    let slice = buf.slice(0..size);
     let (tx, rx) = mpsc::channel();
-    h.map_async(wgpu::MapMode::Read, move |r| {
+    slice.map_async(wgpu::MapMode::Read, move |r| {
         let _ = tx.send(r);
     });
     device
@@ -394,40 +463,8 @@ fn map_header_only(device: &wgpu::Device, header: &wgpu::Buffer) -> Result<Vec<u
         .map_err(|e| format!("poll: {e}"))?;
     rx.recv()
         .map_err(|e| e.to_string())?
-        .map_err(|e| format!("header map failed: {e}"))?;
-    let bytes = h.get_mapped_range().to_vec();
-    header.unmap();
-    Ok(bytes)
-}
-
-fn map_header_and_finishes(
-    device: &wgpu::Device,
-    header: &wgpu::Buffer,
-    finishes: &wgpu::Buffer,
-    finish_bytes: u64,
-) -> Result<(Vec<u8>, Vec<u8>), String> {
-    let h = header.slice(0..8);
-    let f = finishes.slice(0..finish_bytes);
-    let (tx_h, rx_h) = mpsc::channel();
-    let (tx_f, rx_f) = mpsc::channel();
-    h.map_async(wgpu::MapMode::Read, move |r| {
-        let _ = tx_h.send(r);
-    });
-    f.map_async(wgpu::MapMode::Read, move |r| {
-        let _ = tx_f.send(r);
-    });
-    device
-        .poll(wgpu::PollType::Wait)
-        .map_err(|e| format!("poll: {e}"))?;
-    rx_h.recv()
-        .map_err(|e| e.to_string())?
-        .map_err(|e| format!("header map failed: {e}"))?;
-    rx_f.recv()
-        .map_err(|e| e.to_string())?
-        .map_err(|e| format!("finish map failed: {e}"))?;
-    let header_bytes = h.get_mapped_range().to_vec();
-    let finish_data = f.get_mapped_range().to_vec();
-    header.unmap();
-    finishes.unmap();
-    Ok((header_bytes, finish_data))
+        .map_err(|e| format!("map failed: {e}"))?;
+    let data = slice.get_mapped_range().to_vec();
+    buf.unmap();
+    Ok(data)
 }

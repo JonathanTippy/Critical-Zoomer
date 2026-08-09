@@ -23,6 +23,7 @@ pub struct NaiveGpuContext {
     pub(crate) iter_total_buf: wgpu::Buffer,
     pub(crate) params_buf: wgpu::Buffer,
     pub(crate) finish_staging: wgpu::Buffer,
+    pub(crate) seat_staging: wgpu::Buffer,
     pub(crate) header_staging: wgpu::Buffer,
     pub(crate) seat_stride: u64,
     pub(crate) finish_stride: u64,
@@ -175,6 +176,12 @@ impl NaiveGpuContext {
             finish_stride * MAX_WAVE as u64,
             wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         );
+        let seat_staging = make_buf(
+            &device,
+            "seat_staging",
+            seat_stride * MAX_WAVE as u64,
+            wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        );
         // [finish_count:u32][iter_total:u32] — one map instead of two.
         let header_staging = make_buf(
             &device,
@@ -234,6 +241,7 @@ impl NaiveGpuContext {
             iter_total_buf,
             params_buf,
             finish_staging,
+            seat_staging,
             header_staging,
             seat_stride,
             finish_stride,
