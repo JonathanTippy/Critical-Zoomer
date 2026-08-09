@@ -306,7 +306,11 @@ pub fn workshift_naive_gpu(
     }
 
     while context.time_workshift_started.elapsed().as_millis() < 10 {
-        // Publish prior wave first so dispatch below overlaps GPU with host work.
+        // Harvest prior wave. When every seat finished, claim+dispatch the *next*
+        // wave *before* host publish so publish overlaps GPU (shallow PPS lever).
+        // If any seat is still open, keep serial continue — overwriting seats_buf
+        // would drop on-device progress.
+        let mut pipeline_publish: Option<(Vec<WipMeta>, Vec<HarvestedFinish>)> = None;
         if let Some((slot, prev_wip, gpu_n)) = pending.take() {
             let (finishes, iter_delta) = match gpu.harvest_sparse_slot(slot) {
                 Ok(v) => v,
@@ -327,6 +331,101 @@ pub fn workshift_naive_gpu(
             } else {
                 bouts_per_dispatch = 8;
             }
+            context.total_bouts_today += 1;
+
+            let mut terminal: HashSet<usize> = HashSet::with_capacity(gpu_final_n);
+            for f in &finishes {
+                if (f.flags & 6) != 0 {
+                    terminal.insert(f.seat_index as usize);
+                }
+            }
+            let wave_fully_finished = prev_wip.iter().all(|m| terminal.contains(&m.index));
+
+            if wave_fully_finished {
+                // Old seats stay in `skip` until publish; claim the next wave now.
+                wip.clear();
+                while (wip.len() as u32) < wave_n {
+                    let Some((pos, step)) = claim_next_undelivered_seat(context, &skip) else {
+                        break;
+                    };
+                    let index = index_from_pos(&pos, context.res.0);
+                    if context.points[index].delivered {
+                        continue;
+                    }
+                    kernel.start_seat(context, pos);
+                    skip.insert(index);
+                    wip.push(WipMeta { index, pos, step });
+                }
+                if !wip.is_empty() {
+                    let upload_refs: Vec<(u32, &Point<f64>)> = wip
+                        .iter()
+                        .map(|m| (m.index as u32, &context.points[m.index]))
+                        .collect();
+                    resident_n = upload_refs.len() as u32;
+                    match gpu.dispatch_wave_multi_sparse(
+                        &upload_refs,
+                        4.0,
+                        epsilon,
+                        BoutCap::STANDARD,
+                        bouts_per_dispatch,
+                    ) {
+                        Ok(next_slot) => {
+                            pending = Some((next_slot, std::mem::take(&mut wip), resident_n));
+                            resident = false;
+                        }
+                        Err(e) => {
+                            eprintln!("naive_gpu dispatch failed: {e}");
+                            let _ = publish_gpu_finishes(
+                                context,
+                                &kernel,
+                                gpu.precision,
+                                epsilon,
+                                &prev_wip,
+                                &finishes,
+                                &mut skip,
+                                &mut points_published_this_shift,
+                            );
+                            break;
+                        }
+                    }
+                }
+                pipeline_publish = Some((prev_wip, finishes));
+            } else {
+                let outcome = publish_gpu_finishes(
+                    context,
+                    &kernel,
+                    gpu.precision,
+                    epsilon,
+                    &prev_wip,
+                    &finishes,
+                    &mut skip,
+                    &mut points_published_this_shift,
+                );
+                if outcome.buffer_full {
+                    break;
+                }
+                wip.clear();
+                for m in prev_wip {
+                    let p = &context.points[m.index];
+                    if p.delivered || p.escapes || p.repeats {
+                        continue;
+                    }
+                    skip.insert(m.index);
+                    wip.push(m);
+                }
+                if outcome.need_reupload {
+                    resident = false;
+                } else if !wip.is_empty() {
+                    resident = true;
+                    // Keep device wave width — compacted host len would skip live GPU slots.
+                    resident_n = gpu_n;
+                } else {
+                    resident = false;
+                }
+            }
+        }
+
+        if let Some((prev_wip, finishes)) = pipeline_publish.take() {
             let outcome = publish_gpu_finishes(
                 context,
                 &kernel,
@@ -340,26 +439,22 @@ pub fn workshift_naive_gpu(
             if outcome.buffer_full {
                 break;
             }
-            // Restore unfinished seats for resident continue; re-arm if confirm rejected.
-            wip.clear();
-            for m in prev_wip {
-                let p = &context.points[m.index];
-                if p.delivered || p.escapes || p.repeats {
-                    continue;
-                }
-                skip.insert(m.index);
-                wip.push(m);
-            }
+            // Confirm rejects are rare on shallow; host state is enough to re-claim.
             if outcome.need_reupload {
                 resident = false;
-            } else if !wip.is_empty() {
-                resident = true;
-                // Keep device wave width — compacted host len would skip live GPU slots.
-                resident_n = gpu_n;
-            } else {
-                resident = false;
             }
-            context.total_bouts_today += 1;
+            // Next wave already in `pending` when claim found seats.
+            if pending.is_some() {
+                if context.time_workshift_started.elapsed().as_millis() > 9 && wave_n > 2048 {
+                    wave_n = ((wave_n * 3) / 4).max(2048);
+                    gpu.set_wave_n(wave_n);
+                }
+                continue;
+            }
+            // No next wave claimed — shift draining.
+            if wip.is_empty() {
+                break;
+            }
         }
 
         // Refill host WIP list; only re-upload when residency breaks.
@@ -414,7 +509,7 @@ pub fn workshift_naive_gpu(
             }
         };
 
-        // Park WIP with the staging slot; next loop harvests before refill/dispatch.
+        // Park WIP with the staging slot; next loop harvests (and may pipeline).
         pending = Some((slot, std::mem::take(&mut wip), resident_n));
         resident = false; // residency restored from unfinished after harvest
 
@@ -496,12 +591,13 @@ fn publish_gpu_finishes(
 ) -> PublishFinishOutcome {
     // Large shallow floods: skip per-seat neighbor/edge queue churn — undelivered
     // seats are already fed by scan fill. Small waves keep frontier queues.
-    let bulk = finishes.len() >= 512;
+    let bulk = finishes.len() >= 128;
     let attention_idx = context
         .attention_current
         .map(|p| index_from_pos(&p, context.res.0));
     let mut buffer_full = false;
     let mut need_reupload = false;
+    let mut published_batch = 0u32;
     for fin in finishes {
         let index = fin.seat_index as usize;
         if index >= context.points.len() {
@@ -573,7 +669,7 @@ fn publish_gpu_finishes(
         match context.push_delivery(Delivery::Final(completed_point), index) {
             PushOutcome::Published => {
                 context.total_points_today += 1;
-                context.record_hud_completion_batch(1);
+                published_batch += 1;
                 skip.remove(&index);
                 *points_published_this_shift += 1;
             }
@@ -583,6 +679,9 @@ fn publish_gpu_finishes(
                 break;
             }
         }
+    }
+    if published_batch > 0 {
+        context.record_hud_completion_batch(published_batch);
     }
     PublishFinishOutcome {
         buffer_full,

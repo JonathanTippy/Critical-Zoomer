@@ -292,29 +292,42 @@ impl NaiveGpuContext {
     }
 
     /// Finals from a sparse-staging slot (header+finishes, one map).
+    /// Parses straight from the mapped range — no full staging `to_vec` copy.
     pub fn harvest_sparse_slot(&self, slot: u8) -> Result<(Vec<HarvestedFinish>, u32), String> {
         let slot = (slot & 1) as usize;
         let wip = self.sparse_wip[slot].get().min(MAX_WAVE);
         let map_bytes_n = 16 + self.finish_stride * wip as u64;
-        let bytes = map_bytes(&self.device, &self.sparse_staging[slot], map_bytes_n)?;
-        let count = u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-        let iter_delta = u32::from_ne_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+        let buf = &self.sparse_staging[slot];
+        let slice = buf.slice(0..map_bytes_n);
+        let (tx, rx) = mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| {
+            let _ = tx.send(r);
+        });
+        self.device
+            .poll(wgpu::PollType::Wait)
+            .map_err(|e| format!("poll: {e}"))?;
+        rx.recv()
+            .map_err(|e| e.to_string())?
+            .map_err(|e| format!("map failed: {e}"))?;
+        let mapped = slice.get_mapped_range();
+        let count = u32::from_ne_bytes([mapped[0], mapped[1], mapped[2], mapped[3]]);
+        let iter_delta = u32::from_ne_bytes([mapped[4], mapped[5], mapped[6], mapped[7]]);
         let n_fin = count.min(wip).min(MAX_WAVE) as usize;
-        if n_fin == 0 {
-            return Ok((Vec::new(), iter_delta));
-        }
+        let stride = self.finish_stride as usize;
         let mut finals = Vec::with_capacity(n_fin);
         for i in 0..n_fin {
-            let off = 16 + i * self.finish_stride as usize;
+            let off = 16 + i * stride;
             match self.precision {
                 GpuPrecision::F32 => {
-                    finals.push(finish_from_f32(pod_read_unaligned(&bytes[off..off + 64])));
+                    finals.push(finish_from_f32(pod_read_unaligned(&mapped[off..off + 64])));
                 }
                 GpuPrecision::F64 => {
-                    finals.push(finish_from_f64(pod_read_unaligned(&bytes[off..off + 96])));
+                    finals.push(finish_from_f64(pod_read_unaligned(&mapped[off..off + 96])));
                 }
             }
         }
+        drop(mapped);
+        buf.unmap();
         Ok((finals, iter_delta))
     }
 
