@@ -1,11 +1,12 @@
 # Depth design: perturbation with a background reference worker
 
 Status: **partially implemented** — reference worker, perturbation kernel, gear ladder,
-live series, and HUD telemetry are in the tree. **In progress:** CGenerator admission
-wiring, reference-scoped generator rebuild, and PPS-selected naive vs pert dispatch
+and HUD telemetry are in the tree. Series approximation is **deferred** (open issue) until
+membership pins stay green. **In progress:** CGenerator admission wiring, reference-scoped
+generator rebuild, and PPS-selected naive vs pert dispatch
 (`r[cz.perf.pps-selected-kernel+1]`).
 the per-pixel path uses the **fastest compute gear whose range admits the
-delta**, with series approximation skipping prefixes. Research digests live
+delta**. Research digests live
 in the private sister repo `Critical-Zoomer-Math-Library` (not published with
 CZ). This design is constrained by `workgroup-virtues.md` and must not
 re-break the v0.0.9 invariants (issue-stack standing rule).
@@ -23,10 +24,15 @@ toggle (`r[cz.seamless.reference-background+1]`).
 
 ## Vocabulary
 
-- **Reference orbit**: the orbit of one c, computed at depth-appropriate arbitrary precision
+Normative names (see depth-rules vocabulary table): absolute parameter/iterate are `c`/`z`;
+reference ones are `reference_c`/`reference_z`; seat−reference samples are `delta_c`/`delta_z`;
+escape derivative stays `dc`.
+
+- **Reference orbit**: the orbit of one `reference_c`, computed at depth-appropriate arbitrary precision
   (MPFR/rug), stored low-precision. Singular, current, owned by the reference worker.
-- **Delta orbit**: per-pixel, z = Z_n + Δz_n with Z_n the stored reference iterate; Δz and Δc
-  are tiny and carry the depth in their exponents.
+- **Delta orbit**: per-pixel, `z = reference_z_n + delta_z_n`; `delta_z` and `delta_c`
+  are tiny and carry the depth in their exponents. Zero-orbit/soft-continue puts absolute `c`
+  in the `delta_c` slot (never generator `delta_c`).
 - **Floatexp**: f64 mantissa + wide integer exponent. The **storage** type for reference
   iterates and mathematical deltas. Range, not mantissa, is what depth demands.
 - **Compute gear**: the hardware representation used for the hot delta recurrence

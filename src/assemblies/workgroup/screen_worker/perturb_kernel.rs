@@ -107,13 +107,25 @@ fn rebind_to_zero_continuing(
     point: &mut Point<f64>,
     delta: &mut DeltaState,
     against_generation: u64,
+    absolute_z: ComplexFloatExp,
 ) {
+    // Soft-continue / zero-orbit: δc slot holds absolute c; δz slot holds absolute z.
+    // Never copy generator Point.delta_c into delta.delta_c (that paints exterior as "in").
     point.direct_only = true;
     point.bound_zero_generation = against_generation;
     delta.delta_c = delta.c;
-    delta.delta_z = floatexp_from_f64_pair(point.z);
+    delta.delta_z = absolute_z;
     delta.generation = 0;
-    delta.gear = gear_for_delta(delta.delta_c, delta.delta_z);
+    // Prefer FloatExp when absolute c/z lose bits under f64 (deep relative soft-continue);
+    // keep f64 gear on shallow absolute shells so home fill stays fast.
+    let c_bits_lost = floatexp_from_f64_pair((delta.c.re.to_f64(), delta.c.im.to_f64())) != delta.c;
+    let z_bits_lost =
+        floatexp_from_f64_pair((absolute_z.re.to_f64(), absolute_z.im.to_f64())) != absolute_z;
+    delta.gear = if c_bits_lost || z_bits_lost {
+        ComputeGear::FloatExp
+    } else {
+        gear_for_delta(delta.delta_c, delta.delta_z)
+    };
     delta.scale = scaled_scale_from_dz(delta.delta_z);
 }
 
@@ -210,18 +222,21 @@ fn init_delta(
 }
 
 /// Zero-orbit floor: skip gear scan / orbit lookup when shallow absolute f64.
+///
+/// The δc / δz slots must hold absolute `c` / `z` (same math as naive). Never put
+/// generator `delta_c` in those slots.
 fn init_delta_zero_orbit_f64(
     point: &mut Point<f64>,
     generation: u64,
-    delta_c: (f64, f64),
+    generator_delta_c: (f64, f64),
     c: (f64, f64),
     coords_are_relative: bool,
-    _anchor: &(IntExp, IntExp),
+    anchor: &(IntExp, IntExp),
 ) {
-    // Zero orbit requires δc = plane C. Relative shells without a published
-    // reference should not stay here long — bootstrap installs a view-center orbit.
+    // Absolute c in the δc slot. Relative shells reconstruct via FloatExp (anchor +
+    // generator delta_c); do not trust collapsed f64 `c` alone.
     let (delta_c_fe, delta_z_fe, fe_c, gear, scale) = if coords_are_relative {
-        let pc = floatexp_from_f64_pair(c);
+        let pc = c_floatexp_from_delta_c(generator_delta_c, anchor);
         let gear = gear_for_delta(pc.clone(), pc.clone());
         let scale = scaled_scale_from_dz(pc.clone());
         (pc.clone(), pc.clone(), pc, gear, scale)
@@ -952,7 +967,12 @@ impl SeatKernel<f64> for PerturbationKernel {
                     None => {
                         working.flush_to(&mut delta);
                         let stamp = delta.generation;
-                        rebind_to_zero_continuing(point, &mut delta, stamp);
+                        // Absolute z at last finished step: reference_z + delta_z (not stale Point.z).
+                        let absolute_z = orbit
+                            .get(point.iterations)
+                            .map(|z_ref| z_ref + delta.delta_z)
+                            .unwrap_or_else(|| floatexp_from_f64_pair(point.z));
+                        rebind_to_zero_continuing(point, &mut delta, stamp, absolute_z);
                         working = BoutWorking::from_delta(&delta);
                         orbit = zero_orbit();
                         is_zero_ref = true;
@@ -1042,7 +1062,11 @@ impl SeatKernel<f64> for PerturbationKernel {
                 StepOutcome::Exhausted => {
                     working.flush_to(&mut delta);
                     let stamp = delta.generation;
-                    rebind_to_zero_continuing(point, &mut delta, stamp);
+                    let absolute_z = orbit
+                        .get(point.iterations)
+                        .map(|z_ref| z_ref + delta.delta_z)
+                        .unwrap_or_else(|| floatexp_from_f64_pair(point.z));
+                    rebind_to_zero_continuing(point, &mut delta, stamp, absolute_z);
                     working = BoutWorking::from_delta(&delta);
                     orbit = zero_orbit();
                     is_zero_ref = true;

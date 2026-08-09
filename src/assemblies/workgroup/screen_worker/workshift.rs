@@ -340,11 +340,12 @@ pub enum CompletedPoint<T> {
 /// internal representation; `Point<T>` stays generic over the view math only.
 #[derive(Clone, Debug)]
 pub struct DeltaState {
-    /// δz — little z; z = Z_ref + delta_z.
+    /// δz — perturbation offset; absolute z = reference_z + delta_z while on a live ref.
+    /// On zero-orbit / soft-continue this slot holds absolute z.
     pub delta_z: ComplexFloatExp,
     pub checkpoint: ComplexFloatExp,
     pub checkpoint_n: u32,
-    /// δc — little c = c_pixel − c_reference, fixed for this generation.
+    /// δc — seat−reference sample while on a live ref; absolute c on zero-orbit / soft-continue.
     pub delta_c: ComplexFloatExp,
     /// ∂δ/∂c so escape_derivative stays meaningful for filament detection.
     pub dd: ComplexFloatExp,
@@ -355,7 +356,7 @@ pub struct DeltaState {
     pub gear: ComputeGear,
     /// Wide exponent for scaled-f64 inner recurrence.
     pub scale: FloatExp,
-    /// Plane C (anchor + delta_c when relative) for rebind and completion export.
+    /// Absolute c (anchor + generator delta_c when relative) for rebind and completion export.
     pub c: ComplexFloatExp,
 }
 
@@ -363,15 +364,15 @@ pub struct DeltaState {
 #[derive(Clone, Debug)]
 
 pub struct Point<T> {
-    /// Generator sample: **little c** (anchor-relative) when the shell is relative;
-    /// plane **c** at seat precision when the shell is absolute.
+    /// Generator sample: `delta_c` (anchor-relative) when the shell is relative;
+    /// absolute `c` at seat precision when the shell is absolute.
     pub delta_c: (T, T),
-    /// Plane **C** used for naive recurrence and completion export (anchor + delta_c
+    /// Absolute `c` used for naive recurrence and completion export (anchor + delta_c
     /// when relative). May be narrowed f64; perturbation stores exact c in `delta`.
     pub c: (T, T),
-    /// Plane **Z** iterate (never δz).
+    /// Absolute iterate `z` (never δz).
     pub z: (T, T),
-    /// Escape-time derivative ∂z/∂c (not little c).
+    /// Escape-time derivative ∂z/∂c (not delta_c).
     pub dc: (T, T),
     pub real_squared: T
     , pub imag_squared: T

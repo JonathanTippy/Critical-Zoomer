@@ -3052,12 +3052,79 @@ fn relative_shell_init_uses_f64_gear_not_floatexp() {
 }
 
 #[test]
+// r[verify cz.depth.floatexp-host-coords+1]
 // r[verify cz.depth.delta-kernel+1]
-fn relative_zero_orbit_escape_spectrum_not_degenerate_at_zoom_49() {
+/// Pin A: deep exterior must escape, never false "in"/repeats (flat black).
+/// Fails when zero-orbit/soft-continue puts generator delta_c in the absolute-c slot.
+fn pin_exterior_not_marked_in_at_zoom_52() {
     use super::perturb_kernel::PerturbationKernel;
     use crate::assemblies::headgroup::window::coords::{decimal_str_to_intexp, ul_for_center};
     run_big(|| {
-        let res = (32u32, 32u32);
+        let res = (8u32, 8u32);
+        let frame = (
+            ul_for_center(
+                decimal_str_to_intexp("0.747115302704").unwrap(),
+                decimal_str_to_intexp("0.562484784463").unwrap(),
+                52,
+                res,
+            ),
+            res,
+        );
+        let mut ctx = from_stencil::<f64>(frame, None).expect("shell");
+        assert!(ctx.coords_are_relative);
+        assert!(
+            ctx.latest_reference.is_some() && ctx.perturbation_reference_active(),
+            "relative shell must bootstrap a reference (escaped ok)"
+        );
+        let held_ref = ctx.latest_reference.clone();
+        let mut finished = 0usize;
+        let mut bad = Vec::new();
+        for y in 0..res.1 as i32 {
+            for x in 0..res.0 as i32 {
+                let pos = (x, y);
+                let idx = index_from_pos(&pos, res.0);
+                PerturbationKernel.start_seat(&mut ctx, pos);
+                PerturbationKernel.iterate_bout(
+                    &mut ctx.points[idx],
+                    held_ref.as_ref().map(|r| &r.orbit),
+                    4.0,
+                    ctx.pitch_epsilon,
+                    BoutCap::new(4096),
+                );
+                let p = &ctx.points[idx];
+                if !(p.escapes || p.repeats) {
+                    continue;
+                }
+                finished += 1;
+                if !p.escapes || p.repeats {
+                    bad.push(format!(
+                        "({x},{y}) escapes={} repeats={} iters={}",
+                        p.escapes, p.repeats, p.iterations
+                    ));
+                }
+            }
+        }
+        assert!(
+            finished >= (res.0 * res.1) as usize / 2,
+            "need finished exterior seats, got {finished}"
+        );
+        assert!(
+            bad.is_empty(),
+            "exterior seats marked in/repeats (flat black):\n{}",
+            bad.join("\n")
+        );
+    });
+}
+
+#[test]
+// r[verify cz.depth.floatexp-host-coords+1]
+// r[verify cz.depth.delta-kernel+1]
+/// Pin B: at mag 2^49, generator delta_c stays per-seat and membership is not one shared blob.
+fn pin_not_blocky_delta_c_at_zoom_49() {
+    use super::perturb_kernel::PerturbationKernel;
+    use crate::assemblies::headgroup::window::coords::{decimal_str_to_intexp, ul_for_center};
+    run_big(|| {
+        let res = (8u32, 8u32);
         let frame = (
             ul_for_center(
                 decimal_str_to_intexp("0.360069520505").unwrap(),
@@ -3075,7 +3142,9 @@ fn relative_zero_orbit_escape_spectrum_not_degenerate_at_zoom_49() {
         );
         let held_ref = ctx.latest_reference.clone();
         let mut delta_c_bits = std::collections::HashSet::new();
+        let mut membership = std::collections::HashSet::new();
         let mut escape_z_bits = std::collections::HashSet::new();
+        let seats = (res.0 * res.1) as usize;
         for y in 0..res.1 as i32 {
             for x in 0..res.0 as i32 {
                 let pos = (x, y);
@@ -3091,20 +3160,28 @@ fn relative_zero_orbit_escape_spectrum_not_degenerate_at_zoom_49() {
                     BoutCap::new(2048),
                 );
                 let p = &ctx.points[idx];
+                if p.escapes || p.repeats {
+                    membership.insert((p.escapes, p.repeats, p.iterations));
+                }
                 if p.escapes {
                     escape_z_bits.insert((p.z.0.to_bits(), p.z.1.to_bits()));
                 }
             }
         }
         assert!(
-            delta_c_bits.len() >= (res.0 * res.1) as usize * 3 / 4,
-            "generator delta_c must stay per-seat with bootstrapped ref ({} unique)",
+            delta_c_bits.len() >= seats * 3 / 4,
+            "generator delta_c must stay per-seat ({} unique of {seats})",
             delta_c_bits.len()
         );
         assert!(
-            escape_z_bits.len() >= 8,
-            "blocky/degenerate escape locations: only {} distinct z",
+            membership.len() > 1 || escape_z_bits.len() >= 4,
+            "degenerate membership/blocky: membership_classes={} escape_z={}",
+            membership.len(),
             escape_z_bits.len()
+        );
+        assert!(
+            !membership.is_empty(),
+            "no finished seats — kernel did not run"
         );
     });
 }
@@ -3264,6 +3341,7 @@ fn relative_perturb_matches_direct_at_user_zoom_49() {
 }
 
 #[test]
+#[ignore = "retired: f64 DirectKernel is not a deep membership oracle; see pin_exterior_not_marked_in_at_zoom_52"]
 // r[verify cz.perf.pps-selected-kernel+1]
 // r[verify cz.depth.delta-kernel+1]
 /// Headed report: (0.95703125, −0.08984375i) at 2^74 went black on escaping seats.

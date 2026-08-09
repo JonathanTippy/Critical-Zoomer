@@ -92,11 +92,13 @@ fn rebind_to_zero_continuing(
     point: &mut Point<FloatExp>,
     delta: &mut DeltaState,
     against_generation: u64,
+    absolute_z: ComplexFloatExp,
 ) {
+    // Soft-continue: δc ← absolute c; δz ← absolute z. Never generator delta_c.
     point.direct_only = true;
     point.bound_zero_generation = against_generation;
     delta.delta_c = delta.c;
-    delta.delta_z = ComplexFloatExp::new(point.z.0, point.z.1);
+    delta.delta_z = absolute_z;
     delta.generation = 0;
     delta.gear = crate::delta_gear::ComputeGear::FloatExp;
 }
@@ -227,7 +229,11 @@ impl SeatKernel<FloatExp> for FloatExpPerturbationKernel {
                     Some(z) => z,
                     None => {
                         let stamp = delta.generation;
-                        rebind_to_zero_continuing(point, &mut delta, stamp);
+                        let absolute_z = orbit
+                            .get(point.iterations)
+                            .map(|zr| zr + delta.delta_z)
+                            .unwrap_or_else(|| ComplexFloatExp::new(point.z.0, point.z.1));
+                        rebind_to_zero_continuing(point, &mut delta, stamp, absolute_z);
                         orbit = zero_orbit();
                         is_zero_ref = true;
                         ComplexFloatExp::ZERO
@@ -294,8 +300,9 @@ impl SeatKernel<FloatExp> for FloatExpPerturbationKernel {
                     Some(z) => z,
                     None => {
                         let stamp = delta.generation;
+                        // `z` is absolute iterate for the step just completed (before δz update).
                         sync_point_from_delta(point, z_ref, delta.delta_z, delta.dd);
-                        rebind_to_zero_continuing(point, &mut delta, stamp);
+                        rebind_to_zero_continuing(point, &mut delta, stamp, z);
                         orbit = zero_orbit();
                         is_zero_ref = true;
                         ComplexFloatExp::ZERO

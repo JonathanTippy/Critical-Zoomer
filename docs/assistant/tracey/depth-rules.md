@@ -172,7 +172,9 @@ across `BoutCap` bouts.
 `published_reference_matches_direct_on_shallow_view`,
 `perturbation_kernel_matches_rug_doubling_oracle`,
 `perturbation_bout_obeys_cap_and_split_bouts_match`,
-`phase_two_perturbation_test_inventory_is_present`.
+`phase_two_perturbation_test_inventory_is_present`,
+`pin_exterior_not_marked_in_at_zoom_52`,
+`pin_not_blocky_delta_c_at_zoom_49`.
 Shallow DirectKernel comparisons are data-flow checks only; deep truth is the
 rug precision-doubling oracle.
 
