@@ -147,7 +147,10 @@ tick design from the virtues wall-clock workshift, not from the suspended
 - [x] Workshifts remain interruptible; no unbounded GPU call (`BoutCap` waves).
 - [x] Provisional publishes never set final/done.
 - [x] Hot path does not read back full point/calibrated buffers (sparse finishes only).
-- [ ] Measured IPS ratio tracks measured FLOP ratio within ~±20% on
+- [~] Measured IPS ratio tracks measured FLOP ratio within ~±20% on
       iterate-heavy full-stack runs (probe scaffold in `workgroup_fitness` bench).
+      **2026-08-08 grind:** compute/header-only path ≈ **140–160×** CPU on GTX 1080 Ti
+      F32 (in FLOP-theory band). Sparse finals harvest still pays a ~10× sync tax
+      (~12× CPU) even with few finals — finish-buffer readback next.
 - [x] Queues remain index control plane; WIP width sufficient that queue time is
       noise in the iterate-heavy profile.

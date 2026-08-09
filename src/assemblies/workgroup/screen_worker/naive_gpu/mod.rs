@@ -462,14 +462,15 @@ mod smoke_tests {
             c_s * 1e3,
             gpu.precision
         );
+        // FLOP-ratio method (D-NGPU-5): iterate-heavy arithmetic vs CPU single-core.
+        // On this 1080 Ti F32, peak/theory is ~100–200×; compute path is the proxy.
         assert!(
-            compute_ips > cpu_ips * 2.0,
-            "compute-amortized GPU IPS {compute_ips:.3e} not clearly above CPU {cpu_ips:.3e}"
+            compute_ratio > 50.0,
+            "compute GPU/CPU ratio {compute_ratio:.2} below FLOP-tracking floor (50×)"
         );
-        // Iterate-heavy FLOP-tracking gate: sparse full-stack should clear ≫ CPU.
         assert!(
-            fs_ips > cpu_ips * 5.0,
-            "full-stack GPU IPS {fs_ips:.3e} below 5× CPU {cpu_ips:.3e} (ratio {fs_ratio:.2})"
+            fs_ratio > 5.0,
+            "sparse full-stack ratio {fs_ratio:.2} below playable floor (5×); finish-sync tax"
         );
     }
 }

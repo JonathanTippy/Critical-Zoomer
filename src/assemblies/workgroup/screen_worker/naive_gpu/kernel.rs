@@ -269,19 +269,26 @@ impl NaiveGpuContext {
         Ok(u32::from_ne_bytes([header[4], header[5], header[6], header[7]]))
     }
 
-    /// One map of sparse_staging: header + finals (capped at SPARSE_FINISH_CAP).
+    /// Header map (8B) then finals map sized to `count` (avoids fat one-shot maps).
     pub fn harvest_sparse_finals(&self) -> Result<(Vec<HarvestedFinish>, u32), String> {
-        let map_bytes_n = 16 + self.finish_stride * SPARSE_FINISH_CAP as u64;
-        let bytes = map_bytes(&self.device, &self.sparse_staging, map_bytes_n)?;
-        let count = u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-        let iter_delta = u32::from_ne_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+        let header = map_bytes(&self.device, &self.header_staging, 8)?;
+        let count = u32::from_ne_bytes([header[0], header[1], header[2], header[3]]);
+        let iter_delta = u32::from_ne_bytes([header[4], header[5], header[6], header[7]]);
         let n_fin = count.min(SPARSE_FINISH_CAP).min(MAX_WAVE) as usize;
         if n_fin == 0 {
             return Ok((Vec::new(), iter_delta));
         }
+        // Finishes live at offset 16 in sparse_staging (copied during dispatch).
+        let finish_bytes = self.finish_stride * n_fin as u64;
+        let bytes = map_bytes_offset(
+            &self.device,
+            &self.sparse_staging,
+            16,
+            finish_bytes,
+        )?;
         let mut finals = Vec::with_capacity(n_fin);
         for i in 0..n_fin {
-            let off = 16 + i * self.finish_stride as usize;
+            let off = i * self.finish_stride as usize;
             match self.precision {
                 GpuPrecision::F32 => {
                     finals.push(finish_from_f32(pod_read_unaligned(&bytes[off..off + 64])));
@@ -444,7 +451,16 @@ fn parse_seats(
 }
 
 fn map_bytes(device: &wgpu::Device, buf: &wgpu::Buffer, size: u64) -> Result<Vec<u8>, String> {
-    let slice = buf.slice(0..size);
+    map_bytes_offset(device, buf, 0, size)
+}
+
+fn map_bytes_offset(
+    device: &wgpu::Device,
+    buf: &wgpu::Buffer,
+    offset: u64,
+    size: u64,
+) -> Result<Vec<u8>, String> {
+    let slice = buf.slice(offset..offset + size);
     let (tx, rx) = mpsc::channel();
     slice.map_async(wgpu::MapMode::Read, move |r| {
         let _ = tx.send(r);
