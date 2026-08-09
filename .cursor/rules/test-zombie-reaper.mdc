@@ -1,0 +1,25 @@
+---
+description: Never raw-kill test leftovers; use the reaper hook/script only
+alwaysApply: true
+---
+
+# Test leftover cleanup (mandatory)
+
+Do **not** run `kill`, `pkill`, or `killall` against `critical_zoomer`,
+`workgroup_fitness`, `Xvfb`, or `/tmp/cz_*` sessions. Those commands trip
+safety/Auto-review prompts and are unnecessary.
+
+Cleanup is automatic:
+
+- `.cursor/hooks.json` runs `.cursor/hooks/kill-test-zombies.sh` before/after
+  `cargo test`, `cargo bench`, and `xvfb_screenshot_check`, and on agent `stop`
+- `.cursor/hooks/guard-raw-kill.sh` **blocks** raw kill/pkill for those targets
+  and runs the safe reaper instead
+
+If you need an explicit sweep, run **only**:
+
+```bash
+.cursor/hooks/kill-test-zombies.sh
+```
+
+Log: `/tmp/cz_zombie_kill.log`. Never invent ad-hoc pkill one-liners.

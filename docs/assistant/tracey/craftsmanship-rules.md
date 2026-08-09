@@ -32,6 +32,9 @@ accident:
   `cargo test|cargo bench|xvfb_screenshot_check`, and on agent `stop`) reaps repo-scoped
   app/bench orphans and `/tmp/cz_*` Xvfb sessions so cleanup does not depend on ad-hoc
   `pkill` approvals. Fails open; log `/tmp/cz_zombie_kill.log`.
+  `.cursor/hooks/guard-raw-kill.sh` **denies** raw `kill`/`pkill` aimed at those
+  leftovers (after running the reaper). Always-on:
+  `.cursor/rules/test-zombie-reaper.mdc`.
 
 The always-on summary for editing sessions is `.cursor/rules/critical-zoomer-invariants.mdc`;
 the agent-facing entry point is `AGENTS.md`. Detection (the periodic tracey-link audit and

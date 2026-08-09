@@ -36,6 +36,10 @@ Four layers, cheapest-first:
    agent `stop`. Reaps repo `target/` app/bench binaries and `/tmp/cz_*` Xvfb
    sessions only (never headed `/usr/bin` or Cursor sandboxes). Log:
    `/tmp/cz_zombie_kill.log`. Fails open.
+   **Never** use raw `kill`/`pkill`/`killall` for those leftovers — that trips
+   safety prompts. `.cursor/hooks/guard-raw-kill.sh` blocks those commands and
+   runs the reaper instead. Manual sweep: `.cursor/hooks/kill-test-zombies.sh`
+   only. Always-on rule: `.cursor/rules/test-zombie-reaper.mdc`.
 4. **Tests + tracey audit** — catch what types and the hook miss.
 
 ## Two rules that prevent most regressions
