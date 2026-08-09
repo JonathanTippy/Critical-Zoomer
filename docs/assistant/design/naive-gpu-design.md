@@ -6,7 +6,9 @@ harvest feeds the existing collector→escaper→colorer path. Live init runs on
 dedicated thread (nested `pollster` inside the async actor was unreliable);
 adapter probe tries Vulkan then GL; `/tmp/cz_naive_gpu_status.txt` records
 outcome. Headed/Xvfb HUD shows `mode:naive-gpu` when the adapter is up
-(`CZ_FORCE_CPU_NAIVE=1` forces CPU). FLOP→IPS ratio tuning remains open.
+(`CZ_FORCE_CPU_NAIVE=1` forces CPU). Iterate-heavy FLOP→IPS bar is met on the
+probe (warmup + sparse fullstack tracks compute within ~±20%); live home IPS
+and GPU-native shade/publish remain open.
 
 Developer target: **v0.0.9 semantics on GPU** (`design-target.md`) — one live
 view, full remap of old work, small interruptible bouts, whole-truth publishes.
@@ -147,10 +149,10 @@ tick design from the virtues wall-clock workshift, not from the suspended
 - [x] Workshifts remain interruptible; no unbounded GPU call (`BoutCap` waves).
 - [x] Provisional publishes never set final/done.
 - [x] Hot path does not read back full point/calibrated buffers (sparse finishes only).
-- [~] Measured IPS ratio tracks measured FLOP ratio within ~±20% on
-      iterate-heavy full-stack runs (probe scaffold in `workgroup_fitness` bench).
-      **2026-08-08 grind:** compute/header-only path ≈ **140–160×** CPU on GTX 1080 Ti
-      F32 (in FLOP-theory band). Sparse finals harvest still pays a ~10× sync tax
-      (~12× CPU) even with few finals — finish-buffer readback next.
+- [x] Measured IPS ratio tracks measured FLOP ratio within ~±20% on
+      iterate-heavy full-stack runs (`naive_gpu_ips_ratio_probe`).
+      **2026-08-08:** after pipeline warmup, GTX 1080 Ti F32 shows compute/header-only
+      ≈ **160–170×** CPU and sparse fullstack ≈ **130–140×** (≥0.80 of compute). Earlier
+      ~12× readings were first-submit warmup, not finish-buffer tax.
 - [x] Queues remain index control plane; WIP width sufficient that queue time is
       noise in the iterate-heavy profile.

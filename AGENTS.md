@@ -22,16 +22,21 @@ final (the `Delivery` enum), small interruptible bouts.
 
 ## Enforcement layers
 
-Three layers, cheapest-first:
+Four layers, cheapest-first:
 
 1. **Types** — `BoutCap` (no unbounded call), `Delivery` (provisional cannot set
    `delivered`), `push_delivery` (buffer slot + flag atomically, `#[must_use]`),
    `LiveTarget` (one live target structural). Compile-time; cannot regress.
 2. **The pre-edit hook** — `.cursor/hooks.json` runs
-   `.cursor/hooks/workgroup-rules.sh` on every `Write`/`Edit`/`StrReplace` into
+   `.cursor/hooks/workgroup-rules.sh` on every `Write`/`StrReplace` into
    `screen_worker/` or `colorer/`; it injects that file's rule summaries as agent
    context at the moment of the edit. Fails open.
-3. **Tests + tracey audit** — catch what types and the hook miss.
+3. **Test leftover reaper** — `.cursor/hooks/kill-test-zombies.sh` runs before/after
+   shell commands matching `cargo test|cargo bench|xvfb_screenshot_check`, and on
+   agent `stop`. Reaps repo `target/` app/bench binaries and `/tmp/cz_*` Xvfb
+   sessions only (never headed `/usr/bin` or Cursor sandboxes). Log:
+   `/tmp/cz_zombie_kill.log`. Fails open.
+4. **Tests + tracey audit** — catch what types and the hook miss.
 
 ## Two rules that prevent most regressions
 

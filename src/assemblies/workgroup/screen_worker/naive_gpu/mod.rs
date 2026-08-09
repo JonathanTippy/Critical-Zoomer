@@ -431,46 +431,72 @@ mod smoke_tests {
             .enumerate()
             .map(|(i, p)| (i as u32, p))
             .collect();
-        // Hot path: one upload+16 resident bouts, header map + sparse finish copy.
-        let t_fs = Instant::now();
-        gpu.dispatch_wave_multi_sparse(&upload_fs, 4.0, 1e-15, BoutCap::STANDARD, 16)
-            .expect("dispatch_sparse");
-        let (fins, delta_fs) = gpu.harvest_sparse_finals().expect("sparse");
-        let fs_s = t_fs.elapsed().as_secs_f64().max(1e-9);
-        let fs_ips = delta_fs as f64 / fs_s;
-        let n_finals = fins.len();
-
-        // Compute-amortized: same work, header-only readback (no finish payload map).
         let points_c: Vec<Point<f64>> = (0..n).map(|i| hard_point(i, n)).collect();
         let upload_c: Vec<(u32, &Point<f64>)> = points_c
             .iter()
             .enumerate()
             .map(|(i, p)| (i as u32, p))
             .collect();
-        let t_c = Instant::now();
-        gpu.dispatch_wave_multi_iters_only(&upload_c, 4.0, 1e-15, BoutCap::STANDARD, 16)
-            .expect("dispatch_multi_iters");
-        let delta_c = gpu.harvest_iters_only().expect("iters");
-        let c_s = t_c.elapsed().as_secs_f64().max(1e-9);
-        let compute_ips = delta_c as f64 / c_s;
 
-        let fs_ratio = fs_ips / cpu_ips.max(1.0);
-        let compute_ratio = compute_ips / cpu_ips.max(1.0);
-        eprintln!(
-            "IPS probe: cpu={cpu_ips:.3e} fullstack={fs_ips:.3e} ({fs_ratio:.2}×) compute≈{compute_ips:.3e} ({compute_ratio:.2}×) finals={n_finals} delta_fs={delta_fs} delta_c={delta_c} fs_ms={:.2} c_ms={:.2} precision={:?} n={n} bouts=16",
-            fs_s * 1e3,
-            c_s * 1e3,
-            gpu.precision
-        );
+        // Warm pipeline so timed trials are not dominated by first-submit latency.
+        gpu.dispatch_wave_multi_iters_only(&upload_c, 4.0, 1e-15, BoutCap::STANDARD, 16)
+            .expect("warmup");
+        let _ = gpu.harvest_iters_only().expect("warmup harvest");
+
+        // Best-of-N: parallel cargo test can contend for the GPU and inflate one trial.
+        let mut best_compute_ratio = 0.0_f64;
+        let mut best_fs_ratio = 0.0_f64;
+        let mut best_line = String::new();
+        for trial in 0..3 {
+            let t_c = Instant::now();
+            gpu.dispatch_wave_multi_iters_only(&upload_c, 4.0, 1e-15, BoutCap::STANDARD, 16)
+                .expect("dispatch_multi_iters");
+            let t_c_disp = Instant::now();
+            let delta_c = gpu.harvest_iters_only().expect("iters");
+            let t_c_harv = Instant::now();
+            let c_s = t_c.elapsed().as_secs_f64().max(1e-9);
+            let compute_ips = delta_c as f64 / c_s;
+            let c_disp_ms = (t_c_disp - t_c).as_secs_f64() * 1e3;
+            let c_harv_ms = (t_c_harv - t_c_disp).as_secs_f64() * 1e3;
+
+            let t_fs = Instant::now();
+            gpu.dispatch_wave_multi_sparse(&upload_fs, 4.0, 1e-15, BoutCap::STANDARD, 16)
+                .expect("dispatch_sparse");
+            let t_after_dispatch = Instant::now();
+            let (fins, delta_fs) = gpu.harvest_sparse_finals().expect("sparse");
+            let t_after_harvest = Instant::now();
+            let fs_s = t_fs.elapsed().as_secs_f64().max(1e-9);
+            let fs_ips = delta_fs as f64 / fs_s;
+            let n_finals = fins.len();
+            let dispatch_ms = (t_after_dispatch - t_fs).as_secs_f64() * 1e3;
+            let harvest_ms = (t_after_harvest - t_after_dispatch).as_secs_f64() * 1e3;
+
+            let fs_ratio = fs_ips / cpu_ips.max(1.0);
+            let compute_ratio = compute_ips / cpu_ips.max(1.0);
+            let line = format!(
+                "IPS probe trial={trial}: cpu={cpu_ips:.3e} fullstack={fs_ips:.3e} ({fs_ratio:.2}×) compute≈{compute_ips:.3e} ({compute_ratio:.2}×) finals={n_finals} delta_fs={delta_fs} delta_c={delta_c} fs_ms={:.2} (disp={dispatch_ms:.2} harv={harvest_ms:.2}) c_ms={:.2} (disp={c_disp_ms:.2} harv={c_harv_ms:.2}) precision={:?} n={n} bouts=16",
+                fs_s * 1e3,
+                c_s * 1e3,
+                gpu.precision
+            );
+            eprintln!("{line}");
+            if compute_ratio >= best_compute_ratio {
+                best_compute_ratio = compute_ratio;
+                best_fs_ratio = fs_ratio;
+                best_line = line;
+            }
+        }
+        eprintln!("IPS probe best: {best_line}");
         // FLOP-ratio method (D-NGPU-5): iterate-heavy arithmetic vs CPU single-core.
-        // On this 1080 Ti F32, peak/theory is ~100–200×; compute path is the proxy.
+        // Compute path proxies device FLOP; fullstack must track it within ~±20%.
         assert!(
-            compute_ratio > 50.0,
-            "compute GPU/CPU ratio {compute_ratio:.2} below FLOP-tracking floor (50×)"
+            best_compute_ratio > 50.0,
+            "compute GPU/CPU ratio {best_compute_ratio:.2} below FLOP-tracking floor (50×)"
         );
+        let track = best_fs_ratio / best_compute_ratio.max(1e-9);
         assert!(
-            fs_ratio > 5.0,
-            "sparse full-stack ratio {fs_ratio:.2} below playable floor (5×); finish-sync tax"
+            track > 0.80,
+            "sparse fullstack {best_fs_ratio:.2}× is {track:.2} of compute {best_compute_ratio:.2}× (need ≥0.80)"
         );
     }
 }

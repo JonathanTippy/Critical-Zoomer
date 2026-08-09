@@ -4,5 +4,11 @@
 mutants.out/
 # Ide stuff
 /.idea/
-/.cursor/
+# Keep project hooks/rules tracked; ignore Cursor debug dumps and local captures.
+/.cursor/*
+!/.cursor/hooks.json
+!/.cursor/hooks/
+!/.cursor/hooks/*.sh
+!/.cursor/rules/
+!/.cursor/rules/**
 mutants.out.old/

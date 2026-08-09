@@ -134,7 +134,22 @@ impl NaiveGpuContext {
             pass.set_bind_group(0, &self.bind_group, &[]);
             pass.dispatch_workgroups((wip_count + 255) / 256, 1, 1);
         }
-        let finish_bytes = self.finish_stride * wip_count as u64;
+        // Header + compact finish prefix in the same submit (no second GPU sync).
+        // Iterate-heavy stays under SPARSE_FINISH_CAP; shallow floods may truncate.
+        let sparse_n = wip_count.min(SPARSE_FINISH_CAP);
+        encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, &self.sparse_staging, 0, 4);
+        encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, &self.sparse_staging, 4, 4);
+        encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, &self.header_staging, 0, 4);
+        encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, &self.header_staging, 4, 4);
+        if sparse_n > 0 {
+            encoder.copy_buffer_to_buffer(
+                &self.finishes_buf,
+                0,
+                &self.sparse_staging,
+                16,
+                self.finish_stride * sparse_n as u64,
+            );
+        }
         if copy_seats {
             encoder.copy_buffer_to_buffer(
                 &self.seats_buf,
@@ -144,20 +159,6 @@ impl NaiveGpuContext {
                 self.seat_stride * wip_count as u64,
             );
         }
-        // One staging blob: header + up to SPARSE_FINISH_CAP finals (iterate-heavy).
-        let sparse_n = wip_count.min(SPARSE_FINISH_CAP);
-        encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, &self.sparse_staging, 0, 4);
-        encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, &self.sparse_staging, 4, 4);
-        encoder.copy_buffer_to_buffer(
-            &self.finishes_buf,
-            0,
-            &self.sparse_staging,
-            16,
-            self.finish_stride * sparse_n as u64,
-        );
-        encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, &self.header_staging, 0, 4);
-        encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, &self.header_staging, 4, 4);
-        let _ = finish_bytes;
         self.queue.submit(Some(encoder.finish()));
         self.last_wip_count
             .store(wip_count, std::sync::atomic::Ordering::Relaxed);
@@ -249,15 +250,26 @@ impl NaiveGpuContext {
         let sparse_n = wip_count.min(SPARSE_FINISH_CAP);
         encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, &self.sparse_staging, 0, 4);
         encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, &self.sparse_staging, 4, 4);
-        encoder.copy_buffer_to_buffer(
-            &self.finishes_buf,
-            0,
-            &self.sparse_staging,
-            16,
-            self.finish_stride * sparse_n as u64,
-        );
         encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, &self.header_staging, 0, 4);
         encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, &self.header_staging, 4, 4);
+        if sparse_n > 0 {
+            encoder.copy_buffer_to_buffer(
+                &self.finishes_buf,
+                0,
+                &self.sparse_staging,
+                16,
+                self.finish_stride * sparse_n as u64,
+            );
+        }
+        if copy_seats {
+            encoder.copy_buffer_to_buffer(
+                &self.seats_buf,
+                0,
+                &self.seat_staging,
+                0,
+                self.seat_stride * wip_count as u64,
+            );
+        }
         self.queue.submit(Some(encoder.finish()));
         self.last_wip_count
             .store(wip_count, std::sync::atomic::Ordering::Relaxed);
@@ -269,7 +281,7 @@ impl NaiveGpuContext {
         Ok(u32::from_ne_bytes([header[4], header[5], header[6], header[7]]))
     }
 
-    /// Header map (8B) then finals map sized to `count` (avoids fat one-shot maps).
+    /// Sparse finals from the compact finish prefix (same submit as compute).
     pub fn harvest_sparse_finals(&self) -> Result<(Vec<HarvestedFinish>, u32), String> {
         let header = map_bytes(&self.device, &self.header_staging, 8)?;
         let count = u32::from_ne_bytes([header[0], header[1], header[2], header[3]]);
@@ -278,14 +290,8 @@ impl NaiveGpuContext {
         if n_fin == 0 {
             return Ok((Vec::new(), iter_delta));
         }
-        // Finishes live at offset 16 in sparse_staging (copied during dispatch).
         let finish_bytes = self.finish_stride * n_fin as u64;
-        let bytes = map_bytes_offset(
-            &self.device,
-            &self.sparse_staging,
-            16,
-            finish_bytes,
-        )?;
+        let bytes = map_bytes_offset(&self.device, &self.sparse_staging, 16, finish_bytes)?;
         let mut finals = Vec::with_capacity(n_fin);
         for i in 0..n_fin {
             let off = i * self.finish_stride as usize;

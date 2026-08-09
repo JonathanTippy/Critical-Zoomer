@@ -24,10 +24,14 @@ accident:
 - **The change protocol.** A deliberate redesign updates the rule here, the prose
   in `workgroup-virtues.md`, and the pinned test *together*, in one change.
 - **The pre-edit hook.** `.cursor/hooks.json` runs `.cursor/hooks/workgroup-rules.sh` on
-  every `Write`/`Edit`/`StrReplace`. When the target file is under
+  every `Write`/`StrReplace`/`EditNotebook`. When the target file is under
   `src/assemblies/workgroup/screen_worker/` or `src/assemblies/shadergroup/colorer/`, it
   injects that file's rule summaries (below) as agent context at the moment of the edit —
   the forcing function the docs alone cannot provide. It fails open (never blocks an edit).
+- **Test leftover reaper.** `.cursor/hooks/kill-test-zombies.sh` (before/after
+  `cargo test|cargo bench|xvfb_screenshot_check`, and on agent `stop`) reaps repo-scoped
+  app/bench orphans and `/tmp/cz_*` Xvfb sessions so cleanup does not depend on ad-hoc
+  `pkill` approvals. Fails open; log `/tmp/cz_zombie_kill.log`.
 
 The always-on summary for editing sessions is `.cursor/rules/critical-zoomer-invariants.mdc`;
 the agent-facing entry point is `AGENTS.md`. Detection (the periodic tracey-link audit and

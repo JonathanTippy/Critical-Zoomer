@@ -52,4 +52,7 @@ suites.
 ## 3. Afterward
 
 Stop the session, confirm no leftover `critical_zoomer` / `Xvfb` processes, and
-leave no capture junk in the repo tree.
+leave no capture junk in the repo tree. Agent sessions also run
+`.cursor/hooks/kill-test-zombies.sh` automatically before/after `cargo test`,
+`cargo bench`, and `xvfb_screenshot_check`, and on agent stop (see
+`.cursor/hooks.json`). Manual sweep: `.cursor/hooks/kill-test-zombies.sh`.
