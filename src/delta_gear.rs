@@ -7,6 +7,8 @@ use crate::floatexp::{ComplexFloatExp, FloatExp};
 // r[impl cz.depth.compute-gear+1]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ComputeGear {
+    /// Naive GPU F32 compute (HUD only; perturbation never uses this).
+    F32,
     #[default]
     F64,
     ScaledF64,
@@ -17,6 +19,7 @@ pub enum ComputeGear {
 impl ComputeGear {
     pub fn hud_label(self) -> &'static str {
         match self {
+            ComputeGear::F32 => "F32",
             ComputeGear::F64 => "F64",
             ComputeGear::ScaledF64 => "S-F64",
             ComputeGear::FloatExp => "FE",
@@ -248,6 +251,7 @@ pub fn aggregate_seat_gears(gears: &[ComputeGear]) -> ComputeGear {
     let mut saw_fe = false;
     for g in gears {
         match g {
+            ComputeGear::F32 => {} // naive-GPU HUD only; ignore in pert aggregates
             ComputeGear::F64 => saw_f64 = true,
             ComputeGear::ScaledF64 => saw_scaled = true,
             ComputeGear::FloatExp => saw_fe = true,

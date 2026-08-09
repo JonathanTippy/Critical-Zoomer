@@ -42,7 +42,7 @@ pub struct ZoomerValuesScreen {
     pub values: Vec<ScreenValue>
     , pub res: (u32, u32)
     , pub objective_location: ObjectivePosAndZoom
-    // r[impl cz.depth.gear-hud+1]
+    // r[impl cz.depth.gear-hud+2]
     , pub hud: crate::assemblies::structs::ViewHud
 }
 
@@ -185,6 +185,53 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
                 output.push(value);
             }
 
+            // #region agent log
+            if crate::debug_agent::should_sample(25) {
+                let mut outer = 0u32;
+                let mut outer_bt0 = 0u32;
+                let mut outer_bt_nz = 0u32;
+                let mut outer_st_nz = 0u32;
+                let mut outer_worker_et_nz = 0u32;
+                let mut cont_bumped = 0u32;
+                let mut sample_c2 = 0.0f64;
+                let mut sample_bt = 0u32;
+                let mut sample_et = 0u32;
+                for i in 0..r.len() {
+                    let (cr, ci, et, st) = match &r[i] {
+                        CompletedPoint::Escapes { escape_time, small_time, start_location, .. } => {
+                            let cr: f64 = start_location.0.into();
+                            let ci: f64 = start_location.1.into();
+                            (cr, ci, *escape_time, *small_time)
+                        }
+                        _ => continue,
+                    };
+                    let c2 = cr * cr + ci * ci;
+                    if c2 <= 4.0 { continue; }
+                    outer += 1;
+                    if et != 0 { outer_worker_et_nz += 1; }
+                    match &output[i] {
+                        ScreenValue::Outside { big_time, small_time, .. } => {
+                            if *big_time == 0 { outer_bt0 += 1; } else { outer_bt_nz += 1; }
+                            if *small_time != 0 { outer_st_nz += 1; }
+                            if *big_time != et { cont_bumped += 1; }
+                            if outer == 1 {
+                                sample_c2 = c2;
+                                sample_bt = *big_time;
+                                sample_et = et;
+                            }
+                            let _ = st;
+                        }
+                        ScreenValue::Inside { .. } => {}
+                    }
+                }
+                let data = format!(
+                    "{{\"zoom\":{},\"outer\":{outer},\"outer_bt0\":{outer_bt0},\"outer_bt_nz\":{outer_bt_nz},\"outer_st_nz\":{outer_st_nz},\"outer_worker_et_nz\":{outer_worker_et_nz},\"cont_bumped\":{cont_bumped},\"sample_c2\":{sample_c2},\"sample_et\":{sample_et},\"sample_bt\":{sample_bt}}}",
+                    v.location.zoom_pot
+                );
+                crate::debug_agent::log("B,C", "escaper.rs:paint", "outer_ring_after_escape", &data);
+            }
+            // #endregion
+
             //info!("done escaping. result is {} pixels long.", output.len());
 
 
@@ -206,7 +253,7 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
 pub fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f64> + PartialOrd + Finite + Gt + Abs + From<f32> + Into<f64> + Copy>
     (p: &CompletedPoint<T>, r: f32, pos:(i32, i32), points: &Vec<CompletedPoint<T>>, res: (u32, u32), settings:Settings) -> ScreenValue {
     match p {
-        CompletedPoint::Escapes{escape_time: t, escape_location: z, escape_derivative: dc, start_location: c , smallness:s, small_time:st} => {
+        CompletedPoint::Escapes{escape_time: t, escape_location: z, escape_derivative: escape_dc, start_location: c , smallness:s, small_time:st} => {
 
             let neighbors: [(i32, i32);4] =[
                 (pos.0, pos.1-1)
@@ -255,9 +302,10 @@ pub fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Int
 
             let r_squared = r*r;
             let mut p = Point{
-                c: *c
+                delta_c: *c
+                , c: *c
                 , z: *z
-                , dc: *dc
+                , dc: *escape_dc
                 , real_squared: z.0 * z.0
                 , imag_squared: z.1 * z.1
                 , iterations: t.clone()
@@ -285,11 +333,11 @@ pub fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Int
                         let imag_squared:f64 = p.imag_squared.into();
                         let bigness:f64 = (real_squared+imag_squared).sqrt();*/
                         //let shortness = r as f64-2.0;
-                        //let closeness = 1.0/((p.c.0 - (-2.0)).abs());
+                        //let closeness = 1.0/((p.delta_c.0 - (-2.0)).abs());
                         //let closeness = 1.0/p.smallness;
                         //p.iterations = og_count + closeness.exp().exp() as u32;
 
-                        let nudge = (p.c.0 - (2.0f32.into())).abs();
+                        let nudge = (p.delta_c.0 - (2.0f32.into())).abs();
                         let additional_iterations = (r as f64 /nudge.into()).log(4.0) as u32;
                         p.iterations+=additional_iterations;
                     }*/
@@ -302,8 +350,8 @@ pub fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Int
 
             let zr: f64 = p.z.0.into();
             let zi: f64 = p.z.1.into();
-            let dr: f64 = p.dc.0.into();
-            let di: f64 = p.dc.1.into();
+            let dr: f64 = p.delta_c.0.into();
+            let di: f64 = p.delta_c.1.into();
             // arg(z / dc), reflected because screen y grows downward.
             let gradient_angle = (-(zi * dr - zr * di)).atan2(zr * dr + zi * di) as f32;
             ScreenValue::Outside{

@@ -98,10 +98,13 @@ pub struct WindowState {
     , pub scroll_debt: f32
     , pub coord_input: String
     , pub startup_goto_applied: bool
-    // r[impl cz.depth.gear-hud+1]
+    // r[impl cz.depth.gear-hud+2]
     , pub pps_counter: RateCounter
     , pub ips_counter: RateCounter
     , pub last_gear_label: &'static str
+    , pub last_stack_label: &'static str
+    , pub last_mode_label: &'static str
+    , pub last_ref_label: &'static str
 }
 
 /// Entry point for the window actor.
@@ -168,6 +171,9 @@ async fn internal_behavior<A: SteadyActor>(
         , pps_counter: RateCounter::default()
         , ips_counter: RateCounter::default()
         , last_gear_label: "F64"
+        , last_stack_label: "f64"
+        , last_mode_label: "naive"
+        , last_ref_label: "NA"
     }).await;
 
     {
@@ -326,6 +332,9 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     state.pps_counter.record(s.hud.points_delta, now);
                     state.ips_counter.record(s.hud.iterations_delta, now);
                     state.last_gear_label = s.hud.gear.hud_label();
+                    state.last_stack_label = s.hud.stack.hud_label();
+                    state.last_mode_label = s.hud.mode.hud_label();
+                    state.last_ref_label = s.hud.ref_hud_label();
                     update_sampling_context(&mut state.sampling_context, s);
 
                 }
@@ -453,11 +462,13 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                         let now = Instant::now();
                                         let pps = state.pps_counter.rate(now);
                                         let ips = state.ips_counter.rate(now);
-                                        // Keep metrics left of the center coord bar.
-                                        // r[impl cz.depth.gear-hud+1]
+                                        // r[impl cz.depth.gear-hud+2]
                                         response += format!(
-                                            "fps:{:.0}  gear:{}\npps:{:.0}  ips:{:.0}  1s:{:.1}",
+                                            "fps:{:.0}  stack:{}  mode:{}  ref:{}  gear:{}\npps:{:.0}  ips:{:.0}  1s:{:.1}",
                                             r.0.0 as f64 / 1000000000.0,
+                                            state.last_stack_label,
+                                            state.last_mode_label,
+                                            state.last_ref_label,
                                             state.last_gear_label,
                                             pps,
                                             ips,
@@ -491,7 +502,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 );
 
                 egui::Area::new(egui::Id::new("coord_bar"))
-                    .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 8.0))
+                    .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-8.0, -8.0))
                     .order(egui::Order::Foreground)
                     .show(ctx, |ui| {
                         egui::Frame::popup(ui.style())

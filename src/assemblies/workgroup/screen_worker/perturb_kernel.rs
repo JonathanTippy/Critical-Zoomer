@@ -1,4 +1,4 @@
-//! Perturbation delta kernel — the sole production numerical path (f64 seats).
+//! Perturbation delta kernel (`mode:pert` production path for f64 seats).
 //!
 //! Inner recurrence uses the compute gear ladder (f64 → scaled-f64 → FloatExp).
 //! Depth tests use `perturb_floatexp` (`SeatKernel<FloatExp>`).
@@ -17,15 +17,17 @@ use crate::delta_gear::{
 };
 use crate::floatexp::{ComplexFloatExp, FloatExp};
 use crate::reference::ReferenceOrbit;
+use crate::utils::IntExp;
 
 use super::workshift::{
-    direct_completion, ensure_started, update_point_results, bailout_point, iterate, BoutCap,
-    CompletedPoint, DeltaState, Point, SeatKernel, WorkContext,
+    abs_c_f64, direct_completion_with_c, ensure_started, update_point_results, bailout_point,
+    iterate_with_c, c_from_delta_c_f64, c_floatexp_from_delta_c, c_for_seat_f64,
+    iterate, BoutCap, CompletedPoint, DeltaState, Point, SeatKernel, WorkContext,
 };
 
-/// The only production kernel. Always runs delta iteration.
+/// Perturbation delta kernel (`mode:pert`).
 // r[impl cz.depth.delta-kernel+1]
-// r[impl cz.perf.one-kernel-path+1]
+// r[impl cz.perf.pps-selected-kernel+1]
 // r[impl cz.ref.zero-orbit-same-path+1]
 // r[impl cz.depth.compute-gear+1]
 #[derive(Clone, Copy, Debug, Default)]
@@ -36,14 +38,7 @@ fn zero_orbit() -> &'static ReferenceOrbit {
     ZERO.get_or_init(ReferenceOrbit::zero_orbit)
 }
 
-fn abs_plane_f64(c: (f64, f64), anchor: &(crate::utils::IntExp, crate::utils::IntExp)) -> (f64, f64) {
-    (
-        f64::from(anchor.0.clone()) + c.0,
-        f64::from(anchor.1.clone()) + c.1,
-    )
-}
-
-fn to_delta_c_f64(c: (f64, f64)) -> ComplexFloatExp {
+fn absolute_c_floatexp_from_f64(c: (f64, f64)) -> ComplexFloatExp {
     ComplexFloatExp::new(FloatExp::from(c.0), FloatExp::from(c.1))
 }
 
@@ -61,11 +56,8 @@ fn active_orbit<'a>(
     if point.direct_only {
         zero_orbit()
     } else if let Some(r) = published {
-        if r.escaped {
-            zero_orbit()
-        } else {
-            r
-        }
+        // Escaped orbits still supply pre-escape iterates; soft-continue after the tip.
+        r
     } else {
         zero_orbit()
     }
@@ -115,24 +107,36 @@ fn rebind_to_zero_continuing(
     point: &mut Point<f64>,
     delta: &mut DeltaState,
     against_generation: u64,
+    absolute_z: ComplexFloatExp,
 ) {
+    // Soft-continue / zero-orbit: δc slot holds absolute c; δz slot holds absolute z.
+    // Never copy generator Point.delta_c into delta.delta_c (that paints exterior as "in").
     point.direct_only = true;
     point.bound_zero_generation = against_generation;
-    delta.dc = delta.abs_c;
-    delta.dz = floatexp_from_f64_pair(point.z);
+    delta.delta_c = delta.c;
+    delta.delta_z = absolute_z;
     delta.generation = 0;
-    delta.gear = gear_for_delta(delta.dc, delta.dz);
-    delta.scale = scaled_scale_from_dz(delta.dz);
+    // Prefer FloatExp when absolute c/z lose bits under f64 (deep relative soft-continue);
+    // keep f64 gear on shallow absolute shells so home fill stays fast.
+    let c_bits_lost = floatexp_from_f64_pair((delta.c.re.to_f64(), delta.c.im.to_f64())) != delta.c;
+    let z_bits_lost =
+        floatexp_from_f64_pair((absolute_z.re.to_f64(), absolute_z.im.to_f64())) != absolute_z;
+    delta.gear = if c_bits_lost || z_bits_lost {
+        ComputeGear::FloatExp
+    } else {
+        gear_for_delta(delta.delta_c, delta.delta_z)
+    };
+    delta.scale = scaled_scale_from_dz(delta.delta_z);
 }
 
 #[inline(always)]
 fn sync_point_from_delta_fe(
     point: &mut Point<f64>,
     z_ref: ComplexFloatExp,
-    dz: ComplexFloatExp,
+    delta_z: ComplexFloatExp,
     dd: ComplexFloatExp,
 ) {
-    let z = z_ref + dz;
+    let z = z_ref + delta_z;
     point.z = (z.re.to_f64(), z.im.to_f64());
     point.dc = (dd.re.to_f64(), dd.im.to_f64());
     update_point_results(point);
@@ -142,10 +146,10 @@ fn sync_point_from_delta_fe(
 fn sync_point_from_f64_locals(
     point: &mut Point<f64>,
     z_ref: (f64, f64),
-    dz: (f64, f64),
+    delta_z: (f64, f64),
     dd: (f64, f64),
 ) {
-    point.z = (z_ref.0 + dz.0, z_ref.1 + dz.1);
+    point.z = (z_ref.0 + delta_z.0, z_ref.1 + delta_z.1);
     point.dc = dd;
     update_point_results(point);
 }
@@ -160,28 +164,47 @@ fn init_delta(
     point: &mut Point<f64>,
     orbit: &ReferenceOrbit,
     generation: u64,
-    abs_c: (f64, f64),
+    delta_c: (f64, f64),
+    c: (f64, f64),
+    coords_are_relative: bool,
+    anchor: &(IntExp, IntExp),
 ) {
     if std::ptr::eq(orbit, zero_orbit()) {
-        init_delta_zero_orbit_f64(point, generation, abs_c);
+        init_delta_zero_orbit_f64(
+            point,
+            generation,
+            delta_c,
+            c,
+            coords_are_relative,
+            anchor,
+        );
         return;
     }
-    let abs = to_delta_c_f64(abs_c);
-    let dc = abs - reference_c_floatexp(orbit);
-    let dz = dc;
+    let plane_fe = if coords_are_relative {
+        c_floatexp_from_delta_c(delta_c, anchor)
+    } else {
+        absolute_c_floatexp_from_f64(c)
+    };
+    // Relative shells: generator delta_c is already δc vs reference/anchor.
+    let delta_c_fe = if coords_are_relative {
+        floatexp_from_f64_pair(delta_c)
+    } else {
+        plane_fe.clone() - reference_c_floatexp(orbit)
+    };
+    let delta_z_fe = delta_c_fe.clone();
     let dd = ComplexFloatExp::new(FloatExp::ONE, FloatExp::ZERO);
     let Some(z_ref) = orbit.get(1) else {
         point.delta = None;
         return;
     };
-    let gear = gear_for_delta(dc, dz);
-    let scale = scaled_scale_from_dz(dz);
+    let gear = gear_for_delta(delta_c_fe, delta_z_fe);
+    let scale = scaled_scale_from_dz(delta_z_fe);
     point.delta = Some(DeltaState {
-        dz,
+        delta_z: delta_z_fe,
         checkpoint: ComplexFloatExp::ZERO,
         checkpoint_n: 0,
-        dc,
-        abs_c: abs,
+        delta_c: delta_c_fe,
+        c: plane_fe,
         dd,
         generation,
         gear,
@@ -191,74 +214,64 @@ fn init_delta(
     point.escapes = false;
     point.repeats = false;
     point.period = 0;
-    point.loop_detection_point = ((point.c.0, point.c.1), 0);
     point.smallness_squared = f64::MAX;
     point.small_time = 0;
-    sync_point_from_delta_fe(point, z_ref, dz, dd);
+    point.c = c;
+    sync_point_from_delta_fe(point, z_ref, delta_z_fe, dd);
+    point.loop_detection_point = (point.z, 0);
 }
 
-/// Zero-orbit floor: skip gear scan / orbit lookup — home f64 is always F64 here.
-fn init_delta_zero_orbit_f64(point: &mut Point<f64>, generation: u64, abs_c: (f64, f64)) {
-    let fe_c = floatexp_from_f64_pair(abs_c);
+/// Zero-orbit floor: skip gear scan / orbit lookup when shallow absolute f64.
+///
+/// The δc / δz slots must hold absolute `c` / `z` (same math as naive). Never put
+/// generator `delta_c` in those slots.
+fn init_delta_zero_orbit_f64(
+    point: &mut Point<f64>,
+    generation: u64,
+    generator_delta_c: (f64, f64),
+    c: (f64, f64),
+    coords_are_relative: bool,
+    anchor: &(IntExp, IntExp),
+) {
+    // Absolute c in the δc slot. Relative shells reconstruct via FloatExp (anchor +
+    // generator delta_c); do not trust collapsed f64 `c` alone.
+    let (delta_c_fe, delta_z_fe, fe_c, gear, scale) = if coords_are_relative {
+        let pc = c_floatexp_from_delta_c(generator_delta_c, anchor);
+        let gear = gear_for_delta(pc.clone(), pc.clone());
+        let scale = scaled_scale_from_dz(pc.clone());
+        (pc.clone(), pc.clone(), pc, gear, scale)
+    } else {
+        let pc = floatexp_from_f64_pair(c);
+        let gear = gear_for_delta(pc.clone(), pc.clone());
+        let scale = scaled_scale_from_dz(pc.clone());
+        (pc.clone(), pc.clone(), pc, gear, scale)
+    };
     point.delta = Some(DeltaState {
-        dz: fe_c,
+        delta_z: delta_z_fe,
         checkpoint: ComplexFloatExp::ZERO,
         checkpoint_n: 0,
-        dc: fe_c,
-        abs_c: fe_c,
+        delta_c: delta_c_fe,
+        c: fe_c,
         dd: ComplexFloatExp::new(FloatExp::ONE, FloatExp::ZERO),
         generation,
-        gear: ComputeGear::F64,
-        scale: FloatExp::ONE,
+        gear,
+        scale,
     });
     point.iterations = 0;
     point.escapes = false;
     point.repeats = false;
     point.period = 0;
-    point.loop_detection_point = (abs_c, 0);
+    point.c = c;
+    point.z = if coords_are_relative {
+        (fe_c.re.to_f64(), fe_c.im.to_f64())
+    } else {
+        c
+    };
+    point.dc = (1.0, 0.0);
+    point.loop_detection_point = (c, 0);
     point.smallness_squared = f64::MAX;
     point.small_time = 0;
-    point.z = abs_c;
-    point.dc = (1.0, 0.0);
     update_point_results(point);
-}
-
-fn apply_series_skip(
-    point: &mut Point<f64>,
-    published: Option<&crate::assemblies::workgroup::reference_worker::PublishedReference>,
-) {
-    let Some(pub_ref) = published else {
-        return;
-    };
-    if point.direct_only || pub_ref.orbit.escaped {
-        return;
-    }
-    let Some(series) = pub_ref.series.as_ref() else {
-        return;
-    };
-    let Some(delta) = point.delta.as_mut() else {
-        return;
-    };
-    if point.iterations > 0 {
-        return;
-    }
-    let skip = series.safe_skip(delta.dc, pub_ref.orbit.iterates.len().saturating_sub(1));
-    if skip <= 1 {
-        return;
-    }
-    let Some(dz) = series.evaluate(skip, delta.dc) else {
-        return;
-    };
-    let dd = delta.dd;
-    delta.dz = dz;
-    delta.gear = gear_for_delta(delta.dc, dz);
-    delta.scale = scaled_scale_from_dz(dz);
-    point.iterations = skip.saturating_sub(1) as u32;
-    let z_ref = pub_ref
-        .orbit
-        .get(point.iterations.saturating_add(1))
-        .unwrap_or(ComplexFloatExp::ZERO);
-    sync_point_from_delta_fe(point, z_ref, dz, dd);
 }
 
 fn fe_pair(z: ComplexFloatExp) -> (f64, f64) {
@@ -274,7 +287,7 @@ fn fe_iterate_step(
     r_squared: f64,
     epsilon: f64,
 ) -> StepOutcome {
-    let z = z_ref + delta.dz;
+    let z = z_ref + delta.delta_z;
     let z_norm_sq = z.norm_squared();
     let z_ref_norm_sq = if is_zero_ref {
         FloatExp::ZERO
@@ -287,9 +300,9 @@ fn fe_iterate_step(
     let two = ComplexFloatExp::new(FloatExp::TWO, FloatExp::ZERO);
     let one = ComplexFloatExp::new(FloatExp::ONE, FloatExp::ZERO);
 
-    if !is_zero_ref && delta.dz != ComplexFloatExp::ZERO && z_ref_norm_sq == four {
-        let correction = FloatExp::TWO * (z_ref.re * delta.dz.re + z_ref.im * delta.dz.im)
-            + delta.dz.norm_squared();
+    if !is_zero_ref && delta.delta_z != ComplexFloatExp::ZERO && z_ref_norm_sq == four {
+        let correction = FloatExp::TWO * (z_ref.re * delta.delta_z.re + z_ref.im * delta.delta_z.im)
+            + delta.delta_z.norm_squared();
         if correction > FloatExp::ZERO {
             return StepOutcome::Escaped;
         }
@@ -312,7 +325,7 @@ fn fe_iterate_step(
         point.small_time = point.iterations;
     }
     delta.dd = z * delta.dd * two + one;
-    delta.dz = z_ref * delta.dz * two + delta.dz * delta.dz + delta.dc;
+    delta.delta_z = z_ref * delta.delta_z * two + delta.delta_z * delta.delta_z + delta.delta_c;
     delta.gear = ComputeGear::FloatExp;
     point.iterations = point.iterations.saturating_add(1);
     let z_next_ref = if is_zero_ref {
@@ -322,7 +335,7 @@ fn fe_iterate_step(
             .get(point.iterations.saturating_add(1))
             .unwrap_or(ComplexFloatExp::ZERO)
     };
-    let z_next = z_next_ref + delta.dz;
+    let z_next = z_next_ref + delta.delta_z;
     if near_fe(z_next, delta.checkpoint, epsilon) {
         return StepOutcome::Repeats;
     }
@@ -345,14 +358,14 @@ enum StepOutcome {
 enum BoutWorking {
     FloatExp,
     F64 {
-        dz: (f64, f64),
-        dc: (f64, f64),
+        delta_z: (f64, f64),
+        delta_c: (f64, f64),
         dd: (f64, f64),
         checkpoint: (f64, f64),
     },
     ScaledF64 {
-        w: (f64, f64),
-        d: (f64, f64),
+        delta_z_scaled: (f64, f64),
+        delta_c_scaled: (f64, f64),
         dd: (f64, f64),
         scale: FloatExp,
         checkpoint: (f64, f64),
@@ -363,8 +376,8 @@ impl BoutWorking {
     fn from_delta(delta: &DeltaState) -> Self {
         match delta.gear {
             ComputeGear::F64 => BoutWorking::F64 {
-                dz: fe_pair(delta.dz),
-                dc: fe_pair(delta.dc),
+                delta_z: fe_pair(delta.delta_z),
+                delta_c: fe_pair(delta.delta_c),
                 dd: fe_pair(delta.dd),
                 checkpoint: fe_pair(delta.checkpoint),
             },
@@ -374,8 +387,8 @@ impl BoutWorking {
                     return BoutWorking::FloatExp;
                 }
                 BoutWorking::ScaledF64 {
-                    w: (delta.dz.re.to_f64() / s, delta.dz.im.to_f64() / s),
-                    d: (delta.dc.re.to_f64() / s, delta.dc.im.to_f64() / s),
+                    delta_z_scaled: (delta.delta_z.re.to_f64() / s, delta.delta_z.im.to_f64() / s),
+                    delta_c_scaled: (delta.delta_c.re.to_f64() / s, delta.delta_c.im.to_f64() / s),
                     dd: fe_pair(delta.dd),
                     scale: delta.scale,
                     checkpoint: fe_pair(delta.checkpoint),
@@ -388,25 +401,25 @@ impl BoutWorking {
     fn flush_to(&self, delta: &mut DeltaState) {
         match self {
             BoutWorking::F64 {
-                dz,
+                delta_z,
                 dd,
                 checkpoint,
                 ..
             } => {
-                delta.dz = floatexp_from_f64_pair(*dz);
+                delta.delta_z = floatexp_from_f64_pair(*delta_z);
                 delta.dd = floatexp_from_f64_pair(*dd);
                 delta.checkpoint = floatexp_from_f64_pair(*checkpoint);
             }
             BoutWorking::ScaledF64 {
-                w,
+                delta_z_scaled,
                 dd,
                 scale,
                 checkpoint,
                 ..
             } => {
                 let s = scale.to_f64();
-                let dz = (w.0 * s, w.1 * s);
-                delta.dz = floatexp_from_f64_pair(dz);
+                let delta_z = (delta_z_scaled.0 * s, delta_z_scaled.1 * s);
+                delta.delta_z = floatexp_from_f64_pair(delta_z);
                 delta.dd = floatexp_from_f64_pair(*dd);
                 delta.checkpoint = floatexp_from_f64_pair(*checkpoint);
                 delta.scale = *scale;
@@ -425,26 +438,26 @@ fn sync_point_after_bout(
     is_zero_ref: bool,
 ) {
     match working {
-        BoutWorking::F64 { dz, dd, .. } => {
+        BoutWorking::F64 { delta_z, dd, .. } => {
             let z_ref = if is_zero_ref {
                 (0.0, 0.0)
             } else {
                 narrow_z_ref(z_ref_fe).unwrap_or(fe_pair(z_ref_fe))
             };
-            sync_point_from_f64_locals(point, z_ref, *dz, *dd);
+            sync_point_from_f64_locals(point, z_ref, *delta_z, *dd);
         }
-        BoutWorking::ScaledF64 { w, dd, scale, .. } => {
+        BoutWorking::ScaledF64 { delta_z_scaled, dd, scale, .. } => {
             let s = scale.to_f64();
-            let dz = (w.0 * s, w.1 * s);
+            let delta_z = (delta_z_scaled.0 * s, delta_z_scaled.1 * s);
             let z_ref = if is_zero_ref {
                 (0.0, 0.0)
             } else {
                 narrow_z_ref(z_ref_fe).unwrap_or(fe_pair(z_ref_fe))
             };
-            sync_point_from_f64_locals(point, z_ref, dz, *dd);
+            sync_point_from_f64_locals(point, z_ref, delta_z, *dd);
         }
         BoutWorking::FloatExp => {
-            sync_point_from_delta_fe(point, z_ref_fe, delta.dz, delta.dd);
+            sync_point_from_delta_fe(point, z_ref_fe, delta.delta_z, delta.dd);
         }
     }
 }
@@ -501,14 +514,14 @@ fn f64_bout_step(
     r_squared: f64,
     epsilon: f64,
     is_zero_ref: bool,
-    dz: (f64, f64),
-    dc: (f64, f64),
+    delta_z: (f64, f64),
+    delta_c: (f64, f64),
     dd: (f64, f64),
     checkpoint: (f64, f64),
 ) -> (StepOutcome, BoutWorking) {
     let working = BoutWorking::F64 {
-        dz,
-        dc,
+        delta_z,
+        delta_c,
         dd,
         checkpoint,
     };
@@ -524,7 +537,7 @@ fn f64_bout_step(
             epsilon,
         );
     };
-    let z = (z_ref.0 + dz.0, z_ref.1 + dz.1);
+    let z = (z_ref.0 + delta_z.0, z_ref.1 + delta_z.1);
     let z_norm = z.0 * z.0 + z.1 * z.1;
     let z_ref_norm = z_ref.0 * z_ref.0 + z_ref.1 * z_ref.1;
     if z_norm > r_squared {
@@ -537,10 +550,11 @@ fn f64_bout_step(
         point.smallness_squared = z_norm;
         point.small_time = point.iterations;
     }
-    let (dz_next, dd_next, next_gear) = f64_step(z_ref, dz, dc, dd, is_zero_ref);
-    // Orbit state is dz; dd is derivative coloring. Promote only when dz cannot
+    let (delta_z_next, dd_next, next_gear) =
+        f64_step(z_ref, delta_z, delta_c, dd, is_zero_ref);
+    // Orbit state is delta_z; dd is derivative coloring. Promote only when delta_z cannot
     // continue in f64 — a non-finite dd must not drag the seat onto FloatExp.
-    if !dz_next.0.is_finite() || !dz_next.1.is_finite() {
+    if !delta_z_next.0.is_finite() || !delta_z_next.1.is_finite() {
         return promote_to_fe_step(
             point,
             orbit,
@@ -558,20 +572,20 @@ fn f64_bout_step(
         dd // freeze last finite derivative; do not invent a value
     };
     let mut next_working = if next_gear == ComputeGear::ScaledF64 {
-        let scale = scaled_scale_from_dz(floatexp_from_f64_pair(dz_next));
+        let scale = scaled_scale_from_dz(floatexp_from_f64_pair(delta_z_next));
         delta.gear = ComputeGear::ScaledF64;
         let s = scale.to_f64();
         BoutWorking::ScaledF64 {
-            w: (dz_next.0 / s, dz_next.1 / s),
-            d: (dc.0 / s, dc.1 / s),
+            delta_z_scaled: (delta_z_next.0 / s, delta_z_next.1 / s),
+            delta_c_scaled: (delta_c.0 / s, delta_c.1 / s),
             dd: dd_keep,
             scale,
             checkpoint,
         }
     } else {
         BoutWorking::F64 {
-            dz: dz_next,
-            dc,
+            delta_z: delta_z_next,
+            delta_c,
             dd: dd_keep,
             checkpoint,
         }
@@ -585,7 +599,7 @@ fn f64_bout_step(
             .and_then(narrow_z_ref)
             .unwrap_or((0.0, 0.0))
     };
-    let z_next = (z_next_ref.0 + dz_next.0, z_next_ref.1 + dz_next.1);
+    let z_next = (z_next_ref.0 + delta_z_next.0, z_next_ref.1 + delta_z_next.1);
     let (repeats, cp, cp_n) = f64_period_check(
         z_next,
         checkpoint,
@@ -619,15 +633,15 @@ fn scaled_bout_step(
     r_squared: f64,
     epsilon: f64,
     is_zero_ref: bool,
-    w: (f64, f64),
-    d: (f64, f64),
+    delta_z_scaled: (f64, f64),
+    delta_c_scaled: (f64, f64),
     dd: (f64, f64),
     scale: FloatExp,
     checkpoint: (f64, f64),
 ) -> (StepOutcome, BoutWorking) {
     let working = BoutWorking::ScaledF64 {
-        w,
-        d,
+        delta_z_scaled,
+        delta_c_scaled,
         dd,
         scale,
         checkpoint,
@@ -657,8 +671,8 @@ fn scaled_bout_step(
             epsilon,
         );
     };
-    let dz = (w.0 * s, w.1 * s);
-    let z = (z_ref.0 + dz.0, z_ref.1 + dz.1);
+    let delta_z = (delta_z_scaled.0 * s, delta_z_scaled.1 * s);
+    let z = (z_ref.0 + delta_z.0, z_ref.1 + delta_z.1);
     let z_norm = z.0 * z.0 + z.1 * z.1;
     let z_ref_norm = z_ref.0 * z_ref.0 + z_ref.1 * z_ref.1;
     if z_norm > r_squared {
@@ -671,7 +685,8 @@ fn scaled_bout_step(
         point.smallness_squared = z_norm;
         point.small_time = point.iterations;
     }
-    let (w_next, scale_next, next_gear) = scaled_f64_step(z_ref, w, d, scale, is_zero_ref);
+    let (delta_z_scaled_next, scale_next, next_gear) =
+        scaled_f64_step(z_ref, delta_z_scaled, delta_c_scaled, scale, is_zero_ref);
     if next_gear == ComputeGear::FloatExp {
         return promote_to_fe_step(
             point,
@@ -685,8 +700,8 @@ fn scaled_bout_step(
         );
     }
     let s_next = scale_next.to_f64();
-    let dz_next = (w_next.0 * s_next, w_next.1 * s_next);
-    if !dz_next.0.is_finite() || !dz_next.1.is_finite() || !s_next.is_finite() {
+    let delta_z_next = (delta_z_scaled_next.0 * s_next, delta_z_scaled_next.1 * s_next);
+    if !delta_z_next.0.is_finite() || !delta_z_next.1.is_finite() || !s_next.is_finite() {
         return promote_to_fe_step(
             point,
             orbit,
@@ -716,7 +731,7 @@ fn scaled_bout_step(
             .and_then(narrow_z_ref)
             .unwrap_or((0.0, 0.0))
     };
-    let z_next = (z_next_ref.0 + dz_next.0, z_next_ref.1 + dz_next.1);
+    let z_next = (z_next_ref.0 + delta_z_next.0, z_next_ref.1 + delta_z_next.1);
     let (repeats, cp, cp_n) = f64_period_check(
         z_next,
         checkpoint,
@@ -726,8 +741,8 @@ fn scaled_bout_step(
     );
     delta.checkpoint_n = cp_n;
     let next_working = BoutWorking::ScaledF64 {
-        w: w_next,
-        d,
+        delta_z_scaled: delta_z_scaled_next,
+        delta_c_scaled,
         dd: dd_keep,
         scale: scale_next,
         checkpoint: cp,
@@ -751,7 +766,7 @@ fn flush_checkpoint_only(delta: &mut DeltaState, checkpoint: (f64, f64), checkpo
 #[inline(always)]
 fn flush_delta_from_point(delta: &mut DeltaState, point: &Point<f64>, checkpoint: (f64, f64)) {
     if point.z.0.is_finite() && point.z.1.is_finite() {
-        delta.dz = floatexp_from_f64_pair(point.z);
+        delta.delta_z = floatexp_from_f64_pair(point.z);
     }
     if point.dc.0.is_finite() && point.dc.1.is_finite() {
         delta.dd = floatexp_from_f64_pair(point.dc);
@@ -760,7 +775,7 @@ fn flush_delta_from_point(delta: &mut DeltaState, point: &Point<f64>, checkpoint
 }
 
 /// Zero-orbit F64 bout — DirectKernel iterate + perturbation checkpoint semantics.
-/// point.z/dc authoritative; delta touched only for checkpoint (continue) or full flush (terminal).
+/// point.z / point.dc authoritative; delta touched only for checkpoint (continue) or full flush (terminal).
 fn zero_orbit_f64_iterate_bout(
     point: &mut Point<f64>,
     mut checkpoint: (f64, f64),
@@ -769,6 +784,7 @@ fn zero_orbit_f64_iterate_bout(
     epsilon: f64,
     cap: BoutCap,
 ) -> (bool, (f64, f64), u32) {
+    let c = point.c;
     for _ in 0..cap.get() {
         update_point_results(point);
         if bailout_point(point, r_squared) {
@@ -780,7 +796,7 @@ fn zero_orbit_f64_iterate_bout(
             point.smallness_squared = rad;
             point.small_time = point.iterations;
         }
-        iterate(point);
+        iterate_with_c(point, c);
         if (point.z.0 - checkpoint.0).abs() <= epsilon
             && (point.z.1 - checkpoint.1).abs() <= epsilon
         {
@@ -800,33 +816,97 @@ impl SeatKernel<f64> for PerturbationKernel {
     fn start_seat(&self, context: &mut WorkContext<f64>, pos: (i32, i32)) {
         ensure_started(context, pos);
         let index = crate::utils::index_from_pos(&pos, context.res.0);
-        maybe_clear_zero_bind(
-            &mut context.points[index],
-            context.latest_reference.as_deref(),
-        );
-        let generation = active_generation(
-            &context.points[index],
-            context.latest_reference.as_deref(),
-        );
+        let published = if context.perturbation_reference_active() {
+            context.latest_reference.as_deref()
+        } else {
+            None
+        };
+        maybe_clear_zero_bind(&mut context.points[index], published);
+        let generation = active_generation(&context.points[index], published);
         let orbit = active_orbit(
             &context.points[index],
-            context.latest_reference.as_ref().map(|r| &r.orbit),
+            published.map(|r| &r.orbit),
         );
         let needs_restart = match &context.points[index].delta {
             None => true,
             Some(d) => d.generation != generation,
         };
         if needs_restart {
-            let abs_c = if context.coords_are_relative {
-                abs_plane_f64(context.points[index].c, &context.coord_anchor)
-            } else {
-                context.points[index].c
-            };
-            init_delta(&mut context.points[index], orbit, generation, abs_c);
-            apply_series_skip(
+            let delta_c = context.points[index].delta_c;
+            let c = c_for_seat_f64(context, delta_c);
+            context.points[index].c = c;
+            // #region agent log
+            if context.coords_are_relative && index == 0 {
+                crate::debug_agent::log_hud(
+                    "H3",
+                    "perturb_kernel.rs:start_seat",
+                    "relative_c",
+                    &format!(
+                        "{{\"delta_c\":[{:.3e},{:.3e}],\"c\":[{:.6},{:.6}],\"has_ref\":{},\"ref_floor\":{}}}",
+                        delta_c.0,
+                        delta_c.1,
+                        c.0,
+                        c.1,
+                        context.latest_reference.is_some(),
+                        context.reference_floor_active,
+                    ),
+                );
+            }
+            // #endregion
+            init_delta(
                 &mut context.points[index],
-                context.latest_reference.as_deref(),
+                orbit,
+                generation,
+                delta_c,
+                c,
+                context.coords_are_relative,
+                &context.coord_anchor,
             );
+            // Series approximation deferred — no apply_series_skip.
+            // #region agent log
+            if context.coords_are_relative && index == 0 {
+                let lc = context.points[index].delta_c;
+                let gear = context.points[index]
+                    .delta
+                    .as_ref()
+                    .map(|d| d.gear.hud_label())
+                    .unwrap_or("none");
+                let lc_mag = (lc.0 * lc.0 + lc.1 * lc.1).sqrt();
+                let delta_lc_mag = context.points[index]
+                    .delta
+                    .as_ref()
+                    .map(|d| d.delta_c.norm_squared().to_f64().sqrt())
+                    .unwrap_or(0.0);
+                crate::debug_agent::log_hud(
+                    "A,B",
+                    "perturb_kernel.rs:start_seat",
+                    "relative_init_gear",
+                    &format!(
+                        "{{\"gear\":\"{gear}\",\"delta_c_mag\":{lc_mag:.3e},\"delta_delta_c_mag\":{delta_lc_mag:.3e},\"zero_orbit\":{},\"has_ref\":{}}}",
+                        std::ptr::eq(orbit, zero_orbit()),
+                        published.is_some(),
+                    ),
+                );
+            }
+            // #endregion
+            // #region agent log
+            if context.coords_are_relative && index == 0 {
+                let lc = context.points[index].delta_c;
+                crate::debug_agent::log_hud(
+                    "H4",
+                    "perturb_kernel.rs:start_seat",
+                    "post_init_delta_c",
+                    &format!(
+                        "{{\"delta_c\":[{:.6},{:.6}],\"c\":[{:.6},{:.6}],\"delta_c_mag\":{:.6}}}",
+                        lc.0,
+                        lc.1,
+                        c.0,
+                        c.1,
+                        (lc.0 * lc.0 + lc.1 * lc.1).sqrt()
+                    ),
+                );
+            }
+            // #endregion
         }
         // HUD gear aggregate is refreshed once per workshift — never per seat.
         // Scanning all seats here is O(n) per bout and collapses home fill.
@@ -887,7 +967,12 @@ impl SeatKernel<f64> for PerturbationKernel {
                     None => {
                         working.flush_to(&mut delta);
                         let stamp = delta.generation;
-                        rebind_to_zero_continuing(point, &mut delta, stamp);
+                        // Absolute z at last finished step: reference_z + delta_z (not stale Point.z).
+                        let absolute_z = orbit
+                            .get(point.iterations)
+                            .map(|z_ref| z_ref + delta.delta_z)
+                            .unwrap_or_else(|| floatexp_from_f64_pair(point.z));
+                        rebind_to_zero_continuing(point, &mut delta, stamp, absolute_z);
                         working = BoutWorking::from_delta(&delta);
                         orbit = zero_orbit();
                         is_zero_ref = true;
@@ -907,8 +992,8 @@ impl SeatKernel<f64> for PerturbationKernel {
                     epsilon,
                 ),
                 BoutWorking::F64 {
-                    mut dz,
-                    dc,
+                    mut delta_z,
+                    delta_c,
                     mut dd,
                     mut checkpoint,
                 } => {
@@ -920,8 +1005,8 @@ impl SeatKernel<f64> for PerturbationKernel {
                         r_squared,
                         epsilon,
                         is_zero_ref,
-                        dz,
-                        dc,
+                        delta_z,
+                        delta_c,
                         dd,
                         checkpoint,
                     );
@@ -929,8 +1014,8 @@ impl SeatKernel<f64> for PerturbationKernel {
                     out
                 }
                 BoutWorking::ScaledF64 {
-                    mut w,
-                    d,
+                    mut delta_z_scaled,
+                    delta_c_scaled,
                     mut dd,
                     mut scale,
                     mut checkpoint,
@@ -943,8 +1028,8 @@ impl SeatKernel<f64> for PerturbationKernel {
                         r_squared,
                         epsilon,
                         is_zero_ref,
-                        w,
-                        d,
+                        delta_z_scaled,
+                        delta_c_scaled,
                         dd,
                         scale,
                         checkpoint,
@@ -977,7 +1062,11 @@ impl SeatKernel<f64> for PerturbationKernel {
                 StepOutcome::Exhausted => {
                     working.flush_to(&mut delta);
                     let stamp = delta.generation;
-                    rebind_to_zero_continuing(point, &mut delta, stamp);
+                    let absolute_z = orbit
+                        .get(point.iterations)
+                        .map(|z_ref| z_ref + delta.delta_z)
+                        .unwrap_or_else(|| floatexp_from_f64_pair(point.z));
+                    rebind_to_zero_continuing(point, &mut delta, stamp, absolute_z);
                     working = BoutWorking::from_delta(&delta);
                     orbit = zero_orbit();
                     is_zero_ref = true;
@@ -999,6 +1088,90 @@ impl SeatKernel<f64> for PerturbationKernel {
     }
 
     fn completion(&self, point: &mut Point<f64>) -> CompletedPoint<f64> {
-        direct_completion(point)
+        let c = point
+            .delta
+            .as_ref()
+            .map(|d| (d.c.re.to_f64(), d.c.im.to_f64()))
+            .unwrap_or(point.c);
+        let out = direct_completion_with_c(point, c);
+        // #region agent log
+        {
+            let delta_c2 = point.delta_c.0 * point.delta_c.0 + point.delta_c.1 * point.delta_c.1;
+            let c2 = c.0 * c.0 + c.1 * c.1;
+            if point.escapes || point.repeats {
+                static COMP_N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                let n = COMP_N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if n < 5 {
+                    let (sl0, sl1, et, st) = match &out {
+                        CompletedPoint::Escapes {
+                            start_location,
+                            escape_time,
+                            small_time,
+                            ..
+                        } => (
+                            start_location.0.into(),
+                            start_location.1.into(),
+                            *escape_time,
+                            *small_time,
+                        ),
+                        CompletedPoint::Repeats { small_time, .. } => {
+                            (c.0, c.1, point.iterations, *small_time)
+                        }
+                        _ => (0.0, 0.0, 0, 0),
+                    };
+                    crate::debug_agent::log_hud(
+                        "H4",
+                        "perturb_kernel.rs:completion",
+                        "completion_start_location",
+                        &format!(
+                            "{{\"start_loc\":[{sl0:.6},{sl1:.6}],\"delta_c2\":{delta_c2:.6},\"c2\":{c2:.6},\"et\":{et},\"st\":{st},\"escapes\":{},\"repeats\":{}}}",
+                            point.escapes,
+                            point.repeats
+                        ),
+                    );
+                }
+            }
+            let st = match &out {
+                CompletedPoint::Escapes { small_time, .. }
+                | CompletedPoint::Repeats { small_time, .. } => *small_time,
+                _ => 999,
+            };
+            if c2 <= 4.0 && (point.escapes || point.repeats) {
+                crate::debug_agent::log(
+                    "B,E",
+                    "perturb_kernel.rs:completion",
+                    "interior_small_time",
+                    &format!(
+                        "{{\"c2\":{c2},\"st\":{st},\"et\":{},\"escapes\":{},\"repeats\":{}}}",
+                        point.iterations, point.escapes, point.repeats
+                    ),
+                );
+            } else if point.escapes && c2 > 4.0 {
+                static OUTER_N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                let n = OUTER_N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if n < 30 || n % 200 == 0 {
+                    let zero = point
+                        .delta
+                        .as_ref()
+                        .map(|d| d.generation == 0)
+                        .unwrap_or(true);
+                    let et = match &out {
+                        CompletedPoint::Escapes { escape_time, small_time, .. } => (*escape_time, *small_time),
+                        _ => (999, 999),
+                    };
+                    crate::debug_agent::log(
+                        "A,C,D",
+                        "perturb_kernel.rs:completion",
+                        "outer_escape_completion",
+                        &format!(
+                            "{{\"c2\":{c2},\"et\":{},\"st\":{},\"zero_gen\":{zero},\"direct_only\":{},\"iters\":{}}}",
+                            et.0, et.1, point.direct_only, point.iterations
+                        ),
+                    );
+                }
+            }
+        }
+        // #endregion
+        out
     }
 }

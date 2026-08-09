@@ -2,7 +2,7 @@ use steady_state::*;
 
 use crate::assemblies::headgroup::window::sampling::*;
 use crate::assemblies::structs::*;
-use crate::assemblies::workgroup::c_generator::CGenerator;
+use crate::assemblies::workgroup::c_generator::admit_generator;
 use crate::assemblies::workgroup::screen_worker::*;
 use crate::assemblies::workgroup::screen_worker::workshift::*;
 use crate::constants::*;
@@ -150,6 +150,7 @@ pub fn get_points<
             );
 
             out.push(Point {
+                delta_c: point.clone(),
                 c: point.clone(),
                 z: point.clone(),
                 dc: (1.0.into(), 0.0.into()),
@@ -174,7 +175,7 @@ pub fn get_points<
     out
 }
 
-/// Fail-closed stencil gate: unchanged views are suppressed; views whose f64
+/// Stencil admission gate: unchanged views are suppressed; views whose f64
 /// grid would collapse are suppressed. The worker builds the world from the
 /// stencil alone.
 fn should_send_replace(
@@ -193,7 +194,16 @@ fn should_send_replace(
     // Compute-grid loc matches get_points / CGenerator: frame_info imag is
     // already display-flipped once; flip again for the arithmetic origin.
     let compute_loc = (obj.pos.0.clone(), IntExp::ZERO - obj.pos.1.clone());
-    if CGenerator::<f64>::new(&compute_loc, obj.zoom_pot as i64, res).is_none() {
+    let view_center = view_center_compute(&compute_loc, obj.zoom_pot, res);
+    if admit_generator::<f64>(
+        &compute_loc,
+        obj.zoom_pot as i64,
+        res,
+        None,
+        &view_center,
+    )
+    .is_none()
+    {
         return false;
     }
 

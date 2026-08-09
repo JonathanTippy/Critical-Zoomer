@@ -9,10 +9,9 @@ use std::time::Duration;
 use steady_state::*;
 
 use crate::assemblies::workgroup::screen_worker::workshift::{view_center_compute, WorkContext};
-use crate::assemblies::workgroup::c_generator::{CGenerator, Mandelbrotable};
+use crate::assemblies::workgroup::c_generator::{admit_generator, GeneratorAdmission, Mandelbrotable};
 use crate::constants::PIXELS_PER_UNIT_POT;
 use crate::reference::ReferenceOrbit;
-use crate::series::SeriesApproximation;
 use crate::utils::{IntExp, ObjectivePosAndZoom};
 
 #[derive(Clone)]
@@ -23,11 +22,9 @@ pub struct ReferenceRequest {
 
 pub struct PublishedReference {
     pub orbit: ReferenceOrbit,
+    /// reference_c — exact objective parameter for this orbit.
     pub c: (IntExp, IntExp),
     pub generation: u64,
-    /// Simple series coeffs for this orbit (same generation snapshot).
-    // r[impl cz.depth.series-approximation+1]
-    pub series: Option<SeriesApproximation>,
 }
 
 impl std::fmt::Debug for PublishedReference {
@@ -86,24 +83,11 @@ impl ReferenceWorkerState {
 
         let job = self.job.take().expect("completed job exists");
         self.generation = self.generation.wrapping_add(1);
-        let series = SeriesApproximation::from_orbit(&job.orbit, series_order_for(&job.orbit));
         Some(PublishedReference {
             orbit: job.orbit,
             c: job.request.c,
             generation: self.generation,
-            series,
         })
-    }
-}
-
-fn series_order_for(orbit: &ReferenceOrbit) -> usize {
-    let len = orbit.iterates.len();
-    if len < 16 {
-        2
-    } else if len < 256 {
-        4
-    } else {
-        8
     }
 }
 
@@ -143,18 +127,22 @@ fn objective_c(
         frame.0.pos.0.clone(),
         IntExp::ZERO - frame.0.pos.1.clone(),
     );
-    let anchor = view_center_compute(&compute_loc, frame.0.zoom_pot, frame.1);
-    if let Some(generator) = CGenerator::<f64>::new_relative(
+    let view_center = view_center_compute(&compute_loc, frame.0.zoom_pot, frame.1);
+    if let Some(admission) = admit_generator::<f64>(
         &compute_loc,
-        &anchor,
         frame.0.zoom_pot as i64,
         frame.1,
+        None,
+        &view_center,
     ) {
-        let (re, im) = generator.get_c((seat, row));
-        return (
-            anchor.0.clone() + f64_to_intexp(re),
-            anchor.1.clone() + f64_to_intexp(im),
-        );
+        let (re, im) = admission.generator().get_c((seat, row));
+        return match admission {
+            GeneratorAdmission::Absolute(_) => (f64_to_intexp(re), f64_to_intexp(im)),
+            GeneratorAdmission::Relative { anchor, .. } => (
+                anchor.0.clone() + f64_to_intexp(re),
+                anchor.1.clone() + f64_to_intexp(im),
+            ),
+        };
     }
     let exponent = frame.0.zoom_pot.saturating_add(PIXELS_PER_UNIT_POT);
     let pitch = IntExp::from(1).shift(exponent.saturating_neg());

@@ -10,3 +10,8 @@ Try to temper vibe-coding and ask for more details if appropriate.
 
 # Yielding to what actually works:
 developer preferences & trash docs are secondary to the revealed truth of what v0.0.9 found that worked. It was the culmination of a year of manual, slow grinding.
+Keeping with that spirit, the app grows towards the requirements by trying stuff and documenting what worked.
+
+# operational
+- never use workflows or write workflows ci file
+- never leave tmp junk in the repo

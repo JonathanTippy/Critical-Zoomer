@@ -24,10 +24,17 @@ accident:
 - **The change protocol.** A deliberate redesign updates the rule here, the prose
   in `workgroup-virtues.md`, and the pinned test *together*, in one change.
 - **The pre-edit hook.** `.cursor/hooks.json` runs `.cursor/hooks/workgroup-rules.sh` on
-  every `Write`/`Edit`/`StrReplace`. When the target file is under
+  every `Write`/`StrReplace`/`EditNotebook`. When the target file is under
   `src/assemblies/workgroup/screen_worker/` or `src/assemblies/shadergroup/colorer/`, it
   injects that file's rule summaries (below) as agent context at the moment of the edit —
   the forcing function the docs alone cannot provide. It fails open (never blocks an edit).
+- **Test leftover reaper.** `.cursor/hooks/kill-test-zombies.sh` (before/after
+  `cargo test|cargo bench|xvfb_screenshot_check`, and on agent `stop`) reaps repo-scoped
+  app/bench orphans and `/tmp/cz_*` Xvfb sessions so cleanup does not depend on ad-hoc
+  `pkill` approvals. Fails open; log `/tmp/cz_zombie_kill.log`.
+  `.cursor/hooks/guard-raw-kill.sh` **denies** raw `kill`/`pkill` aimed at those
+  leftovers (after running the reaper). Always-on:
+  `.cursor/rules/test-zombie-reaper.mdc`.
 
 The always-on summary for editing sessions is `.cursor/rules/critical-zoomer-invariants.mdc`;
 the agent-facing entry point is `AGENTS.md`. Detection (the periodic tracey-link audit and
@@ -431,18 +438,29 @@ The 10ms constant itself stays code-reviewed (timing is not meaningfully unit-te
 r[cz.craft.emergent-cadence+1]
 
 **Normative summary.** Publish cadence is emergent: every non-empty shift sends; there is no
-publish timer or gate.
+publish timer or gate. Smoothness means **continuous outputs**: while unfinished and seats
+are finishable, each ~10 ms workshift should drain fresh completions (viewer freshness);
+gaps of visible new points must stay within about one 50 ms pulse. Iterate-heavy interior
+may burn iterations without finals — that is not a cadence failure.
 
-**Code site.** `screen_worker/mod.rs` — post-shift drain-and-send, every shift.
+**Code site.** `screen_worker/mod.rs` — post-shift drain-and-send, every shift;
+`naive_gpu/mod.rs` — harvest-every-bout until the shift has published points, then optional
+multi-bout amortize only when finals are sparse.
 
 **Acceptance criteria.**
 - [ ] While incomplete, publishes track workrate with no fixed interval; when complete,
   publishing goes idle (no empty publishes).
 - Worker-layer never-stall: unfinished frames must show progress every workshift
   (`total_iterations_today` / seat advance / completions).
+- Home/shallow GPU fill: after the first completion, ≤5 consecutive shifts without a
+  completion while fill is still progressing (≤50 ms at 10 ms/shift).
 
-**Test.** Never-stall suite in craftsmanship_tests.rs (same three tests as wall-clock-law).
-Actor send loop idle/complete still by code review + e2e.
+**Test.** Never-stall suite in craftsmanship_tests.rs (same three tests as wall-clock-law);
+`steady_state_naive_gpu_home_continuous_outputs`;
+`steady_state_naive_gpu_deep_cusp_never_stalls` (missed resume/empty-queue feed, not tenacity);
+`steady_state_naive_gpu_f64_gear_via_faux_user_zoom` (generator-plane F32→F64 escalate).
+Actor send loop idle/complete still by
+code review + e2e.
 
 r[cz.craft.load-proportional-ignorance+1]
 
@@ -493,9 +511,12 @@ numerical implementation it runs. Slot rotation, queues, attention,
 neighbor-discovery policy, `Delivery` backpressure, and the wall-clock loop
 remain scheduler-owned. A `SeatKernel` may only materialize one seat, run one
 `BoutCap`-bounded bout, and map a finished seat to a `CompletedPoint`.
+The Naive GPU path uses a **wave API** beside `SeatKernel` (`workshift_naive_gpu`):
+same scheduler ownership and `BoutCap` per seat, many seats per dispatch.
 
 **Code site.** `screen_worker/workshift.rs` — `SeatKernel`, `DirectKernel`,
-the compatibility `workshift` wrapper, and generic `workshift_with_kernel`.
+the compatibility `workshift` wrapper, and generic `workshift_with_kernel`;
+`screen_worker/naive_gpu/` — wave arm/dispatch/harvest.
 
 **Acceptance criteria.**
 - [ ] The restored direct arithmetic lives behind `DirectKernel` without a
@@ -510,3 +531,32 @@ the compatibility `workshift` wrapper, and generic `workshift_with_kernel`.
 (`craftsmanship_tests.rs`) compares the compatibility path with explicit
 `DirectKernel` dispatch; the full craftsmanship suite pins all scheduler
 policies.
+
+r[cz.craft.gpu-host-queue-discovery+1]
+
+**Normative summary.** Naive GPU finals are still host-scheduler events. Every
+published Final from `publish_gpu_finishes` must run the same neighbor / edge
+queue discovery as CPU (`queue_incomplete_neighbors`,
+`queue_incomplete_neighbors_in`, edge push-front). Work announces itself; scan
+fill is only a cold-start / empty-queue fallback. **Forbidden:** skipping queue
+updates for PPS (including “bulk flood” shortcuts); treating linear undelivered
+scan as the steady fill authority; any ≥N% CPU mop / residual phase / seeded
+fake `out_queue` to hide Dummy holes. BufferFull orphan republish
+(`publish_finished_undelivered`) remains undeliver-on-full honesty, not a mop.
+Precision escalate to CPU when shader F64 is unavailable for a collapsed F32
+view is allowed for that shift only.
+
+**Code site.** `screen_worker/naive_gpu/mod.rs` — `publish_gpu_finishes` always
+queues neighbors; `workshift_naive_gpu` has no percent-based DirectKernel mop.
+
+**Acceptance criteria.**
+- [ ] After the first home GPU Final, host out/in/edge queues grow (or are
+  already non-empty from discovery).
+- [ ] Home fills to 100% delivered on the naive GPU path without a CPU mop gate.
+- [ ] Collector grid has no Dummy holes after GPU home fill.
+
+**Test.** `steady_state_naive_gpu_home_neighbor_queues_grow`,
+`steady_state_naive_gpu_home_fills_without_cpu_mop`,
+`steady_state_naive_gpu_home_no_dummy_holes`,
+`steady_state_screen_worker_home_ips_naive_gpu_path`
+(craftsmanship_tests.rs).

@@ -49,10 +49,17 @@ scheduling overhead included.
 
 r[cz.perf.min-30b-ips-gpu+1]
 
-**Normative summary.** ≥30B iterations/s on GPU in real workgroup conditions. No adapter ⇒ fail.
+**Normative summary.** GPU iterations/s in real workgroup conditions must track the
+machine's measured FLOP advantage over a single CPU core. No adapter ⇒ fail.
 
 **Acceptance criteria.**
-- **SUSPENDED** until the GPU compute port exists.
+- **SUSPENDED as an absolute number.** The 30B figure was a tile-era / one-class
+  stand-in; do not treat it as the live bar.
+- **STANDS as a method (2026-08-08).** Measure CPU single-core FLOPs and GPU total
+  FLOPs on the same machine; full-stack naive `IPS_gpu / IPS_cpu` must match that
+  ratio within about ±20% on iterate-heavy work (scheduling included). Design:
+  `docs/assistant/design/naive-gpu-design.md`, decision D-NGPU-5. Absolute billions
+  may be re-derived later per machine class; they do not replace the ratio method.
 
 r[cz.perf.optimal-ipp+1]
 
@@ -184,7 +191,10 @@ r[cz.pub.gpu-native-work+1]
 path so easy full-screen cases keep throughput.
 
 **Acceptance criteria.**
-- **SUSPENDED** until GPU compute exists. When it returns, applies to the view pipeline.
+- **SUSPENDED** until GPU compute exists. When it returns, applies to the **view**
+  pipeline (`docs/assistant/design/naive-gpu-design.md`): device-resident progress,
+  no full payload readback on the hot path, host reads only tiny done signals
+  (D-NGPU-6).
 
 r[cz.perf.headgroup-stable-path+1]
 
@@ -197,12 +207,25 @@ change when panning vs stationary; sampling shader always the same path.
 
 r[cz.perf.one-kernel-path+1]
 
-**Normative summary.** Exactly one numerical kernel is constructed on the
-production path. Easier conditions (no published reference, shallow zoom,
-post-glitch seats) change the *reference* (current → previous → zero orbit),
-never the algorithm. `DirectKernel` is test-only.
+**Normative summary.** *Transitional milestone — superseded by
+`r[cz.perf.pps-selected-kernel+1]`.* During the perturbation correctness push, production
+shipped `PerturbationKernel` only (including zero-orbit floor). Destination: dual production
+dispatch — `DirectKernel` for naive when fast/legal, `PerturbationKernel` for pert.
+
+**Acceptance criteria (historical).**
+- [x] Perturbation correctness path landed with zero-orbit floor and gear ladder.
+- [ ] Superseded by `pps-selected-kernel+1` dual dispatch acceptance.
+
+r[cz.perf.pps-selected-kernel+1]
+
+**Normative summary.** Per view, run the legal stack (host type + kernel mode)
+that maximizes completed points per second for outstanding work. Stack is
+view-global and dead-reckoned from `CGenerator` admission. Kernel mode is
+view-global: default naive when legal; hard-bump to perturbed when naive cannot
+be honest; soft-probe perturbed for ~100 ms when avg iterations/point exceeds a
+difficulty threshold and a covering reference exists; stick with the winner
+until Replace / type change / ref generation change / cooldown re-probe.
 
 **Acceptance criteria.**
-- [x] `workshift` constructs `PerturbationKernel` only; `DirectKernel` is `#[cfg(test)]`.
-- [x] Zero-orbit floor and `direct_only` seats run the same delta code.
-- [x] Parity proptest vs the test-only oracle; benches measure the shipping path.
+- [ ] HUD reports stack + mode + ref + gear truthfully (`r[cz.depth.gear-hud+2]`).
+- [ ] Dual production kernel dispatch + probe controller (deferred follow-up).

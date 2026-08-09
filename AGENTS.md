@@ -22,16 +22,30 @@ final (the `Delivery` enum), small interruptible bouts.
 
 ## Enforcement layers
 
-Three layers, cheapest-first:
+Five layers, cheapest-first:
 
 1. **Types** — `BoutCap` (no unbounded call), `Delivery` (provisional cannot set
    `delivered`), `push_delivery` (buffer slot + flag atomically, `#[must_use]`),
    `LiveTarget` (one live target structural). Compile-time; cannot regress.
 2. **The pre-edit hook** — `.cursor/hooks.json` runs
-   `.cursor/hooks/workgroup-rules.sh` on every `Write`/`Edit`/`StrReplace` into
+   `.cursor/hooks/workgroup-rules.sh` on every `Write`/`StrReplace` into
    `screen_worker/` or `colorer/`; it injects that file's rule summaries as agent
    context at the moment of the edit. Fails open.
-3. **Tests + tracey audit** — catch what types and the hook miss.
+3. **Test leftover reaper** — `.cursor/hooks/kill-test-zombies.sh` runs before/after
+   shell commands matching `cargo test|cargo bench|xvfb_screenshot_check`, and on
+   agent `stop`. Reaps repo `target/` app/bench binaries and `/tmp/cz_*` Xvfb
+   sessions only (never headed `/usr/bin` or Cursor sandboxes). Log:
+   `/tmp/cz_zombie_kill.log`. Fails open.
+   **Never** use raw `kill`/`pkill`/`killall` (including `kill <pid>` after
+   `pgrep`) — that trips safety prompts. `.cursor/hooks/guard-raw-kill.sh`
+   blocks those commands and runs the reaper instead. Manual sweep:
+   `.cursor/hooks/kill-test-zombies.sh` only. Always-on rule:
+   `.cursor/rules/test-zombie-reaper.mdc`.
+4. **No approval during loops/plans** — Auto-review / approval cards halt the
+   agent until the developer returns. Never run approval-gated commands, never
+   set `request_smart_mode_approval`, and never retry a block "with approval."
+   Always-on rule: `.cursor/rules/no-approval-during-loops.mdc`.
+5. **Tests + tracey audit** — catch what types and the hook miss.
 
 ## Two rules that prevent most regressions
 
@@ -43,14 +57,31 @@ Three layers, cheapest-first:
 
 ## Verify
 
-Run the full test suite after workgroup/colorer edits. Keep tracey links intact
-(every `r[impl ...]` resolves to a rule; every rule's tests exist).
+Run the **full** test suite after workgroup/colorer edits — not a hand-picked
+subset. Prefer `cargo test --all-targets` (and release when performance pins
+matter). Keep tracey links intact (every `r[impl ...]` resolves to a rule; every
+rule's tests exist); run `tracey validate` when docs/markers move. Prefer
+`cargo test` and `cargo bench` over shell. After workgroup/headgroup perf-affecting
+edits, run **both** Criterion benches (`workgroup_fitness` and `my_bench`) and
+compare to `docs/assistant/benchmarks.md` (~20% regression bar). `scripts/` is
+**only** for the isolated Xvfb screenshot check — see `scripts/README.md`; do not
+add new e2e shell suites or check in PNGs there.
+
+Dense PPS grind loop prompt (fixed `/loop`, full regression gate each tick):
+`docs/assistant/pps-grind-loop-prompt.md`. Pause loops with
+`.cursor/hooks/stop-agent-loops.sh` only.
+
+**Steady-state Rust integration tests are the lifeblood of testing** (see
+`docs/assistant/testing.md`). When changing scheduling, naive GPU, or HUD
+telemetry, extend `steady_state_*` tests in `craftsmanship_tests.rs` so IPS and
+completions are proven through screen-worker and workgroup chains — not only
+in micro probes or Criterion.
 
 For any change that can affect rendered output, also follow
 `docs/assistant/manual-testing.md`. This is assistant-owned work: build the
-current release, run it under the isolated Xvfb harness, capture PNGs, and
-inspect them directly. Never capture the developer's desktop and never hand the
-procedure to the developer.
+current release, run `scripts/xvfb_screenshot_check.sh`, and inspect the PNG
+directly. Never capture the developer's desktop and never hand the procedure to
+the developer.
 
 ## Same-workspace checkpoint commits (recoverable delegated work)
 

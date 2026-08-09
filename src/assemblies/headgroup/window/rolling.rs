@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 use std::collections::*;
 
 /// Rolling 1-second rate of discrete events (completions or iterations).
-// r[impl cz.depth.gear-hud+1]
+// r[impl cz.depth.gear-hud+2]
 #[derive(Debug, Default, Clone)]
 pub struct RateCounter {
     events: VecDeque<(Instant, u64)>,
@@ -192,7 +192,7 @@ pub fn rolling_frame_calc(
 mod tests {
     use super::*;
 
-    // r[verify cz.depth.gear-hud+1]
+    // r[verify cz.depth.gear-hud+2]
     #[test]
     fn pps_counter_counts_completions_not_wip() {
         let mut c = RateCounter::default();
@@ -202,16 +202,22 @@ mod tests {
         assert!((c.rate(t0) - 10.0).abs() < 1e-9);
     }
 
-    // r[verify cz.depth.gear-hud+1]
+    // r[verify cz.depth.gear-hud+2]
     #[test]
     fn hud_telemetry_carries_gear_and_rates() {
-        use crate::assemblies::structs::ViewHud;
+        use crate::assemblies::structs::{HostStack, KernelMode, ReferenceStatus, ViewHud};
         use crate::delta_gear::ComputeGear;
         let hud = ViewHud {
+            stack: HostStack::F64,
+            mode: KernelMode::Pert,
+            reference: ReferenceStatus::Complete,
             gear: ComputeGear::ScaledF64,
             points_delta: 3,
             iterations_delta: 1000,
         };
+        assert_eq!(hud.stack.hud_label(), "f64");
+        assert_eq!(hud.mode.hud_label(), "pert");
+        assert_eq!(hud.ref_hud_label(), "complete");
         assert_eq!(hud.gear.hud_label(), "S-F64");
         let mut pps = RateCounter::default();
         let mut ips = RateCounter::default();

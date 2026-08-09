@@ -1,0 +1,38 @@
+---
+description: Never trip Auto-review/approval during a loop or plan — it kills the agent until the user returns
+alwaysApply: true
+---
+
+# No approval during loops or plans (mandatory)
+
+**Tripping Auto-review / an approval card stops the agent until the developer
+comes back.** There is no "try and see." While executing a `/loop`, wake tick,
+or any multi-step plan, only use paths that never need approval.
+
+## Forbidden
+
+- Running any command that prompts for approval / Auto-review
+- Setting `request_smart_mode_approval` / `requestSmartModeApproval` (that
+  *requests* the halt)
+- Retrying a blocked command "with approval" — change the approach instead
+- Raw `kill` / `pkill` / `killall` (use `.cursor/hooks/kill-test-zombies.sh` only)
+- One-shot delayed wake patterns that Auto-review treats as autonomous
+  persistence when they would require approval (e.g. bundling
+  `sleep N; echo AGENT_LOOP_WAKE_…` into an approval-gated shell)
+
+## Required alternatives (always exist)
+
+| Need | Approval-free path |
+|------|--------------------|
+| Recurring ticks | Arm a **fixed** `while true; do sleep; echo sentinel; done` **once** at loop start (Cursor `/loop` skill), or rely on an already-running sleeper — do not invent approval-gated re-arms |
+| Pause / stop a loop | `.cursor/hooks/stop-agent-loops.sh` only (never raw `kill`) |
+| Test leftover cleanup | `.cursor/hooks/kill-test-zombies.sh` only |
+| Builds / tests | `taskset` + `nice` + `cargo` as usual |
+| Checkpoints | Normal `git commit` on the feature branch per AGENTS.md |
+| Docs status lines | Edit tools or skip — never worth an approval risk |
+| Anything blocked by Auto-review | Stop that mechanism; pick another path. **Never** wait on the developer |
+
+## Decision rule
+
+If a step might open an approval card, **do not run it** in the loop/plan.
+Every necessary action has an approval-free option; use that option.

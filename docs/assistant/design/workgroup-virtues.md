@@ -75,8 +75,8 @@ The later machine kept the coalescing *function* (`coalesce_scheduler_commands`)
 
 When a stencil changes, the worker builds the next world from `frame_info` alone:
 
-- **`points`** — a full-screen dense `Vec<Point>`, one entry per pixel. Seats start `initialized == false`; the first time the scheduler starts a seat, `ensure_started` materializes `c = z = generator.get_c(seat)`, `dc = (1, 0)`. The schedule and the working state are still the same vector; there is no registry of "tasks" separate from "progress". A point's index *is* its seat. This is why work-skipping bugs (README: "fix work skipping") have no place to live: there is no task list that can disagree with the point state; the point state is all there is.
-- **`c_generator`** — fail-closed objective→compute converter for this frame; also the source of `pitch_epsilon`.
+- **`points`** — a full-screen dense `Vec<Point>`, one entry per pixel. Seats start `initialized == false`; the first time the scheduler starts a seat, `ensure_started` materializes generator sample into `delta_c` (relative) or `c` (absolute), sets absolute `c`/`z` as appropriate, `dc = (1, 0)` (escape derivative). Vocabulary: absolute Mandelbrot `c`/`z`; reference `reference_c`/`reference_z`; perturbation `delta_c`/`delta_z` (`docs/assistant/tracey/depth-rules.md`). The schedule and the working state are still the same vector; there is no registry of "tasks" separate from "progress". A point's index *is* its seat. This is why work-skipping bugs (README: "fix work skipping") have no place to live: there is no task list that can disagree with the point state; the point state is all there is.
+- **`c_generator`** — fail-closed objective→compute converter for this frame (`r[cz.depth.c-generator-fails-closed+1]`): O(1) IntExp probe at admission, stored `T` origin+space, blazing `get_c` multiply-add per seat; relative anchor is `reference_c` when installed; rebuild on reference generation change. Also source of `pitch_epsilon`.
 - **`random_map` (mixmap)** — a shuffled permutation of seat indices, regenerated when the resolution changes. Random order is a specific lesson: raster-order traversal of the Mandelbrot set creates visible banding, because neighboring pixels have correlated costs and correlated completion. A shuffled order spreads both easy and hard pixels uniformly across the screen, so partial progress *looks like* uniform refinement rather than crawling stripes. (An interlaced variant exists in the code as an alternative — same intent.)
 - **`scredge_poses`** — the *shuffled perimeter* of the screen, computed at shell install. This is the scheduling face of the architecture's "smear/extrude" rule: the seats most likely to be newly exposed by motion are the edges, so the edges are seeded as work from birth, before any completion has occurred anywhere.
 - **Four queues** — `scredge_poses`, `edge_queue`, `out_queue`, `in_queue`. All seeded empty except scredge. Queues are `VecDeque`s of `(position, difficulty-or-period)`.
@@ -169,9 +169,9 @@ Read what this rotation *is*: **timeslicing between scheduling queues**. Each of
 The scheduler is deliberately separated from the numerical kernel it runs
 (`r[cz.craft.kernel-seam+1]`). `SeatKernel` owns only three operations:
 materialize one seat, run one `BoutCap`-bounded numerical bout, and map a
-finished seat to its answer. Production runs `PerturbationKernel` exclusively
-(`r[cz.perf.one-kernel-path+1]`); `DirectKernel` is the test-only parity oracle.
-The slot rotation, queues, attention hold, neighbor discovery, delivery
+finished seat to its answer. Production dispatches **`DirectKernel`** (naive) or
+**`PerturbationKernel`** (pert) per view (`r[cz.perf.pps-selected-kernel+1]`).
+`DirectKernel` is also the parity oracle in tests. The slot rotation, queues, attention
 backpressure, and wall-clock law remain outside the kernel. Swapping arithmetic
 does not rewrite any of the empirically proven scheduling machinery.
 
@@ -283,6 +283,8 @@ Look at the timing architecture from the outside:
 
 The architecture's rule — "send hoarded work on transform, or every 50ms while incomplete; always have new work at that interval" — is satisfied **without a scheduler**: the shift loop naturally produces completions several times per 50ms window under any non-trivial frame, and the natural remap-on-frame-info covers the transform case. The cadence is an emergent property of the shift clock plus per-shift drain. There is no timer to tune, no "publish every N" constant to get wrong, no burst-then-starve behavior. The design found the cadence inside the work rhythm rather than bolting it on.
 
+**Smoothness (developer, 2026-08-09):** continuous outputs — get finished points out at the full ~10 ms workshift rate when overhead allows, and never leave a finishable frame quiet for longer than about one 50 ms pulse. Multi-bout GPU amortize is allowed only after a shift has already published some finals (or when the wave is clearly iterate-heavy).
+
 And the worker's idle path — `percent_completed < 100` keeps it chaining shifts with no sleep; complete means it sleeps on the 50ms/command wait — means the machine is exactly as busy as the screen is unfinished. Load is proportional to ignorance. There is no polling, no spin, no wasted cycles on a finished frame.
 
 ---
@@ -345,6 +347,19 @@ v0.0.9's superiority is not any single mechanism — later designs copied the co
 - whole-package publishes, so nothing can be stale.
 
 Every added capability after v0.0.9 (tiles, mags, batches, orbits, GPU) re-opened one of these closures and then had to re-seal it with gates, carries, versions, and restores — each seal a place for a new bug. The golden design's lesson is not the list of mechanisms; it is that the mechanisms are cheap *because the contract is singular*. Keep "the current truth" a single object, and pivotability, storage sanity, stall-freedom, and freshness are defaults. Distribute it, and they become permanent projects.
+
+### GPU port note (forward-looking; does not amend the inventory)
+
+The Naive GPU design (`naive-gpu-design.md`) keeps these closures intact: one live
+view, whole-truth publishes, pivot order, provisional ≠ final, and
+`BoutCap`/wall-clock interruptibility. Parallelism widens the **bout** (many seats
+per bounded wave) behind the kernel seam; it does not multiply live targets or
+replace the host scheduling queues with a second authority. FLOP→IPS tracking is a
+performance bar on that kernel, not a license to reopen the tile-era seals.
+Skipping flood-fill neighbor discovery on GPU finals (or mopping holes with a
+late CPU `DirectKernel` phase) reopens the “work skipping / noncomplete” class
+of failures; that is not an allowed GPU optimization
+(`r[cz.craft.gpu-host-queue-discovery+1]`).
 
 ---
 

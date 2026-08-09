@@ -55,12 +55,10 @@ fn home_context_f64_with_reference() -> WorkContext<f64> {
     let req = select_reference_request::<f64>(None, &frame);
     let mut ctx = from_stencil(frame, None).expect("home f64");
     let orbit = ReferenceOrbit::compute(&req.c, req.precision_bits, 4096);
-    let series = critical_zoomer::series::SeriesApproximation::from_orbit(&orbit, 4);
     ctx.latest_reference = Some(Arc::new(PublishedReference {
         orbit,
         c: req.c,
         generation: 1,
-        series,
     }));
     ctx
 }
@@ -94,7 +92,7 @@ fn frame_complete_fe(ctx: &WorkContext<FloatExp>) -> bool {
 }
 
 fn fill_f64(ctx: &mut WorkContext<f64>) {
-    workshift(0, 0, 0, 0, ctx);
+    workshift(0, 0, 0, 0, ctx, None);
 }
 
 fn fill_direct(ctx: &mut WorkContext<f64>) {
@@ -305,6 +303,36 @@ fn scaled_vs_floatexp_steps(c: &mut Criterion) {
     group.finish();
 }
 
+/// Probe: CPU DirectKernel IPS vs Naive GPU IPS on a small home shell (adapter-gated).
+/// Method note: compare to measured FLOP ratio (D-NGPU-5); absolute billions suspended.
+fn naive_gpu_ips_probe(c: &mut Criterion) {
+    use critical_zoomer::assemblies::workgroup::screen_worker::naive_gpu::{
+        workshift_naive_gpu, NaiveGpuContext,
+    };
+    let Some(mut gpu) = NaiveGpuContext::try_new() else {
+        eprintln!("naive_gpu_ips_probe: no adapter — skipped");
+        return;
+    };
+    gpu.set_wave_n(1024);
+    let mut group = c.benchmark_group("naive_gpu_ips");
+    group.sample_size(20);
+    group.bench_function("cpu_direct_home_shift", |b| {
+        b.iter(|| {
+            let mut ctx = home_context_f64();
+            fill_direct(&mut ctx);
+            black_box(ctx.total_iterations_today)
+        });
+    });
+    group.bench_function("gpu_naive_home_shift", |b| {
+        b.iter(|| {
+            let mut ctx = home_context_f64();
+            workshift_naive_gpu(0, 0, 0, 0, &mut ctx, &mut gpu);
+            black_box(ctx.total_iterations_today)
+        });
+    });
+    group.finish();
+}
+
 criterion_group!(
     benches,
     time_to_first_publish,
@@ -312,6 +340,7 @@ criterion_group!(
     time_to_full_frame_with_reference,
     time_to_full_frame_direct_oracle,
     worker_1080p_full_frame,
-    scaled_vs_floatexp_steps
+    scaled_vs_floatexp_steps,
+    naive_gpu_ips_probe
 );
 criterion_main!(benches);

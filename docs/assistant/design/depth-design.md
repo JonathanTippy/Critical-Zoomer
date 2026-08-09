@@ -1,11 +1,12 @@
 # Depth design: perturbation with a background reference worker
 
-Status: **final perturbation push — compute gear ladder + live series.**
-Milestone 2 (delta kernel) is closed for correctness: one production
-`PerturbationKernel`, zero-orbit floor, coverage gate, missing≠glitch,
-reference-until-done. Speed recovery is **not** all-FloatExp arithmetic:
+Status: **partially implemented** — reference worker, perturbation kernel, gear ladder,
+and HUD telemetry are in the tree. Series approximation is **deferred** (open issue) until
+membership pins stay green. **In progress:** CGenerator admission wiring, reference-scoped
+generator rebuild, and PPS-selected naive vs pert dispatch
+(`r[cz.perf.pps-selected-kernel+1]`).
 the per-pixel path uses the **fastest compute gear whose range admits the
-delta**, with series approximation skipping prefixes. Research digests live
+delta**. Research digests live
 in the private sister repo `Critical-Zoomer-Math-Library` (not published with
 CZ). This design is constrained by `workgroup-virtues.md` and must not
 re-break the v0.0.9 invariants (issue-stack standing rule).
@@ -16,16 +17,22 @@ Plain f64 pixel coordinates die around zoom 2^-50-ish of pixel spacing and
 absolutely near 2^-1022. The executive target is 2^3600000
 (`r[cz.deep.min-zoom-pot-capacity+1]`). The only workable way there: iterate
 one **reference orbit** at full precision, and iterate every pixel as a
-low-precision **delta** against it. Perturbation is always on — no toggle,
-no reference input (`r[cz.seamless.perturbation-always-on+1]`,
-`r[cz.seamless.reference-background+1]`).
+low-precision **delta** against it when naive direct iteration cannot be honest at
+depth. Shallow views default to **naive** (`DirectKernel`) when faster
+(`r[cz.perf.pps-selected-kernel+1]`). Background reference worker has no user
+toggle (`r[cz.seamless.reference-background+1]`).
 
 ## Vocabulary
 
-- **Reference orbit**: the orbit of one c, computed at depth-appropriate arbitrary precision
+Normative names (see depth-rules vocabulary table): absolute parameter/iterate are `c`/`z`;
+reference ones are `reference_c`/`reference_z`; seat−reference samples are `delta_c`/`delta_z`;
+escape derivative stays `dc`.
+
+- **Reference orbit**: the orbit of one `reference_c`, computed at depth-appropriate arbitrary precision
   (MPFR/rug), stored low-precision. Singular, current, owned by the reference worker.
-- **Delta orbit**: per-pixel, z = Z_n + Δz_n with Z_n the stored reference iterate; Δz and Δc
-  are tiny and carry the depth in their exponents.
+- **Delta orbit**: per-pixel, `z = reference_z_n + delta_z_n`; `delta_z` and `delta_c`
+  are tiny and carry the depth in their exponents. Zero-orbit/soft-continue puts absolute `c`
+  in the `delta_c` slot (never generator `delta_c`).
 - **Floatexp**: f64 mantissa + wide integer exponent. The **storage** type for reference
   iterates and mathematical deltas. Range, not mantissa, is what depth demands.
 - **Compute gear**: the hardware representation used for the hot delta recurrence
@@ -109,7 +116,22 @@ handed off, never flushed to zero.
 
 Seats may promote mid-orbit independently. The HUD reports the aggregate
 active gear (`F64` / `S-F64` / `FE` / `MIXED`) plus rolling IPS and PPS
-(`r[cz.depth.gear-hud+1]`). f32 remains a typed extension point, deferred.
+(`r[cz.depth.gear-hud+2]`). f32 remains a typed extension point, deferred.
+
+**Three HUD layers (stack / mode / ref / gear).** Stack is the view-global host type
+(`f64` vs FloatExp) admitted by `CGenerator`. Mode reports which production kernel
+runs: **`naive`** = `DirectKernel` (plain f64 iteration); **`pert`** =
+`PerturbationKernel` (reference + delta recurrence). Ref is a running snapshot
+(`wip` = no usable ref yet or glitch recovery awaiting a newer generation;
+`complete` = steady state with reused ref). Gear is the per-seat delta ladder
+under **`mode:pert` only**; naive mode reports `F64`. Per-seat `direct_only`
+glitch recovery is not a view-global HUD mode.
+The normative goal is view-global selection of the legal stack that maximizes
+completed points per second (`r[cz.perf.pps-selected-kernel+1]`): default naive
+when legal and fast; hard-bump to pert when naive cannot be honest; soft-probe
+pert briefly when stuck and a covering reference exists. The transitional
+`r[cz.perf.one-kernel-path+1]` milestone (perturbation-only shipping path) is
+superseded by dual-kernel dispatch.
 
 The worker retains a **constant-size high-precision state**: the current
 iterate plus Brent cycle-detector cursors. That buys resumability — including
@@ -169,12 +191,24 @@ exhaustion look like a shared "iteration wall" / glitch-blob epidemic.
 (`r[cz.depth.reference-until-done+1]`, `r[cz.tenacious.no-max-iter+1]`). Until
 then, seats use the zero-orbit floor.
 
+### CGenerator admission (`r[cz.depth.c-generator-fails-closed+1]`)
+
+Per frame, once, in O(1): compute exact `IntExp` origin and pixel pitch; probe only
+the near and far ends of each axis for distinguishability in the target type `T`
+(`Mandelbrotable`, `From<IntExp>`). On success store `(origin, space)` as `T`;
+`get_c(seat, row)` is then pure `T` multiply-add with no per-seat IntExp work.
+Stack order: f64 absolute → f64 relative → FloatExp absolute → FloatExp relative.
+Relative admission subtracts in exact `IntExp` before narrowing; anchor is
+`published.c` when a reference exists, else view center. On reference generation
+change, rebuild the generator relative to the new reference so seats initialize
+from the matching grid.
+
 ## What the workgroup changes look like
 
-- The proven scheduler calls a narrow `SeatKernel` interface. `DirectKernel`
-  preserves the restored arithmetic; the perturbation path lands as a second
-  kernel, not a rewrite of slots, queues, attention, delivery, or wall-clock
-  policy.
+- The proven scheduler calls a narrow `SeatKernel` interface. **`DirectKernel`**
+  is the production naive path; **`PerturbationKernel`** is production when depth
+  or honesty requires perturbation (`r[cz.perf.pps-selected-kernel+1]`). Both reuse
+  the same slots, queues, attention, delivery, and wall-clock policy.
 - `Point` gains delta-orbit state (Δz as floatexp pair, reference generation id); c remains
   the IntExp-derived truth. Points iterate as deltas against the currently published
   reference; the per-pixel path stays f64-speed or faster.
@@ -274,6 +308,6 @@ Satisfies: `r[cz.seamless.perturbation-always-on+1]`, `r[cz.seamless.reference-b
 `r[cz.deep.min-zoom-pot-capacity+1]`, `r[cz.deep.snappy-at-depth+1]`,
 `r[cz.tenacious.no-max-iter+1]`, `r[cz.hoarding.no-compute-settings+1]`,
 `r[cz.system.memory-default-1gb+1]`, `r[cz.system.tile-manager-protect-current-lookahead+1]`,
-`r[cz.depth.compute-gear+1]`, `r[cz.depth.gear-hud+1]`, `r[cz.depth.series-approximation+1]`.
+`r[cz.depth.compute-gear+1]`, `r[cz.depth.gear-hud+2]`, `r[cz.depth.series-approximation+1]`.
 Constrains and is constrained by: `design-target.md`, `workgroup-virtues.md` §2–§5.
 Math research: private sister repo `Critical-Zoomer-Math-Library` (not in this tree).

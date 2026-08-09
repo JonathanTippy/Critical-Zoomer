@@ -1,22 +1,44 @@
 # Depth core rules
 
-These rules cover the perturbation core through the final compute-gear + series
-phase. See `../design/depth-design.md` and `../issue-stack.md`.
+These rules cover the perturbation core through the final compute-gear phase.
+See `../design/depth-design.md` and `../issue-stack.md`.
+
+## Vocabulary (normative)
+
+| Meaning | Name | Forbidden |
+|--------|------|-----------|
+| Absolute Mandelbrot parameter | `c` | `plane_c`, “plain c” |
+| Absolute iterate | `z` | `plane_z`, “plain z” |
+| Reference parameter | `reference_c` | bare “c” when context is the reference |
+| Reference iterate at step n | `reference_z` (`orbit.get(n)`) | bare “z” when meaning Z_ref |
+| Seat−reference sample / perturbation δc | `delta_c` | `little_c` |
+| Perturbation δz | `delta_z` | `little_z` |
+| Escape derivative ∂z/∂c | `dc` (derivative only) | conflating with `c` / `delta_c` |
+
+**Invariant.** Relative shell + live reference: recurrence uses `delta_c` + `reference_z`.
+Zero-orbit / soft-continue: the δc slot holds absolute `c` (same math as naive). Never put
+generator `delta_c` in that slot — that marks exterior as interior (flat black / “in”).
+Do not iterate deep relative seats with collapsed f64 absolute `c` alone — that is blocky.
 
 r[cz.depth.c-generator-fails-closed+1]
 
 **Rule.** Objective-coordinate conversion is admitted only when the target compute type keeps
-every adjacent screen point distinct. Adjacency is checked at both axis ends (including the
-max-magnitude end where float ulp is worst), and generated coordinates reproduce v0.0.9's
-top-left, no-half-pixel grid exactly. Relative generation subtracts the reference in exact
-IntExp before narrowing.
+every adjacent screen point distinct. Admission is O(1): compute exact `IntExp` origin and
+pixel pitch, probe only the near and far ends of each axis (including the max-magnitude end
+where float ulp is worst), convert probe points through `T: From<IntExp>`, and verify
+adjacency in `T`. On success store `origin` and `space` as `T`; hot `get_c` is pure `T`
+multiply-add with no per-seat IntExp. Generated coordinates reproduce v0.0.9's top-left,
+no-half-pixel grid exactly. Relative generation subtracts the anchor in exact `IntExp` before
+narrowing; anchor is `published.c` when a reference exists, else view center. Rebuild the
+generator when reference generation changes so seats bind to the matching grid.
 
 **Implementation.** `src/assemblies/workgroup/c_generator.rs` — `Mandelbrotable`,
-`CGenerator::new`, `new_relative`.
+`CGenerator::new`, `new_relative`, `admit_generator`, `rebuild_generator_for_reference`.
 
 **Verification.** `generator_matches_v009_grid_bit_for_bit`,
 `rejects_collapse_at_far_end`, `successful_generator_has_distinct_neighbors`,
-`relative_generator_subtracts_before_narrowing`.
+`relative_generator_subtracts_before_narrowing`, `from_stencil_carried_ref_anchors_to_ref_c`,
+`reference_install_rebuilds_c_generator`.
 
 r[cz.depth.floatexp-range+1]
 
@@ -55,8 +77,9 @@ guessed Mandelbrot answers. These are **distinct** honest outcomes (library
 `PerturbedOutcome` in `src/perturb.rs`):
 
 - **Missing iterate** (`orbit.get(n) == None`) → unfinished / soft-continue. Not a
-  glitch. Switch to the zero-orbit floor with `δz ← z` (reconstructed objective
-  state) and `δc ← c`, and keep iterating — same recurrence, no invented answer.
+  glitch. Switch to the zero-orbit floor with `delta_z ← z` (reconstructed absolute
+  iterate) and `delta_c ← c` (absolute parameter), and keep iterating — same
+  recurrence, no invented answer.
 - **Pauldelbrot glitch** → unfinished; rebind that seat to the zero-orbit floor
   (reset; do not trust a corrupted reconstruct). Never publish a guessed answer.
 
@@ -149,7 +172,9 @@ across `BoutCap` bouts.
 `published_reference_matches_direct_on_shallow_view`,
 `perturbation_kernel_matches_rug_doubling_oracle`,
 `perturbation_bout_obeys_cap_and_split_bouts_match`,
-`phase_two_perturbation_test_inventory_is_present`.
+`phase_two_perturbation_test_inventory_is_present`,
+`pin_exterior_not_marked_in_at_zoom_52`,
+`pin_not_blocky_delta_c_at_zoom_49`.
 Shallow DirectKernel comparisons are data-flow checks only; deep truth is the
 rug precision-doubling oracle.
 
@@ -208,37 +233,39 @@ generation restarts its delta at zero. Stale deltas never survive a retarget.
 
 r[cz.depth.floatexp-host-coords+1]
 
-**Rule.** Seat samples are always relative to the view-center IntExp
-`coord_anchor` (one path). Absolute plane c for perturbation is
-`anchor + relative`. Live shallow/mid actors may use `f64` host seats when the
-generator admits them; deep admission uses FloatExp host in tests / deep path.
+**Rule.** Seat samples relative to the generator anchor (`coord_anchor`) are `delta_c`.
+Absolute `c` for naive/zero-orbit is `reference_c`/`anchor + delta_c` when the generator
+is relative. Anchor is `reference_c` when a reference scoped the generator, else view
+center. Live shallow/mid actors use `f64` host seats when the generator admits them; deep
+admission may use relative f64 or FloatExp host in tests / deep path.
 `FloatExp.mantissa` remains f64 by design. Render/`Answer` may narrow at the
 collector. Mathematical deltas and stored reference iterates remain FloatExp
 storage regardless of host type.
 
-**Implementation.** `from_stencil` relative generators; `absolute_plane_c` /
-`abs_plane_f64`; screen worker monomorphized to f64 for live; FloatExp kernel
+**Implementation.** `from_stencil` relative generators; `c_from_delta_c_*` /
+`c_for_seat_*`; screen worker monomorphized to f64 for live; FloatExp kernel
 module for depth tests.
 
 **Verification.** `deep_frame_admitted_past_f64_collapse`,
 `production_plane_coords_are_not_plain_f64`,
 `objective_c_matches_relative_generator_plus_anchor`,
-`home_reference_request_matches_c_generator`.
+`home_reference_request_matches_c_generator`,
+`pin_exterior_not_marked_in_at_zoom_52`,
+`pin_not_blocky_delta_c_at_zoom_49`.
 
 r[cz.depth.series-approximation+1]
 
-**Rule.** When a reference publishes, it may include simple series-approximation
-coefficients (FloatExp) derived only from that orbit. Seats may skip a safe
-prefix of iterations by evaluating the series in Δc, then resume ordinary delta
-iteration. Skip never invents a final answer; unsafe skip leaves the seat
-unfinished or falls back to less skip / glitch honesty.
+**Rule.** *Deferred (open issue).* Series approximation is not on the live path until
+relative `delta_c` + escaped-ref soft-continue membership stay green under
+`pin_exterior_not_marked_in_at_zoom_52` and `pin_not_blocky_delta_c_at_zoom_49`.
+When re-enabled: a published reference may include series coefficients; seats may skip a
+safe prefix by evaluating the series in `delta_c`, then resume ordinary delta iteration.
+Skip never invents a final answer.
 
-**Implementation.** `reference_worker` `PublishedReference.series`;
-`perturb_kernel` `apply_series_skip`.
+**Implementation.** Dormant: `src/series.rs`. Not attached from `reference_worker`;
+no `apply_series_skip` in production kernels.
 
-**Verification.** `series_skip_matches_delta_tail`,
-`series_never_publishes_guessed_completion`,
-`live_series_skip_initializes_delta_prefix`.
+**Verification.** *(parked / ignored until re-enable)* former series package tests.
 
 r[cz.depth.compute-gear+1]
 
@@ -261,12 +288,25 @@ Aggregate HUD gear may be MIXED when seats disagree.
 
 r[cz.depth.gear-hud+1]
 
-**Rule.** The HUD displays the effective active compute gear and rolling IPS
-(iterations/sec) and PPS (completed points/sec). Mixed-seat views surface
-MIXED rather than a false single gear. No user setting selects the gear.
+**Rule.** *Superseded by `+2` for mode/ref terminology.*
+
+r[cz.depth.gear-hud+2]
+
+**Rule.** The HUD displays host stack, kernel mode (`naive`|`pert`), reference status
+(`wip`|`complete`), effective active compute gear, and rolling IPS and PPS. Mode names
+which production kernel runs: **`naive`** = `DirectKernel`; **`pert`** =
+`PerturbationKernel`. Gear applies under **`mode:pert`** only (delta ladder); naive
+reports `F64`. Ref is a running snapshot:
+`wip` when no usable published reference exists yet or any seat is in `direct_only` glitch
+recovery awaiting a newer reference generation; `complete` when a usable reference is
+installed and no seats are glitched. Mixed-seat views surface MIXED rather than a false
+single gear. No user setting selects the gear. Metrics overlay stays top-left;
+location/goto panel bottom-right (`r[cz.ui.coords-parse+2]`, `r[cz.ui.location-readout+2]`).
 
 **Implementation.** `WorkUpdate` telemetry → collector → window HUD overlay;
 `PpsCounter` / iteration accounting in `rolling.rs`.
 
 **Verification.** `hud_telemetry_carries_gear_and_rates`,
-`pps_counter_counts_completions_not_wip`.
+`pps_counter_counts_completions_not_wip`, `telemetry_mode_naive_then_pert`,
+`reference_complete_with_reused_ref`, `reference_wip_while_started_seats_await_ref`,
+`reference_wip_after_glitch_until_new_generation`.

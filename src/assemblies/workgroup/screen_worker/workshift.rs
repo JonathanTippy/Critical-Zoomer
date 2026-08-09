@@ -5,17 +5,18 @@ use std::sync::Arc;
 use std::time::Instant;
 use std::collections::*;
 use std::cmp::*;
-use crate::assemblies::workgroup::c_generator::{CGenerator, Mandelbrotable};
+use crate::assemblies::workgroup::c_generator::{admit_generator, CGenerator, GeneratorAdmission, Mandelbrotable};
 use crate::assemblies::workgroup::reference_worker::PublishedReference;
 use crate::delta_gear::{ComputeGear, view_gear_from_generators};
 use crate::floatexp::{ComplexFloatExp, FloatExp};
-use crate::reference::ReferenceOrbit;
+use crate::constants::PIXELS_PER_UNIT_POT;
+use crate::reference::{bits_for_zoom, ReferenceOrbit};
 use crate::utils::*;
 pub const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
 
 pub const MAX_PIXELS:usize = 1920*1080*4;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Step {Scredge, In, Out, Edge, Attention}
 
 
@@ -159,6 +160,160 @@ pub struct WorkContext<T: Mandelbrotable> {
     , pub active_gear: ComputeGear
     // True when `c_generator` emits relative-to-`coord_anchor` samples.
     , pub coords_are_relative: bool
+    // Rolling ~1s HUD completion window for perturbation display gating.
+    , pub hud_points_window: u32
+    , pub hud_window_started: Instant
+    // True when seats may bind to `latest_reference`; trial-only, never sticky.
+    , pub reference_floor_active: bool
+    , pub pert_trial_shifts_left: u8
+    , pub pert_trial_cooldown: u32
+    // Bumped when `c_generator` is rebuilt for a new reference generation.
+    , pub generator_generation: u64
+    // Set when the last workshift ran the Naive GPU wave path (HUD).
+    , pub last_used_naive_gpu: bool
+}
+
+/// Brief perturbation probe when direct is genuinely stuck (>2s to clear remaining).
+const PERT_TRIAL_SHIFTS: u8 = 3;
+const PERT_TRIAL_COOLDOWN_SHIFTS: u32 = 40;
+/// Seconds of remaining work at current PPS before a trial is warranted.
+const PERT_PROMOTE_REMAINING_SECS: f64 = 2.0;
+
+impl<T: Mandelbrotable> WorkContext<T> {
+    fn end_pert_trial(&mut self) {
+        self.reference_floor_active = false;
+        self.pert_trial_shifts_left = 0;
+        self.pert_trial_cooldown = PERT_TRIAL_COOLDOWN_SHIFTS;
+    }
+
+    fn struggling_to_clear(&self, remaining: u64, pps: f64) -> bool {
+        remaining > 0 && pps >= 1.0 && remaining as f64 / pps > PERT_PROMOTE_REMAINING_SECS
+    }
+
+    /// Called once per workshift after the kernel runs.
+    pub fn tick_pert_trial(&mut self) -> Option<&'static str> {
+        if !self.reference_floor_active {
+            return None;
+        }
+        if self.pert_trial_shifts_left > 0 {
+            self.pert_trial_shifts_left -= 1;
+        }
+        if self.pert_trial_shifts_left == 0 {
+            self.end_pert_trial();
+            return Some("trial_expired");
+        }
+        None
+    }
+    /// Reference published for seat binding this shift (zero-orbit when inactive).
+    pub fn floor_reference(&self) -> Option<&crate::assemblies::workgroup::reference_worker::PublishedReference> {
+        if self.reference_floor_active {
+            self.latest_reference.as_deref()
+        } else {
+            None
+        }
+    }
+
+    /// Read-only policy label for HUD telemetry (no side effects).
+    pub fn floor_policy_label(&self) -> &'static str {
+        let pps = self.hud_pps_estimate();
+        let remaining = self.points.iter().filter(|p| !p.delivered).count() as u64;
+        if self.reference_floor_active {
+            return "trial_active";
+        }
+        if self.pert_trial_cooldown > 0 {
+            return "cooldown";
+        }
+        if self.latest_reference.as_ref().is_none_or(|r| r.orbit.escaped) {
+            return if self.latest_reference.is_some() {
+                "ref_escaped"
+            } else {
+                "no_ref"
+            };
+        }
+        if remaining == 0 {
+            return "complete";
+        }
+        let min_samples = (self.screen_point_count() as u32 / 200).max(200);
+        if self.hud_points_window < min_samples {
+            return "warming_up";
+        }
+        if pps < 1.0 {
+            return "no_pps";
+        }
+        if self.struggling_to_clear(remaining, pps) {
+            return "would_trial";
+        }
+        "direct_fast_enough"
+    }
+
+    /// Brief perturbation trial when direct fill would take >2s at current PPS.
+    pub fn update_reference_floor_policy(&mut self) -> &'static str {
+        let pps = self.hud_pps_estimate();
+        let remaining = self.points.iter().filter(|p| !p.delivered).count() as u64;
+
+        if self.reference_floor_active {
+            return "trial_active";
+        }
+
+        if self.pert_trial_cooldown > 0 {
+            return "cooldown";
+        }
+
+        let Some(ref published) = self.latest_reference else {
+            return "no_ref";
+        };
+        if published.orbit.escaped {
+            return "ref_escaped";
+        }
+        if remaining == 0 {
+            return "complete";
+        }
+        let min_samples = (self.screen_point_count() as u32 / 200).max(200);
+        if self.hud_points_window < min_samples {
+            return "warming_up";
+        }
+        if pps < 1.0 {
+            return "no_pps";
+        }
+        if self.struggling_to_clear(remaining, pps) {
+            self.reference_floor_active = true;
+            self.pert_trial_shifts_left = PERT_TRIAL_SHIFTS;
+            return "promote_trial";
+        }
+        "direct_fast_enough"
+    }
+    /// Record completed seats for HUD points-per-second estimate.
+    pub fn record_hud_completion_batch(&mut self, n: u32) {
+        const WINDOW: std::time::Duration = std::time::Duration::from_secs(1);
+        if self.hud_window_started.elapsed() >= WINDOW {
+            self.hud_points_window = 0;
+            self.hud_window_started = Instant::now();
+        }
+        self.hud_points_window += n;
+    }
+
+    pub fn hud_pps_estimate(&self) -> f64 {
+        let secs = self.hud_window_started.elapsed().as_secs_f64().max(0.05);
+        self.hud_points_window as f64 / secs
+    }
+
+    pub fn screen_point_count(&self) -> u64 {
+        self.res.0 as u64 * self.res.1 as u64
+    }
+
+    /// Hard bump at f64 precision wall (relative generator) or soft trial floor.
+    // r[impl cz.perf.pps-selected-kernel+1]
+    pub fn perturbation_kernel_required(&self) -> bool {
+        self.coords_are_relative || self.reference_floor_active
+    }
+
+    /// Bind published reference orbit (trial or hard-bump relative shell).
+    /// Relative shells keep an escaped view-center orbit: its pre-escape iterates
+    /// give seats precision via generator delta_c; soft-continue after the tip.
+    pub fn perturbation_reference_active(&self) -> bool {
+        self.reference_floor_active
+            || (self.coords_are_relative && self.latest_reference.is_some())
+    }
 }
 
 
@@ -187,11 +342,13 @@ pub enum CompletedPoint<T> {
 /// internal representation; `Point<T>` stays generic over the view math only.
 #[derive(Clone, Debug)]
 pub struct DeltaState {
-    pub dz: ComplexFloatExp,
+    /// δz — perturbation offset; absolute z = reference_z + delta_z while on a live ref.
+    /// On zero-orbit / soft-continue this slot holds absolute z.
+    pub delta_z: ComplexFloatExp,
     pub checkpoint: ComplexFloatExp,
     pub checkpoint_n: u32,
-    /// δc = c_pixel − c_reference, fixed for this generation.
-    pub dc: ComplexFloatExp,
+    /// δc — seat−reference sample while on a live ref; absolute c on zero-orbit / soft-continue.
+    pub delta_c: ComplexFloatExp,
     /// ∂δ/∂c so escape_derivative stays meaningful for filament detection.
     pub dd: ComplexFloatExp,
     /// Reference generation this delta belongs to (0 = zero-orbit floor).
@@ -201,18 +358,25 @@ pub struct DeltaState {
     pub gear: ComputeGear,
     /// Wide exponent for scaled-f64 inner recurrence.
     pub scale: FloatExp,
-    /// Absolute plane c (anchor + seat) for zero-orbit rebind.
-    pub abs_c: ComplexFloatExp,
+    /// Absolute c (anchor + generator delta_c when relative) for rebind and completion export.
+    pub c: ComplexFloatExp,
 }
 
 //pub const SpeedTestPoint
 #[derive(Clone, Debug)]
 
 pub struct Point<T> {
-    pub c: (T, T)
-    , pub z: (T, T)
-    , pub dc: (T, T)
-    , pub real_squared: T
+    /// Generator sample: `delta_c` (anchor-relative) when the shell is relative;
+    /// absolute `c` at seat precision when the shell is absolute.
+    pub delta_c: (T, T),
+    /// Absolute `c` used for naive recurrence and completion export (anchor + delta_c
+    /// when relative). May be narrowed f64; perturbation stores exact c in `delta`.
+    pub c: (T, T),
+    /// Absolute iterate `z` (never δz).
+    pub z: (T, T),
+    /// Escape-time derivative ∂z/∂c (not delta_c).
+    pub dc: (T, T),
+    pub real_squared: T
     , pub imag_squared: T
     , pub real_imag: T
     , pub iterations: u32
@@ -268,11 +432,12 @@ impl Gt for f64 {
 
 // r[impl cz.craft.epsilon-pixel-pitch+1]
 pub fn pitch_epsilon<T:Sub<Output=T> + Abs + From<f32> + Mul<Output=T> + Copy>(points: &Vec<Point<T>>) -> T {
-    (points[0].c.0 - points[1].c.0).abs() * (T::from(1.0 * (1.0/256.0)))
+    (points[0].delta_c.0 - points[1].delta_c.0).abs() * (T::from(1.0 * (1.0/256.0)))
 }
 
 pub fn placeholder_point<T: From<f32> + Copy>() -> Point<T> {
     Point {
+        delta_c: (0.0.into(), 0.0.into()),
         c: (0.0.into(), 0.0.into()),
         z: (0.0.into(), 0.0.into()),
         dc: (1.0.into(), 0.0.into()),
@@ -302,6 +467,102 @@ pub(crate) fn get_random_mixmap(size: usize) -> Vec<usize> {
     indices
 }
 
+/// Whether an f64 grid admits this stencil (absolute, or relative fallback).
+pub fn f64_stencil_admits(
+    compute_loc: &(IntExp, IntExp),
+    zoom_pot: i64,
+    res: (u32, u32),
+) -> bool {
+    let view_center = view_center_compute(compute_loc, zoom_pot as i32, res);
+    admit_generator::<f64>(compute_loc, zoom_pot, res, None, &view_center).is_some()
+}
+
+/// Apply admitted generator fields and invalidate undelivered seats on generation bump.
+pub fn apply_generator_admission<T: Mandelbrotable + From<f32>>(
+    ctx: &mut WorkContext<T>,
+    admission: GeneratorAdmission<T>,
+    view_center: (IntExp, IntExp),
+    generation: u64,
+) {
+    let (c_generator, coord_anchor, coords_are_relative) = match admission {
+        GeneratorAdmission::Absolute(generator) => (generator, view_center, false),
+        GeneratorAdmission::Relative { generator, anchor } => (generator, anchor, true),
+    };
+    if ctx.generator_generation != generation {
+        for p in &mut ctx.points {
+            if !p.delivered {
+                p.initialized = false;
+                p.delta = None;
+            }
+        }
+    }
+    ctx.c_generator = c_generator;
+    ctx.coord_anchor = coord_anchor;
+    ctx.coords_are_relative = coords_are_relative;
+    let (_, space) = c_generator.origin_and_space();
+    ctx.pitch_epsilon = space.abs() * T::from(1.0 / 256.0);
+    ctx.generator_generation = generation;
+}
+
+/// Rebuild `c_generator` relative to a published reference anchor.
+// r[impl cz.depth.c-generator-fails-closed+1]
+pub fn rebuild_generator_for_reference<T: Mandelbrotable + From<f32>>(
+    ctx: &mut WorkContext<T>,
+    compute_loc: &(IntExp, IntExp),
+    zoom_pot: i64,
+    res: (u32, u32),
+    published: &PublishedReference,
+) -> bool {
+    let view_center = view_center_compute(compute_loc, zoom_pot as i32, res);
+    let Some(admission) = admit_generator::<T>(
+        compute_loc,
+        zoom_pot,
+        res,
+        Some(&published.c),
+        &view_center,
+    ) else {
+        return false;
+    };
+    apply_generator_admission(ctx, admission, view_center, published.generation);
+    true
+}
+
+/// Plane C = IntExp anchor + little c (f64 host narrow).
+// r[impl cz.depth.floatexp-host-coords+1]
+#[inline]
+pub fn c_from_delta_c_f64(delta_c: (f64, f64), anchor: &(IntExp, IntExp)) -> (f64, f64) {
+    use crate::assemblies::headgroup::window::coords::f64_to_intexp;
+    let re = anchor.0.clone() + f64_to_intexp(delta_c.0);
+    let im = anchor.1.clone() + f64_to_intexp(delta_c.1);
+    (f64::from(re), f64::from(im))
+}
+
+/// Exact plane C in FloatExp = IntExp anchor + f64 little c (per-seat precision).
+#[inline]
+pub fn c_floatexp_from_delta_c(delta_c: (f64, f64), anchor: &(IntExp, IntExp)) -> ComplexFloatExp {
+    use crate::assemblies::headgroup::window::coords::f64_to_intexp;
+    ComplexFloatExp::new(
+        FloatExp::from(anchor.0.clone()) + FloatExp::from(f64_to_intexp(delta_c.0)),
+        FloatExp::from(anchor.1.clone()) + FloatExp::from(f64_to_intexp(delta_c.1)),
+    )
+}
+
+/// Materialize plane C for a seat sample (relative → anchor+delta_c via IntExp).
+#[inline]
+pub fn c_for_seat_f64(ctx: &WorkContext<f64>, delta_c: (f64, f64)) -> (f64, f64) {
+    if ctx.coords_are_relative {
+        c_from_delta_c_f64(delta_c, &ctx.coord_anchor)
+    } else {
+        delta_c
+    }
+}
+
+/// Legacy alias — prefer `c_from_delta_c_f64`.
+#[inline]
+pub fn abs_c_f64(delta_c: (f64, f64), anchor: &(IntExp, IntExp)) -> (f64, f64) {
+    c_from_delta_c_f64(delta_c, anchor)
+}
+
 /// Compute-space center of a viewport (half-res seat), exact IntExp pitch.
 pub fn view_center_compute(
     compute_loc: &(IntExp, IntExp),
@@ -314,6 +575,59 @@ pub fn view_center_compute(
         compute_loc.0.clone() + pitch.clone() * IntExp::from((res.0 / 2) as i32),
         compute_loc.1.clone() - pitch * IntExp::from((res.1 / 2) as i32),
     )
+}
+
+/// Synchronous view-center reference for relative shells before the async worker publishes.
+/// Escaped is allowed: without a reference the f64 generator cannot stay relative to a
+/// usable orbit, and zero-orbit c collapses per-seat pitch past ~2^50.
+/// Prefer the longest orbit among a coarse seat sample (exterior filaments escape; longer
+/// pre-escape iterates still give seats a usable Z_ref).
+fn bootstrap_relative_reference<T: Mandelbrotable>(
+    zoom_pot: i64,
+    anchor: &(IntExp, IntExp),
+    generator: &CGenerator<T>,
+    res: (u32, u32),
+) -> PublishedReference {
+    use crate::assemblies::headgroup::window::coords::f64_to_intexp;
+    let bits = bits_for_zoom(zoom_pot, PIXELS_PER_UNIT_POT).max(128);
+    let mut best = {
+        let orbit = ReferenceOrbit::compute(anchor, bits, 4096);
+        PublishedReference {
+            orbit,
+            c: (anchor.0.clone(), anchor.1.clone()),
+            generation: 0,
+        }
+    };
+    let step_x = (res.0 / 8).max(1);
+    let step_y = (res.1 / 8).max(1);
+    let mut y = 0u32;
+    while y < res.1 {
+        let mut x = 0u32;
+        while x < res.0 {
+            let lc = generator.get_c((x, y));
+            let c = (
+                anchor.0.clone() + f64_to_intexp(lc.0.to_f64()),
+                anchor.1.clone() + f64_to_intexp(lc.1.to_f64()),
+            );
+            let orbit = ReferenceOrbit::compute(&c, bits, 4096);
+            if orbit.iterates.len() > best.orbit.iterates.len() {
+                best = PublishedReference {
+                    orbit,
+                    c,
+                    generation: 0,
+                };
+            }
+            x = x.saturating_add(step_x);
+            if x == 0 {
+                break;
+            }
+        }
+        y = y.saturating_add(step_y);
+        if y == 0 {
+            break;
+        }
+    }
+    best
 }
 
 /// Alias for tests / depth fixtures — always-relative stencil build.
@@ -343,39 +657,54 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
                 &frame_info,
             )
         });
+    let (carried_hud_points, carried_hud_started, carried_trial_cooldown) = previous
+        .as_ref()
+        .map(|(old, _)| {
+            (
+                old.hud_points_window,
+                old.hud_window_started,
+                old.pert_trial_cooldown,
+            )
+        })
+        .unwrap_or((0, Instant::now(), 0));
 
     let (obj, res) = frame_info;
     let compute_loc = (obj.pos.0.clone(), IntExp::ZERO - obj.pos.1.clone());
-    let coord_anchor = view_center_compute(&compute_loc, obj.zoom_pot, res);
-    let use_floatexp_host = std::any::TypeId::of::<T>()
-        == std::any::TypeId::of::<crate::floatexp::FloatExp>();
-    let (c_generator, coords_are_relative) = if use_floatexp_host {
-        // Prefer absolute FloatExp when the grid admits; relative only when
-        // absolute collapses (deep views past f64).
-        // r[impl cz.depth.floatexp-host-coords+1]
-        match CGenerator::<T>::new(&compute_loc, obj.zoom_pot as i64, res) {
-            Some(g) => (g, false),
-            None => (
-                CGenerator::<T>::new_relative(
-                    &compute_loc,
-                    &coord_anchor,
-                    obj.zoom_pot as i64,
-                    res,
-                )?,
-                true,
-            ),
-        }
-    } else {
-        // Live f64 actors: absolute grid (banding-safe production path).
-        (CGenerator::<T>::new(&compute_loc, obj.zoom_pot as i64, res)?, false)
+    let view_center = view_center_compute(&compute_loc, obj.zoom_pot, res);
+    let relative_anchor = carried_reference.as_ref().map(|r| &r.c);
+    let generator_generation = carried_reference
+        .as_ref()
+        .map(|r| r.generation)
+        .unwrap_or(0);
+    let admission = admit_generator::<T>(
+        &compute_loc,
+        obj.zoom_pot as i64,
+        res,
+        relative_anchor,
+        &view_center,
+    )?;
+    let coords_are_relative = admission.is_relative();
+    let c_generator = *admission.generator();
+    let coord_anchor = match admission {
+        GeneratorAdmission::Absolute(_) => view_center,
+        GeneratorAdmission::Relative { anchor, .. } => anchor,
     };
     let (_, space) = c_generator.origin_and_space();
-    let pitch_epsilon = space.abs() * T::from(1.0 / 256.0);
+    let seat_pitch_epsilon = space.abs() * T::from(1.0 / 256.0);
+    let use_floatexp_host = std::any::TypeId::of::<T>()
+        == std::any::TypeId::of::<crate::floatexp::FloatExp>();
     let view_gear = if use_floatexp_host {
         ComputeGear::FloatExp
     } else {
-        let pitch = pitch_epsilon.to_f64() * 256.0;
-        if pitch > 0.0 && pitch < crate::delta_gear::F64_PERTURB_USEFUL_FLOOR {
+        // Live f64: naive/direct is F64, but deep / relative shells need the
+        // compute-gear floor so completed frames do not snap HUD back to F64
+        // after refresh_active_gear (issue #5).
+        // r[impl cz.depth.gear-hud+2]
+        // r[impl cz.depth.compute-gear+1]
+        let pitch = seat_pitch_epsilon.to_f64() * 256.0;
+        if coords_are_relative
+            || (pitch > 0.0 && pitch < crate::delta_gear::F64_PERTURB_USEFUL_FLOOR)
+        {
             ComputeGear::ScaledF64
         } else {
             ComputeGear::F64
@@ -414,7 +743,9 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
             Vec::new(),
             Vec::new(),
             (0, 0),
-            Stec::with_capacity(100000, (CompletedPoint::Dummy {}, 0)),
+            // Cap at least the screen so a shallow GPU flood is not BufferFull-throttled
+            // mid-shift (old fixed 100k capped home fill well below one frame).
+            Stec::with_capacity(new_len.max(100_000), (CompletedPoint::Dummy {}, 0)),
         ),
     };
 
@@ -445,7 +776,7 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
 
     let center = ((res.0 / 2) as i32, (res.1 / 2) as i32);
 
-    Some(WorkContext {
+    let mut ctx = WorkContext {
         points,
         completed_points,
         index: 0,
@@ -472,19 +803,72 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
         attention_index: 0,
         attention_current: None,
         c_generator,
-        pitch_epsilon,
+        pitch_epsilon: seat_pitch_epsilon,
         coord_anchor,
         view_gear,
         active_gear: view_gear,
         coords_are_relative,
         latest_reference: carried_reference,
-    })
+        hud_points_window: carried_hud_points,
+        hud_window_started: carried_hud_started,
+        reference_floor_active: false,
+        pert_trial_shifts_left: 0,
+        pert_trial_cooldown: carried_trial_cooldown,
+        generator_generation,
+        last_used_naive_gpu: false,
+    };
+    if ctx.coords_are_relative && ctx.latest_reference.is_none() {
+        let bootstrap = bootstrap_relative_reference(
+            obj.zoom_pot as i64,
+            &ctx.coord_anchor,
+            &ctx.c_generator,
+            res,
+        );
+        ctx.latest_reference = Some(Arc::new(bootstrap));
+        let published = ctx.latest_reference.as_ref().unwrap().clone();
+        let _ = rebuild_generator_for_reference(
+            &mut ctx,
+            &compute_loc,
+            obj.zoom_pot as i64,
+            res,
+            published.as_ref(),
+        );
+        // #region agent log
+        crate::debug_agent::log_hud(
+            "H1",
+            "screen_worker/workshift.rs:from_stencil",
+            "bootstrap_ref",
+            &format!(
+                "{{\"zoom_pot\":{},\"orbit_len\":{},\"escaped\":{}}}",
+                obj.zoom_pot,
+                published.orbit.iterates.len(),
+                published.orbit.escaped,
+            ),
+        );
+        // #endregion
+    }
+    // #region agent log
+    crate::debug_agent::log_hud(
+        "H2",
+        "screen_worker/workshift.rs:from_stencil",
+        "shell_admitted",
+        &format!(
+            "{{\"zoom_pot\":{},\"admission\":\"{}\",\"coords_relative\":{},\"has_ref\":{},\"gen\":{}}}",
+            obj.zoom_pot,
+            if coords_are_relative { "relative" } else { "absolute" },
+            coords_are_relative,
+            ctx.latest_reference.is_some(),
+            generator_generation,
+        ),
+    );
+    // #endregion
+    Some(ctx)
 }
 
 /// Absolute plane coordinate = IntExp anchor + relative seat sample.
 // r[impl cz.depth.floatexp-host-coords+1]
 #[inline]
-pub fn absolute_plane_c(
+pub fn absolute_c(
     relative: (FloatExp, FloatExp),
     anchor: &(IntExp, IntExp),
 ) -> (FloatExp, FloatExp) {
@@ -494,12 +878,31 @@ pub fn absolute_plane_c(
     )
 }
 
+#[inline]
+fn gear_rank(gear: ComputeGear) -> u8 {
+    match gear {
+        ComputeGear::F32 => 0,
+        ComputeGear::F64 => 1,
+        ComputeGear::ScaledF64 => 2,
+        ComputeGear::FloatExp => 3,
+        ComputeGear::Mixed => 4,
+    }
+}
+
 /// Refresh HUD aggregate gear from seats touched this shift (O(1) per seat).
 /// Full-frame scans are forbidden here — they made home fill O(n²).
-// r[impl cz.depth.gear-hud+1]
+/// Never demote below `view_gear`: zero-orbit / idle F64 seats must not hide a
+/// deep ScaledF64 view requirement (headed "gear:F64" at the precision wall).
+// r[impl cz.depth.gear-hud+2]
 #[inline]
 pub fn note_seat_gear<T: Mandelbrotable>(ctx: &mut WorkContext<T>, seat_gear: ComputeGear) {
-    if seat_gear == ctx.view_gear || seat_gear == ComputeGear::Mixed {
+    if seat_gear == ComputeGear::Mixed {
+        return;
+    }
+    if gear_rank(seat_gear) < gear_rank(ctx.view_gear) {
+        return;
+    }
+    if seat_gear == ctx.view_gear {
         return;
     }
     if ctx.active_gear == ctx.view_gear {
@@ -521,9 +924,10 @@ pub fn ensure_started<T: Mandelbrotable>(ctx: &mut WorkContext<T>, pos: (i32, i3
     let index = index_from_pos(&pos, ctx.res.0);
     let point = &mut ctx.points[index];
     if !point.initialized {
-        let c = ctx.c_generator.get_c((pos.0 as u32, pos.1 as u32));
-        point.c = c;
-        point.z = c;
+        let delta_c = ctx.c_generator.get_c((pos.0 as u32, pos.1 as u32));
+        point.delta_c = delta_c;
+        point.c = delta_c;
+        point.z = delta_c;
         point.dc = (T::ONE, T::ZERO);
         point.initialized = true;
     }
@@ -621,6 +1025,13 @@ pub fn next_attention_spiral_pos<T: Mandelbrotable>(
     None
 }
 
+pub(crate) fn queue_fallback_pos_pub<T: Mandelbrotable>(
+    context: &WorkContext<T>,
+    prefer_scredge: bool,
+) -> Option<((i32, i32), Step)> {
+    queue_fallback_pos(context, prefer_scredge)
+}
+
 fn queue_fallback_pos<T: Mandelbrotable>(
     context: &WorkContext<T>,
     prefer_scredge: bool,
@@ -669,11 +1080,8 @@ where
     fn completion(&self, point: &mut Point<T>) -> CompletedPoint<T>;
 }
 
-/// Direct Mandelbrot iteration — test-only parity oracle.
-/// Oracle / bench-only direct recurrence. Production always runs
-/// [`PerturbationKernel`] (including the zero-orbit floor).
-/// Oracles live in test/bench code; the production path never branches on them.
-// r[impl cz.perf.one-kernel-path+1]
+/// Production naive Mandelbrot iteration (`mode:naive`).
+// r[impl cz.perf.pps-selected-kernel+1]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DirectKernel;
 
@@ -684,6 +1092,20 @@ where
     #[inline]
     fn start_seat(&self, context: &mut WorkContext<T>, pos: (i32, i32)) {
         ensure_started(context, pos);
+        if context.coords_are_relative {
+            let index = index_from_pos(&pos, context.res.0);
+            let point = &mut context.points[index];
+            let delta_c = point.delta_c;
+            let c = c_from_delta_c_f64(
+                (delta_c.0.into(), delta_c.1.into()),
+                &context.coord_anchor,
+            );
+            point.c = (
+                T::from(crate::assemblies::headgroup::window::coords::f64_to_intexp(c.0)),
+                T::from(crate::assemblies::headgroup::window::coords::f64_to_intexp(c.1)),
+            );
+            point.z = point.c;
+        }
     }
 
     #[inline]
@@ -709,8 +1131,18 @@ pub fn direct_completion<T>(point: &mut Point<T>) -> CompletedPoint<T>
 where
     T: Mandelbrotable + Into<f64> + Copy,
 {
+    direct_completion_with_c(point, point.c)
+}
+
+pub fn direct_completion_with_c<T>(
+    point: &mut Point<T>,
+    c: (T, T),
+) -> CompletedPoint<T>
+where
+    T: Mandelbrotable + Into<f64> + Copy,
+{
     if point.repeats {
-        let c64 = (point.c.0.into(), point.c.1.into());
+        let c64 = (c.0.into(), c.1.into());
         let (partials, tail) = period_partials(c64, point.iterations);
         point.period = partials
             .into_iter()
@@ -726,7 +1158,7 @@ where
             escape_time: point.iterations,
             escape_location: (point.z.0, point.z.1),
             escape_derivative: point.dc,
-            start_location: (point.c.0, point.c.1),
+            start_location: (c.0, c.1),
             smallness: point.smallness_squared,
             small_time: point.small_time,
         }
@@ -739,15 +1171,102 @@ pub fn workshift(
     point_token_cost: u32,
     bout_token_cost: u32,
     context: &mut WorkContext<f64>,
+    gpu: Option<&mut super::naive_gpu::NaiveGpuContext>,
 ) {
-    workshift_with_kernel(
+    if context.pert_trial_cooldown > 0 {
+        context.pert_trial_cooldown -= 1;
+    }
+    context.last_used_naive_gpu = false;
+    let policy_before = context.update_reference_floor_policy();
+    run_workshift_kernel(
         day_token_allowance,
         iteration_token_cost,
         point_token_cost,
         bout_token_cost,
         context,
-        &super::perturb_kernel::PerturbationKernel,
+        gpu,
     );
+    let trial_tick = context.tick_pert_trial();
+    let policy_after = context.update_reference_floor_policy();
+    if policy_before != policy_after
+        && (policy_after == "promote_trial"
+            || trial_tick == Some("trial_expired"))
+    {
+        // #region agent log
+        crate::debug_agent::log_hud(
+            "H6",
+            "screen_worker/workshift.rs:workshift",
+            "floor_policy_changed",
+            &format!(
+                "{{\"from\":\"{policy_before}\",\"to\":\"{policy_after}\",\"ref_floor\":{},\"pps\":{:.1},\"screen_pts\":{},\"remaining\":{}}}",
+                context.reference_floor_active,
+                context.hud_pps_estimate(),
+                context.screen_point_count(),
+                context.points.iter().filter(|p| !p.delivered).count(),
+            ),
+        );
+        // #endregion
+    }
+}
+
+fn run_workshift_kernel(
+    day_token_allowance: u32,
+    iteration_token_cost: u32,
+    point_token_cost: u32,
+    bout_token_cost: u32,
+    context: &mut WorkContext<f64>,
+    gpu: Option<&mut super::naive_gpu::NaiveGpuContext>,
+) {
+    // #region agent log
+    crate::debug_agent::log_hud(
+        "H1",
+        "screen_worker/workshift.rs:run_workshift_kernel",
+        "kernel_dispatch",
+        &format!(
+            "{{\"coords_relative\":{},\"ref_floor\":{},\"has_ref\":{},\"kernel\":\"{}\",\"policy\":\"{}\",\"remaining\":{}}}",
+            context.coords_are_relative,
+            context.reference_floor_active,
+            context.latest_reference.is_some(),
+            if context.perturbation_kernel_required() {
+                "pert"
+            } else if gpu.is_some() {
+                "naive_gpu"
+            } else {
+                "direct"
+            },
+            context.floor_policy_label(),
+            context.points.iter().filter(|p| !p.delivered).count(),
+        ),
+    );
+    // #endregion
+    if context.perturbation_kernel_required() {
+        workshift_with_kernel(
+            day_token_allowance,
+            iteration_token_cost,
+            point_token_cost,
+            bout_token_cost,
+            context,
+            &super::perturb_kernel::PerturbationKernel,
+        );
+    } else if let Some(gpu) = gpu {
+        super::naive_gpu::workshift_naive_gpu(
+            day_token_allowance,
+            iteration_token_cost,
+            point_token_cost,
+            bout_token_cost,
+            context,
+            gpu,
+        );
+    } else {
+        workshift_with_kernel(
+            day_token_allowance,
+            iteration_token_cost,
+            point_token_cost,
+            bout_token_cost,
+            context,
+            &DirectKernel,
+        );
+    }
 }
 
 pub fn workshift_with_kernel<T, K>(
@@ -765,12 +1284,14 @@ where
 
     context.time_workshift_started = Instant::now();
 
+    context.update_reference_floor_policy();
+
 
     context.total_bouts_today = 0;
     context.total_iterations_today = 0;
     context.total_points_today = 0;
     context.spent_tokens_today = 0;
-    // r[impl cz.depth.gear-hud+1]
+    // r[impl cz.depth.gear-hud+2]
     refresh_active_gear(context);
 
 
@@ -882,18 +1403,26 @@ where
             continue;
         }
 
+        // Capture before start_seat: a same-bout glitch restart can drop
+        // iterations — never panic the IPS counter on that non-monotonic path.
+        let old_iterations = context.points[index].iterations;
+
         // r[impl cz.craft.stencil-only-replace+2]
         kernel.start_seat(context, pos);
 
         // Disjoint fields: take the reference so we can mutably borrow the seat.
+        // Evaluate "reference active" against the held snapshot — never against
+        // `latest_reference` after take() (that always looks empty and forced
+        // zero-orbit with generator delta_c → false interior / flat black).
         let held_reference = context.latest_reference.take();
-        let orbit = if context.points[index].direct_only {
-            None
-        } else {
+        let use_published_orbit = !context.points[index].direct_only
+            && (context.reference_floor_active
+                || (context.coords_are_relative && held_reference.is_some()));
+        let orbit = if use_published_orbit {
             held_reference.as_ref().map(|r| &r.orbit)
+        } else {
+            None
         };
-
-        let old_iterations = context.points[index].iterations;
 
         // r[impl cz.craft.attention-spiral+1]
         // Every bout is bounded — the worker may never make an unbounded call.
@@ -913,7 +1442,9 @@ where
 
 
 
-        context.total_iterations_today += context.points[index].iterations - old_iterations;
+        context.total_iterations_today += context.points[index]
+            .iterations
+            .saturating_sub(old_iterations);
 
 
         if context.points[index].repeats || context.points[index].escapes {
@@ -966,7 +1497,8 @@ where
             }
 
 
-            context.total_points_today += 1
+            context.total_points_today += 1;
+            context.record_hud_completion_batch(1);
         } else {
             match step {
                 // r[impl cz.craft.out-rotates-in-stays+1]
@@ -1082,18 +1614,26 @@ use std::ops::*;
 
 #[inline(always)]
 pub fn iterate<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + From<f32> + Copy> (point: &mut Point<T>) {
+    iterate_with_c(point, point.c);
+}
+
+#[inline(always)]
+pub fn iterate_with_c<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + From<f32> + Copy> (
+    point: &mut Point<T>,
+    c: (T, T),
+) {
     // r[impl cz.craft.screen-space-derivative-edges+1]
-    // dc_n = dz_n/dc follows dc_{n+1} = 2 z_n dc_n + 1.
-    let dc = (
+    // d_z/d_c recurrence: (d z)/(d c)_{n+1} = 2 z_n (d z)/(d c)_n + 1.
+    let d_z_d_c = (
         T::from(2.0) * (point.z.0 * point.dc.0 - point.z.1 * point.dc.1) + T::from(1.0),
         T::from(2.0) * (point.z.0 * point.dc.1 + point.z.1 * point.dc.0),
     );
     // move z
     point.z = (
-        point.real_squared - point.imag_squared + point.c.0
-        , T::from(2.0f32.into()) * point.real_imag + point.c.1
+        point.real_squared - point.imag_squared + c.0
+        , T::from(2.0f32.into()) * point.real_imag + c.1
     );
-    point.dc = dc;
+    point.dc = d_z_d_c;
     point.iterations+=1;
 }
 

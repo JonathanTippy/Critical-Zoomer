@@ -15,8 +15,10 @@ Trash is physically moved to `Trash/`, not banner-marked; dumpster diving there 
 4. **Rules tied to code** — `tracey/` (each rule cites its code site; craftsmanship rules bind
    the virtues-doc inventory to the exact lines that implement it; `depth-rules.md` binds the
    isolated perturbation core and its differential oracle)
-5. **Measured performance** — `benchmarks.md` (fitness suite, committed baseline, regression
-   guard; fitness lives in benches, never in tests)
+5. **Measured performance** — `benchmarks.md` (fitness suite, committed baseline,
+   regression guard). **Steady-state Rust integration tests** (`testing.md`) are
+   the lifeblood gate for “does work and IPS actually get through the machine”;
+   benches track *how fast* trends. Prefer many steady-state tests over shell e2e.
 6. **Live work** — `issue-stack.md` (open bugs, design gaps, cleanup list)
 7. **Product knowledge** — `collected-wisdom.md` (tier 1, vetted), then the tier-2 salvage
    files: `salvage-from-trash.md` (unvetted doc leads) and `salvage-from-code.md` (portable

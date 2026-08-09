@@ -6,10 +6,9 @@ use std::sync::OnceLock;
 
 use crate::floatexp::{ComplexFloatExp, FloatExp};
 use crate::reference::ReferenceOrbit;
-use crate::series::SeriesApproximation;
 
 use super::workshift::{
-    absolute_plane_c, direct_completion, ensure_started, update_point_results, BoutCap,
+    absolute_c, direct_completion_with_c, ensure_started, update_point_results, BoutCap,
     CompletedPoint, DeltaState, Point, SeatKernel, WorkContext,
 };
 
@@ -93,11 +92,13 @@ fn rebind_to_zero_continuing(
     point: &mut Point<FloatExp>,
     delta: &mut DeltaState,
     against_generation: u64,
+    absolute_z: ComplexFloatExp,
 ) {
+    // Soft-continue: δc ← absolute c; δz ← absolute z. Never generator delta_c.
     point.direct_only = true;
     point.bound_zero_generation = against_generation;
-    delta.dc = delta.abs_c;
-    delta.dz = ComplexFloatExp::new(point.z.0, point.z.1);
+    delta.delta_c = delta.c;
+    delta.delta_z = absolute_z;
     delta.generation = 0;
     delta.gear = crate::delta_gear::ComputeGear::FloatExp;
 }
@@ -106,10 +107,10 @@ fn rebind_to_zero_continuing(
 fn sync_point_from_delta(
     point: &mut Point<FloatExp>,
     z_ref: ComplexFloatExp,
-    dz: ComplexFloatExp,
+    delta_z: ComplexFloatExp,
     dd: ComplexFloatExp,
 ) {
-    let z = z_ref + dz;
+    let z = z_ref + delta_z;
     point.z = (z.re, z.im);
     point.dc = (dd.re, dd.im);
     update_point_results(point);
@@ -124,26 +125,27 @@ fn init_delta(
     point: &mut Point<FloatExp>,
     orbit: &ReferenceOrbit,
     generation: u64,
-    abs_c: (FloatExp, FloatExp),
+    delta_c: (FloatExp, FloatExp),
+    c: (FloatExp, FloatExp),
 ) {
-    let abs = to_delta_c(abs_c);
-    let dc = if std::ptr::eq(orbit, zero_orbit()) {
-        abs
+    let plane_fe = to_delta_c(c);
+    let delta_c_fe = if std::ptr::eq(orbit, zero_orbit()) {
+        plane_fe.clone()
     } else {
-        abs - reference_c_floatexp(orbit)
+        plane_fe.clone() - reference_c_floatexp(orbit)
     };
-    let dz = dc;
+    let delta_z_fe = delta_c_fe.clone();
     let dd = ComplexFloatExp::new(FloatExp::ONE, FloatExp::ZERO);
     let Some(z_ref) = orbit.get(1) else {
         point.delta = None;
         return;
     };
     point.delta = Some(DeltaState {
-        dz,
+        delta_z: delta_z_fe.clone(),
         checkpoint: ComplexFloatExp::ZERO,
         checkpoint_n: 0,
-        dc,
-        abs_c: abs,
+        delta_c: delta_c_fe,
+        c: plane_fe,
         dd,
         generation,
         gear: crate::delta_gear::ComputeGear::FloatExp,
@@ -153,46 +155,11 @@ fn init_delta(
     point.escapes = false;
     point.repeats = false;
     point.period = 0;
-    point.loop_detection_point = ((point.c.0, point.c.1), 0);
+    point.c = c;
     point.smallness_squared = <FloatExp as crate::assemblies::workgroup::c_generator::Mandelbrotable>::max_value();
     point.small_time = 0;
-    sync_point_from_delta(point, z_ref, dz, dd);
-}
-
-fn apply_series_skip(
-    point: &mut Point<FloatExp>,
-    published: Option<&crate::assemblies::workgroup::reference_worker::PublishedReference>,
-) {
-    let Some(pub_ref) = published else {
-        return;
-    };
-    if point.direct_only || pub_ref.orbit.escaped {
-        return;
-    }
-    let Some(series) = pub_ref.series.as_ref() else {
-        return;
-    };
-    let Some(delta) = point.delta.as_mut() else {
-        return;
-    };
-    if point.iterations > 0 {
-        return;
-    }
-    let skip = series.safe_skip(delta.dc, pub_ref.orbit.iterates.len().saturating_sub(1));
-    if skip <= 1 {
-        return;
-    }
-    let Some(dz) = series.evaluate(skip, delta.dc) else {
-        return;
-    };
-    let dd = delta.dd;
-    delta.dz = dz;
-    point.iterations = skip.saturating_sub(1) as u32;
-    let z_ref = pub_ref
-        .orbit
-        .get(point.iterations.saturating_add(1))
-        .unwrap_or(ComplexFloatExp::ZERO);
-    sync_point_from_delta(point, z_ref, dz, dd);
+    sync_point_from_delta(point, z_ref, delta_z_fe, dd);
+    point.loop_detection_point = (point.z, 0);
 }
 
 impl SeatKernel<FloatExp> for FloatExpPerturbationKernel {
@@ -216,16 +183,14 @@ impl SeatKernel<FloatExp> for FloatExpPerturbationKernel {
             Some(d) => d.generation != generation,
         };
         if needs_restart {
-            let abs_c = if context.coords_are_relative {
-                absolute_plane_c(context.points[index].c, &context.coord_anchor)
+            let delta_c = context.points[index].delta_c;
+            let c = if context.coords_are_relative {
+                absolute_c(delta_c, &context.coord_anchor)
             } else {
-                context.points[index].c
+                delta_c
             };
-            init_delta(&mut context.points[index], orbit, generation, abs_c);
-            apply_series_skip(
-                &mut context.points[index],
-                context.latest_reference.as_deref(),
-            );
+            context.points[index].c = c;
+            init_delta(&mut context.points[index], orbit, generation, delta_c, c);
         }
     }
 
@@ -264,7 +229,11 @@ impl SeatKernel<FloatExp> for FloatExpPerturbationKernel {
                     Some(z) => z,
                     None => {
                         let stamp = delta.generation;
-                        rebind_to_zero_continuing(point, &mut delta, stamp);
+                        let absolute_z = orbit
+                            .get(point.iterations)
+                            .map(|zr| zr + delta.delta_z)
+                            .unwrap_or_else(|| ComplexFloatExp::new(point.z.0, point.z.1));
+                        rebind_to_zero_continuing(point, &mut delta, stamp, absolute_z);
                         orbit = zero_orbit();
                         is_zero_ref = true;
                         ComplexFloatExp::ZERO
@@ -272,7 +241,7 @@ impl SeatKernel<FloatExp> for FloatExpPerturbationKernel {
                 }
             };
 
-            let z = z_ref + delta.dz;
+            let z = z_ref + delta.delta_z;
             let z_norm_sq = z.norm_squared();
             let z_ref_norm_sq = if is_zero_ref {
                 FloatExp::ZERO
@@ -281,14 +250,14 @@ impl SeatKernel<FloatExp> for FloatExpPerturbationKernel {
             };
 
             if !is_zero_ref
-                && delta.dz != ComplexFloatExp::ZERO
+                && delta.delta_z != ComplexFloatExp::ZERO
                 && z_ref_norm_sq == four
             {
                 let correction = FloatExp::TWO
-                    * (z_ref.re * delta.dz.re + z_ref.im * delta.dz.im)
-                    + delta.dz.norm_squared();
+                    * (z_ref.re * delta.delta_z.re + z_ref.im * delta.delta_z.im)
+                    + delta.delta_z.norm_squared();
                 if correction > FloatExp::ZERO {
-                    sync_point_from_delta(point, z_ref, delta.dz, delta.dd);
+                    sync_point_from_delta(point, z_ref, delta.delta_z, delta.dd);
                     point.escapes = true;
                     point.delta = Some(delta);
                     return;
@@ -300,7 +269,7 @@ impl SeatKernel<FloatExp> for FloatExpPerturbationKernel {
             }
 
             if z_norm_sq > r_squared {
-                sync_point_from_delta(point, z_ref, delta.dz, delta.dd);
+                sync_point_from_delta(point, z_ref, delta.delta_z, delta.dd);
                 point.escapes = true;
                 point.delta = Some(delta);
                 return;
@@ -321,7 +290,7 @@ impl SeatKernel<FloatExp> for FloatExpPerturbationKernel {
             }
 
             delta.dd = z * delta.dd * two + one;
-            delta.dz = z_ref * delta.dz * two + delta.dz * delta.dz + delta.dc;
+            delta.delta_z = z_ref * delta.delta_z * two + delta.delta_z * delta.delta_z + delta.delta_c;
             point.iterations = point.iterations.saturating_add(1);
 
             let z_next_ref = if is_zero_ref {
@@ -331,18 +300,19 @@ impl SeatKernel<FloatExp> for FloatExpPerturbationKernel {
                     Some(z) => z,
                     None => {
                         let stamp = delta.generation;
-                        sync_point_from_delta(point, z_ref, delta.dz, delta.dd);
-                        rebind_to_zero_continuing(point, &mut delta, stamp);
+                        // `z` is absolute iterate for the step just completed (before δz update).
+                        sync_point_from_delta(point, z_ref, delta.delta_z, delta.dd);
+                        rebind_to_zero_continuing(point, &mut delta, stamp, z);
                         orbit = zero_orbit();
                         is_zero_ref = true;
                         ComplexFloatExp::ZERO
                     }
                 }
             };
-            let z_next = z_next_ref + delta.dz;
+            let z_next = z_next_ref + delta.delta_z;
 
             if near_complex(z_next, delta.checkpoint, epsilon) {
-                sync_point_from_delta(point, z_next_ref, delta.dz, delta.dd);
+                sync_point_from_delta(point, z_next_ref, delta.delta_z, delta.dd);
                 point.repeats = true;
                 point.period = point.iterations.saturating_sub(delta.checkpoint_n);
                 point.delta = Some(delta);
@@ -362,18 +332,17 @@ impl SeatKernel<FloatExp> for FloatExpPerturbationKernel {
                 .get(point.iterations.saturating_add(1))
                 .unwrap_or(ComplexFloatExp::ZERO)
         };
-        sync_point_from_delta(point, z_ref, delta.dz, delta.dd);
+        sync_point_from_delta(point, z_ref, delta.delta_z, delta.dd);
         point.delta = Some(delta);
     }
 
     fn completion(&self, point: &mut Point<FloatExp>) -> CompletedPoint<FloatExp> {
-        let saved = point.c;
-        if let Some(delta) = point.delta.as_ref() {
-            point.c = (delta.abs_c.re, delta.abs_c.im);
-        }
-        let out = direct_completion(point);
-        point.c = saved;
-        out
+        let c = point
+            .delta
+            .as_ref()
+            .map(|d| (d.c.re, d.c.im))
+            .unwrap_or(point.c);
+        direct_completion_with_c(point, c)
     }
 }
 

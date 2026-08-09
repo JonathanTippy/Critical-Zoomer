@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Interactive control for a running critical_zoomer session.
+# Interactive control for a running critical_zoomer session (Xvfb screenshot harness only).
+# See scripts/README.md — do not hang new e2e/perf suites off this tool.
 #
 #   taskset -c 4-11 xvfb-run -a -s "-screen 0 900x500x24" scripts/cz_ctl.sh start [out_dir]
 #   scripts/cz_ctl.sh send 'capture a.png'

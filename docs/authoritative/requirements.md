@@ -39,11 +39,11 @@ move viewport to (0 + 0i):
 
 coordinates:
 
-r[cz.ui.coords-parse+1]
-- empty field at top of screen which accepts coordinates 
+r[cz.ui.coords-parse+2]
+- empty field at bottom right of screen which accepts coordinates 
 - The field accepts ALL likely forms of coordinate entry;
   the user must never be confused about why his coordinates are not accepted.
-  Field requires: Two numbers separated by a space or comma, or plus with i.
+  Field requires: Two numbers separated by a space or comma, or plus with i, and a magnification, supporting all common radix formats, magnification formats, and plain formats.
   Field accepts: parens square brackets, braces, extra spaces, other decorations.
   If present, rich inputs must be handled correctly:(5i + 6) = (6 + 5i)
 
@@ -77,8 +77,8 @@ r[cz.math.mandelbrot-real-axis-symmetry+1]
 
 location:
 
-r[cz.ui.location-readout+1]
-- one read-only selectable field must be at the top of the screen with a 'copy' button by it.
+r[cz.ui.location-readout+2]
+- one read-only selectable field in the bottom-right panel (with goto and copy) with a 'copy' button by it.
   The location displayed must correspond with the center of the viewport.
 
 ## Application Details
@@ -152,15 +152,15 @@ The app must not have a "max iteration count" setting;
 points must be iterated to completion. 
 This should keep up with the user but might not. Low-res interim systems are acceptable.
 
-r[cz.seamless.perturbation-always-on+1]
+r[cz.seamless.perturbation-always-on+2]
 
 The app must not have a perturbation toggle;
-perturbation must always be on.
+perturbation must always be on automatically if its needed / faster.
 
-r[cz.seamless.gpu-preferred+1]
+r[cz.seamless.gpu-preferred+2]
 
 The app must not have a GPU toggle;
-GPU acceleration must always be on.
+GPU acceleration must always be on if its faster.
 
 r[cz.seamless.reference-background+1]
 

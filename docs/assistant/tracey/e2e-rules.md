@@ -1,24 +1,27 @@
-# E2E Tracey rules (assistant-owned headed contracts)
+# E2E / headed Tracey rules (assistant-owned)
 
-Atomic rules for headed interaction under the frozen `cz_ctl` harness.
-Normative product text: `docs/authoritative/requirements.md` (including E2E Addendum).
-Unit/integration verifies alone do not satisfy these ids.
+Headed visual corroboration is **not** a shell test suite. Normative product
+text: `docs/authoritative/requirements.md` (including E2E Addendum). Unit and
+integration verifies in Rust are the primary gate; the isolated Xvfb screenshot
+check corroborates that truth reaches the display.
 
-> **2026-08-06 revert note.** Codebase is now v0.0.9 (e6a0560). The headed harness scripts
-> (`scripts/harness_selftest.sh`, `e2e_controls.sh`, `e2e_performance.sh`,
-> `e2e_home_fill_fitness.sh`, `e2e_visual.sh`) all exist in the restored tree and remain the
-> contract surface. Where a rule's unit-level checkbox cited tile-machine tests, that checkbox
-> is suspended (noted inline); the headed criteria are the live bar, and v0.0.9 is expected to
-> pass them — it was the build that never got behind and never stalled.
+> **2026-08-08 scripts policy.** `scripts/` may contain only the Xvfb screenshot
+> entry point and its private ctl harness (`scripts/README.md`). The former
+> `e2e_*.sh` / harness-selftest / checked-in PNG zoo was moved to
+> `docs/assistant/Trash/scripts-sprawl-2026-08-08/`. Do not reintroduce it.
+> Acceptance below that cited those scripts is **historical**; live headed bar is
+> the screenshot check + assistant image inspection
+> (`docs/assistant/manual-testing.md`).
 
 r[cz.e2e.harness-stack+1]
 
-**Normative summary.** Input/screenshot stack (xvfb, fifo, xdotool, import/compare)
-is proven and frozen before product e2e scripts rely on it.
+**Normative summary.** Input/screenshot stack (xvfb, fifo, capture/settle) is
+available for the single screenshot check.
 
 **Acceptance criteria.**
-- [x] `scripts/harness_selftest.sh` covers lifecycle, capture, input delivery, settle, isolation
-  (`harness_selftest.sh`; frozen command surface on `cz_ctl_lib.sh`).
+- [x] `scripts/xvfb_screenshot_check.sh` (+ `cz_ctl.sh` / `cz_ctl_lib.sh`) can
+  start the release binary under Xvfb, settle, and write a PNG under `/tmp`.
+- ~~`scripts/harness_selftest.sh`~~ **Retired** (scripts policy 2026-08-08).
 
 r[cz.e2e.controls-bindings+1]
 
@@ -26,8 +29,9 @@ r[cz.e2e.controls-bindings+1]
 match requirements; scroll-up zooms in.
 
 **Acceptance criteria.**
-- [ ] Headed verifies for scroll / key zoom / pan bindings
-  (`scripts/e2e_controls.sh`: shift-zoomin, space-zoomout, scroll10, arrow-pan). CI does not gate headed e2e yet.
+- [ ] Prefer Rust / in-app path tests where possible; headed corroboration via
+  screenshot check after control-affecting edits (assistant inspects PNG).
+- ~~`scripts/e2e_controls.sh`~~ **Retired**.
 
 r[cz.e2e.controls-no-jump+1]
 
@@ -35,8 +39,8 @@ r[cz.e2e.controls-no-jump+1]
 backlog under 10 bumps/300ms, opposite Shift vs Space, hover-fixed scroll.
 
 **Acceptance criteria.**
-- [ ] Headed property-style verifies for no-jump / tick sustain / opposite zoom
-  (`e2e_controls.sh`: zoomout nearer home than zoomin; scroll10 dispatch; nonzero RMSE steps).
+- [ ] Same as bindings: Rust first; optional headed PNG inspect after edits.
+- ~~`e2e_controls.sh`~~ **Retired**.
 
 r[cz.e2e.perf-home-fill+1]
 
@@ -44,33 +48,29 @@ r[cz.e2e.perf-home-fill+1]
 flat-black empty panes mid-wait.
 
 **Acceptance criteria.**
-- [ ] Timed home fill headed verifies (time, non-black mid, settled quality)
-  (`scripts/e2e_performance.sh`).
+- [ ] Measure with `cargo bench` / workgroup fitness where possible; headed
+  screenshot check must not show empty/flat-black home after settle.
+- ~~`scripts/e2e_performance.sh`~~ **Retired**.
 
 r[cz.e2e.fill-first-tile-1s+1]
 
-**Normative summary.** After startup/home, at least one tile of Mandelbrot structure
-must be visible within **1s** (fitness ceiling — product target is much faster).
+**Normative summary.** After startup/home, Mandelbrot structure must be visible
+quickly (fitness ceiling — product target is much faster).
 
 **Acceptance criteria.**
-- [ ] Headed fitness poll: frame stdev ≥3000 within 1s of `home`
-  (`scripts/e2e_home_fill_fitness.sh`).
-- ~~Workgroup unit: all whole tiles emitted within 10s on 800×480 home~~
-  **Suspended** (cited `tile_session_tests`, tile machine only). v0.0.9 equivalent: the
-  workgroup fills the single screen package; the headed poll above is the bar.
+- [ ] Headed: settled PNG from `xvfb_screenshot_check.sh` shows structure
+  (assistant inspects; mean/stdev floors are helpers only).
+- ~~`scripts/e2e_home_fill_fitness.sh`~~ **Retired**.
 
 r[cz.e2e.fill-all-tiles-10s+1]
 
-**Normative summary.** Home view must complete **all** screen tiles (zero NORES-grey
-holes in the fitness crop) within **10s** of startup (fitness ceiling).
+**Normative summary.** Home view must complete without dishonest empty panes
+within a short settle window.
 
 **Acceptance criteria.**
-- [ ] Headed fitness poll: `e2e_count_gray_holes` ≤0 within 10s of `home`
-  (`scripts/e2e_home_fill_fitness.sh`).
-- ~~Workgroup unit: `headgroup_completed_whole_tiles` ≥ tile count at 100% host fill~~
-  **Suspended** (tile machine only). v0.0.9 has no tiles or gray holes in that sense;
-  unfinished pixels are `Dummy` placeholders, so the headed poll checks for honest-incomplete
-  signal, not a specific pack format.
+- [ ] Headed screenshot check + craftsmanship/workgroup Rust fills; v0.0.9 has no
+  tile NORES pack — unfinished seats are Dummy placeholders.
+- ~~`scripts/e2e_home_fill_fitness.sh`~~ **Retired**.
 
 r[cz.e2e.perf-zoom-simple+1]
 
@@ -78,7 +78,8 @@ r[cz.e2e.perf-zoom-simple+1]
 and full/oracle quality (no sustained low-res lag).
 
 **Acceptance criteria.**
-- [ ] Simple-region zoom headed verifies (`e2e_performance.sh` exterior goto + zoomin).
+- [ ] Rust / bench where possible; optional headed PNG after zoom edits.
+- ~~`e2e_performance.sh`~~ **Retired**.
 
 r[cz.e2e.perf-zoom-hard+1]
 
@@ -86,17 +87,19 @@ r[cz.e2e.perf-zoom-hard+1]
 keep pace (continuity; not stalled empty panes).
 
 **Acceptance criteria.**
-- [ ] Hard-region (seahorse) zoom/goto headed verifies (`e2e_performance.sh`).
+- [ ] Same as simple zoom; hard-path unit pins remain in Rust craftsmanship tests.
+- ~~`e2e_performance.sh`~~ **Retired**.
 
 r[cz.e2e.visual-oracle+1]
 
 **Normative summary.** No visual artifacts vs known-good oracles: compute oracles from
-known-good code, prove with tests, compare live captures/metrics against them.
+known-good code, prove with tests, compare live captures against them when needed.
 
 **Acceptance criteria.**
-- [ ] Oracle proving unit tests — **suspended**: `src/e2e_oracle.rs` was tile-era and does not
-  exist at v0.0.9. Rebuild the oracle from the restored code (it is the known-good now).
-- [ ] Headed compares (`scripts/e2e_visual.sh`) — not CI-gated yet
+- [ ] Oracle proving unit tests in Rust (v0.0.9 / restored code is the known-good).
+- [ ] Headed: `xvfb_screenshot_check.sh` + assistant Read of PNG
+  (`docs/assistant/manual-testing.md`).
+- ~~`scripts/e2e_visual.sh`~~ **Retired**.
 
 r[cz.e2e.visual-assistant-review+1]
 
@@ -104,5 +107,5 @@ r[cz.e2e.visual-assistant-review+1]
 never sole pass/fail).
 
 **Acceptance criteria.**
-- [x] Review notes logged for visual-relevant capture sets
-  (`e2e_visual.sh` stages `/tmp/cz_e2e_visual_review`; assistant Read of home/deep/pan PNGs).
+- [x] After render-affecting edits, assistant Reads the PNG from the screenshot
+  check and records what was seen (not only script statistics).
