@@ -1,56 +1,20 @@
-//! Session debug NDJSON logger (temporary; remove after OBO shading fix verified).
+//! Session debug NDJSON logger — **disabled on the hot path**.
+//!
+//! Former file appends in `workshift` / HUD telemetry were a silent quality
+//! regression (Criterion first-publish / full-frame). Keep the symbols so call
+//! sites compile; do not reopen disk I/O without an explicit debug flag.
 #![allow(dead_code)]
 
-use std::fs::OpenOptions;
-use std::io::Write;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+/// No-op. Was NDJSON append under `.cursor/debug-*.log`.
+#[inline(always)]
+pub fn log(_hypothesis_id: &str, _location: &str, _message: &str, _data_json: &str) {}
 
-const LOG_PATH: &str = "/home/jonathan/git/Critical-Zoomer/.cursor/debug-c33634.log";
-const SESSION: &str = "c33634";
-const HUD_DEBUG_LOG_PATH: &str = "/home/jonathan/git/Critical-Zoomer/.cursor/debug-39941c.log";
-const HUD_DEBUG_SESSION: &str = "39941c";
-
-static HUD_SEQ: AtomicU64 = AtomicU64::new(0);
-
-static SEQ: AtomicU64 = AtomicU64::new(0);
-static SAMPLE: AtomicU64 = AtomicU64::new(0);
-
-/// Append one NDJSON line. `data_json` must be a JSON object body, e.g. `{"k":1}`.
-pub fn log(hypothesis_id: &str, location: &str, message: &str, data_json: &str) {
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let id = SEQ.fetch_add(1, Ordering::Relaxed);
-    let line = format!(
-        "{{\"sessionId\":\"{SESSION}\",\"id\":\"log_{id}\",\"timestamp\":{ts},\"hypothesisId\":\"{hypothesis_id}\",\"location\":\"{location}\",\"message\":\"{message}\",\"data\":{data_json}}}\n"
-    );
-    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(LOG_PATH) {
-        let _ = f.write_all(line.as_bytes());
-    }
+/// Always false — never sample into a disabled logger.
+#[inline(always)]
+pub fn should_sample(_every: u64) -> bool {
+    false
 }
 
-pub fn should_sample(every: u64) -> bool {
-    let n = SAMPLE.fetch_add(1, Ordering::Relaxed);
-    every > 0 && n % every == 0
-}
-
-/// HUD mode/ref debug session (debug mode 39941c).
-pub fn log_hud(hypothesis_id: &str, location: &str, message: &str, data_json: &str) {
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let id = HUD_SEQ.fetch_add(1, Ordering::Relaxed);
-    let line = format!(
-        "{{\"sessionId\":\"{HUD_DEBUG_SESSION}\",\"id\":\"log_{id}\",\"timestamp\":{ts},\"hypothesisId\":\"{hypothesis_id}\",\"location\":\"{location}\",\"message\":\"{message}\",\"data\":{data_json}}}\n"
-    );
-    if let Ok(mut f) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(HUD_DEBUG_LOG_PATH)
-    {
-        let _ = f.write_all(line.as_bytes());
-    }
-}
+/// No-op HUD debug logger.
+#[inline(always)]
+pub fn log_hud(_hypothesis_id: &str, _location: &str, _message: &str, _data_json: &str) {}
