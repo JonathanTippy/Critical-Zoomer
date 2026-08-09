@@ -1354,11 +1354,17 @@ where
         kernel.start_seat(context, pos);
 
         // Disjoint fields: take the reference so we can mutably borrow the seat.
+        // Evaluate "reference active" against the held snapshot — never against
+        // `latest_reference` after take() (that always looks empty and forced
+        // zero-orbit with generator delta_c → false interior / flat black).
         let held_reference = context.latest_reference.take();
-        let orbit = if context.points[index].direct_only || !context.perturbation_reference_active() {
-            None
-        } else {
+        let use_published_orbit = !context.points[index].direct_only
+            && (context.reference_floor_active
+                || (context.coords_are_relative && held_reference.is_some()));
+        let orbit = if use_published_orbit {
             held_reference.as_ref().map(|r| &r.orbit)
+        } else {
+            None
         };
 
         // r[impl cz.craft.attention-spiral+1]
