@@ -155,10 +155,15 @@ run_cleanup() {
     "$ROOT/target/.*/critical_zoomer" \
     'target/release/critical_zoomer' \
     'target/debug/critical_zoomer'
-  reap_matching_pids "bench" \
-    "$ROOT/target/.*/workgroup_fitness" \
-    'target/release/deps/workgroup_fitness' \
-    'target/debug/deps/workgroup_fitness'
+  # Never reap workgroup_fitness on hook-after: overlapping shell after-hooks
+  # were SIGTERM-ing live Criterion runs mid-bench (1080p especially).
+  # Leftover benches are cleared on before / stop / manual CLI sweep.
+  if [[ "$MODE" != "after" ]]; then
+    reap_matching_pids "bench" \
+      "$ROOT/target/.*/workgroup_fitness" \
+      'target/release/deps/workgroup_fitness' \
+      'target/debug/deps/workgroup_fitness'
+  fi
   reap_session_xvfb
   log "END mode=$MODE"
 }
