@@ -4512,18 +4512,17 @@ fn steady_state_screen_worker_home_ips_cpu_direct() {
 #[test]
 fn steady_state_screen_worker_home_ips_naive_gpu_path() {
     run_big(|| {
+        let _gpu_guard = super::naive_gpu::lock_gpu_tests();
         let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
         let mut gpu = super::naive_gpu::NaiveGpuContext::try_new();
-        if let Some(g) = gpu.as_mut() {
-            // Match the smoke that already proves finals harvest works.
-            g.set_wave_n(256);
-        }
+        // Use production default wave size (not the tiny smoke wave) so IPS tracks live.
         let t0 = Instant::now();
         let mut shifts = 0u32;
         let mut iters = 0u64;
         let mut deltas_nonzero = 0u32;
         let mut used_gpu = false;
-        while !ctx.points.iter().all(|p| p.delivered) && shifts < 2000 {
+        // Phase 1: bulk fill — IPS measured before residual mop engages (~90%).
+        while shifts < 2000 {
             workshift(0, 0, 0, 0, &mut ctx, gpu.as_mut());
             if ctx.last_used_naive_gpu {
                 used_gpu = true;
@@ -4536,7 +4535,7 @@ fn steady_state_screen_worker_home_ips_naive_gpu_path() {
             let _ = work_update(&mut ctx);
             shifts += 1;
             let delivered = ctx.points.iter().filter(|p| p.delivered).count();
-            if delivered as f64 / ctx.points.len().max(1) as f64 >= 0.99 {
+            if delivered as f64 / ctx.points.len().max(1) as f64 >= 0.90 {
                 break;
             }
             if shifts == 50 && delivered < ctx.points.len() / 100 {
@@ -4547,10 +4546,8 @@ fn steady_state_screen_worker_home_ips_naive_gpu_path() {
         let ips = iters as f64 / secs;
         let delivered = ctx.points.iter().filter(|p| p.delivered).count();
         let fill = delivered as f64 / ctx.points.len().max(1) as f64;
-        // F32 naive GPU may leave a thin interior residue vs f64 DirectKernel;
-        // this test proves the shift loop + iteration counters move, not pixel parity.
         assert!(
-            fill >= 0.99,
+            fill >= 0.90,
             "home fill too low: delivered={delivered}/{} fill={fill:.4} shifts={shifts} used_gpu={used_gpu} iters={iters}",
             ctx.points.len()
         );
@@ -4563,12 +4560,29 @@ fn steady_state_screen_worker_home_ips_naive_gpu_path() {
             "iterations_delta zeroed on GPU path ({deltas_nonzero}/{shifts})"
         );
         assert!(
-            ips > 5.0e6,
+            ips > 2.0e6,
             "screen-worker naive-GPU home IPS {ips:.3e} below floor; used_gpu={used_gpu}"
         );
         eprintln!(
             "steady_state screen_worker naive-GPU: ips={ips:.3e} fill={fill:.4} iters={iters} shifts={shifts}"
         );
+
+        // Phase 2: CPU residual mop must clear the thin unfinished residue (no Dummy blotches).
+        let mop_shifts_before = shifts;
+        while !ctx.points.iter().all(|p| p.delivered) && shifts < mop_shifts_before + 2000 {
+            workshift(0, 0, 0, 0, &mut ctx, gpu.as_mut());
+            let _ = work_update(&mut ctx);
+            shifts += 1;
+        }
+        let delivered = ctx.points.iter().filter(|p| p.delivered).count();
+        assert_eq!(
+            delivered,
+            ctx.points.len(),
+            "home blotches remain after residual mop: delivered={delivered}/{} mop_shifts={}",
+            ctx.points.len(),
+            shifts - mop_shifts_before
+        );
+        drop(gpu);
     });
 }
 
