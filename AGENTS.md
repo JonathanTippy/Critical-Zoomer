@@ -22,7 +22,7 @@ final (the `Delivery` enum), small interruptible bouts.
 
 ## Enforcement layers
 
-Four layers, cheapest-first:
+Five layers, cheapest-first:
 
 1. **Types** — `BoutCap` (no unbounded call), `Delivery` (provisional cannot set
    `delivered`), `push_delivery` (buffer slot + flag atomically, `#[must_use]`),
@@ -41,7 +41,11 @@ Four layers, cheapest-first:
    blocks those commands and runs the reaper instead. Manual sweep:
    `.cursor/hooks/kill-test-zombies.sh` only. Always-on rule:
    `.cursor/rules/test-zombie-reaper.mdc`.
-4. **Tests + tracey audit** — catch what types and the hook miss.
+4. **No approval during loops/plans** — Auto-review / approval cards halt the
+   agent until the developer returns. Never run approval-gated commands, never
+   set `request_smart_mode_approval`, and never retry a block "with approval."
+   Always-on rule: `.cursor/rules/no-approval-during-loops.mdc`.
+5. **Tests + tracey audit** — catch what types and the hook miss.
 
 ## Two rules that prevent most regressions
 
