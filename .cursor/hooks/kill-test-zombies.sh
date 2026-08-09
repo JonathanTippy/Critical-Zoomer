@@ -124,11 +124,21 @@ stop_cz_sessions() {
 }
 
 reap_session_xvfb() {
-  # Only Xvfb/xvfb-run that reference a /tmp/cz_ path in their cmdline.
-  local pid cmd
+  # Only real Xvfb/xvfb-run that reference a /tmp/cz_ path — never Cursor
+  # sandbox wrappers whose argv merely *mentions* those strings.
+  local pid cmd base
   while read -r pid; do
     [[ -n "$pid" ]] || continue
     cmd="$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null || true)"
+    [[ -n "$cmd" ]] || continue
+    case "$cmd" in
+      *cursorsandbox* | *kill-test-zombies.sh*) continue ;;
+    esac
+    base="$(basename "$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)" 2>/dev/null || true)"
+    case "$base" in
+      Xvfb|xvfb-run) ;;
+      *) continue ;;
+    esac
     case "$cmd" in
       */tmp/cz_*)
         log "KILL xvfb-ish pid=$pid cmd=$cmd"
