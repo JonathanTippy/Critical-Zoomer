@@ -47,6 +47,7 @@ impl HostStack {
 pub enum KernelMode {
     #[default]
     Naive,
+    NaiveGpu,
     Pert,
 }
 
@@ -54,6 +55,7 @@ impl KernelMode {
     pub fn hud_label(self) -> &'static str {
         match self {
             KernelMode::Naive => "naive",
+            KernelMode::NaiveGpu => "naive-gpu",
             KernelMode::Pert => "pert",
         }
     }
@@ -79,7 +81,7 @@ impl ReferenceStatus {
 impl ViewHud {
     /// Ref column is NA when naive mode has no perturbation reference floor.
     pub fn ref_hud_label(self) -> &'static str {
-        if self.mode == KernelMode::Naive {
+        if self.mode == KernelMode::Naive || self.mode == KernelMode::NaiveGpu {
             "NA"
         } else {
             self.reference.hud_label()

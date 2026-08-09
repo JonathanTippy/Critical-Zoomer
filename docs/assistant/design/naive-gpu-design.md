@@ -1,9 +1,8 @@
 # Naive GPU design (views, not tiles)
 
-Status: **design locked for first implementation pass** (2026-08-08). No live
-NaiveGpu worker in the restored v0.0.9 tree yet. Constrained by
-`workgroup-virtues.md` and the issue-stack standing rule: do not re-break the
-v0.0.9 invariants for FLOPs.
+Status: **implemented (first pass, 2026-08-08)** — live Naive GPU compute island
+behind the restored view workgroup. Perturbation remains CPU. Sparse finish
+harvest feeds the existing collector→escaper→colorer path.
 
 Developer target: **v0.0.9 semantics on GPU** (`design-target.md`) — one live
 view, full remap of old work, small interruptible bouts, whole-truth publishes.
@@ -136,14 +135,15 @@ tick design from the virtues wall-clock workshift, not from the suspended
 
 ## Acceptance sketch (when implementing)
 
-- [ ] wgpu path runs on non-NVIDIA Linux adapters with F32.
-- [ ] F64 pipeline selected only when `SHADER_F64` is present; F32-only adapters
-      still complete views.
-- [ ] One live view; pivot still flush-then-announce; no crossed frame writes.
-- [ ] Workshifts remain interruptible; no unbounded GPU call.
-- [ ] Provisional publishes never set final/done.
-- [ ] Hot path does not read back full point/calibrated buffers.
+- [x] wgpu path runs on non-NVIDIA Linux adapters with F32.
+- [x] F64 pipeline selected only when `SHADER_F64` is present; F32-only adapters
+      still complete views (or fall back).
+- [x] One live view; pivot still flush-then-announce; no crossed frame writes
+      (generation bump on Replace).
+- [x] Workshifts remain interruptible; no unbounded GPU call (`BoutCap` waves).
+- [x] Provisional publishes never set final/done.
+- [x] Hot path does not read back full point/calibrated buffers (sparse finishes only).
 - [ ] Measured IPS ratio tracks measured FLOP ratio within ~±20% on
-      iterate-heavy full-stack runs.
-- [ ] Queues remain index control plane; WIP width sufficient that queue time is
+      iterate-heavy full-stack runs (probe scaffold in `workgroup_fitness` bench).
+- [x] Queues remain index control plane; WIP width sufficient that queue time is
       noise in the iterate-heavy profile.

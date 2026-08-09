@@ -118,6 +118,7 @@ fn make_context(workshifts: u32) -> WorkContext<FloatExp> {
         pert_trial_shifts_left: 0,
         pert_trial_cooldown: 0,
         generator_generation: 0,
+        last_used_naive_gpu: false,
     }
 }
 
@@ -1497,7 +1498,7 @@ fn f64_gear_home_fills_without_per_seat_gear_scan() {
         let start = Instant::now();
         let mut shifts = 0u32;
         while !ctx.points.iter().all(|p| p.delivered) {
-            workshift(0, 0, 0, 0, &mut ctx);
+            workshift(0, 0, 0, 0, &mut ctx, None);
             while ctx.completed_points.try_pop().is_some() {}
             shifts += 1;
             assert!(
@@ -1565,7 +1566,7 @@ fn seahorse_pot_19_f64_promotes_scaled_f64_and_delivers() {
         let start = Instant::now();
         let mut shifts = 0u32;
         while ctx.points.iter().filter(|p| p.delivered).count() < 100 {
-            workshift(16_000_000, 2, 4, 150, &mut ctx);
+            workshift(16_000_000, 2, 4, 150, &mut ctx, None);
             while ctx.completed_points.try_pop().is_some() {}
             shifts += 1;
             assert!(
@@ -3098,7 +3099,7 @@ fn pin_exterior_not_marked_in_at_zoom_52() {
             if ctx.points.iter().all(|p| p.delivered || p.escapes || p.repeats) {
                 break;
             }
-            workshift(16_000_000, 2, 4, 150, &mut ctx);
+            workshift(16_000_000, 2, 4, 150, &mut ctx, None);
             while ctx.completed_points.try_pop().is_some() {}
         }
         let mut escapes = 0usize;
@@ -3216,7 +3217,7 @@ fn pin_not_blocky_delta_c_at_zoom_49() {
             if ctx.points.iter().all(|p| p.delivered || p.escapes || p.repeats) {
                 break;
             }
-            workshift(16_000_000, 2, 4, 150, &mut ctx);
+            workshift(16_000_000, 2, 4, 150, &mut ctx, None);
             while ctx.completed_points.try_pop().is_some() {}
         }
         let mut membership = std::collections::HashSet::new();

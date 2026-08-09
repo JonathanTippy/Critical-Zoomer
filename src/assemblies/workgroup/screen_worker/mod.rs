@@ -14,6 +14,7 @@ use crate::assemblies::workgroup::screen_worker::workshift::*;
 pub mod workshift;
 pub mod perturb_kernel;
 pub mod perturb_floatexp;
+pub mod naive_gpu;
 
 #[cfg(test)]
 mod craftsmanship_tests;
@@ -46,6 +47,8 @@ pub struct WorkerState<T: Mandelbrotable> {
     // Held when a reference arrives before the first Replace; installed into
     // the live context as soon as one exists.
     , pending_reference: Option<std::sync::Arc<PublishedReference>>
+    // Optional Naive GPU compute island; None → CPU DirectKernel for naive.
+    , naive_gpu: Option<naive_gpu::NaiveGpuContext>
 }
 
 /// The single live render target: a work context and the frame_info it was
@@ -133,6 +136,7 @@ async fn internal_behavior<A: SteadyActor>(
         , point_token_cost: 150
         , total_workshifts: 0
         , pending_reference: None
+        , naive_gpu: naive_gpu::NaiveGpuContext::try_new()
     }).await;
 
     let max_sleep = Duration::from_millis(50);
@@ -290,6 +294,9 @@ async fn internal_behavior<A: SteadyActor>(
                     actor.try_send(&mut reference_requests_out, request);
 
                     let previous = state.work_context.take();
+                    if let Some(gpu) = state.naive_gpu.as_mut() {
+                        gpu.bump_generation();
+                    }
                     let previous_for_shell = match previous {
                         Some(mut live) => {
                             let old_zoom = live.frame_info.0.clone();
@@ -368,6 +375,8 @@ async fn internal_behavior<A: SteadyActor>(
         
 
         let mut iters_delta = 0u64;
+        // Split borrows: take GPU handle, then mutate live context.
+        let mut gpu = state.naive_gpu.take();
         if let Some(live) = &mut state.work_context {
             let iters_before = live.context.total_iterations_today;
             workshift (
@@ -376,12 +385,14 @@ async fn internal_behavior<A: SteadyActor>(
                 , bout_token_cost
                 , point_token_cost
                 , &mut live.context
+                , gpu.as_mut()
             );
             iters_delta = live
                 .context
                 .total_iterations_today
                 .saturating_sub(iters_before) as u64;
         }
+        state.naive_gpu = gpu;
         state.total_workshifts += 1;
         if state.total_workshifts % 1 == 0 {
             if let Some(live) = &mut state.work_context {
@@ -422,7 +433,7 @@ where
                 host_stack_for_context::<T>(),
                 kernel_mode,
                 classify_reference_status(c),
-                if kernel_mode == KernelMode::Naive {
+                if kernel_mode == KernelMode::Naive || kernel_mode == KernelMode::NaiveGpu {
                     ComputeGear::F64
                 } else {
                     c.active_gear
@@ -461,6 +472,7 @@ fn hud_telemetry_debug_log<T: Mandelbrotable>(
     static LAST_REF: AtomicU8 = AtomicU8::new(255);
     let mode_tag = match kernel_mode {
         KernelMode::Naive => 0u8,
+        KernelMode::NaiveGpu => 2u8,
         KernelMode::Pert => 1u8,
     };
     let ref_tag = match reference_status {
@@ -543,6 +555,8 @@ pub fn classify_kernel_mode<T: Mandelbrotable>(ctx: &WorkContext<T>) -> crate::a
     use crate::assemblies::structs::KernelMode;
     if ctx.perturbation_kernel_required() {
         KernelMode::Pert
+    } else if ctx.last_used_naive_gpu {
+        KernelMode::NaiveGpu
     } else {
         KernelMode::Naive
     }

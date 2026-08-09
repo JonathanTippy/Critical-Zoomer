@@ -493,9 +493,12 @@ numerical implementation it runs. Slot rotation, queues, attention,
 neighbor-discovery policy, `Delivery` backpressure, and the wall-clock loop
 remain scheduler-owned. A `SeatKernel` may only materialize one seat, run one
 `BoutCap`-bounded bout, and map a finished seat to a `CompletedPoint`.
+The Naive GPU path uses a **wave API** beside `SeatKernel` (`workshift_naive_gpu`):
+same scheduler ownership and `BoutCap` per seat, many seats per dispatch.
 
 **Code site.** `screen_worker/workshift.rs` — `SeatKernel`, `DirectKernel`,
-the compatibility `workshift` wrapper, and generic `workshift_with_kernel`.
+the compatibility `workshift` wrapper, and generic `workshift_with_kernel`;
+`screen_worker/naive_gpu/` — wave arm/dispatch/harvest.
 
 **Acceptance criteria.**
 - [ ] The restored direct arithmetic lives behind `DirectKernel` without a

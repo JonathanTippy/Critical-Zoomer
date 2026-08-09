@@ -16,7 +16,7 @@ pub const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
 
 pub const MAX_PIXELS:usize = 1920*1080*4;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Step {Scredge, In, Out, Edge, Attention}
 
 
@@ -169,6 +169,8 @@ pub struct WorkContext<T: Mandelbrotable> {
     , pub pert_trial_cooldown: u32
     // Bumped when `c_generator` is rebuilt for a new reference generation.
     , pub generator_generation: u64
+    // Set when the last workshift ran the Naive GPU wave path (HUD).
+    , pub last_used_naive_gpu: bool
 }
 
 /// Brief perturbation probe when direct is genuinely stuck (>2s to clear remaining).
@@ -800,6 +802,7 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
         pert_trial_shifts_left: 0,
         pert_trial_cooldown: carried_trial_cooldown,
         generator_generation,
+        last_used_naive_gpu: false,
     };
     if ctx.coords_are_relative && ctx.latest_reference.is_none() {
         let bootstrap = bootstrap_relative_reference(
@@ -990,6 +993,13 @@ pub fn next_attention_spiral_pos<T: Mandelbrotable>(
     None
 }
 
+pub(crate) fn queue_fallback_pos_pub<T: Mandelbrotable>(
+    context: &WorkContext<T>,
+    prefer_scredge: bool,
+) -> Option<((i32, i32), Step)> {
+    queue_fallback_pos(context, prefer_scredge)
+}
+
 fn queue_fallback_pos<T: Mandelbrotable>(
     context: &WorkContext<T>,
     prefer_scredge: bool,
@@ -1129,10 +1139,12 @@ pub fn workshift(
     point_token_cost: u32,
     bout_token_cost: u32,
     context: &mut WorkContext<f64>,
+    gpu: Option<&mut super::naive_gpu::NaiveGpuContext>,
 ) {
     if context.pert_trial_cooldown > 0 {
         context.pert_trial_cooldown -= 1;
     }
+    context.last_used_naive_gpu = false;
     let policy_before = context.update_reference_floor_policy();
     run_workshift_kernel(
         day_token_allowance,
@@ -1140,6 +1152,7 @@ pub fn workshift(
         point_token_cost,
         bout_token_cost,
         context,
+        gpu,
     );
     let trial_tick = context.tick_pert_trial();
     let policy_after = context.update_reference_floor_policy();
@@ -1170,6 +1183,7 @@ fn run_workshift_kernel(
     point_token_cost: u32,
     bout_token_cost: u32,
     context: &mut WorkContext<f64>,
+    gpu: Option<&mut super::naive_gpu::NaiveGpuContext>,
 ) {
     // #region agent log
     crate::debug_agent::log_hud(
@@ -1183,6 +1197,8 @@ fn run_workshift_kernel(
             context.latest_reference.is_some(),
             if context.perturbation_kernel_required() {
                 "pert"
+            } else if gpu.is_some() {
+                "naive_gpu"
             } else {
                 "direct"
             },
@@ -1199,6 +1215,15 @@ fn run_workshift_kernel(
             bout_token_cost,
             context,
             &super::perturb_kernel::PerturbationKernel,
+        );
+    } else if let Some(gpu) = gpu {
+        super::naive_gpu::workshift_naive_gpu(
+            day_token_allowance,
+            iteration_token_cost,
+            point_token_cost,
+            bout_token_cost,
+            context,
+            gpu,
         );
     } else {
         workshift_with_kernel(
