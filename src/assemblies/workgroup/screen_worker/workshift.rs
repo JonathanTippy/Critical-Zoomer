@@ -9,7 +9,8 @@ use crate::assemblies::workgroup::c_generator::{admit_generator, CGenerator, Gen
 use crate::assemblies::workgroup::reference_worker::PublishedReference;
 use crate::delta_gear::{ComputeGear, view_gear_from_generators};
 use crate::floatexp::{ComplexFloatExp, FloatExp};
-use crate::reference::ReferenceOrbit;
+use crate::constants::PIXELS_PER_UNIT_POT;
+use crate::reference::{bits_for_zoom, ReferenceOrbit};
 use crate::utils::*;
 pub const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
 
@@ -297,6 +298,20 @@ impl<T: Mandelbrotable> WorkContext<T> {
     pub fn screen_point_count(&self) -> u64 {
         self.res.0 as u64 * self.res.1 as u64
     }
+
+    /// Hard bump at f64 precision wall (relative generator) or soft trial floor.
+    // r[impl cz.perf.pps-selected-kernel+1]
+    pub fn perturbation_kernel_required(&self) -> bool {
+        self.coords_are_relative || self.reference_floor_active
+    }
+
+    /// Bind published reference orbit (trial or hard-bump relative shell).
+    /// Relative shells keep an escaped view-center orbit: its pre-escape iterates
+    /// give seats precision via generator little_c; soft-continue after the tip.
+    pub fn perturbation_reference_active(&self) -> bool {
+        self.reference_floor_active
+            || (self.coords_are_relative && self.latest_reference.is_some())
+    }
 }
 
 
@@ -325,11 +340,12 @@ pub enum CompletedPoint<T> {
 /// internal representation; `Point<T>` stays generic over the view math only.
 #[derive(Clone, Debug)]
 pub struct DeltaState {
-    pub dz: ComplexFloatExp,
+    /// δz — little z; plane_z = Z_ref + little_z.
+    pub little_z: ComplexFloatExp,
     pub checkpoint: ComplexFloatExp,
     pub checkpoint_n: u32,
-    /// δc = c_pixel − c_reference, fixed for this generation.
-    pub dc: ComplexFloatExp,
+    /// δc — little c = plane_c_pixel − plane_c_reference, fixed for this generation.
+    pub little_c: ComplexFloatExp,
     /// ∂δ/∂c so escape_derivative stays meaningful for filament detection.
     pub dd: ComplexFloatExp,
     /// Reference generation this delta belongs to (0 = zero-orbit floor).
@@ -339,18 +355,25 @@ pub struct DeltaState {
     pub gear: ComputeGear,
     /// Wide exponent for scaled-f64 inner recurrence.
     pub scale: FloatExp,
-    /// Absolute plane c (anchor + seat) for zero-orbit rebind.
-    pub abs_c: ComplexFloatExp,
+    /// Plane C (anchor + little_c when relative) for rebind and completion export.
+    pub plane_c: ComplexFloatExp,
 }
 
 //pub const SpeedTestPoint
 #[derive(Clone, Debug)]
 
 pub struct Point<T> {
-    pub c: (T, T)
-    , pub z: (T, T)
-    , pub dc: (T, T)
-    , pub real_squared: T
+    /// Generator sample: **little c** (anchor-relative) when the shell is relative;
+    /// plane **c** at seat precision when the shell is absolute.
+    pub little_c: (T, T),
+    /// Plane **C** used for naive recurrence and completion export (anchor + little_c
+    /// when relative). May be narrowed f64; perturbation stores exact plane_c in `delta`.
+    pub plane_c: (T, T),
+    /// Plane **Z** iterate (never δz).
+    pub plane_z: (T, T),
+    /// Escape-time derivative ∂z/∂c (not little c).
+    pub dc: (T, T),
+    pub real_squared: T
     , pub imag_squared: T
     , pub real_imag: T
     , pub iterations: u32
@@ -406,13 +429,14 @@ impl Gt for f64 {
 
 // r[impl cz.craft.epsilon-pixel-pitch+1]
 pub fn pitch_epsilon<T:Sub<Output=T> + Abs + From<f32> + Mul<Output=T> + Copy>(points: &Vec<Point<T>>) -> T {
-    (points[0].c.0 - points[1].c.0).abs() * (T::from(1.0 * (1.0/256.0)))
+    (points[0].little_c.0 - points[1].little_c.0).abs() * (T::from(1.0 * (1.0/256.0)))
 }
 
 pub fn placeholder_point<T: From<f32> + Copy>() -> Point<T> {
     Point {
-        c: (0.0.into(), 0.0.into()),
-        z: (0.0.into(), 0.0.into()),
+        little_c: (0.0.into(), 0.0.into()),
+        plane_c: (0.0.into(), 0.0.into()),
+        plane_z: (0.0.into(), 0.0.into()),
         dc: (1.0.into(), 0.0.into()),
         real_squared: 0.0.into(),
         imag_squared: 0.0.into(),
@@ -500,13 +524,40 @@ pub fn rebuild_generator_for_reference<T: Mandelbrotable + From<f32>>(
     true
 }
 
-/// Absolute plane coordinate = IntExp anchor + relative seat sample (f64 host).
+/// Plane C = IntExp anchor + little c (f64 host narrow).
+// r[impl cz.depth.floatexp-host-coords+1]
 #[inline]
-pub fn abs_plane_f64(c: (f64, f64), anchor: &(IntExp, IntExp)) -> (f64, f64) {
-    (
-        f64::from(anchor.0.clone()) + c.0,
-        f64::from(anchor.1.clone()) + c.1,
+pub fn plane_c_from_little_c_f64(little_c: (f64, f64), anchor: &(IntExp, IntExp)) -> (f64, f64) {
+    use crate::assemblies::headgroup::window::coords::f64_to_intexp;
+    let re = anchor.0.clone() + f64_to_intexp(little_c.0);
+    let im = anchor.1.clone() + f64_to_intexp(little_c.1);
+    (f64::from(re), f64::from(im))
+}
+
+/// Exact plane C in FloatExp = IntExp anchor + f64 little c (per-seat precision).
+#[inline]
+pub fn plane_c_floatexp_from_little_c(little_c: (f64, f64), anchor: &(IntExp, IntExp)) -> ComplexFloatExp {
+    use crate::assemblies::headgroup::window::coords::f64_to_intexp;
+    ComplexFloatExp::new(
+        FloatExp::from(anchor.0.clone()) + FloatExp::from(f64_to_intexp(little_c.0)),
+        FloatExp::from(anchor.1.clone()) + FloatExp::from(f64_to_intexp(little_c.1)),
     )
+}
+
+/// Materialize plane C for a seat sample (relative → anchor+little_c via IntExp).
+#[inline]
+pub fn plane_c_for_seat_f64(ctx: &WorkContext<f64>, little_c: (f64, f64)) -> (f64, f64) {
+    if ctx.coords_are_relative {
+        plane_c_from_little_c_f64(little_c, &ctx.coord_anchor)
+    } else {
+        little_c
+    }
+}
+
+/// Legacy alias — prefer `plane_c_from_little_c_f64`.
+#[inline]
+pub fn abs_plane_f64(little_c: (f64, f64), anchor: &(IntExp, IntExp)) -> (f64, f64) {
+    plane_c_from_little_c_f64(little_c, anchor)
 }
 
 /// Compute-space center of a viewport (half-res seat), exact IntExp pitch.
@@ -521,6 +572,23 @@ pub fn view_center_compute(
         compute_loc.0.clone() + pitch.clone() * IntExp::from((res.0 / 2) as i32),
         compute_loc.1.clone() - pitch * IntExp::from((res.1 / 2) as i32),
     )
+}
+
+/// Synchronous view-center reference for relative shells before the async worker publishes.
+/// Escaped is allowed: without a reference the f64 generator cannot stay relative to a
+/// usable orbit, and zero-orbit plane_c collapses per-seat pitch past ~2^50.
+fn bootstrap_relative_reference(
+    zoom_pot: i64,
+    anchor: &(IntExp, IntExp),
+) -> PublishedReference {
+    let bits = bits_for_zoom(zoom_pot, PIXELS_PER_UNIT_POT).max(128);
+    let orbit = ReferenceOrbit::compute(anchor, bits, 4096);
+    PublishedReference {
+        orbit,
+        c: (anchor.0.clone(), anchor.1.clone()),
+        generation: 0,
+        series: None,
+    }
 }
 
 /// Alias for tests / depth fixtures — always-relative stencil build.
@@ -656,7 +724,7 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
 
     let center = ((res.0 / 2) as i32, (res.1 / 2) as i32);
 
-    Some(WorkContext {
+    let mut ctx = WorkContext {
         points,
         completed_points,
         index: 0,
@@ -695,7 +763,48 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
         pert_trial_shifts_left: 0,
         pert_trial_cooldown: carried_trial_cooldown,
         generator_generation,
-    })
+    };
+    if ctx.coords_are_relative && ctx.latest_reference.is_none() {
+        let bootstrap = bootstrap_relative_reference(obj.zoom_pot as i64, &ctx.coord_anchor);
+        ctx.latest_reference = Some(Arc::new(bootstrap));
+        let published = ctx.latest_reference.as_ref().unwrap().clone();
+        let _ = rebuild_generator_for_reference(
+            &mut ctx,
+            &compute_loc,
+            obj.zoom_pot as i64,
+            res,
+            published.as_ref(),
+        );
+        // #region agent log
+        crate::debug_agent::log_hud(
+            "H1",
+            "screen_worker/workshift.rs:from_stencil",
+            "bootstrap_ref",
+            &format!(
+                "{{\"zoom_pot\":{},\"orbit_len\":{},\"escaped\":{}}}",
+                obj.zoom_pot,
+                published.orbit.iterates.len(),
+                published.orbit.escaped,
+            ),
+        );
+        // #endregion
+    }
+    // #region agent log
+    crate::debug_agent::log_hud(
+        "H2",
+        "screen_worker/workshift.rs:from_stencil",
+        "shell_admitted",
+        &format!(
+            "{{\"zoom_pot\":{},\"admission\":\"{}\",\"coords_relative\":{},\"has_ref\":{},\"gen\":{}}}",
+            obj.zoom_pot,
+            if coords_are_relative { "relative" } else { "absolute" },
+            coords_are_relative,
+            ctx.latest_reference.is_some(),
+            generator_generation,
+        ),
+    );
+    // #endregion
+    Some(ctx)
 }
 
 /// Absolute plane coordinate = IntExp anchor + relative seat sample.
@@ -738,9 +847,10 @@ pub fn ensure_started<T: Mandelbrotable>(ctx: &mut WorkContext<T>, pos: (i32, i3
     let index = index_from_pos(&pos, ctx.res.0);
     let point = &mut ctx.points[index];
     if !point.initialized {
-        let c = ctx.c_generator.get_c((pos.0 as u32, pos.1 as u32));
-        point.c = c;
-        point.z = c;
+        let little_c = ctx.c_generator.get_c((pos.0 as u32, pos.1 as u32));
+        point.little_c = little_c;
+        point.plane_c = little_c;
+        point.plane_z = little_c;
         point.dc = (T::ONE, T::ZERO);
         point.initialized = true;
     }
@@ -901,12 +1011,16 @@ where
         if context.coords_are_relative {
             let index = index_from_pos(&pos, context.res.0);
             let point = &mut context.points[index];
-            let anchor = (
-                T::from(context.coord_anchor.0.clone()),
-                T::from(context.coord_anchor.1.clone()),
+            let little_c = point.little_c;
+            let plane_c = plane_c_from_little_c_f64(
+                (little_c.0.into(), little_c.1.into()),
+                &context.coord_anchor,
             );
-            point.c = (anchor.0 + point.c.0, anchor.1 + point.c.1);
-            point.z = point.c;
+            point.plane_c = (
+                T::from(crate::assemblies::headgroup::window::coords::f64_to_intexp(plane_c.0)),
+                T::from(crate::assemblies::headgroup::window::coords::f64_to_intexp(plane_c.1)),
+            );
+            point.plane_z = point.plane_c;
         }
     }
 
@@ -933,8 +1047,18 @@ pub fn direct_completion<T>(point: &mut Point<T>) -> CompletedPoint<T>
 where
     T: Mandelbrotable + Into<f64> + Copy,
 {
+    direct_completion_with_plane_c(point, point.plane_c)
+}
+
+pub fn direct_completion_with_plane_c<T>(
+    point: &mut Point<T>,
+    plane_c: (T, T),
+) -> CompletedPoint<T>
+where
+    T: Mandelbrotable + Into<f64> + Copy,
+{
     if point.repeats {
-        let c64 = (point.c.0.into(), point.c.1.into());
+        let c64 = (plane_c.0.into(), plane_c.1.into());
         let (partials, tail) = period_partials(c64, point.iterations);
         point.period = partials
             .into_iter()
@@ -948,9 +1072,9 @@ where
     } else {
         CompletedPoint::Escapes {
             escape_time: point.iterations,
-            escape_location: (point.z.0, point.z.1),
+            escape_location: (point.plane_z.0, point.plane_z.1),
             escape_derivative: point.dc,
-            start_location: (point.c.0, point.c.1),
+            start_location: (plane_c.0, plane_c.1),
             smallness: point.smallness_squared,
             small_time: point.small_time,
         }
@@ -1005,7 +1129,27 @@ fn run_workshift_kernel(
     bout_token_cost: u32,
     context: &mut WorkContext<f64>,
 ) {
-    if context.reference_floor_active {
+    // #region agent log
+    crate::debug_agent::log_hud(
+        "H1",
+        "screen_worker/workshift.rs:run_workshift_kernel",
+        "kernel_dispatch",
+        &format!(
+            "{{\"coords_relative\":{},\"ref_floor\":{},\"has_ref\":{},\"kernel\":\"{}\",\"policy\":\"{}\",\"remaining\":{}}}",
+            context.coords_are_relative,
+            context.reference_floor_active,
+            context.latest_reference.is_some(),
+            if context.perturbation_kernel_required() {
+                "pert"
+            } else {
+                "direct"
+            },
+            context.floor_policy_label(),
+            context.points.iter().filter(|p| !p.delivered).count(),
+        ),
+    );
+    // #endregion
+    if context.perturbation_kernel_required() {
         workshift_with_kernel(
             day_token_allowance,
             iteration_token_cost,
@@ -1170,7 +1314,7 @@ where
 
         // Disjoint fields: take the reference so we can mutably borrow the seat.
         let held_reference = context.latest_reference.take();
-        let orbit = if context.points[index].direct_only || !context.reference_floor_active {
+        let orbit = if context.points[index].direct_only || !context.perturbation_reference_active() {
             None
         } else {
             held_reference.as_ref().map(|r| &r.orbit)
@@ -1366,18 +1510,26 @@ use std::ops::*;
 
 #[inline(always)]
 pub fn iterate<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + From<f32> + Copy> (point: &mut Point<T>) {
+    iterate_with_plane_c(point, point.plane_c);
+}
+
+#[inline(always)]
+pub fn iterate_with_plane_c<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + From<f32> + Copy> (
+    point: &mut Point<T>,
+    plane_c: (T, T),
+) {
     // r[impl cz.craft.screen-space-derivative-edges+1]
-    // dc_n = dz_n/dc follows dc_{n+1} = 2 z_n dc_n + 1.
-    let dc = (
-        T::from(2.0) * (point.z.0 * point.dc.0 - point.z.1 * point.dc.1) + T::from(1.0),
-        T::from(2.0) * (point.z.0 * point.dc.1 + point.z.1 * point.dc.0),
+    // d_z/d_c recurrence: (d z)/(d c)_{n+1} = 2 plane_z_n (d z)/(d c)_n + 1.
+    let d_z_d_c = (
+        T::from(2.0) * (point.plane_z.0 * point.dc.0 - point.plane_z.1 * point.dc.1) + T::from(1.0),
+        T::from(2.0) * (point.plane_z.0 * point.dc.1 + point.plane_z.1 * point.dc.0),
     );
-    // move z
-    point.z = (
-        point.real_squared - point.imag_squared + point.c.0
-        , T::from(2.0f32.into()) * point.real_imag + point.c.1
+    // move plane_z
+    point.plane_z = (
+        point.real_squared - point.imag_squared + plane_c.0
+        , T::from(2.0f32.into()) * point.real_imag + plane_c.1
     );
-    point.dc = dc;
+    point.dc = d_z_d_c;
     point.iterations+=1;
 }
 
@@ -1397,7 +1549,7 @@ fn points_near<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + PartialOrd + Co
 
 #[inline(always)]
 fn loop_check_point<T:Sub<Output=T> + Add<Output=T> + PartialOrd + Mul<Output=T> + Copy> (point: &mut  Point<T>, epsilon:T) -> bool {
-    let near = points_near(point.z, point.loop_detection_point.0, epsilon);
+    let near = points_near(point.plane_z, point.loop_detection_point.0, epsilon);
 
     if near {point.period = point.iterations-point.loop_detection_point.1}
     near
@@ -1407,13 +1559,13 @@ fn loop_check_point<T:Sub<Output=T> + Add<Output=T> + PartialOrd + Mul<Output=T>
 fn update_loop_check_points<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Copy> (point: &mut Point<T>) {
 
     if point.iterations >= point.loop_detection_point.1 << 1 {
-        point.loop_detection_point = (point.z, point.iterations);
+        point.loop_detection_point = (point.plane_z, point.iterations);
     }
 
 }
 
-fn iterate_complex(z: (f64, f64), c: (f64, f64)) -> (f64, f64) {
-    (z.0 * z.0 - z.1 * z.1 + c.0, 2.0 * z.0 * z.1 + c.1)
+fn iterate_complex(plane_z: (f64, f64), plane_c: (f64, f64)) -> (f64, f64) {
+    (plane_z.0 * plane_z.0 - plane_z.1 * plane_z.1 + plane_c.0, 2.0 * plane_z.0 * plane_z.1 + plane_c.1)
 }
 
 // Record-minimum steps of the critical orbit (atom-domain partials), ascending,
@@ -1424,34 +1576,34 @@ fn iterate_complex(z: (f64, f64), c: (f64, f64)) -> (f64, f64) {
 // verifies a multiple of the true period. The tail iterate rides the attracting
 // cycle and is the best Newton start; F^p(0,c) (the published guess) is far
 // from the attractor exactly where necks make convergence slow.
-pub fn period_partials(c: (f64, f64), max: u32) -> (Vec<u32>, (f64, f64)) {
-    let mut z = c; // z_1: this codebase's orbit convention starts at c
+pub fn period_partials(plane_c: (f64, f64), max: u32) -> (Vec<u32>, (f64, f64)) {
+    let mut plane_z = plane_c; // z_1: this codebase's orbit convention starts at plane_c
     let mut best = f64::MAX;
     let mut out = Vec::new();
     for n in 1..=max {
-        let r = z.0 * z.0 + z.1 * z.1;
+        let r = plane_z.0 * plane_z.0 + plane_z.1 * plane_z.1;
         if r < best {
             best = r;
             out.push(n);
         }
-        z = iterate_complex(z, c);
+        plane_z = iterate_complex(plane_z, plane_c);
     }
-    (out, z)
+    (out, plane_z)
 }
 
 // r[impl cz.craft.period-derivative-test+1]
-pub fn verified_period(c: (f64, f64), period: u32) -> Option<u32> {
-    // F^p(0,c) is the published Newton starting point.
+pub fn verified_period(plane_c: (f64, f64), period: u32) -> Option<u32> {
+    // F^p(0,plane_c) is the published Newton starting point.
     let mut w = (0.0, 0.0);
     for _ in 0..period {
-        w = iterate_complex(w, c);
+        w = iterate_complex(w, plane_c);
     }
-    verified_period_from(c, period, w)
+    verified_period_from(plane_c, period, w)
 }
 
 // r[impl cz.craft.period-derivative-test+1]
 pub fn verified_period_from(
-    c: (f64, f64),
+    plane_c: (f64, f64),
     period: u32,
     start: (f64, f64),
 ) -> Option<u32> {
@@ -1476,7 +1628,7 @@ pub fn verified_period_from(
                 2.0 * (z.0 * dz.0 - z.1 * dz.1),
                 2.0 * (z.0 * dz.1 + z.1 * dz.0),
             );
-            z = iterate_complex(z, c);
+            z = iterate_complex(z, plane_c);
         }
 
         let numerator = (z.0 - w.0, z.1 - w.1);
@@ -1521,7 +1673,7 @@ pub fn verified_period_from(
     let mut z = w;
     let mut minimal_period = period;
     for d in 1..period {
-        z = iterate_complex(z, c);
+        z = iterate_complex(z, plane_c);
         if period % d == 0 {
             let diff = (z.0 - w.0, z.1 - w.1);
             let norm = diff.0 * diff.0 + diff.1 * diff.1;
@@ -1541,7 +1693,7 @@ pub fn verified_period_from(
             2.0 * (z.0 * multiplier.0 - z.1 * multiplier.1),
             2.0 * (z.0 * multiplier.1 + z.1 * multiplier.0),
         );
-        z = iterate_complex(z, c);
+        z = iterate_complex(z, plane_c);
     }
     let multiplier_norm =
         multiplier.0 * multiplier.0 + multiplier.1 * multiplier.1;
@@ -1552,9 +1704,9 @@ pub fn verified_period_from(
 // r[impl cz.craft.cached-products+1]
 pub fn update_point_results<T:Sub<Output=T> + Add<Output=T> + Into<f64> + Gt + Mul<Output=T> + Copy>(point: &mut Point<T>) {
     // update values
-    point.real_squared = point.z.0 * point.z.0;
-    point.imag_squared = point.z.1 * point.z.1;
-    point.real_imag = point.z.0 * point.z.1;
+    point.real_squared = point.plane_z.0 * point.plane_z.0;
+    point.imag_squared = point.plane_z.1 * point.plane_z.1;
+    point.real_imag = point.plane_z.0 * point.plane_z.1;
     let rad = point.real_squared + point.imag_squared;
     if rad.into() < point.smallness_squared.into() {point.smallness_squared =rad;point.small_time=point.iterations}
 

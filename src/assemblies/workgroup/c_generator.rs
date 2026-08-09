@@ -207,7 +207,7 @@ mod tests {
             for row in 0..res.1 {
                 for seat in 0..res.0 {
                     let index = (row * res.0 + seat) as usize;
-                    assert_eq!(generator.get_c((seat, row)), old[index].c);
+                    assert_eq!(generator.get_c((seat, row)), old[index].little_c);
                 }
             }
         }
@@ -257,6 +257,121 @@ mod tests {
             let _ = admit_generator::<f64>(&loc, 12, res, None, &view_center);
         }
         assert!(start.elapsed() < std::time::Duration::from_millis(500));
+    }
+
+    #[test]
+    fn abs_plane_f64_preserves_intexp_precision_at_depth() {
+        use crate::assemblies::headgroup::window::coords::f64_to_intexp;
+        use crate::assemblies::workgroup::screen_worker::workshift::abs_plane_f64;
+        let anchor = (IntExp::from(-1).shift(40), IntExp::ZERO);
+        let rel = (2.0f64.powi(-50), 0.0);
+        let bad = (
+            f64::from(anchor.0.clone()) + rel.0,
+            f64::from(anchor.1.clone()) + rel.1,
+        );
+        let good = abs_plane_f64(rel, &anchor);
+        let exact = (
+            f64::from(anchor.0.clone() + f64_to_intexp(rel.0)),
+            f64::from(anchor.1.clone() + f64_to_intexp(rel.1)),
+        );
+        assert_eq!(good, exact);
+        assert_ne!(bad, exact, "naive f64 anchor add must collapse at depth");
+    }
+
+    #[test]
+    fn home_f64_absolute_wall_at_zoom_43() {
+        use crate::constants::{DEFAULT_WINDOW_RES, HOME_POSITION};
+        let compute_loc = (
+            IntExp::from(HOME_POSITION.0),
+            IntExp::ZERO - IntExp::from(HOME_POSITION.1),
+        );
+        let res = DEFAULT_WINDOW_RES;
+        assert!(CGenerator::<f64>::new(&compute_loc, 43, res).is_some());
+        assert!(!CGenerator::<f64>::new(&compute_loc, 44, res).is_some());
+    }
+
+    #[test]
+    fn seahorse_admission_zoom_scan() {
+        use crate::constants::DEFAULT_WINDOW_RES;
+        use crate::utils::ObjectivePosAndZoom;
+        let res = DEFAULT_WINDOW_RES;
+        let frame_base = ObjectivePosAndZoom {
+            pos: (
+                IntExp::from(-1).shift(-1),
+                IntExp::from(0).shift(-1),
+            ),
+            zoom_pot: 19,
+        };
+        let mut first_relative = None;
+        for zoom_pot in 40..55i32 {
+            let frame = (
+                ObjectivePosAndZoom {
+                    zoom_pot,
+                    ..frame_base.clone()
+                },
+                res,
+            );
+            let compute_loc = (
+                frame.0.pos.0.clone(),
+                IntExp::ZERO - frame.0.pos.1.clone(),
+            );
+            let view_center = view_center_for_test(&compute_loc, zoom_pot, res);
+            let picked = admit_generator::<f64>(
+                &compute_loc,
+                zoom_pot as i64,
+                res,
+                None,
+                &view_center,
+            );
+            if picked.as_ref().is_some_and(|a| a.is_relative()) && first_relative.is_none() {
+                first_relative = Some(zoom_pot);
+            }
+        }
+        assert_eq!(
+            first_relative,
+            Some(46),
+            "seahorse-class view: relative f64 admits when absolute collapses"
+        );
+    }
+
+    #[test]
+    fn home_absolute_vs_relative_admission_zoom_scan() {
+        use crate::constants::{DEFAULT_WINDOW_RES, HOME_POSITION};
+        let compute_loc = (
+            IntExp::from(HOME_POSITION.0),
+            IntExp::ZERO - IntExp::from(HOME_POSITION.1),
+        );
+        let res = DEFAULT_WINDOW_RES;
+        let view_center = view_center_for_test(&compute_loc, HOME_POSITION.2, res);
+        for zoom_pot in 44..46i64 {
+            assert!(
+                admit_generator::<f64>(&compute_loc, zoom_pot, res, None, &view_center).is_none(),
+                "home at zoom {zoom_pot}: neither absolute nor relative f64 admits"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "diagnostic only"]
+    fn home_absolute_vs_relative_admission_zoom_scan_verbose() {
+        use crate::constants::{DEFAULT_WINDOW_RES, HOME_POSITION};
+        let compute_loc = (
+            IntExp::from(HOME_POSITION.0),
+            IntExp::ZERO - IntExp::from(HOME_POSITION.1),
+        );
+        let res = DEFAULT_WINDOW_RES;
+        let view_center = view_center_for_test(&compute_loc, HOME_POSITION.2, res);
+        for zoom_pot in 40..55i64 {
+            let abs = CGenerator::<f64>::new(&compute_loc, zoom_pot, res).is_some();
+            let picked = admit_generator::<f64>(
+                &compute_loc,
+                zoom_pot,
+                res,
+                None,
+                &view_center,
+            );
+            eprintln!("zoom_pot={zoom_pot} abs={abs} picked={:?}", picked.map(|p| if p.is_relative() { "rel" } else { "abs" }));
+        }
     }
 
     fn view_center_for_test(

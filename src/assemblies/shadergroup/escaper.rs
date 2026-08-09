@@ -253,7 +253,7 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
 pub fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f64> + PartialOrd + Finite + Gt + Abs + From<f32> + Into<f64> + Copy>
     (p: &CompletedPoint<T>, r: f32, pos:(i32, i32), points: &Vec<CompletedPoint<T>>, res: (u32, u32), settings:Settings) -> ScreenValue {
     match p {
-        CompletedPoint::Escapes{escape_time: t, escape_location: z, escape_derivative: dc, start_location: c , smallness:s, small_time:st} => {
+        CompletedPoint::Escapes{escape_time: t, escape_location: plane_z, escape_derivative: escape_dc, start_location: plane_c , smallness:s, small_time:st} => {
 
             let neighbors: [(i32, i32);4] =[
                 (pos.0, pos.1-1)
@@ -302,13 +302,14 @@ pub fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Int
 
             let r_squared = r*r;
             let mut p = Point{
-                c: *c
-                , z: *z
-                , dc: *dc
-                , real_squared: z.0 * z.0
-                , imag_squared: z.1 * z.1
+                little_c: *plane_c
+                , plane_c: *plane_c
+                , plane_z: *plane_z
+                , dc: *escape_dc
+                , real_squared: plane_z.0 * plane_z.0
+                , imag_squared: plane_z.1 * plane_z.1
                 , iterations: t.clone()
-                , real_imag: z.0 * z.1
+                , real_imag: plane_z.0 * plane_z.1
                 , loop_detection_point: ((0.0.into(), 0.0.into()), 0)
                 , escapes: false
                 , repeats: false
@@ -332,11 +333,11 @@ pub fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Int
                         let imag_squared:f64 = p.imag_squared.into();
                         let bigness:f64 = (real_squared+imag_squared).sqrt();*/
                         //let shortness = r as f64-2.0;
-                        //let closeness = 1.0/((p.c.0 - (-2.0)).abs());
+                        //let closeness = 1.0/((p.little_c.0 - (-2.0)).abs());
                         //let closeness = 1.0/p.smallness;
                         //p.iterations = og_count + closeness.exp().exp() as u32;
 
-                        let nudge = (p.c.0 - (2.0f32.into())).abs();
+                        let nudge = (p.little_c.0 - (2.0f32.into())).abs();
                         let additional_iterations = (r as f64 /nudge.into()).log(4.0) as u32;
                         p.iterations+=additional_iterations;
                     }*/
@@ -347,10 +348,10 @@ pub fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Int
                 c+=1;
             }
 
-            let zr: f64 = p.z.0.into();
-            let zi: f64 = p.z.1.into();
-            let dr: f64 = p.dc.0.into();
-            let di: f64 = p.dc.1.into();
+            let zr: f64 = p.plane_z.0.into();
+            let zi: f64 = p.plane_z.1.into();
+            let dr: f64 = p.little_c.0.into();
+            let di: f64 = p.little_c.1.into();
             // arg(z / dc), reflected because screen y grows downward.
             let gradient_angle = (-(zi * dr - zr * di)).atan2(zr * dr + zi * di) as f32;
             ScreenValue::Outside{

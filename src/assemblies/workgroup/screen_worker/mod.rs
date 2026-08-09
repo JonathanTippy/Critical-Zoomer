@@ -172,9 +172,15 @@ async fn internal_behavior<A: SteadyActor>(
             let newest = std::sync::Arc::new(
                 actor.try_take(&mut references_in).expect("newest published reference"),
             );
-            // Escaped references are proven bad; keep the zero-orbit floor until a
-            // usable interior snapshot arrives.
-            if !newest.orbit.escaped {
+            // Interior refs are preferred. Escaped refs are still installed on
+            // relative (hard-bump) shells so the generator stays orbit-relative;
+            // rejecting them left deep exterior on zero-orbit with blocky f64 plane_c.
+            let install = !newest.orbit.escaped
+                || state
+                    .work_context
+                    .as_ref()
+                    .is_some_and(|live| live.context.coords_are_relative);
+            if install {
                 state.pending_reference = Some(newest.clone());
                 if let Some(live) = &mut state.work_context {
                     let zoom_pot = live.frame_info.0.zoom_pot;
@@ -296,10 +302,9 @@ async fn internal_behavior<A: SteadyActor>(
                                 );
                             } else {
                                 // Uncovered sticky refs cause classic glitch blobs when
-                                // zooming into hard areas; drop to zero-orbit until the
-                                // new-view reference arrives.
+                                // zooming into hard areas. Drop pending only — keep any
+                                // view-center bootstrap from_stencil already installed.
                                 state.pending_reference = None;
-                                new_ctx.latest_reference = None;
                             }
                         }
                         // #region agent log
@@ -480,7 +485,7 @@ fn hud_telemetry_debug_log<T: Mandelbrotable>(
             ctx.hud_pps_estimate(),
             ctx.screen_point_count(),
             ctx.reference_floor_active,
-            if ctx.reference_floor_active { "pert" } else { "direct" },
+            if ctx.perturbation_kernel_required() { "pert" } else { "direct" },
             remaining,
             policy,
             ctx.res.0
@@ -500,6 +505,10 @@ pub fn host_stack_for_context<T: Mandelbrotable + 'static>() -> crate::assemblie
 }
 
 pub fn usable_reference<T: Mandelbrotable>(ctx: &WorkContext<T>) -> bool {
+    // Relative hard-bump may use an escaped view-center orbit for precision.
+    if ctx.coords_are_relative {
+        return ctx.latest_reference.is_some();
+    }
     ctx.latest_reference
         .as_ref()
         .is_some_and(|r| !r.orbit.escaped)
@@ -507,7 +516,7 @@ pub fn usable_reference<T: Mandelbrotable>(ctx: &WorkContext<T>) -> bool {
 
 pub fn classify_kernel_mode<T: Mandelbrotable>(ctx: &WorkContext<T>) -> crate::assemblies::structs::KernelMode {
     use crate::assemblies::structs::KernelMode;
-    if ctx.reference_floor_active {
+    if ctx.perturbation_kernel_required() {
         KernelMode::Pert
     } else {
         KernelMode::Naive

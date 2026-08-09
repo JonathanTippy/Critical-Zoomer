@@ -30,11 +30,13 @@ fn run_big(f: impl FnOnce() + Send + 'static) {
         .unwrap();
 }
 
-fn make_point(c: (f64, f64)) -> Point<FloatExp> {
+fn make_point(plane_c: (f64, f64)) -> Point<FloatExp> {
+    let fe = (FloatExp::from(plane_c.0), FloatExp::from(plane_c.1));
     Point {
-        c: (FloatExp::from(c.0), FloatExp::from(c.1)),
-        z: (FloatExp::ZERO, FloatExp::ZERO),
-        dc: (FloatExp::ZERO, FloatExp::ZERO),
+        little_c: fe,
+        plane_c: fe,
+        plane_z: fe,
+        dc: (FloatExp::ONE, FloatExp::ZERO),
         real_squared: FloatExp::ZERO,
         imag_squared: FloatExp::ZERO,
         real_imag: FloatExp::ZERO,
@@ -190,8 +192,8 @@ proptest! {
         // itself indistinguishable from endpoint rounding.
         let lo = adjacent_ulps(cr, false, 1 << 20);
         let hi = adjacent_ulps(cr, true, 1 << 20);
-        let z_lo = orbit_with_derivative((lo, ci), iterations).z;
-        let z_hi = orbit_with_derivative((hi, ci), iterations).z;
+        let z_lo = orbit_with_derivative((lo, ci), iterations).plane_z;
+        let z_hi = orbit_with_derivative((hi, ci), iterations).plane_z;
         let finite = (
             (z_hi.0.to_f64() - z_lo.0.to_f64()) / (hi - lo),
             (z_hi.1.to_f64() - z_lo.1.to_f64()) / (hi - lo),
@@ -233,7 +235,7 @@ proptest! {
     #[test]
     fn cached_products_match_z(zr in -1000.0f64..1000.0, zi in -1000.0f64..1000.0) {
         let mut p = make_point((0.1, 0.1));
-        p.z = (FloatExp::from(zr), FloatExp::from(zi));
+        p.plane_z = (FloatExp::from(zr), FloatExp::from(zi));
         p.iterations = 17;
         update_point_results(&mut p);
         prop_assert_eq!(p.real_squared, FloatExp::from(zr * zr));
@@ -666,11 +668,12 @@ fn ensure_started_matches_generator_bit_for_bit() {
                 let index = index_from_pos(&pos, res.0);
                 assert!(ctx.points[index].initialized);
                 assert_eq!(
-                    ctx.points[index].c,
+                    ctx.points[index].little_c,
                     ctx.c_generator.get_c((seat, row)),
                     "seat ({seat},{row})"
                 );
-                assert_eq!(ctx.points[index].z, ctx.points[index].c);
+                assert_eq!(ctx.points[index].plane_c, ctx.points[index].little_c);
+                assert_eq!(ctx.points[index].plane_z, ctx.points[index].little_c);
                 assert_eq!(ctx.points[index].dc, (FloatExp::ONE, FloatExp::ZERO));
             }
         }
@@ -1055,8 +1058,8 @@ fn is_strict_exterior_plane_c(cr: f64, ci: f64) -> bool {
 fn plane_c_f64(ctx: &WorkContext<FloatExp>, index: usize) -> (f64, f64) {
     let (cr, ci) = if ctx.points[index].initialized {
         (
-            ctx.points[index].c.0.to_f64(),
-            ctx.points[index].c.1.to_f64(),
+            ctx.points[index].little_c.0.to_f64(),
+            ctx.points[index].little_c.1.to_f64(),
         )
     } else {
         let (x, y) = pos_from_index(index, ctx.res.0);
@@ -1243,11 +1246,11 @@ fn reference_wip_after_glitch_until_new_generation() {
     ctx.points[0] = make_point((0.0, 0.0));
     ctx.points[0].iterations = 1;
     ctx.points[0].delta = Some(DeltaState {
-        dz: ComplexFloatExp::new(FloatExp::from(0.25), FloatExp::ZERO),
+        little_z: ComplexFloatExp::new(FloatExp::from(0.25), FloatExp::ZERO),
         checkpoint: ComplexFloatExp::ZERO,
         checkpoint_n: 0,
-        dc: ComplexFloatExp::ZERO,
-        abs_c: ComplexFloatExp::ZERO,
+        little_c: ComplexFloatExp::ZERO,
+        plane_c: ComplexFloatExp::ZERO,
         dd: ComplexFloatExp::new(FloatExp::ONE, FloatExp::ZERO),
         generation: 7,
         gear: crate::delta_gear::ComputeGear::FloatExp,
@@ -1552,7 +1555,7 @@ fn seahorse_pot_19_f64_promotes_scaled_f64_and_delivers() {
         PerturbationKernel.start_seat(&mut ctx, pos);
         let idx = index_from_pos(&pos, ctx.res.0);
         let delta = ctx.points[idx].delta.as_ref().expect("delta");
-        let dc_mag = delta.dc.re.to_f64().abs().max(delta.dc.im.to_f64().abs());
+        let dc_mag = delta.little_c.re.to_f64().abs().max(delta.little_c.im.to_f64().abs());
         assert!(
             delta.gear == ComputeGear::ScaledF64,
             "deep view deltas must promote past plain f64 (dc_mag={dc_mag:.3e} gear={:?})",
@@ -1593,18 +1596,19 @@ fn f64_gear_zero_orbit_center_reports_period_one() {
     ctx.points[0].initialized = false;
     // Patch generator output by initializing then overwriting c after start.
     PerturbationKernel.start_seat(&mut ctx, (0, 0));
-    ctx.points[0].c = (0.0, 0.0);
+    ctx.points[0].little_c = (0.0, 0.0);
     ctx.points[0].initialized = false;
     ctx.points[0].delta = None;
     PerturbationKernel.start_seat(&mut ctx, (0, 0));
-    // After re-init, force abs_c/dc to 0 via re-init_delta path: overwrite delta dc.
+    // After re-init, force plane_c/little_c to 0 via re-init_delta path: overwrite delta little_c.
     if let Some(d) = ctx.points[0].delta.as_mut() {
-        d.dc = ComplexFloatExp::ZERO;
-        d.abs_c = ComplexFloatExp::ZERO;
-        d.dz = ComplexFloatExp::ZERO;
+        d.little_c = ComplexFloatExp::ZERO;
+        d.plane_c = ComplexFloatExp::ZERO;
+        d.little_z = ComplexFloatExp::ZERO;
     }
-    ctx.points[0].c = (0.0, 0.0);
-    ctx.points[0].z = (0.0, 0.0);
+    ctx.points[0].little_c = (0.0, 0.0);
+    ctx.points[0].plane_c = (0.0, 0.0);
+    ctx.points[0].plane_z = (0.0, 0.0);
     PerturbationKernel.iterate_bout(
         &mut ctx.points[0], None, 4.0, ctx.pitch_epsilon, BoutCap::new(4),
     );
@@ -1625,7 +1629,7 @@ fn zero_orbit_floor_matches_direct_kernel_escape_times() {
     for c in [(2.0, 2.0), (-1.0, 0.2), (0.4, 0.4), (-0.75, 0.1)] {
         let mut direct_ctx = make_context(0);
         direct_ctx.points[0] = make_point(c);
-        direct_ctx.points[0].z = (FloatExp::from(c.0), FloatExp::from(c.1));
+        direct_ctx.points[0].plane_z = (FloatExp::from(c.0), FloatExp::from(c.1));
         direct_ctx.points[0].dc = (FloatExp::ONE, FloatExp::ZERO);
         let mut perturb_ctx = direct_ctx.clone();
         DirectKernel.start_seat(&mut direct_ctx, (0, 0));
@@ -1658,7 +1662,7 @@ fn published_reference_matches_direct_on_shallow_view() {
     for c in [(-0.49, 0.01), (-0.55, 0.08), (-0.4, -0.15)] {
         let mut direct_ctx = make_context(0);
         direct_ctx.points[0] = make_point(c);
-        direct_ctx.points[0].z = (FloatExp::from(c.0), FloatExp::from(c.1));
+        direct_ctx.points[0].plane_z = (FloatExp::from(c.0), FloatExp::from(c.1));
         direct_ctx.points[0].dc = (FloatExp::ONE, FloatExp::ZERO);
         let mut perturb_ctx = direct_ctx.clone();
         perturb_ctx.latest_reference = Some(published.clone());
@@ -1704,7 +1708,7 @@ fn published_reference_with_series_matches_direct_outside_r2() {
     });
     // |c|>2 must escape at production escape_time 0; also a few near-ring
     // exterior points that series is tempted to overshoot.
-    for c in [(3.0, 0.0), (2.0, 2.0), (-2.5, 0.5), (0.0, 3.0), (1.5, 1.5)] {
+    for plane_c in [(3.0, 0.0), (2.0, 2.0), (-2.5, 0.5), (0.0, 3.0), (1.5, 1.5)] {
         let frame = (
             ObjectivePosAndZoom {
                 pos: (IntExp::from(-1), IntExp::from(-1)),
@@ -1716,13 +1720,15 @@ fn published_reference_with_series_matches_direct_outside_r2() {
         let mut perturb = from_stencil::<f64>(frame, None).expect("perturb shell");
         perturb.latest_reference = Some(published.clone());
         activate_reference_floor(&mut perturb);
-        // Plant the same absolute c on seat 0 for both kernels.
-        direct.points[0].c = c;
-        direct.points[0].z = c;
+        // Plant the same absolute plane_c on seat 0 for both kernels.
+        direct.points[0].little_c = plane_c;
+        direct.points[0].plane_c = plane_c;
+        direct.points[0].plane_z = plane_c;
         direct.points[0].dc = (1.0, 0.0);
         direct.points[0].initialized = true;
-        perturb.points[0].c = c;
-        perturb.points[0].z = c;
+        perturb.points[0].little_c = plane_c;
+        perturb.points[0].plane_c = plane_c;
+        perturb.points[0].plane_z = plane_c;
         perturb.points[0].dc = (1.0, 0.0);
         perturb.points[0].initialized = true;
         DirectKernel.start_seat(&mut direct, (0, 0));
@@ -1743,7 +1749,7 @@ fn published_reference_with_series_matches_direct_outside_r2() {
         );
         assert!(
             direct.points[0].escapes,
-            "fixture c={c:?} must escape under DirectKernel"
+            "fixture plane_c={plane_c:?} must escape under DirectKernel"
         );
         assert_eq!(
             (
@@ -1756,7 +1762,7 @@ fn published_reference_with_series_matches_direct_outside_r2() {
                 direct.points[0].iterations,
                 direct.points[0].small_time
             ),
-            "series+reference must not inflate escape_time/small_time for exterior c={c:?} (got et={} st={})",
+            "series+reference must not inflate escape_time/small_time for exterior plane_c={plane_c:?} (got et={} st={})",
             perturb.points[0].iterations,
             perturb.points[0].small_time
         );
@@ -1798,15 +1804,16 @@ fn small_time_matches_direct_kernel_on_interior() {
         ((1.5, 1.5), true),
     ];
     let mut mismatches = Vec::new();
-    for (c, with_ref) in cases {
+    for (plane_c, with_ref) in cases {
         let mut direct = from_stencil::<f64>(frame.clone(), None).expect("direct");
         let mut perturb = from_stencil::<f64>(frame.clone(), None).expect("perturb");
         if with_ref {
             perturb.latest_reference = Some(published.clone());
         }
         for ctx in [&mut direct, &mut perturb] {
-            ctx.points[0].c = c;
-            ctx.points[0].z = c;
+            ctx.points[0].little_c = plane_c;
+            ctx.points[0].plane_c = plane_c;
+            ctx.points[0].plane_z = plane_c;
             ctx.points[0].dc = (1.0, 0.0);
             ctx.points[0].initialized = true;
         }
@@ -1846,7 +1853,7 @@ fn small_time_matches_direct_kernel_on_interior() {
         }
         if p.small_time != d.small_time {
             mismatches.push(format!(
-                "c={c:?} ref={with_ref} et={} direct_st={} perturb_st={}",
+                "plane_c={plane_c:?} ref={with_ref} et={} direct_st={} perturb_st={}",
                 d.iterations, d.small_time, p.small_time
             ));
         }
@@ -1867,13 +1874,13 @@ fn series_safe_skip_does_not_pass_bailout_for_far_delta() {
     let series = SeriesApproximation::from_orbit(&orbit, 4).expect("series");
     // Far exterior delta relative to -0.5 — the raw safe_skip may be >1, but
     // Z_n+δz must already have escaped by n=1 (|c|≫2).
-    let dc = ComplexFloatExp::new(FloatExp::from(3.5), FloatExp::ZERO);
-    let raw = series.safe_skip(dc, orbit.iterates.len().saturating_sub(1));
+    let little_c = ComplexFloatExp::new(FloatExp::from(3.5), FloatExp::ZERO);
+    let raw = series.safe_skip(little_c, orbit.iterates.len().saturating_sub(1));
     let mut first_escape = None;
     for n in 1..=raw.max(1) {
-        let dz = series.evaluate(n, dc).unwrap();
+        let little_z = series.evaluate(n, little_c).unwrap();
         let z_ref = orbit.get(n as u32).unwrap();
-        if (z_ref + dz).norm_squared() > FloatExp::from(4.0) {
+        if (z_ref + little_z).norm_squared() > FloatExp::from(4.0) {
             first_escape = Some(n);
             break;
         }
@@ -2051,18 +2058,19 @@ fn exterior_loci_with_series_match_direct_kernel_answers() {
 
     let mut compared = 0usize;
     let mut mismatches = Vec::new();
-    for c in loci {
+    for plane_c in loci {
         assert!(
-            c.0 * c.0 + c.1 * c.1 > 4.0,
-            "fixture must be exterior |c|>2: {c:?}"
+            plane_c.0 * plane_c.0 + plane_c.1 * plane_c.1 > 4.0,
+            "fixture must be exterior |plane_c|>2: {plane_c:?}"
         );
         let mut direct = from_stencil::<f64>(frame.clone(), None).expect("direct");
         let mut perturb = from_stencil::<f64>(frame.clone(), None).expect("perturb");
         perturb.latest_reference = Some(published.clone());
         activate_reference_floor(&mut perturb);
         for ctx in [&mut direct, &mut perturb] {
-            ctx.points[0].c = c;
-            ctx.points[0].z = c;
+            ctx.points[0].little_c = plane_c;
+            ctx.points[0].plane_c = plane_c;
+            ctx.points[0].plane_z = plane_c;
             ctx.points[0].dc = (1.0, 0.0);
             ctx.points[0].initialized = true;
         }
@@ -2084,7 +2092,7 @@ fn exterior_loci_with_series_match_direct_kernel_answers() {
         );
         assert!(
             direct.points[0].escapes,
-            "exterior fixture must escape under DirectKernel: {c:?}"
+            "exterior fixture must escape under DirectKernel: {plane_c:?}"
         );
         compared += 1;
         let d = (
@@ -2098,7 +2106,7 @@ fn exterior_loci_with_series_match_direct_kernel_answers() {
             perturb.points[0].small_time,
         );
         if d != p {
-            mismatches.push(format!("c={c:?} direct={d:?} perturb={p:?}"));
+            mismatches.push(format!("plane_c={plane_c:?} direct={d:?} perturb={p:?}"));
         }
     }
     assert!(compared >= 100, "dense exterior sample too small: {compared}");
@@ -2123,7 +2131,7 @@ fn generation_mismatch_restarts_delta() {
         }));
     activate_reference_floor(&mut ctx);
     FloatExpPerturbationKernel.start_seat(&mut ctx, (2, 0));
-    let initial_dz = ctx.points[2].delta.as_ref().unwrap().dz;
+    let initial_dz = ctx.points[2].delta.as_ref().unwrap().little_z;
     FloatExpPerturbationKernel.iterate_bout(
         &mut ctx.points[2],
         ctx.latest_reference.as_ref().map(|r| &r.orbit),
@@ -2141,7 +2149,7 @@ fn generation_mismatch_restarts_delta() {
     FloatExpPerturbationKernel.start_seat(&mut ctx, (2, 0));
     let delta = ctx.points[2].delta.as_ref().unwrap();
     assert_eq!(delta.generation, 2);
-    assert_eq!(delta.dz, initial_dz);
+    assert_eq!(delta.little_z, initial_dz);
     assert_eq!(ctx.points[2].iterations, 0);
 }
 
@@ -2161,11 +2169,11 @@ fn glitch_sets_direct_only_and_never_publishes_guess() {
     ctx.points[0].iterations = 1;
     ctx.points[0].delta = Some(DeltaState {
         // For c=-1/2, standard Z₂=-1/4. δ=+1/4 cancels it exactly.
-        dz: ComplexFloatExp::new(FloatExp::from(0.25), FloatExp::ZERO),
+        little_z: ComplexFloatExp::new(FloatExp::from(0.25), FloatExp::ZERO),
         checkpoint: ComplexFloatExp::ZERO,
         checkpoint_n: 0,
-        dc: ComplexFloatExp::ZERO,
-        abs_c: ComplexFloatExp::ZERO,
+        little_c: ComplexFloatExp::ZERO,
+        plane_c: ComplexFloatExp::ZERO,
         dd: ComplexFloatExp::new(FloatExp::ONE, FloatExp::ZERO),
         generation: 7,
         gear: crate::delta_gear::ComputeGear::FloatExp,
@@ -2245,9 +2253,9 @@ fn perturbation_bout_obeys_cap_and_split_bouts_match() {
     assert_eq!(whole.iterations, split.iterations);
     assert_eq!(whole.escapes, split.escapes);
     assert_eq!(whole.repeats, split.repeats);
-    assert_eq!(whole.z, split.z);
-    assert_eq!(whole.dc, split.dc);
-    assert_eq!(whole.delta.as_ref().unwrap().dz, split.delta.as_ref().unwrap().dz);
+    assert_eq!(whole.plane_z, split.plane_z);
+    assert_eq!(whole.plane_c, split.plane_c);
+    assert_eq!(whole.delta.as_ref().unwrap().little_z, split.delta.as_ref().unwrap().little_z);
     assert_eq!(whole.delta.as_ref().unwrap().dd, split.delta.as_ref().unwrap().dd);
 }
 
@@ -2413,7 +2421,7 @@ fn production_plane_coords_are_not_plain_f64() {
         "production workshift must take f64 context"
     );
     assert!(
-        kernel.contains("to_delta_c_f64") || kernel.contains("abs_plane_f64"),
+        kernel.contains("to_delta_plane_c_f64") || kernel.contains("abs_plane_f64"),
         "live kernel must use plain f64 seat coordinates"
     );
 }
@@ -2422,24 +2430,24 @@ fn production_plane_coords_are_not_plain_f64() {
 // r[verify cz.depth.series-approximation+1]
 fn series_skip_matches_delta_tail() {
     use crate::series::SeriesApproximation;
-    let c = (IntExp::from(-1).shift(-1), IntExp::ZERO); // -0.5
-    let orbit = ReferenceOrbit::compute(&c, 128, 256);
+    let reference_plane_c = (IntExp::from(-1).shift(-1), IntExp::ZERO); // -0.5
+    let orbit = ReferenceOrbit::compute(&reference_plane_c, 128, 256);
     let series = SeriesApproximation::from_orbit(&orbit, 4).expect("series");
-    let dc = ComplexFloatExp::new(FloatExp::from(1e-4), FloatExp::ZERO);
-    let skip = series.safe_skip(dc, orbit.iterates.len().saturating_sub(1));
+    let little_c = ComplexFloatExp::new(FloatExp::from(1e-4), FloatExp::ZERO);
+    let skip = series.safe_skip(little_c, orbit.iterates.len().saturating_sub(1));
     assert!(skip >= 1);
-    let approx = series.evaluate(skip, dc).expect("eval");
-    // Tail from skip via one-step delta should stay near the series value for small dc.
-    let mut dz = approx;
+    let approx = series.evaluate(skip, little_c).expect("eval");
+    // Tail from skip via one-step delta should stay near the series value for small little_c.
+    let mut little_z = approx;
     let z_ref = orbit.get(skip as u32).unwrap_or(ComplexFloatExp::ZERO);
     let two = ComplexFloatExp::new(FloatExp::TWO, FloatExp::ZERO);
     if let Some(z_next_ref) = orbit.get((skip + 1) as u32) {
-        dz = z_ref * dz * two + dz * dz + dc;
-        let series_next = series.evaluate(skip + 1, dc).unwrap_or(dz);
-        let err = (dz - series_next).norm_squared().to_f64();
+        little_z = z_ref * little_z * two + little_z * little_z + little_c;
+        let series_next = series.evaluate(skip + 1, little_c).unwrap_or(little_z);
+        let err = (little_z - series_next).norm_squared().to_f64();
         assert!(
             err < 1e-6 || skip + 1 >= series.coeffs.len(),
-            "series step should track delta for tiny dc; err={err} skip={skip}"
+            "series step should track delta for tiny little_c; err={err} skip={skip}"
         );
         let _ = z_next_ref;
     }
@@ -2473,11 +2481,11 @@ fn series_never_publishes_guessed_completion() {
 // r[verify cz.depth.series-approximation+1]
 fn live_series_skip_initializes_delta_prefix() {
     use crate::series::SeriesApproximation;
-    let c = (IntExp::from(-1).shift(-1), IntExp::ZERO);
-    let orbit = ReferenceOrbit::compute(&c, 128, 256);
+    let reference_plane_c = (IntExp::from(-1).shift(-1), IntExp::ZERO);
+    let orbit = ReferenceOrbit::compute(&reference_plane_c, 128, 256);
     let series = SeriesApproximation::from_orbit(&orbit, 4).expect("series");
-    let dc = ComplexFloatExp::new(FloatExp::from(1e-4), FloatExp::ZERO);
-    let skip = series.safe_skip(dc, orbit.iterates.len().saturating_sub(1));
+    let little_c = ComplexFloatExp::new(FloatExp::from(1e-4), FloatExp::ZERO);
+    let skip = series.safe_skip(little_c, orbit.iterates.len().saturating_sub(1));
     assert!(skip > 1, "fixture must admit a nontrivial skip");
     let mut ctx = make_context(0);
     // Install a published reference with series onto an f64 host context via from_stencil.
@@ -2491,7 +2499,7 @@ fn live_series_skip_initializes_delta_prefix() {
     let mut live = from_stencil::<f64>(frame.clone(), None).expect("shell");
     live.latest_reference = Some(Arc::new(PublishedReference {
         orbit,
-        c,
+        c: reference_plane_c,
         generation: 1,
         series: Some(series),
     }));
@@ -3001,6 +3009,415 @@ fn reference_install_rebuilds_c_generator() {
 }
 
 #[test]
+// r[verify cz.perf.pps-selected-kernel+1]
+fn deep_relative_shell_hard_bumps_to_pert() {
+    use crate::assemblies::structs::KernelMode;
+    use crate::assemblies::workgroup::screen_worker::classify_kernel_mode;
+    run_big(|| {
+        let frame = (
+            ObjectivePosAndZoom {
+                pos: (IntExp::from(-1).shift(-1), IntExp::ZERO),
+                zoom_pot: 50,
+            },
+            (1280u32, 720u32),
+        );
+        let ctx = from_stencil::<f64>(frame, None).expect("deep shell");
+        assert!(ctx.coords_are_relative);
+        assert!(!ctx.reference_floor_active);
+        assert_eq!(
+            classify_kernel_mode(&ctx),
+            KernelMode::Pert,
+            "relative f64 admission must hard-bump to perturbation"
+        );
+    });
+}
+
+#[test]
+// r[verify cz.depth.compute-gear+1]
+fn relative_shell_init_uses_f64_gear_not_floatexp() {
+    use super::perturb_kernel::PerturbationKernel;
+    use crate::delta_gear::ComputeGear;
+    run_big(|| {
+        let frame = (
+            ObjectivePosAndZoom {
+                pos: (IntExp::from(-1).shift(-1), IntExp::ZERO),
+                zoom_pot: 50,
+            },
+            (64u32, 64u32),
+        );
+        let mut ctx = from_stencil::<f64>(frame, None).expect("relative shell");
+        assert!(ctx.coords_are_relative);
+        let center = ((ctx.res.0 / 2) as i32, (ctx.res.1 / 2) as i32);
+        PerturbationKernel.start_seat(&mut ctx, center);
+        let index = index_from_pos(&center, ctx.res.0);
+        let gear = ctx.points[index]
+            .delta
+            .as_ref()
+            .expect("delta")
+            .gear;
+        assert_eq!(
+            gear,
+            ComputeGear::F64,
+            "bootstrapped relative reference must use f64 gear at depth"
+        );
+        assert!(
+            ctx.latest_reference.is_some(),
+            "relative shell must bootstrap view-center reference"
+        );
+        assert!(ctx.perturbation_reference_active());
+    });
+}
+
+#[test]
+// r[verify cz.depth.delta-kernel+1]
+fn relative_zero_orbit_escape_spectrum_not_degenerate_at_zoom_49() {
+    use super::perturb_kernel::PerturbationKernel;
+    use crate::assemblies::headgroup::window::coords::{decimal_str_to_intexp, ul_for_center};
+    run_big(|| {
+        let res = (32u32, 32u32);
+        let frame = (
+            ul_for_center(
+                decimal_str_to_intexp("0.360069520505").unwrap(),
+                decimal_str_to_intexp("0.613443210714").unwrap(),
+                49,
+                res,
+            ),
+            res,
+        );
+        let mut ctx = from_stencil::<f64>(frame, None).expect("shell");
+        assert!(ctx.coords_are_relative);
+        assert!(
+            ctx.latest_reference.is_some() && ctx.perturbation_reference_active(),
+            "relative shell must bootstrap a view-center reference (escaped ok)"
+        );
+        let held_ref = ctx.latest_reference.clone();
+        let mut little_c_bits = std::collections::HashSet::new();
+        let mut escape_z_bits = std::collections::HashSet::new();
+        for y in 0..res.1 as i32 {
+            for x in 0..res.0 as i32 {
+                let pos = (x, y);
+                let idx = index_from_pos(&pos, res.0);
+                PerturbationKernel.start_seat(&mut ctx, pos);
+                let lc = ctx.points[idx].little_c;
+                little_c_bits.insert((lc.0.to_bits(), lc.1.to_bits()));
+                PerturbationKernel.iterate_bout(
+                    &mut ctx.points[idx],
+                    held_ref.as_ref().map(|r| &r.orbit),
+                    4.0,
+                    ctx.pitch_epsilon,
+                    BoutCap::new(2048),
+                );
+                let p = &ctx.points[idx];
+                if p.escapes {
+                    escape_z_bits.insert((p.plane_z.0.to_bits(), p.plane_z.1.to_bits()));
+                }
+            }
+        }
+        assert!(
+            little_c_bits.len() >= (res.0 * res.1) as usize * 3 / 4,
+            "generator little_c must stay per-seat with bootstrapped ref ({} unique)",
+            little_c_bits.len()
+        );
+        assert!(
+            escape_z_bits.len() >= 8,
+            "blocky/degenerate escape locations: only {} distinct plane_z",
+            escape_z_bits.len()
+        );
+    });
+}
+
+#[test]
+// r[verify cz.depth.floatexp-host-coords+1]
+fn plane_c_intexp_add_distinct_per_seat_at_user_zoom_49() {
+    use crate::assemblies::headgroup::window::coords::{decimal_str_to_intexp, ul_for_center};
+    use super::workshift::{from_stencil, plane_c_for_seat_f64, DirectKernel, SeatKernel};
+    run_big(|| {
+        let res = (64u32, 64u32);
+        let zoom_pot = 49i32;
+        let center_re = decimal_str_to_intexp("0.360069520505").unwrap();
+        let center_im = decimal_str_to_intexp("0.613443210714").unwrap();
+        let frame = (ul_for_center(center_re, center_im, zoom_pot, res), res);
+        let mut ctx = from_stencil::<f64>(frame, None).expect("shell");
+        assert!(ctx.coords_are_relative);
+
+        let mut naive = std::collections::HashSet::<(u64, u64)>::new();
+        let mut distinct = std::collections::HashSet::<(u64, u64)>::new();
+        for y in 0..8i32 {
+            for x in 0..8i32 {
+                let pos = (x, y);
+                DirectKernel.start_seat(&mut ctx, pos);
+                let idx = crate::utils::index_from_pos(&pos, ctx.res.0);
+                let lc = ctx.points[idx].little_c;
+                let bad = (
+                    f64::from(ctx.coord_anchor.0.clone()) + lc.0,
+                    f64::from(ctx.coord_anchor.1.clone()) + lc.1,
+                );
+                let good = plane_c_for_seat_f64(&ctx, lc);
+                naive.insert((bad.0.to_bits(), bad.1.to_bits()));
+                distinct.insert((good.0.to_bits(), good.1.to_bits()));
+            }
+        }
+        assert_eq!(
+            naive.len(),
+            1,
+            "naive f64 anchor+little_c collapses seats ({} unique)",
+            naive.len()
+        );
+        assert!(
+            distinct.len() <= 4,
+            "f64 plane_c cannot resolve per-seat pitch at zoom 49 ({} unique)",
+            distinct.len()
+        );
+
+        let mut fe_distinct = std::collections::HashSet::<(u64, i64)>::new();
+        let mut little_c_distinct = std::collections::HashSet::<(u64, u64)>::new();
+        for y in 0..8i32 {
+            for x in 0..8i32 {
+                let pos = (x, y);
+                DirectKernel.start_seat(&mut ctx, pos);
+                let idx = crate::utils::index_from_pos(&pos, ctx.res.0);
+                let lc = ctx.points[idx].little_c;
+                let fe = super::workshift::plane_c_floatexp_from_little_c(lc, &ctx.coord_anchor);
+                fe_distinct.insert((fe.re.mantissa.to_bits(), fe.re.exponent));
+                fe_distinct.insert((fe.im.mantissa.to_bits(), fe.im.exponent));
+                little_c_distinct.insert((lc.0.to_bits(), lc.1.to_bits()));
+            }
+        }
+        assert!(
+            little_c_distinct.len() >= 48,
+            "generator little_c must vary per seat at zoom 49 ({} unique)",
+            little_c_distinct.len()
+        );
+        assert!(
+            fe_distinct.len() >= 2,
+            "FloatExp plane_c mantissa/exponent must vary at zoom 49 ({} unique pairs)",
+            fe_distinct.len()
+        );
+    });
+}
+
+#[test]
+// r[verify cz.depth.delta-kernel+1]
+// r[verify cz.perf.pps-selected-kernel+1]
+fn relative_perturb_matches_direct_at_user_zoom_49() {
+    use super::perturb_kernel::PerturbationKernel;
+    use crate::assemblies::headgroup::window::coords::{decimal_str_to_intexp, ul_for_center};
+    use crate::reference::ReferenceOrbit;
+    use std::sync::Arc;
+    run_big(|| {
+        let res = (32u32, 32u32);
+        let zoom_pot = 49i32;
+        let center_re = decimal_str_to_intexp("0.360069520505").unwrap();
+        let center_im = decimal_str_to_intexp("0.613443210714").unwrap();
+        let frame = (ul_for_center(center_re, center_im, zoom_pot, res), res);
+        let mut direct = from_stencil::<f64>(frame.clone(), None).expect("direct");
+        let mut perturb = from_stencil::<f64>(frame, None).expect("perturb");
+        assert!(direct.coords_are_relative);
+        let anchor = (
+            direct.coord_anchor.0.clone(),
+            direct.coord_anchor.1.clone(),
+        );
+        let published = Arc::new(PublishedReference {
+            orbit: ReferenceOrbit::compute(&anchor, 128, 4096),
+            c: anchor,
+            generation: 1,
+            series: None,
+        });
+        direct.latest_reference = Some(published.clone());
+        perturb.latest_reference = Some(published);
+
+        let mut compared = 0usize;
+        let mut mismatches = Vec::new();
+        for y in 0..res.1 as i32 {
+            for x in 0..res.0 as i32 {
+                let pos = (x, y);
+                let idx = index_from_pos(&pos, res.0);
+                DirectKernel.start_seat(&mut direct, pos);
+                PerturbationKernel.start_seat(&mut perturb, pos);
+                DirectKernel.iterate_bout(
+                    &mut direct.points[idx],
+                    None,
+                    4.0,
+                    direct.pitch_epsilon,
+                    BoutCap::new(512),
+                );
+                PerturbationKernel.iterate_bout(
+                    &mut perturb.points[idx],
+                    perturb.latest_reference.as_ref().map(|r| &r.orbit),
+                    4.0,
+                    perturb.pitch_epsilon,
+                    BoutCap::new(512),
+                );
+                let d = &direct.points[idx];
+                let p = &perturb.points[idx];
+                if !(d.escapes || d.repeats) || !(p.escapes || p.repeats) {
+                    continue;
+                }
+                compared += 1;
+                if (d.escapes, d.iterations, d.repeats, d.small_time)
+                    != (p.escapes, p.iterations, p.repeats, p.small_time)
+                {
+                    mismatches.push(format!(
+                        "({x},{y}) direct=({},{},{},{}) perturb=({},{},{},{})",
+                        d.escapes,
+                        d.iterations,
+                        d.repeats,
+                        d.small_time,
+                        p.escapes,
+                        p.iterations,
+                        p.repeats,
+                        p.small_time,
+                    ));
+                }
+            }
+        }
+        assert!(compared >= 50, "need finished seats, got {compared}");
+        assert!(
+            mismatches.is_empty(),
+            "perturb vs direct at user zoom 49 with ref ({}):\n{}",
+            mismatches.len(),
+            mismatches.iter().take(12).cloned().collect::<Vec<_>>().join("\n")
+        );
+    });
+}
+
+#[test]
+// r[verify cz.perf.pps-selected-kernel+1]
+// r[verify cz.depth.delta-kernel+1]
+/// Headed report: (0.95703125, −0.08984375i) at 2^74 went black on escaping seats.
+fn deep_relative_exterior_not_instant_black_at_reported_location() {
+    use super::perturb_kernel::PerturbationKernel;
+    use crate::assemblies::headgroup::window::coords::{decimal_str_to_intexp, ul_for_center};
+    run_big(|| {
+        let res = (32u32, 32u32);
+        let zoom_pot = 74i32;
+        let center_re = decimal_str_to_intexp("0.95703125").unwrap();
+        let center_im = decimal_str_to_intexp("-0.08984375").unwrap();
+        let obj = ul_for_center(center_re, center_im, zoom_pot, res);
+        let frame = (obj, res);
+        let mut direct = from_stencil::<f64>(frame.clone(), None).expect("direct shell");
+        let mut perturb = from_stencil::<f64>(frame, None).expect("perturb shell");
+        assert!(
+            direct.coords_are_relative,
+            "zoom 74 must use relative f64 admission"
+        );
+        let held_ref = perturb.latest_reference.clone();
+        assert!(
+            held_ref.is_some() && perturb.perturbation_reference_active(),
+            "relative shell must bootstrap a reference"
+        );
+
+        let mut exterior_compared = 0usize;
+        let mut instant_black = Vec::new();
+        let mut mismatches = Vec::new();
+        for y in 0..res.1 as i32 {
+            for x in 0..res.0 as i32 {
+                let pos = (x, y);
+                let idx = index_from_pos(&pos, res.0);
+                DirectKernel.start_seat(&mut direct, pos);
+                PerturbationKernel.start_seat(&mut perturb, pos);
+                DirectKernel.iterate_bout(
+                    &mut direct.points[idx],
+                    None,
+                    4.0,
+                    direct.pitch_epsilon,
+                    BoutCap::new(512),
+                );
+                PerturbationKernel.iterate_bout(
+                    &mut perturb.points[idx],
+                    held_ref.as_ref().map(|r| &r.orbit),
+                    4.0,
+                    perturb.pitch_epsilon,
+                    BoutCap::new(512),
+                );
+                let d = &direct.points[idx];
+                let p = &perturb.points[idx];
+                if !d.escapes {
+                    continue;
+                }
+                exterior_compared += 1;
+                if d.iterations > 2
+                    && p.escapes
+                    && p.iterations <= 2
+                {
+                    instant_black.push(format!(
+                        "({x},{y}) direct_et={} perturb_et={}",
+                        d.iterations, p.iterations
+                    ));
+                }
+                if (d.escapes, d.iterations, d.repeats) != (p.escapes, p.iterations, p.repeats) {
+                    mismatches.push(format!(
+                        "({x},{y}) direct={:?} perturb={:?}",
+                        (d.escapes, d.iterations, d.repeats),
+                        (p.escapes, p.iterations, p.repeats)
+                    ));
+                }
+            }
+        }
+        assert!(
+            exterior_compared >= 20,
+            "need escaping exterior seats in fixture, got {exterior_compared}"
+        );
+        assert!(
+            instant_black.is_empty(),
+            "perturb must not instant-black exterior (escape_time≤2):\n{}",
+            instant_black.iter().take(12).cloned().collect::<Vec<_>>().join("\n")
+        );
+        assert!(
+            mismatches.is_empty(),
+            "perturb vs direct mismatches ({}):\n{}",
+            mismatches.len(),
+            mismatches.iter().take(12).cloned().collect::<Vec<_>>().join("\n")
+        );
+    });
+}
+
+#[test]
+// r[verify cz.perf.pps-selected-kernel+1]
+fn relative_shell_perturbation_center_is_interior_at_depth() {
+    use super::perturb_kernel::PerturbationKernel;
+    run_big(|| {
+        let frame = (
+            ObjectivePosAndZoom {
+                pos: (IntExp::from(-1).shift(-1), IntExp::ZERO),
+                zoom_pot: 50,
+            },
+            (64u32, 64u32),
+        );
+        let mut ctx = from_stencil::<f64>(frame, None).expect("relative shell");
+        assert!(ctx.coords_are_relative);
+        let center = ((ctx.res.0 / 2) as i32, (ctx.res.1 / 2) as i32);
+        PerturbationKernel.start_seat(&mut ctx, center);
+        let index = index_from_pos(&center, ctx.res.0);
+        let held = ctx.latest_reference.take();
+        let orbit = None;
+        PerturbationKernel.iterate_bout(
+            &mut ctx.points[index],
+            orbit,
+            4.0,
+            ctx.pitch_epsilon,
+            BoutCap::new(4096),
+        );
+        ctx.latest_reference = held;
+        let p = &ctx.points[index];
+        assert!(
+            p.repeats || p.iterations > 0,
+            "relative perturbation must not instant-black-exterior at depth; escapes={} repeats={} iters={}",
+            p.escapes,
+            p.repeats,
+            p.iterations
+        );
+        if p.escapes {
+            assert!(
+                p.iterations > 2,
+                "collapsed plane_c escapes at iteration 0–2 (black); got {}",
+                p.iterations
+            );
+        }
+    });
+}
+
+#[test]
 fn f64_deep_zoom_admits_relative_stencil() {
     use crate::assemblies::workgroup::screen_worker::workshift::f64_stencil_admits;
     use crate::delta_gear::ComputeGear;
@@ -3275,9 +3692,9 @@ fn home_zero_orbit_floor_pipeline_no_vertical_black_columns() {
             } else {
                 CompletedPoint::Escapes {
                     escape_time: p.iterations,
-                    escape_location: (p.z.0, p.z.1),
+                    escape_location: (p.plane_z.0, p.plane_z.1),
                     escape_derivative: p.dc,
-                    start_location: (p.c.0, p.c.1),
+                    start_location: (p.plane_c.0, p.plane_c.1),
                     smallness: p.smallness_squared,
                     small_time: p.small_time,
                 }
@@ -3584,8 +4001,8 @@ fn home_pipeline_with_live_series_no_vertical_black_columns() {
                         min_magnitude: p.smallness_squared.into(),
                     }
                 } else {
-                    let ez0: f64 = p.z.0.into();
-                    let ez1: f64 = p.z.1.into();
+                    let ez0: f64 = p.plane_z.0.into();
+                    let ez1: f64 = p.plane_z.1.into();
                     let ed0: f64 = p.dc.0.into();
                     let ed1: f64 = p.dc.1.into();
                     Answer {
@@ -3725,9 +4142,9 @@ fn home_pipeline_no_vertical_black_columns() {
             } else if p.escapes {
                 CompletedPoint::Escapes {
                     escape_time: p.iterations,
-                    escape_location: (p.z.0, p.z.1),
+                    escape_location: (p.plane_z.0, p.plane_z.1),
                     escape_derivative: p.dc,
-                    start_location: (p.c.0, p.c.1),
+                    start_location: (p.plane_c.0, p.plane_c.1),
                     smallness: p.smallness_squared,
                     small_time: p.small_time,
                 }
