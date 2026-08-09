@@ -27,6 +27,8 @@ that prove numbers and invariants still flow through the machine.
 | Screen worker alone | `craftsmanship_tests.rs` (`steady_state_screen_worker_*`) | Fill + IPS floors on DirectKernel / naive-GPU path |
 | Workgroup chain | `craftsmanship_tests.rs` (`steady_state_workgroup_*`) | `iterations_delta` / `points_delta` survive into HUD `RateCounter` |
 | Home PPS ratio | `steady_state_home_pps_gpu_vs_cpu_ratio` | GPU vs CPU wall PPS (climb toward ~FLOP ratio) |
+| F64 gear escalate | `steady_state_naive_gpu_f64_gear_via_faux_user_zoom` | Faux-user zoom past F32 wall → GPU F64 / CPU fallback |
+| Deep cusp never-stall | `steady_state_naive_gpu_deep_cusp_never_stalls` | Progress every shift at hard cusp (resume, not reset) |
 | Probe / FLOP ratio | `naive_gpu` smoke tests | GPU vs CPU ratio method (D-NGPU-5) |
 | Fitness trends | `benches/workgroup_fitness.rs` | Wall-clock baselines, eye regression guard |
 
