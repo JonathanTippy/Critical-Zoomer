@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# Control helpers for Critical Zoomer under xvfb / live DISPLAY.
-#
-# HARNESS_FROZEN: re-run `taskset -c 4-11 scripts/harness_selftest.sh` after any
-# change to command surface, geometry, capture, or settle. Do not edit casually.
+# Control helpers for Critical Zoomer under xvfb (support for xvfb_screenshot_check.sh only).
+# Policy: scripts/README.md — do not grow a shell e2e suite here.
 #
 # Frozen command surface: wait focus pointer click key keydown keyup hold scroll
 # zoomin zoomout goto navigate capture settle home quit|exit|stop

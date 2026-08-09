@@ -44,13 +44,16 @@ Three layers, cheapest-first:
 ## Verify
 
 Run the full test suite after workgroup/colorer edits. Keep tracey links intact
-(every `r[impl ...]` resolves to a rule; every rule's tests exist).
+(every `r[impl ...]` resolves to a rule; every rule's tests exist). Prefer
+`cargo test` and `cargo bench` over shell. `scripts/` is **only** for the
+isolated Xvfb screenshot check — see `scripts/README.md`; do not add new e2e
+shell suites or check in PNGs there.
 
 For any change that can affect rendered output, also follow
 `docs/assistant/manual-testing.md`. This is assistant-owned work: build the
-current release, run it under the isolated Xvfb harness, capture PNGs, and
-inspect them directly. Never capture the developer's desktop and never hand the
-procedure to the developer.
+current release, run `scripts/xvfb_screenshot_check.sh`, and inspect the PNG
+directly. Never capture the developer's desktop and never hand the procedure to
+the developer.
 
 ## Same-workspace checkpoint commits (recoverable delegated work)
 
