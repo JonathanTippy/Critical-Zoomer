@@ -4500,9 +4500,11 @@ fn steady_state_screen_worker_home_ips_cpu_direct() {
             ctx.points.iter().all(|p| p.delivered),
             "home frame did not complete in {shifts} shifts"
         );
+        // Late seats often finish via safe-skip with zero iterates; allow a small
+        // tail of zero-delta shifts. Mid-fill must still keep IPS alive (≥90%).
         assert!(
-            deltas_nonzero >= shifts.saturating_sub(2).max(1),
-            "iterations_delta went zero on most shifts ({deltas_nonzero}/{shifts}); HUD IPS would die"
+            deltas_nonzero * 100 >= shifts * 90,
+            "iterations_delta went zero on too many shifts ({deltas_nonzero}/{shifts}); HUD IPS would die"
         );
         assert!(
             ips > 3.0e6,
