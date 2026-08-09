@@ -45,6 +45,10 @@ pub struct FinishF32 {
     pub dc_y: f32,
     pub c_x: f32,
     pub c_y: f32,
+    pub loop_zx: f32,
+    pub loop_zy: f32,
+    pub loop_iter: u32,
+    pub _pad: u32,
 }
 
 #[repr(C)]
@@ -92,13 +96,15 @@ pub struct FinishF64 {
     pub small_time: u32,
     pub smallness: f64,
     pub iter_delta: u32,
-    pub _pad: u32,
+    pub loop_iter: u32,
     pub z_x: f64,
     pub z_y: f64,
     pub dc_x: f64,
     pub dc_y: f64,
     pub c_x: f64,
     pub c_y: f64,
+    pub loop_zx: f64,
+    pub loop_zy: f64,
 }
 
 #[repr(C)]
@@ -172,14 +178,14 @@ mod layout_tests {
     #[test]
     fn f32_strides_match_device_constants() {
         assert_eq!(size_of::<SeatF32>(), 72);
-        assert_eq!(size_of::<FinishF32>(), 48);
+        assert_eq!(size_of::<FinishF32>(), 64);
         assert_eq!(size_of::<ParamsF32>(), 32);
     }
 
     #[test]
     fn f64_strides_match_device_constants() {
         assert_eq!(size_of::<SeatF64>(), 120);
-        assert_eq!(size_of::<FinishF64>(), 80);
+        assert_eq!(size_of::<FinishF64>(), 96);
         assert_eq!(size_of::<ParamsF64>(), 32);
     }
 }

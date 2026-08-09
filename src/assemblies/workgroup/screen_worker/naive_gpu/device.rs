@@ -14,14 +14,14 @@ pub struct NaiveGpuContext {
     wave_n: u32,
     pub(crate) pipeline: wgpu::ComputePipeline,
     pub(crate) bind_group_layout: wgpu::BindGroupLayout,
+    pub(crate) bind_group: wgpu::BindGroup,
     pub(crate) seats_buf: wgpu::Buffer,
     pub(crate) finishes_buf: wgpu::Buffer,
     pub(crate) finish_count_buf: wgpu::Buffer,
     pub(crate) iter_total_buf: wgpu::Buffer,
     pub(crate) params_buf: wgpu::Buffer,
     pub(crate) finish_staging: wgpu::Buffer,
-    pub(crate) count_staging: wgpu::Buffer,
-    pub(crate) iter_staging: wgpu::Buffer,
+    pub(crate) header_staging: wgpu::Buffer,
     pub(crate) seat_stride: u64,
     pub(crate) finish_stride: u64,
 }
@@ -91,7 +91,9 @@ impl NaiveGpuContext {
             }
         };
         let info = adapter.get_info();
-        let want_f64 = adapter.features().contains(wgpu::Features::SHADER_F64);
+        // F32 is the IPS baseline (consumer FP64 is often ~1/32). Opt into F64 with CZ_NAIVE_GPU_F64=1.
+        let prefer_f64 = std::env::var("CZ_NAIVE_GPU_F64").ok().as_deref() == Some("1");
+        let want_f64 = prefer_f64 && adapter.features().contains(wgpu::Features::SHADER_F64);
         let mut required = wgpu::Features::empty();
         if want_f64 {
             required |= wgpu::Features::SHADER_F64;
@@ -123,16 +125,16 @@ impl NaiveGpuContext {
         let (precision, seat_stride, finish_stride, bind_group_layout, pipeline) =
             if want_f64 && device.features().contains(wgpu::Features::SHADER_F64) {
                 match create_pipeline(&device, include_str!("bout_f64.wgsl")).await {
-                    Some((bgl, pipe)) => (GpuPrecision::F64, 120u64, 80u64, bgl, pipe),
+                    Some((bgl, pipe)) => (GpuPrecision::F64, 120u64, 96u64, bgl, pipe),
                     None => {
                         let (bgl, pipe) =
                             create_pipeline(&device, include_str!("bout_f32.wgsl")).await?;
-                        (GpuPrecision::F32, 72, 48, bgl, pipe)
+                        (GpuPrecision::F32, 72, 64, bgl, pipe)
                     }
                 }
             } else {
                 let (bgl, pipe) = create_pipeline(&device, include_str!("bout_f32.wgsl")).await?;
-                (GpuPrecision::F32, 72, 48, bgl, pipe)
+                (GpuPrecision::F32, 72, 64, bgl, pipe)
             };
 
         let seats_buf = make_buf(
@@ -171,18 +173,40 @@ impl NaiveGpuContext {
             finish_stride * MAX_WAVE as u64,
             wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         );
-        let count_staging = make_buf(
+        // [finish_count:u32][iter_total:u32] — one map instead of two.
+        let header_staging = make_buf(
             &device,
-            "count_staging",
-            4,
+            "header_staging",
+            8,
             wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         );
-        let iter_staging = make_buf(
-            &device,
-            "iter_staging",
-            4,
-            wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-        );
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("naive_bg"),
+            layout: &bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: seats_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: finishes_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: finish_count_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: params_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: iter_total_buf.as_entire_binding(),
+                },
+            ],
+        });
 
         let _ = std::fs::write(
             "/tmp/cz_naive_gpu_status.txt",
@@ -200,14 +224,14 @@ impl NaiveGpuContext {
             wave_n: 2048.min(MAX_WAVE),
             pipeline,
             bind_group_layout,
+            bind_group,
             seats_buf,
             finishes_buf,
             finish_count_buf,
             iter_total_buf,
             params_buf,
             finish_staging,
-            count_staging,
-            iter_staging,
+            header_staging,
             seat_stride,
             finish_stride,
         })

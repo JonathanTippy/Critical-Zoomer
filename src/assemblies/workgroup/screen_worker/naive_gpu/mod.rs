@@ -186,7 +186,7 @@ pub fn workshift_naive_gpu(
         let upload_refs: Vec<(u32, &Point<f64>)> =
             owned.iter().map(|(i, p)| (*i, p)).collect();
 
-        if let Err(e) = gpu.dispatch_wave(&upload_refs, 4.0, epsilon, BoutCap::STANDARD) {
+        if let Err(e) = gpu.dispatch_wave_multi(&upload_refs, 4.0, epsilon, BoutCap::STANDARD, 4) {
             eprintln!("naive_gpu dispatch failed: {e}");
             break;
         }
@@ -202,8 +202,11 @@ pub fn workshift_naive_gpu(
         context.total_iterations_today += iter_delta;
         context.total_iterations = context.total_iterations.saturating_add(iter_delta);
 
-        let finished_indices: HashSet<usize> =
-            finishes.iter().map(|f| f.seat_index as usize).collect();
+        let final_indices: HashSet<usize> = finishes
+            .iter()
+            .filter(|f| (f.flags & 6) != 0)
+            .map(|f| f.seat_index as usize)
+            .collect();
 
         let mut buffer_full = false;
         for fin in &finishes {
@@ -269,7 +272,7 @@ pub fn workshift_naive_gpu(
 
         let mut next_wip = Vec::new();
         for m in wip.drain(..) {
-            if finished_indices.contains(&m.index) {
+            if final_indices.contains(&m.index) {
                 continue;
             }
             match m.step {
@@ -299,8 +302,8 @@ pub fn workshift_naive_gpu(
         wip = next_wip;
         context.total_bouts_today += 1;
 
-        if context.time_workshift_started.elapsed().as_millis() > 8 && wave_n > MIN_WAVE_N {
-            wave_n = (wave_n / 2).max(MIN_WAVE_N);
+        if context.time_workshift_started.elapsed().as_millis() > 9 && wave_n > MIN_WAVE_N {
+            wave_n = ((wave_n * 3) / 4).max(MIN_WAVE_N);
             gpu.set_wave_n(wave_n);
         }
     }
@@ -322,6 +325,7 @@ fn apply_finish_to_point(point: &mut Point<f64>, fin: &HarvestedFinish) {
     point.real_squared = fin.z_x * fin.z_x;
     point.imag_squared = fin.z_y * fin.z_y;
     point.real_imag = fin.z_x * fin.z_y;
+    point.loop_detection_point = ((fin.loop_zx, fin.loop_zy), fin.loop_iter);
     point.escapes = (fin.flags & 2) != 0;
     point.repeats = (fin.flags & 4) != 0;
 }
@@ -369,6 +373,82 @@ mod smoke_tests {
         assert!(
             ctx.total_iterations_today > 0 || ctx.total_points_today > 0,
             "expected GPU wave to perform work"
+        );
+    }
+
+    #[test]
+    fn naive_gpu_ips_ratio_probe() {
+        use crate::assemblies::workgroup::screen_worker::workshift::{
+            iterate_max_n_times, BoutCap, Point,
+        };
+        use std::time::Instant;
+
+        let Some(mut gpu) = NaiveGpuContext::try_new() else {
+            eprintln!("naive_gpu_ips_ratio_probe: no adapter — skipped");
+            return;
+        };
+        eprintln!("probe precision={:?}", gpu.precision);
+        gpu.set_wave_n(2048);
+
+        fn hard_point(i: usize, n: usize) -> Point<f64> {
+            let t = i as f64 / n as f64;
+            Point {
+                delta_c: (0.0, 0.0),
+                c: (-0.75 + t * 0.02, 0.1),
+                z: (0.0, 0.0),
+                dc: (1.0, 0.0),
+                real_squared: 0.0,
+                imag_squared: 0.0,
+                real_imag: 0.0,
+                iterations: 0,
+                loop_detection_point: ((0.0, 0.0), 0),
+                escapes: false,
+                repeats: false,
+                delivered: false,
+                initialized: true,
+                period: 0,
+                smallness_squared: f64::INFINITY,
+                small_time: 0,
+                delta: None,
+                direct_only: false,
+                bound_zero_generation: 0,
+            }
+        }
+
+        let n = 4096usize;
+        let mut points: Vec<Point<f64>> = (0..n).map(|i| hard_point(i, n)).collect();
+
+        let t0 = Instant::now();
+        let mut cpu_iters = 0u64;
+        for p in &mut points {
+            let before = p.iterations;
+            iterate_max_n_times(p, 4.0, 1e-15, BoutCap::STANDARD);
+            cpu_iters += (p.iterations - before) as u64;
+        }
+        let cpu_s = t0.elapsed().as_secs_f64().max(1e-9);
+        let cpu_ips = cpu_iters as f64 / cpu_s;
+
+        // GPU: one upload, several resident bouts, one harvest (amortize sync).
+        let points: Vec<Point<f64>> = (0..n).map(|i| hard_point(i, n)).collect();
+        let upload: Vec<(u32, &Point<f64>)> =
+            points.iter().enumerate().map(|(i, p)| (i as u32, p)).collect();
+        let t1 = Instant::now();
+        gpu.dispatch_wave_multi(&upload, 4.0, 1e-15, BoutCap::STANDARD, 8)
+            .expect("dispatch_multi");
+        let (_fins, delta) = gpu.harvest_finishes().expect("harvest");
+        let gpu_s = t1.elapsed().as_secs_f64().max(1e-9);
+        let gpu_iters = delta as u64;
+        let gpu_ips = gpu_iters as f64 / gpu_s;
+        let ips_ratio = gpu_ips / cpu_ips.max(1.0);
+        // FLOP proxy ratio: treat one iterate as 1 work-unit on both; F32 GPU peak vs
+        // single-core F64 CPU is hardware-dependent. Log for the grind loop.
+        eprintln!(
+            "IPS probe: cpu_ips={cpu_ips:.3e} gpu_ips={gpu_ips:.3e} ratio={ips_ratio:.2} precision={:?} n={n} bouts=8",
+            gpu.precision
+        );
+        assert!(
+            gpu_ips > cpu_ips * 0.8,
+            "GPU IPS {gpu_ips:.3e} below CPU {cpu_ips:.3e} (ratio {ips_ratio:.2}); sync still dominating"
         );
     }
 }
