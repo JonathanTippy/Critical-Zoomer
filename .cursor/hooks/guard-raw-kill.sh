@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Intercept raw kill/pkill aimed at test leftovers so Auto-review never sees them.
-# Runs the safe reaper, then denies the raw command (fail closed for that cmd only).
+# Intercept raw kill/pkill/killall so Auto-review never sees them.
+# Runs the safe reaper, then denies the raw command.
+# Only `.cursor/hooks/kill-test-zombies.sh` is an allowed kill path.
 set -u
 INPUT="$(cat || true)"
 export INPUT
@@ -20,23 +21,14 @@ for k in ("command", "shell_command", "cmd"):
 PY
 )"
 
-# Always allow the approved reaper (and only that kill path).
+# Approved reaper only.
 if [[ "$CMD" == *kill-test-zombies.sh* ]]; then
   printf '%s\n' '{"permission":"allow"}'
   exit 0
 fi
 
-TARGETED=0
-if echo "$CMD" | grep -Eqi '(^|[[:space:];|&])(pkill|killall)([[:space:]]|$)'; then
-  TARGETED=1
-fi
-if echo "$CMD" | grep -Eqi '(critical_zoomer|workgroup_fitness|Xvfb|xvfb-run|/tmp/cz_)'; then
-  if echo "$CMD" | grep -Eqi '(^|[[:space:];|&])(kill|pkill|killall)([[:space:]]|$)'; then
-    TARGETED=1
-  fi
-fi
-
-if [[ "$TARGETED" -eq 0 ]]; then
+# Any raw process-signal command → reap via script, then deny.
+if ! echo "$CMD" | grep -Eqi '(^|[[:space:];|&])(kill|pkill|killall)([[:space:]]|$)'; then
   printf '%s\n' '{"permission":"allow"}'
   exit 0
 fi
@@ -47,10 +39,10 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 python3 - <<'PY'
 import json
 msg = (
-    "Raw kill/pkill for test leftovers is blocked. Cleanup already ran via "
-    ".cursor/hooks/kill-test-zombies.sh. Do not retry kill/pkill; hooks reap "
-    "before/after cargo test|bench|xvfb_screenshot_check and on agent stop. "
-    "Manual sweep: .cursor/hooks/kill-test-zombies.sh only."
+    "Raw kill/pkill/killall is blocked in this repo so Auto-review is never "
+    "prompted. Cleanup already ran via .cursor/hooks/kill-test-zombies.sh. "
+    "Hooks also reap before/after cargo test|bench|xvfb_screenshot_check and "
+    "on agent stop. Manual sweep: .cursor/hooks/kill-test-zombies.sh only."
 )
 print(json.dumps({
     "permission": "deny",
