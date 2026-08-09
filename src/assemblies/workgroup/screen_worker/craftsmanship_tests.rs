@@ -4817,10 +4817,14 @@ fn steady_state_home_pps_gpu_vs_cpu_ratio() {
             gpu_pps > 1.0e4 && cpu_pps > 1.0e4,
             "home PPS floor missed: cpu={cpu_pps:.3e} gpu={gpu_pps:.3e}"
         );
-        // Tracking probe — ratio climb is the grind; do not fail the suite on <1× yet.
-        if ratio < 1.0 {
+        // Tracking probe — ratio climb is the grind; fail soft floor once GPU≥CPU.
+        assert!(
+            ratio >= 1.0,
+            "GPU home PPS regressed below CPU: ratio={ratio:.2}× (cpu={cpu_pps:.3e} gpu={gpu_pps:.3e})"
+        );
+        if ratio < 10.0 {
             eprintln!(
-                "WARN: GPU home PPS below CPU ({ratio:.2}×); finish/scheduling tax dominates shallow floods"
+                "WARN: GPU home PPS {ratio:.2}× still ≪ ~160× FLOP-class aspiration"
             );
         }
     });

@@ -489,13 +489,17 @@ fn publish_gpu_finishes(
     kernel: &DirectKernel,
     precision: GpuPrecision,
     epsilon: f64,
-    wip: &[WipMeta],
+    _wip: &[WipMeta],
     finishes: &[HarvestedFinish],
     skip: &mut HashSet<usize>,
     points_published_this_shift: &mut u32,
 ) -> PublishFinishOutcome {
-    let meta_by_index: HashMap<usize, WipMeta> =
-        wip.iter().map(|m| (m.index, m.clone())).collect();
+    // Large shallow floods: skip per-seat neighbor/edge queue churn — undelivered
+    // seats are already fed by scan fill. Small waves keep frontier queues.
+    let bulk = finishes.len() >= 512;
+    let attention_idx = context
+        .attention_current
+        .map(|p| index_from_pos(&p, context.res.0));
     let mut buffer_full = false;
     let mut need_reupload = false;
     for fin in finishes {
@@ -506,12 +510,8 @@ fn publish_gpu_finishes(
         if context.points[index].delivered {
             continue;
         }
-        let meta = meta_by_index.get(&index);
         apply_finish_to_point(&mut context.points[index], fin);
-        let pos = meta
-            .map(|m| m.pos)
-            .unwrap_or_else(|| pos_from_index(index, context.res.0));
-        let step = meta.map(|m| m.step).unwrap_or(Step::Out);
+        let pos = pos_from_index(index, context.res.0);
 
         if !(context.points[index].repeats || context.points[index].escapes) {
             continue;
@@ -528,33 +528,35 @@ fn publish_gpu_finishes(
             need_reupload = true;
             continue;
         }
-        if matches!(step, Step::Attention) {
+        if attention_idx == Some(index) {
             context.attention_current = None;
         }
         let completed_point = kernel.completion(&mut context.points[index]);
-        if context.points[index].repeats {
-            queue_incomplete_neighbors_in(
-                &pos,
-                context.res,
-                &context.points,
-                &mut context.in_queue,
-            );
-        } else {
-            queue_incomplete_neighbors(
-                &pos,
-                context.res,
-                &context.points,
-                &mut context.out_queue,
-            );
-        }
-        if let Some(e) = point_is_edge(&pos, context.res, &context.points) {
-            queue_incomplete_neighbors_of_edge(
-                &e.0,
-                &e.1,
-                context.res,
-                &context.points,
-                &mut context.edge_queue,
-            );
+        if !bulk {
+            if context.points[index].repeats {
+                queue_incomplete_neighbors_in(
+                    &pos,
+                    context.res,
+                    &context.points,
+                    &mut context.in_queue,
+                );
+            } else {
+                queue_incomplete_neighbors(
+                    &pos,
+                    context.res,
+                    &context.points,
+                    &mut context.out_queue,
+                );
+            }
+            if let Some(e) = point_is_edge(&pos, context.res, &context.points) {
+                queue_incomplete_neighbors_of_edge(
+                    &e.0,
+                    &e.1,
+                    context.res,
+                    &context.points,
+                    &mut context.edge_queue,
+                );
+            }
         }
         match context.push_delivery(Delivery::Final(completed_point), index) {
             PushOutcome::Published => {
