@@ -3072,6 +3072,81 @@ fn relative_shell_init_uses_f64_gear_not_floatexp() {
 }
 
 #[test]
+// r[verify cz.depth.gear-hud+2]
+// r[verify cz.depth.compute-gear+1]
+fn deep_view_gear_floor_stays_scaled_after_fill() {
+    use crate::delta_gear::ComputeGear;
+    use crate::assemblies::headgroup::window::coords::{decimal_str_to_intexp, ul_for_center};
+    run_big(|| {
+        let res = (64u32, 48u32);
+        // Issue #5 locus past absolute collapse.
+        let frame = (
+            ul_for_center(
+                decimal_str_to_intexp("-0.164757401886").unwrap(),
+                decimal_str_to_intexp("1.039500696795").unwrap(),
+                48,
+                res,
+            ),
+            res,
+        );
+        let mut ctx = from_stencil::<f64>(frame, None).expect("shell");
+        assert!(ctx.coords_are_relative);
+        assert_eq!(
+            ctx.view_gear,
+            ComputeGear::ScaledF64,
+            "deep relative view_gear floor must be ScaledF64, not F64"
+        );
+        for _ in 0..80 {
+            if ctx.points.iter().all(|p| p.delivered) {
+                break;
+            }
+            workshift(16_000_000, 2, 4, 150, &mut ctx, None);
+            while ctx.completed_points.try_pop().is_some() {}
+        }
+        assert!(
+            ctx.points.iter().filter(|p| p.delivered).count() > res.0 as usize,
+            "need delivered seats"
+        );
+        // Extra idle shifts used to snap HUD back to F64 via refresh_active_gear.
+        for _ in 0..5 {
+            workshift(16_000_000, 2, 4, 150, &mut ctx, None);
+            while ctx.completed_points.try_pop().is_some() {}
+        }
+        assert_ne!(
+            ctx.active_gear,
+            ComputeGear::F64,
+            "completed deep frame must not report gear:F64 (got {:?})",
+            ctx.active_gear
+        );
+        assert!(
+            matches!(
+                ctx.active_gear,
+                ComputeGear::ScaledF64 | ComputeGear::FloatExp | ComputeGear::Mixed
+            ),
+            "active gear must stay at/above ScaledF64 floor (got {:?})",
+            ctx.active_gear
+        );
+
+        // Pot 43 is still absolute-admissible but pitch≈ulp — prefer relative.
+        let near = (
+            ul_for_center(
+                decimal_str_to_intexp("-0.164757401886").unwrap(),
+                decimal_str_to_intexp("1.039500696795").unwrap(),
+                43,
+                res,
+            ),
+            res,
+        );
+        let near_ctx = from_stencil::<f64>(near, None).expect("pot43");
+        assert!(
+            near_ctx.coords_are_relative,
+            "pot43 must prefer relative before hard absolute collapse"
+        );
+        assert_eq!(near_ctx.view_gear, ComputeGear::ScaledF64);
+    });
+}
+
+#[test]
 // r[verify cz.depth.floatexp-host-coords+1]
 // r[verify cz.depth.delta-kernel+1]
 /// Pin A: deep exterior must escape, never false "in"/repeats (flat black).

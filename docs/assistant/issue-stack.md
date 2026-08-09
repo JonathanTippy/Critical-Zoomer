@@ -25,6 +25,14 @@ Developer acceptance test failed on the tile machine. Most items were tile-era i
 
 ## True bugs (open)
 
+- **Precision wall / gear:F64 at ~pot 43–48 — fix on live path (2026-08-09).** Headed
+  #5: HUD stayed `gear:F64` past the f64 wall. On current `dev`, relative admission
+  already existed, but (1) live `view_gear` was hard-coded F64 so idle
+  `refresh_active_gear` snapped HUD back after fill even when seats were ScaledF64;
+  (2) absolute was preferred until hard collapse, so pot≈43 stayed naive/F64.
+  Fix: ScaledF64 `view_gear` floor when relative or pitch < useful floor; no HUD
+  demotion below that floor; prefer relative admission when absolute pitch < 1e-14.
+  Pin: `deep_view_gear_floor_stays_scaled_after_fill`.
 - **B-SCH-3 home banding — fixed by f64 restore (2026-08-07).** Rectangular black columns at home (`1.3359375 + 0.125i mag 2^-2`) were caused by the FloatExp live-actor experiment. Restoring f64 production (worker→collector channel, perturb kernel, workshift, controller gate) eliminates the banding; `tmp/capture_at.sh` reports `black_cols_80=0`, matching known-good `ea27b4f`. The smaller `relative_location_from_index` divisor fix (data_res.0) is kept.
 - Re-verify headed: resize, settings layers, bailout slider. (2026-08-07: home render, scroll zoom, and drag verified normal headed after the kernel-seam + reference-actor wiring.)
 - **Phase-two home render corruption — closed under readiness wait (2026-08-07).** Earlier captures of giant black disk / rectangular discontinuity / flat purple were either pre-ready frames (purple: zero gray holes falsely treated as filled) or superseded by escaped-reference rejection + settled capture. Settled Xvfb home now shows coherent Mandelbrot structure; `e2e_visual.sh` passes with structure+baseline readiness (crop RMSE ~9.5k ≤12k). Keep the readiness gate; do not regress to gray-hole-only completion.

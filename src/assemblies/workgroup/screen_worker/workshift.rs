@@ -696,8 +696,19 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
     let view_gear = if use_floatexp_host {
         ComputeGear::FloatExp
     } else {
-        // Direct/naive path is always plain f64; perturbation promotes via note_seat_gear.
-        ComputeGear::F64
+        // Live f64: naive/direct is F64, but deep / relative shells need the
+        // compute-gear floor so completed frames do not snap HUD back to F64
+        // after refresh_active_gear (issue #5).
+        // r[impl cz.depth.gear-hud+2]
+        // r[impl cz.depth.compute-gear+1]
+        let pitch = seat_pitch_epsilon.to_f64() * 256.0;
+        if coords_are_relative
+            || (pitch > 0.0 && pitch < crate::delta_gear::F64_PERTURB_USEFUL_FLOOR)
+        {
+            ComputeGear::ScaledF64
+        } else {
+            ComputeGear::F64
+        }
     };
 
     // r[impl cz.craft.pan-zoom-slot0+1]
@@ -867,12 +878,31 @@ pub fn absolute_c(
     )
 }
 
+#[inline]
+fn gear_rank(gear: ComputeGear) -> u8 {
+    match gear {
+        ComputeGear::F32 => 0,
+        ComputeGear::F64 => 1,
+        ComputeGear::ScaledF64 => 2,
+        ComputeGear::FloatExp => 3,
+        ComputeGear::Mixed => 4,
+    }
+}
+
 /// Refresh HUD aggregate gear from seats touched this shift (O(1) per seat).
 /// Full-frame scans are forbidden here — they made home fill O(n²).
+/// Never demote below `view_gear`: zero-orbit / idle F64 seats must not hide a
+/// deep ScaledF64 view requirement (headed "gear:F64" at the precision wall).
 // r[impl cz.depth.gear-hud+2]
 #[inline]
 pub fn note_seat_gear<T: Mandelbrotable>(ctx: &mut WorkContext<T>, seat_gear: ComputeGear) {
-    if seat_gear == ctx.view_gear || seat_gear == ComputeGear::Mixed {
+    if seat_gear == ComputeGear::Mixed {
+        return;
+    }
+    if gear_rank(seat_gear) < gear_rank(ctx.view_gear) {
+        return;
+    }
+    if seat_gear == ctx.view_gear {
         return;
     }
     if ctx.active_gear == ctx.view_gear {

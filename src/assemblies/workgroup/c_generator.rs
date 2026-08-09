@@ -82,6 +82,10 @@ pub enum AdmittedHostStack {
 
 /// O(1) admission: absolute first, then relative to `relative_anchor` or
 /// `view_center` when no anchor is supplied.
+///
+/// For live f64, when absolute still admits but pixel pitch is near the f64
+/// ulp wall (~pot 43 at |c|~1), prefer relative-to-center so perturbation is
+/// hard-bumped before absolute collapse (issue #5).
 // r[impl cz.depth.c-generator-fails-closed+1]
 pub fn admit_generator<T: Mandelbrotable>(
     compute_loc: &(IntExp, IntExp),
@@ -90,12 +94,24 @@ pub fn admit_generator<T: Mandelbrotable>(
     relative_anchor: Option<&(IntExp, IntExp)>,
     view_center: &(IntExp, IntExp),
 ) -> Option<GeneratorAdmission<T>> {
-    if let Some(generator) = CGenerator::<T>::new(compute_loc, zoom_pot, res) {
-        return Some(GeneratorAdmission::Absolute(generator));
-    }
+    const ABSOLUTE_F64_RISKY_PITCH: f64 = 1e-14;
     let anchor = relative_anchor
         .map(|a| (a.0.clone(), a.1.clone()))
         .unwrap_or_else(|| (view_center.0.clone(), view_center.1.clone()));
+    if let Some(generator) = CGenerator::<T>::new(compute_loc, zoom_pot, res) {
+        let (_, space) = generator.origin_and_space();
+        let pitch = space.abs().to_f64();
+        // Prefer relative when absolute still admits but pitch is near the f64
+        // ulp wall (~pot 43 at |c|~1) so live f64 hard-bumps perturbation earlier.
+        if pitch > 0.0 && pitch < ABSOLUTE_F64_RISKY_PITCH {
+            if let Some(generator) =
+                CGenerator::<T>::new_relative(compute_loc, &anchor, zoom_pot, res)
+            {
+                return Some(GeneratorAdmission::Relative { generator, anchor });
+            }
+        }
+        return Some(GeneratorAdmission::Absolute(generator));
+    }
     CGenerator::<T>::new_relative(compute_loc, &anchor, zoom_pot, res)
         .map(|generator| GeneratorAdmission::Relative { generator, anchor })
 }
@@ -303,7 +319,8 @@ mod tests {
             zoom_pot: 19,
         };
         let mut first_relative = None;
-        for zoom_pot in 40..55i32 {
+        let mut first_abs_collapse = None;
+        for zoom_pot in 30..55i32 {
             let frame = (
                 ObjectivePosAndZoom {
                     zoom_pot,
@@ -316,6 +333,10 @@ mod tests {
                 IntExp::ZERO - frame.0.pos.1.clone(),
             );
             let view_center = view_center_for_test(&compute_loc, zoom_pot, res);
+            let abs = CGenerator::<f64>::new(&compute_loc, zoom_pot as i64, res);
+            if abs.is_none() && first_abs_collapse.is_none() {
+                first_abs_collapse = Some(zoom_pot);
+            }
             let picked = admit_generator::<f64>(
                 &compute_loc,
                 zoom_pot as i64,
@@ -327,10 +348,14 @@ mod tests {
                 first_relative = Some(zoom_pot);
             }
         }
-        assert_eq!(
-            first_relative,
-            Some(46),
-            "seahorse-class view: relative f64 admits when absolute collapses"
+        // Prefer-relative kicks in when pitch < 1e-14 (before hard absolute collapse).
+        assert!(
+            first_relative.is_some_and(|z| z < first_abs_collapse.unwrap_or(i32::MAX)),
+            "relative must be preferred before absolute collapse (rel={first_relative:?} collapse={first_abs_collapse:?})"
+        );
+        assert!(
+            first_relative.is_some_and(|z| (38..=45).contains(&z)),
+            "seahorse-class prefer-relative window (~pitch 1e-14): got {first_relative:?}"
         );
     }
 
