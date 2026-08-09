@@ -67,6 +67,27 @@ impl NaiveGpuContext {
         self.dispatch_multi(seats, r_squared, epsilon, cap, bouts, false)
     }
 
+    /// Upload from WIP metas + point store (no intermediate ref Vec).
+    pub fn dispatch_wave_wip(
+        &self,
+        wip: &[WipMeta],
+        points: &[Point<f64>],
+        r_squared: f64,
+        epsilon: f64,
+        cap: BoutCap,
+        bouts: u32,
+    ) -> Result<u8, String> {
+        let wip_count = wip.len() as u32;
+        if wip_count == 0 || bouts == 0 {
+            return Ok(self.sparse_write.get());
+        }
+        if wip_count > MAX_WAVE {
+            return Err(format!("WIP {wip_count} exceeds MAX_WAVE"));
+        }
+        self.upload_wip_and_params(wip, points, r_squared, epsilon, cap, wip_count)?;
+        self.encode_sparse_dispatch(wip_count, bouts, false)
+    }
+
     pub fn dispatch_wave_multi_iters_only(
         &self,
         seats: &[(u32, &Point<f64>)],
@@ -122,6 +143,15 @@ impl NaiveGpuContext {
             return Err(format!("WIP {wip_count} exceeds MAX_WAVE"));
         }
         self.upload_seats_and_params(seats, r_squared, epsilon, cap, wip_count)?;
+        self.encode_sparse_dispatch(wip_count, bouts, copy_seats)
+    }
+
+    fn encode_sparse_dispatch(
+        &self,
+        wip_count: u32,
+        bouts: u32,
+        copy_seats: bool,
+    ) -> Result<u8, String> {
         let slot = self.sparse_write.get() & 1;
         let staging = &self.sparse_staging[slot as usize];
         let mut encoder = self
@@ -168,6 +198,72 @@ impl NaiveGpuContext {
         self.sparse_wip[slot as usize].set(wip_count);
         self.sparse_write.set(1 - slot);
         Ok(slot)
+    }
+
+    fn upload_wip_and_params(
+        &self,
+        wip: &[WipMeta],
+        points: &[Point<f64>],
+        r_squared: f64,
+        epsilon: f64,
+        cap: BoutCap,
+        wip_count: u32,
+    ) -> Result<(), String> {
+        self.queue
+            .write_buffer(&self.finish_count_buf, 0, &0u32.to_ne_bytes());
+        self.queue
+            .write_buffer(&self.iter_total_buf, 0, &0u32.to_ne_bytes());
+        match self.precision {
+            GpuPrecision::F32 => {
+                let nbytes = (wip.len() * std::mem::size_of::<SeatF32>()) as u64;
+                if let Some(size) = std::num::NonZeroU64::new(nbytes) {
+                    let mut view = self
+                        .queue
+                        .write_buffer_with(&self.seats_buf, 0, size)
+                        .ok_or_else(|| "write_buffer_with seats f32 failed".to_string())?;
+                    let out: &mut [SeatF32] = bytemuck::cast_slice_mut(view.as_mut());
+                    for (dst, m) in out.iter_mut().zip(wip.iter()) {
+                        *dst = SeatF32::from_point(m.index as u32, &points[m.index]);
+                    }
+                }
+                let params = ParamsF32 {
+                    r_squared: r_squared as f32,
+                    epsilon: epsilon as f32,
+                    cap: cap.get(),
+                    wip_count,
+                    generation: self.generation,
+                    _p0: 0,
+                    _p1: 0,
+                    _p2: 0,
+                };
+                self.queue
+                    .write_buffer(&self.params_buf, 0, bytes_of(&params));
+            }
+            GpuPrecision::F64 => {
+                let nbytes = (wip.len() * std::mem::size_of::<SeatF64>()) as u64;
+                if let Some(size) = std::num::NonZeroU64::new(nbytes) {
+                    let mut view = self
+                        .queue
+                        .write_buffer_with(&self.seats_buf, 0, size)
+                        .ok_or_else(|| "write_buffer_with seats f64 failed".to_string())?;
+                    let out: &mut [SeatF64] = bytemuck::cast_slice_mut(view.as_mut());
+                    for (dst, m) in out.iter_mut().zip(wip.iter()) {
+                        *dst = SeatF64::from_point(m.index as u32, &points[m.index]);
+                    }
+                }
+                let params = ParamsF64 {
+                    r_squared,
+                    epsilon,
+                    cap: cap.get(),
+                    wip_count,
+                    generation: self.generation,
+                    _p0: 0,
+                };
+                self.queue
+                    .write_buffer(&self.params_buf, 0, bytes_of(&params));
+            }
+        }
+        Ok(())
     }
 
     fn upload_seats_and_params(

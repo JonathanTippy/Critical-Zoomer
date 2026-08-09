@@ -732,7 +732,9 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
             Vec::new(),
             Vec::new(),
             (0, 0),
-            Stec::with_capacity(100000, (CompletedPoint::Dummy {}, 0)),
+            // Cap at least the screen so a shallow GPU flood is not BufferFull-throttled
+            // mid-shift (old fixed 100k capped home fill well below one frame).
+            Stec::with_capacity(new_len.max(100_000), (CompletedPoint::Dummy {}, 0)),
         ),
     };
 

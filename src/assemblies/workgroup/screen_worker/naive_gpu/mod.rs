@@ -391,13 +391,10 @@ pub fn workshift_naive_gpu(
                     wip.push(WipMeta { index, pos, step });
                 }
                 if !wip.is_empty() {
-                    let upload_refs: Vec<(u32, &Point<f64>)> = wip
-                        .iter()
-                        .map(|m| (m.index as u32, &context.points[m.index]))
-                        .collect();
-                    resident_n = upload_refs.len() as u32;
-                    match gpu.dispatch_wave_multi_sparse(
-                        &upload_refs,
+                    resident_n = wip.len() as u32;
+                    match gpu.dispatch_wave_wip(
+                        &wip,
+                        &context.points,
                         4.0,
                         epsilon,
                         BoutCap::STANDARD,
@@ -511,14 +508,10 @@ pub fn workshift_naive_gpu(
         let grew = wip.len() > before_len;
 
         let slot = if !resident || grew {
-            // Borrow points for upload only — no Point clone storm (PPS killer on shallow).
-            let upload_refs: Vec<(u32, &Point<f64>)> = wip
-                .iter()
-                .map(|m| (m.index as u32, &context.points[m.index]))
-                .collect();
-            resident_n = upload_refs.len() as u32;
-            match gpu.dispatch_wave_multi_sparse(
-                &upload_refs,
+            resident_n = wip.len() as u32;
+            match gpu.dispatch_wave_wip(
+                &wip,
+                &context.points,
                 4.0,
                 epsilon,
                 BoutCap::STANDARD,
@@ -650,7 +643,11 @@ fn publish_gpu_finishes(
         if context.points[index].delivered {
             continue;
         }
-        apply_finish_to_point(&mut context.points[index], fin);
+        if bulk {
+            apply_finish_bulk_publish(&mut context.points[index], fin);
+        } else {
+            apply_finish_to_point(&mut context.points[index], fin);
+        }
         let pos = pos_from_index(index, context.res.0);
 
         if !(context.points[index].repeats || context.points[index].escapes) {
@@ -674,12 +671,24 @@ fn publish_gpu_finishes(
         // Bulk shallow floods: skip per-seat period twin-test (period unknown).
         // Scan fill already covers seats; twin-test is the IPS/period path, not
         // the points-out rate. Small waves keep full completion().
-        let completed_point = if bulk && context.points[index].repeats {
-            context.points[index].period = 0;
-            CompletedPoint::Repeats {
-                period: 0,
-                smallness: context.points[index].smallness_squared,
-                small_time: context.points[index].small_time,
+        let completed_point = if bulk {
+            if context.points[index].repeats {
+                context.points[index].period = 0;
+                CompletedPoint::Repeats {
+                    period: 0,
+                    smallness: context.points[index].smallness_squared,
+                    small_time: context.points[index].small_time,
+                }
+            } else {
+                let p = &context.points[index];
+                CompletedPoint::Escapes {
+                    escape_time: p.iterations,
+                    escape_location: p.z,
+                    escape_derivative: p.dc,
+                    start_location: p.c,
+                    smallness: p.smallness_squared,
+                    small_time: p.small_time,
+                }
             }
         } else {
             kernel.completion(&mut context.points[index])
@@ -893,6 +902,18 @@ fn apply_finish_to_point(point: &mut Point<f64>, fin: &HarvestedFinish) {
     point.imag_squared = fin.z_y * fin.z_y;
     point.real_imag = fin.z_x * fin.z_y;
     point.loop_detection_point = ((fin.loop_zx, fin.loop_zy), fin.loop_iter);
+    point.escapes = (fin.flags & 2) != 0;
+    point.repeats = (fin.flags & 4) != 0;
+}
+
+/// Bulk publish path: only fields needed for Final delivery (no continue/WIP resume).
+fn apply_finish_bulk_publish(point: &mut Point<f64>, fin: &HarvestedFinish) {
+    point.iterations = fin.iterations;
+    point.small_time = fin.small_time;
+    point.smallness_squared = fin.smallness;
+    point.z = (fin.z_x, fin.z_y);
+    point.dc = (fin.dc_x, fin.dc_y);
+    point.c = (fin.c_x, fin.c_y);
     point.escapes = (fin.flags & 2) != 0;
     point.repeats = (fin.flags & 4) != 0;
 }
