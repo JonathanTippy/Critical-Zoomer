@@ -132,7 +132,7 @@ fn claim(context: &mut WorkContext<f64>, step: Step, pos: (i32, i32)) {
     }
 }
 
-/// GPU naive workshift: arm WIP waves, BoutCap dispatch, sparse harvest into Delivery.
+/// GPU naive workshift: arm WIP once, resident continues, sparse finals harvest.
 pub fn workshift_naive_gpu(
     _day_token_allowance: u32,
     _iteration_token_cost: u32,
@@ -155,8 +155,12 @@ pub fn workshift_naive_gpu(
     let mut wave_n = gpu.wave_n();
     let mut wip: Vec<WipMeta> = Vec::new();
     let mut skip: HashSet<usize> = HashSet::new();
+    let mut resident = false;
+    let mut resident_n: u32 = 0;
 
     while context.time_workshift_started.elapsed().as_millis() < 10 {
+        // Refill host WIP list; only re-upload when residency breaks.
+        let before_len = wip.len();
         while (wip.len() as u32) < wave_n {
             let Some((pos, step)) = claim_next_undelivered_seat(context, &skip) else {
                 break;
@@ -172,25 +176,28 @@ pub fn workshift_naive_gpu(
         if wip.is_empty() {
             break;
         }
+        let grew = wip.len() > before_len;
 
-        let upload: Vec<(u32, &Point<f64>)> = wip
-            .iter()
-            .map(|m| (m.index as u32, &context.points[m.index]))
-            .collect();
-
-        // Re-borrow after collecting indices — upload needs points; do owned snapshot.
-        let owned: Vec<(u32, Point<f64>)> = wip
-            .iter()
-            .map(|m| (m.index as u32, context.points[m.index].clone()))
-            .collect();
-        let upload_refs: Vec<(u32, &Point<f64>)> =
-            owned.iter().map(|(i, p)| (*i, p)).collect();
-
-        if let Err(e) =
-            gpu.dispatch_wave_multi_sparse(&upload_refs, 4.0, epsilon, BoutCap::STANDARD, 8)
-        {
-            eprintln!("naive_gpu dispatch failed: {e}");
-            break;
+        if !resident || grew {
+            let owned: Vec<(u32, Point<f64>)> = wip
+                .iter()
+                .map(|m| (m.index as u32, context.points[m.index].clone()))
+                .collect();
+            let upload_refs: Vec<(u32, &Point<f64>)> =
+                owned.iter().map(|(i, p)| (*i, p)).collect();
+            resident_n = upload_refs.len() as u32;
+            if let Err(e) =
+                gpu.dispatch_wave_multi_sparse(&upload_refs, 4.0, epsilon, BoutCap::STANDARD, 8)
+            {
+                eprintln!("naive_gpu dispatch failed: {e}");
+                break;
+            }
+            resident = true;
+        } else {
+            if let Err(e) = gpu.dispatch_continue_multi(resident_n, 8, false) {
+                eprintln!("naive_gpu continue failed: {e}");
+                break;
+            }
         }
 
         let (finishes, iter_delta) = match gpu.harvest_sparse_finals() {
@@ -200,12 +207,9 @@ pub fn workshift_naive_gpu(
                 break;
             }
         };
-        let _ = upload;
         context.total_iterations_today += iter_delta;
         context.total_iterations = context.total_iterations.saturating_add(iter_delta);
 
-        // Sparse finals only while seats stay resident. Sync unfinished via a
-        // seats-inclusive harvest when the WIP set will be rebuilt (below).
         let final_indices: HashSet<usize> = finishes
             .iter()
             .filter(|f| (f.flags & 6) != 0)
@@ -274,51 +278,28 @@ pub fn workshift_naive_gpu(
             break;
         }
 
-        // Pull resident unfinished progress before rebuilding / re-uploading WIP.
-        if let Ok(seats) = gpu.pull_seats() {
-            for seat in &seats {
-                let index = seat.seat_index as usize;
-                if index < context.points.len() && !final_indices.contains(&index) {
-                    apply_finish_to_point(&mut context.points[index], seat);
-                }
-            }
-        }
-
-        let mut next_wip = Vec::new();
-        for m in wip.drain(..) {
-            if final_indices.contains(&m.index) {
-                continue;
-            }
-            match m.step {
-                Step::Out => {
-                    context
-                        .out_queue
-                        .push_back((m.pos, context.points[m.index].iterations));
-                    skip.remove(&m.index);
-                }
-                Step::Scredge => {
-                    let provisional = CompletedPoint::Repeats {
-                        period: 0,
-                        smallness: context.points[m.index].smallness_squared,
-                        small_time: context.points[m.index].small_time,
-                    };
-                    match context.push_delivery(Delivery::Provisional(provisional), m.index) {
-                        PushOutcome::Published => {
-                            context.scredge_poses.push_back(m.pos);
-                            skip.remove(&m.index);
-                        }
-                        PushOutcome::BufferFull => next_wip.push(m),
-                    }
-                }
-                Step::Attention | Step::In | Step::Edge => next_wip.push(m),
-            }
-        }
-        wip = next_wip;
+        // Keep unfinished seats resident on GPU — no pull_seats / re-upload.
+        wip.retain(|m| !final_indices.contains(&m.index));
         context.total_bouts_today += 1;
 
         if context.time_workshift_started.elapsed().as_millis() > 9 && wave_n > MIN_WAVE_N {
             wave_n = ((wave_n * 3) / 4).max(MIN_WAVE_N);
             gpu.set_wave_n(wave_n);
+        }
+    }
+
+    // End-of-shift: sync unfinished resident progress to host once.
+    if resident {
+        if let Ok(seats) = gpu.pull_seats() {
+            for seat in &seats {
+                let index = seat.seat_index as usize;
+                if index < context.points.len()
+                    && !context.points[index].escapes
+                    && !context.points[index].repeats
+                {
+                    apply_finish_to_point(&mut context.points[index], seat);
+                }
+            }
         }
     }
 
@@ -405,10 +386,12 @@ mod smoke_tests {
         gpu.set_wave_n(2048);
 
         fn hard_point(i: usize, n: usize) -> Point<f64> {
+            // Near-boundary exterior: typically needs ≫ BoutCap×16 iters to escape,
+            // so the probe stays iterate-heavy (few finals, arithmetic-dominated).
             let t = i as f64 / n as f64;
             Point {
                 delta_c: (0.0, 0.0),
-                c: (-0.75 + t * 0.02, 0.1),
+                c: (0.25 - 1e-12 * (1.0 + t), 1e-12 * t),
                 z: (0.0, 0.0),
                 dc: (1.0, 0.0),
                 real_squared: 0.0,
@@ -442,21 +425,20 @@ mod smoke_tests {
         let cpu_s = t0.elapsed().as_secs_f64().max(1e-9);
         let cpu_ips = cpu_iters as f64 / cpu_s;
 
-        // Full-stack style: multi-bout + finish harvest (sync included).
         let points_fs: Vec<Point<f64>> = (0..n).map(|i| hard_point(i, n)).collect();
         let upload_fs: Vec<(u32, &Point<f64>)> = points_fs
             .iter()
             .enumerate()
             .map(|(i, p)| (i as u32, p))
             .collect();
-        let t_fs = Instant::now();
         // Hot path: one upload+16 resident bouts, header map + sparse finish copy.
         let t_fs = Instant::now();
         gpu.dispatch_wave_multi_sparse(&upload_fs, 4.0, 1e-15, BoutCap::STANDARD, 16)
             .expect("dispatch_sparse");
-        let (_fins, delta_fs) = gpu.harvest_sparse_finals().expect("sparse");
+        let (fins, delta_fs) = gpu.harvest_sparse_finals().expect("sparse");
         let fs_s = t_fs.elapsed().as_secs_f64().max(1e-9);
         let fs_ips = delta_fs as f64 / fs_s;
+        let n_finals = fins.len();
 
         // Compute-amortized: same work, header-only readback (no finish payload map).
         let points_c: Vec<Point<f64>> = (0..n).map(|i| hard_point(i, n)).collect();
@@ -474,20 +456,20 @@ mod smoke_tests {
 
         let fs_ratio = fs_ips / cpu_ips.max(1.0);
         let compute_ratio = compute_ips / cpu_ips.max(1.0);
-        // FLOP proxy: one iterate ≈ one work unit on both sides for this probe.
-        // Hardware F32 peak / single-core F64 on this box is ~100–200×; compute_ratio
-        // should climb toward that as sync shrinks. Soft gate tracks progress.
         eprintln!(
-            "IPS probe: cpu={cpu_ips:.3e} fullstack={fs_ips:.3e} ({fs_ratio:.2}×) compute≈{compute_ips:.3e} ({compute_ratio:.2}×) precision={:?} n={n} bouts=16",
+            "IPS probe: cpu={cpu_ips:.3e} fullstack={fs_ips:.3e} ({fs_ratio:.2}×) compute≈{compute_ips:.3e} ({compute_ratio:.2}×) finals={n_finals} delta_fs={delta_fs} delta_c={delta_c} fs_ms={:.2} c_ms={:.2} precision={:?} n={n} bouts=16",
+            fs_s * 1e3,
+            c_s * 1e3,
             gpu.precision
         );
         assert!(
             compute_ips > cpu_ips * 2.0,
             "compute-amortized GPU IPS {compute_ips:.3e} not clearly above CPU {cpu_ips:.3e}"
         );
+        // Iterate-heavy FLOP-tracking gate: sparse full-stack should clear ≫ CPU.
         assert!(
-            fs_ips > cpu_ips * 0.8,
-            "full-stack GPU IPS {fs_ips:.3e} below CPU {cpu_ips:.3e} (ratio {fs_ratio:.2})"
+            fs_ips > cpu_ips * 5.0,
+            "full-stack GPU IPS {fs_ips:.3e} below 5× CPU {cpu_ips:.3e} (ratio {fs_ratio:.2})"
         );
     }
 }

@@ -1,4 +1,6 @@
 pub const MAX_WAVE: u32 = 8192;
+/// Max finals copied in the one-map sparse path (iterate-heavy stays under this).
+pub const SPARSE_FINISH_CAP: u32 = 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GpuPrecision {
@@ -24,6 +26,8 @@ pub struct NaiveGpuContext {
     pub(crate) params_buf: wgpu::Buffer,
     pub(crate) finish_staging: wgpu::Buffer,
     pub(crate) seat_staging: wgpu::Buffer,
+    /// [finish_count:u32][iter_total:u32][finishes…] for one-map sparse harvest.
+    pub(crate) sparse_staging: wgpu::Buffer,
     pub(crate) header_staging: wgpu::Buffer,
     pub(crate) seat_stride: u64,
     pub(crate) finish_stride: u64,
@@ -182,6 +186,13 @@ impl NaiveGpuContext {
             seat_stride * MAX_WAVE as u64,
             wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         );
+        // [count:u32][iters:u32][up to SPARSE_FINISH_CAP finishes]
+        let sparse_staging = make_buf(
+            &device,
+            "sparse_staging",
+            16 + finish_stride * SPARSE_FINISH_CAP as u64,
+            wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        );
         // [finish_count:u32][iter_total:u32] — one map instead of two.
         let header_staging = make_buf(
             &device,
@@ -242,6 +253,7 @@ impl NaiveGpuContext {
             params_buf,
             finish_staging,
             seat_staging,
+            sparse_staging,
             header_staging,
             seat_stride,
             finish_stride,
