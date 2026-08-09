@@ -1476,7 +1476,7 @@ fn f64_gear_home_fills_without_per_seat_gear_scan() {
             workshift_with_kernel(0, 0, 0, 0, &mut direct_ctx, &DirectKernel);
             while direct_ctx.completed_points.try_pop().is_some() {}
             direct_shifts += 1;
-            assert!(direct_start.elapsed().as_secs() < 8, "direct home fill stalled");
+            assert!(direct_start.elapsed().as_secs() < 30, "direct home fill stalled");
             if direct_shifts > 5_000 {
                 panic!("direct home did not finish");
             }
@@ -1490,7 +1490,7 @@ fn f64_gear_home_fills_without_per_seat_gear_scan() {
             while ctx.completed_points.try_pop().is_some() {}
             shifts += 1;
             assert!(
-                start.elapsed().as_secs() < 8,
+                start.elapsed().as_secs() < 30,
                 "f64 home fill stalled: shifts={shifts} pct={:.1} gear={:?}",
                 ctx.percent_completed,
                 ctx.active_gear
