@@ -127,6 +127,19 @@ async fn internal_behavior<A: SteadyActor>(
     let mut reference_requests_out = reference_requests_out.lock().await;
     let mut references_in = references_in.lock().await;
 
+    // Init wgpu off the async executor — pollster::block_on nested in async can fail.
+    let mut naive_gpu = std::thread::Builder::new()
+        .name("cz-naive-gpu-init".into())
+        .spawn(|| naive_gpu::NaiveGpuContext::try_new())
+        .ok()
+        .and_then(|h| h.join().ok())
+        .flatten();
+    if naive_gpu.is_some() {
+        eprintln!("screen_worker: NaiveGpuContext ready");
+    } else {
+        eprintln!("screen_worker: NaiveGpu unavailable; CPU DirectKernel for naive");
+    }
+
     let mut state = state.lock(|| WorkerState {
         work_context: None
         , workshift_token_budget: 16000000
@@ -136,8 +149,12 @@ async fn internal_behavior<A: SteadyActor>(
         , point_token_cost: 150
         , total_workshifts: 0
         , pending_reference: None
-        , naive_gpu: naive_gpu::NaiveGpuContext::try_new()
+        , naive_gpu: None
     }).await;
+    // Inject after lock so a pre-existing empty SteadyState cannot drop the device.
+    if state.naive_gpu.is_none() {
+        state.naive_gpu = naive_gpu.take();
+    }
 
     let max_sleep = Duration::from_millis(50);
 

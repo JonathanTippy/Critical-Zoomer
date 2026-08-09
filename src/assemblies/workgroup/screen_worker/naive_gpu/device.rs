@@ -29,32 +29,75 @@ pub struct NaiveGpuContext {
 impl NaiveGpuContext {
     pub fn try_new() -> Option<Self> {
         if std::env::var("CZ_FORCE_CPU_NAIVE").ok().as_deref() == Some("1") {
+            let _ = std::fs::write(
+                "/tmp/cz_naive_gpu_status.txt",
+                "forced_off CZ_FORCE_CPU_NAIVE=1\n",
+            );
             return None;
         }
-        pollster::block_on(Self::try_new_async())
+        // try_new_async writes detailed status; only fill a fallback if still missing.
+        let result = pollster::block_on(Self::try_new_async());
+        if result.is_none() {
+            let existing = std::fs::read_to_string("/tmp/cz_naive_gpu_status.txt").unwrap_or_default();
+            if existing.trim().is_empty() || existing.starts_with("forced_off") {
+                let _ = std::fs::write(
+                    "/tmp/cz_naive_gpu_status.txt",
+                    "failed try_new_async returned None (no prior status)\n",
+                );
+            }
+        }
+        result
     }
 
     async fn try_new_async() -> Option<Self> {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::PRIMARY,
-            ..Default::default()
-        });
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: None,
-                force_fallback_adapter: false,
-            })
-            .await
-            .ok()?;
-
+        // Prefer Vulkan, then fall back to GL (common under Xvfb/Mesa).
+        let backend_attempts = [
+            wgpu::Backends::VULKAN,
+            wgpu::Backends::GL,
+            wgpu::Backends::PRIMARY,
+        ];
+        let mut adapter = None;
+        let mut last_err = String::from("no backends tried");
+        for backends in backend_attempts {
+            let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+                backends,
+                ..Default::default()
+            });
+            match instance
+                .request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::HighPerformance,
+                    compatible_surface: None,
+                    force_fallback_adapter: false,
+                })
+                .await
+            {
+                Ok(a) => {
+                    adapter = Some(a);
+                    break;
+                }
+                Err(e) => {
+                    last_err = format!("backends={backends:?}: {e}");
+                }
+            }
+        }
+        let adapter = match adapter {
+            Some(a) => a,
+            None => {
+                let _ = std::fs::write(
+                    "/tmp/cz_naive_gpu_status.txt",
+                    format!("no_adapter: {last_err}\n"),
+                );
+                return None;
+            }
+        };
+        let info = adapter.get_info();
         let want_f64 = adapter.features().contains(wgpu::Features::SHADER_F64);
         let mut required = wgpu::Features::empty();
         if want_f64 {
             required |= wgpu::Features::SHADER_F64;
         }
 
-        let (device, queue) = adapter
+        let (device, queue) = match adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("cz_naive_gpu"),
                 required_features: required,
@@ -63,20 +106,32 @@ impl NaiveGpuContext {
                 trace: Default::default(),
             })
             .await
-            .ok()?;
+        {
+            Ok(dq) => dq,
+            Err(e) => {
+                let _ = std::fs::write(
+                    "/tmp/cz_naive_gpu_status.txt",
+                    format!(
+                        "request_device failed name={:?} backend={:?}: {e}\n",
+                        info.name, info.backend
+                    ),
+                );
+                return None;
+            }
+        };
 
         let (precision, seat_stride, finish_stride, bind_group_layout, pipeline) =
             if want_f64 && device.features().contains(wgpu::Features::SHADER_F64) {
-                match create_pipeline(&device, include_str!("bout_f64.wgsl")) {
+                match create_pipeline(&device, include_str!("bout_f64.wgsl")).await {
                     Some((bgl, pipe)) => (GpuPrecision::F64, 120u64, 80u64, bgl, pipe),
                     None => {
                         let (bgl, pipe) =
-                            create_pipeline(&device, include_str!("bout_f32.wgsl"))?;
+                            create_pipeline(&device, include_str!("bout_f32.wgsl")).await?;
                         (GpuPrecision::F32, 72, 48, bgl, pipe)
                     }
                 }
             } else {
-                let (bgl, pipe) = create_pipeline(&device, include_str!("bout_f32.wgsl"))?;
+                let (bgl, pipe) = create_pipeline(&device, include_str!("bout_f32.wgsl")).await?;
                 (GpuPrecision::F32, 72, 48, bgl, pipe)
             };
 
@@ -127,6 +182,14 @@ impl NaiveGpuContext {
             "iter_staging",
             4,
             wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        );
+
+        let _ = std::fs::write(
+            "/tmp/cz_naive_gpu_status.txt",
+            format!(
+                "ok precision={precision:?} adapter={:?} backend={:?} wave_n=2048\n",
+                info.name, info.backend
+            ),
         );
 
         Some(Self {
@@ -200,7 +263,7 @@ fn bgl_uniform(binding: u32) -> wgpu::BindGroupLayoutEntry {
     }
 }
 
-fn create_pipeline(
+async fn create_pipeline(
     device: &wgpu::Device,
     src: &str,
 ) -> Option<(wgpu::BindGroupLayout, wgpu::ComputePipeline)> {
@@ -232,7 +295,11 @@ fn create_pipeline(
         compilation_options: Default::default(),
         cache: None,
     });
-    if pollster::block_on(device.pop_error_scope()).is_some() {
+    if let Some(err) = device.pop_error_scope().await {
+        let _ = std::fs::write(
+            "/tmp/cz_naive_gpu_status.txt",
+            format!("shader/pipeline validation failed: {err}\n"),
+        );
         return None;
     }
     // Recreate pipeline after successful validation (previous may be invalid if errored mid-way).
