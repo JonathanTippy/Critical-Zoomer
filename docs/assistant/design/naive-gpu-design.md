@@ -2,7 +2,11 @@
 
 Status: **implemented (first pass, 2026-08-08)** — live Naive GPU compute island
 behind the restored view workgroup. Perturbation remains CPU. Sparse finish
-harvest feeds the existing collector→escaper→colorer path.
+harvest feeds the existing collector→escaper→colorer path. Live init runs on a
+dedicated thread (nested `pollster` inside the async actor was unreliable);
+adapter probe tries Vulkan then GL; `/tmp/cz_naive_gpu_status.txt` records
+outcome. Headed/Xvfb HUD shows `mode:naive-gpu` when the adapter is up
+(`CZ_FORCE_CPU_NAIVE=1` forces CPU). FLOP→IPS ratio tuning remains open.
 
 Developer target: **v0.0.9 semantics on GPU** (`design-target.md`) — one live
 view, full remap of old work, small interruptible bouts, whole-truth publishes.
