@@ -44,6 +44,9 @@ pub struct NaiveGpuContext {
     pub(crate) header_staging: wgpu::Buffer,
     pub(crate) seat_stride: u64,
     pub(crate) finish_stride: u64,
+    /// Unfinished seat indices carried across workshifts (on-device resume).
+    pub(crate) carry_indices: std::cell::RefCell<Vec<usize>>,
+    pub(crate) carry_n: std::cell::Cell<u32>,
 }
 
 impl NaiveGpuContext {
@@ -307,6 +310,8 @@ impl NaiveGpuContext {
             header_staging,
             seat_stride,
             finish_stride,
+            carry_indices: std::cell::RefCell::new(Vec::new()),
+            carry_n: std::cell::Cell::new(0),
         })
     }
 
@@ -348,6 +353,8 @@ impl NaiveGpuContext {
                 self.finish_stride = 64;
                 self.precision = GpuPrecision::F32;
                 self.bump_generation();
+                self.carry_indices.borrow_mut().clear();
+                self.carry_n.set(0);
                 true
             }
             GpuPrecision::F64 => {
@@ -365,6 +372,8 @@ impl NaiveGpuContext {
                 self.finish_stride = 96;
                 self.precision = GpuPrecision::F64;
                 self.bump_generation();
+                self.carry_indices.borrow_mut().clear();
+                self.carry_n.set(0);
                 true
             }
         }

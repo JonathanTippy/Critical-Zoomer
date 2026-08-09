@@ -81,8 +81,9 @@ pub fn claim_next_undelivered_seat(
 }
 
 /// Linear scan when queues have not yet been grown by completions.
+/// Advances `context.random_index` so filling a wave is O(wave), not O(wave×N).
 fn scan_undelivered_seat(
-    context: &WorkContext<f64>,
+    context: &mut WorkContext<f64>,
     skip: &HashSet<usize>,
 ) -> Option<((i32, i32), Step)> {
     let n = context.points.len();
@@ -95,6 +96,7 @@ fn scan_undelivered_seat(
         if context.points[index].delivered || skip.contains(&index) {
             continue;
         }
+        context.random_index = (index + 1) % n;
         let pos = pos_from_index(index, context.res.0);
         // Neutral step: not Attention (must not clear/replace the hold).
         return Some((pos, Step::Out));
@@ -274,6 +276,35 @@ pub fn workshift_naive_gpu(
     // compacted host WIP len — finished slots stay inactive on device).
     let mut pending: Option<(u8, Vec<WipMeta>, u32)> = None;
 
+    // Resume on-device unfinished seats from the prior shift (halt progress).
+    {
+        let mut carried = gpu.carry_indices.borrow_mut();
+        if !carried.is_empty() && gpu.carry_n.get() > 0 {
+            for &index in carried.iter() {
+                if index >= context.points.len() {
+                    continue;
+                }
+                let p = &context.points[index];
+                if p.delivered || p.escapes || p.repeats {
+                    continue;
+                }
+                let pos = pos_from_index(index, context.res.0);
+                skip.insert(index);
+                wip.push(WipMeta {
+                    index,
+                    pos,
+                    step: Step::Out,
+                });
+            }
+            if !wip.is_empty() {
+                resident = true;
+                resident_n = gpu.carry_n.get();
+            }
+            carried.clear();
+            gpu.carry_n.set(0);
+        }
+    }
+
     while context.time_workshift_started.elapsed().as_millis() < 10 {
         // Publish prior wave first so dispatch below overlaps GPU with host work.
         if let Some((slot, prev_wip, gpu_n)) = pending.take() {
@@ -394,7 +425,9 @@ pub fn workshift_naive_gpu(
     }
 
     // Flush the last in-flight wave.
-    if let Some((slot, prev_wip, _gpu_n)) = pending.take() {
+    let mut last_unfinished: Vec<WipMeta> = Vec::new();
+    let mut last_gpu_n = 0u32;
+    if let Some((slot, prev_wip, gpu_n)) = pending.take() {
         if let Ok((finishes, iter_delta)) = gpu.harvest_sparse_slot(slot) {
             gpu.clear_finish_accumulators();
             context.total_iterations_today += iter_delta;
@@ -410,13 +443,28 @@ pub fn workshift_naive_gpu(
                 &mut points_published_this_shift,
             );
             context.total_bouts_today += 1;
+            for m in prev_wip {
+                let p = &context.points[m.index];
+                if !p.delivered && !p.escapes && !p.repeats {
+                    last_unfinished.push(m);
+                }
+            }
+            if !last_unfinished.is_empty() {
+                last_gpu_n = gpu_n;
+            }
         }
     }
 
-    // Persist partial GPU progress onto host seats. Without this, the next shift
-    // re-uploads z/iters=0 and hard seats never accumulate — a false stall
-    // (missed resume), not tenacity.
-    sync_gpu_partials_to_host(context, gpu);
+    // Carry unfinished on-device WIP into the next shift (resume, don't reset).
+    if !last_unfinished.is_empty() {
+        let mut carried = gpu.carry_indices.borrow_mut();
+        carried.clear();
+        carried.extend(last_unfinished.iter().map(|m| m.index));
+        gpu.carry_n.set(last_gpu_n);
+    } else {
+        gpu.carry_indices.borrow_mut().clear();
+        gpu.carry_n.set(0);
+    }
 
     // Near-complete: publish missed finals + CPU mop (no pull_seats — too expensive).
     if context.percent_completed >= 90.0 {
@@ -525,28 +573,6 @@ fn publish_gpu_finishes(
     PublishFinishOutcome {
         buffer_full,
         need_reupload,
-    }
-}
-
-/// Copy resident GPU seat progress onto undelivered host points so the next
-/// shift resumes (halt recognition needs accumulated iters / z, not a reset).
-fn sync_gpu_partials_to_host(context: &mut WorkContext<f64>, gpu: &NaiveGpuContext) {
-    let Ok(seats) = gpu.pull_seats() else {
-        return;
-    };
-    for s in &seats {
-        let index = s.seat_index as usize;
-        if index >= context.points.len() {
-            continue;
-        }
-        let p = &mut context.points[index];
-        if p.delivered {
-            continue;
-        }
-        if s.iterations < p.iterations {
-            continue;
-        }
-        apply_finish_to_point(p, s);
     }
 }
 
