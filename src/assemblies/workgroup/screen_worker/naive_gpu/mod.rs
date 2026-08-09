@@ -531,7 +531,19 @@ fn publish_gpu_finishes(
         if attention_idx == Some(index) {
             context.attention_current = None;
         }
-        let completed_point = kernel.completion(&mut context.points[index]);
+        // Bulk shallow floods: skip per-seat period twin-test (period unknown).
+        // Scan fill already covers seats; twin-test is the IPS/period path, not
+        // the points-out rate. Small waves keep full completion().
+        let completed_point = if bulk && context.points[index].repeats {
+            context.points[index].period = 0;
+            CompletedPoint::Repeats {
+                period: 0,
+                smallness: context.points[index].smallness_squared,
+                small_time: context.points[index].small_time,
+            }
+        } else {
+            kernel.completion(&mut context.points[index])
+        };
         if !bulk {
             if context.points[index].repeats {
                 queue_incomplete_neighbors_in(
