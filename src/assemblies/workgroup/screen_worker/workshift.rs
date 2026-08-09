@@ -577,18 +577,56 @@ pub fn view_center_compute(
 /// Synchronous view-center reference for relative shells before the async worker publishes.
 /// Escaped is allowed: without a reference the f64 generator cannot stay relative to a
 /// usable orbit, and zero-orbit plane_c collapses per-seat pitch past ~2^50.
-fn bootstrap_relative_reference(
+/// Prefer the longest orbit among a coarse seat sample (exterior filaments escape; longer
+/// pre-escape iterates still give seats a usable Z_ref).
+fn bootstrap_relative_reference<T: Mandelbrotable>(
     zoom_pot: i64,
     anchor: &(IntExp, IntExp),
+    generator: &CGenerator<T>,
+    res: (u32, u32),
 ) -> PublishedReference {
+    use crate::assemblies::headgroup::window::coords::f64_to_intexp;
     let bits = bits_for_zoom(zoom_pot, PIXELS_PER_UNIT_POT).max(128);
-    let orbit = ReferenceOrbit::compute(anchor, bits, 4096);
-    PublishedReference {
-        orbit,
-        c: (anchor.0.clone(), anchor.1.clone()),
-        generation: 0,
-        series: None,
+    let mut best = {
+        let orbit = ReferenceOrbit::compute(anchor, bits, 4096);
+        PublishedReference {
+            orbit,
+            c: (anchor.0.clone(), anchor.1.clone()),
+            generation: 0,
+            series: None,
+        }
+    };
+    let step_x = (res.0 / 8).max(1);
+    let step_y = (res.1 / 8).max(1);
+    let mut y = 0u32;
+    while y < res.1 {
+        let mut x = 0u32;
+        while x < res.0 {
+            let lc = generator.get_c((x, y));
+            let c = (
+                anchor.0.clone() + f64_to_intexp(lc.0.to_f64()),
+                anchor.1.clone() + f64_to_intexp(lc.1.to_f64()),
+            );
+            let orbit = ReferenceOrbit::compute(&c, bits, 4096);
+            if orbit.iterates.len() > best.orbit.iterates.len() {
+                best = PublishedReference {
+                    orbit,
+                    c,
+                    generation: 0,
+                    series: None,
+                };
+            }
+            x = x.saturating_add(step_x);
+            if x == 0 {
+                break;
+            }
+        }
+        y = y.saturating_add(step_y);
+        if y == 0 {
+            break;
+        }
     }
+    best
 }
 
 /// Alias for tests / depth fixtures — always-relative stencil build.
@@ -765,7 +803,12 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
         generator_generation,
     };
     if ctx.coords_are_relative && ctx.latest_reference.is_none() {
-        let bootstrap = bootstrap_relative_reference(obj.zoom_pot as i64, &ctx.coord_anchor);
+        let bootstrap = bootstrap_relative_reference(
+            obj.zoom_pot as i64,
+            &ctx.coord_anchor,
+            &ctx.c_generator,
+            res,
+        );
         ctx.latest_reference = Some(Arc::new(bootstrap));
         let published = ctx.latest_reference.as_ref().unwrap().clone();
         let _ = rebuild_generator_for_reference(

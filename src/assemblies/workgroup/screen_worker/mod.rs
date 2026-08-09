@@ -184,6 +184,30 @@ async fn internal_behavior<A: SteadyActor>(
                 state.pending_reference = Some(newest.clone());
                 if let Some(live) = &mut state.work_context {
                     let zoom_pot = live.frame_info.0.zoom_pot;
+                    let keep_longer_bootstrap = newest.orbit.escaped
+                        && live.context.coords_are_relative
+                        && live.context.latest_reference.as_ref().is_some_and(|cur| {
+                            cur.orbit.iterates.len() > newest.orbit.iterates.len()
+                        });
+                    if keep_longer_bootstrap {
+                        // #region agent log
+                        crate::debug_agent::log_hud(
+                            "H2",
+                            "screen_worker/mod.rs:ref_keep_bootstrap",
+                            "kept_longer_bootstrap",
+                            &format!(
+                                "{{\"new_len\":{},\"kept_len\":{},\"zoom_pot\":{}}}",
+                                newest.orbit.iterates.len(),
+                                live.context
+                                    .latest_reference
+                                    .as_ref()
+                                    .map(|r| r.orbit.iterates.len())
+                                    .unwrap_or(0),
+                                zoom_pot
+                            ),
+                        );
+                        // #endregion
+                    } else {
                     // #region agent log
                     crate::debug_agent::log(
                         "A",
@@ -221,6 +245,7 @@ async fn internal_behavior<A: SteadyActor>(
                         live.frame_info.1,
                         newest.as_ref(),
                     );
+                    }
                 }
             } else {
                 // #region agent log
