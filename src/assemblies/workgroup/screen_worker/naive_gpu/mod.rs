@@ -9,7 +9,7 @@ pub use device::{GpuPrecision, NaiveGpuContext};
 pub use kernel::{HarvestedFinish, WipMeta};
 
 use crate::assemblies::workgroup::screen_worker::workshift::{
-    next_attention_spiral_pos, point_is_edge, queue_incomplete_neighbors,
+    c_for_seat_f64, next_attention_spiral_pos, point_is_edge, queue_incomplete_neighbors,
     queue_incomplete_neighbors_in, queue_incomplete_neighbors_of_edge, refresh_active_gear,
     workshift_with_kernel, BoutCap, CompletedPoint, Delivery, DirectKernel, Motion, Point,
     PushOutcome, SeatKernel, Step, WorkContext, iterate_max_n_times,
@@ -28,19 +28,84 @@ pub fn claim_next_undelivered_seat(
 ) -> Option<((i32, i32), Step)> {
     let total = context.points.len().max(1);
     for _ in 0..total.min(device::MAX_WAVE as usize) {
-        let (pos, step) = select_candidate(context)?;
+        let from_scan: bool;
+        let (pos, step) = match select_candidate(context, skip) {
+            Some(p) => {
+                from_scan = false;
+                p
+            }
+            // Queues empty (common before the first completion announces work):
+            // scan undelivered seats so the GPU wave still feeds. Stall here is a
+            // missed-work bug, not patience.
+            None => match scan_undelivered_seat(context, skip) {
+                Some(p) => {
+                    from_scan = true;
+                    p
+                }
+                None => return None,
+            },
+        };
         let index = index_from_pos(&pos, context.res.0);
-        if context.points[index].delivered || skip.contains(&index) {
-            advance_past(context, step);
+        if context.points[index].delivered {
+            if !from_scan {
+                advance_past(context, step);
+            }
             continue;
         }
-        claim(context, step, pos);
+        if skip.contains(&index) {
+            // Already armed in this wave. Keep attention hold (tenacity); arm
+            // other undelivered seats instead of aborting the fill.
+            if matches!(step, Step::Attention)
+                && context.attention_current == Some(pos)
+            {
+                if let Some(p) = scan_undelivered_seat(context, skip) {
+                    // No claim() — scan seats are not queue heads.
+                    return Some(p);
+                }
+                return None;
+            }
+            if !from_scan {
+                advance_past(context, step);
+            }
+            continue;
+        }
+        if !from_scan {
+            claim(context, step, pos);
+        } else if matches!(step, Step::Attention) {
+            // Spiral/hold path only.
+            claim(context, step, pos);
+        }
         return Some((pos, step));
     }
     None
 }
 
-fn select_candidate(context: &mut WorkContext<f64>) -> Option<((i32, i32), Step)> {
+/// Linear scan when queues have not yet been grown by completions.
+fn scan_undelivered_seat(
+    context: &WorkContext<f64>,
+    skip: &HashSet<usize>,
+) -> Option<((i32, i32), Step)> {
+    let n = context.points.len();
+    if n == 0 {
+        return None;
+    }
+    let start = (context.random_index as usize) % n;
+    for off in 0..n {
+        let index = (start + off) % n;
+        if context.points[index].delivered || skip.contains(&index) {
+            continue;
+        }
+        let pos = pos_from_index(index, context.res.0);
+        // Neutral step: not Attention (must not clear/replace the hold).
+        return Some((pos, Step::Out));
+    }
+    None
+}
+
+fn select_candidate(
+    context: &mut WorkContext<f64>,
+    skip: &HashSet<usize>,
+) -> Option<((i32, i32), Step)> {
     match context.workshifts % 5 {
         0 => {
             if context.motion == Motion::Panned && context.workshifts == 0 {
@@ -49,21 +114,20 @@ fn select_candidate(context: &mut WorkContext<f64>) -> Option<((i32, i32), Step)
                 ) {
                     return Some(p);
                 }
-                if let Some(pos) = context.attention_current {
+            }
+            if let Some(pos) = context.attention_current {
+                let index = index_from_pos(&pos, context.res.0);
+                if context.points[index].delivered {
+                    context.attention_current = None;
+                } else if !skip.contains(&index) {
                     return Some((pos, Step::Attention));
                 }
+                // Held + already WIP: keep hold, fill other seats this round.
+            }
+            if context.attention_current.is_none() {
                 if let Some(pos) = next_attention_spiral_pos(context) {
                     return Some((pos, Step::Attention));
                 }
-                return crate::assemblies::workgroup::screen_worker::workshift::queue_fallback_pos_pub(
-                    context, true,
-                );
-            }
-            if let Some(pos) = context.attention_current {
-                return Some((pos, Step::Attention));
-            }
-            if let Some(pos) = next_attention_spiral_pos(context) {
-                return Some((pos, Step::Attention));
             }
             crate::assemblies::workgroup::screen_worker::workshift::queue_fallback_pos_pub(
                 context,
@@ -206,11 +270,13 @@ pub fn workshift_naive_gpu(
     let mut bouts_per_dispatch: u32 = 1;
     let mut points_published_this_shift: u32 = 0;
     // Shallow re-upload pipeline: submit next wave before mapping prior staging.
-    let mut pending: Option<(u8, Vec<WipMeta>)> = None;
+    // Third field is the GPU wave width at submit (continue must use this, not
+    // compacted host WIP len — finished slots stay inactive on device).
+    let mut pending: Option<(u8, Vec<WipMeta>, u32)> = None;
 
     while context.time_workshift_started.elapsed().as_millis() < 10 {
         // Publish prior wave first so dispatch below overlaps GPU with host work.
-        if let Some((slot, prev_wip)) = pending.take() {
+        if let Some((slot, prev_wip, gpu_n)) = pending.take() {
             let (finishes, iter_delta) = match gpu.harvest_sparse_slot(slot) {
                 Ok(v) => v,
                 Err(e) => {
@@ -257,7 +323,8 @@ pub fn workshift_naive_gpu(
                 resident = false;
             } else if !wip.is_empty() {
                 resident = true;
-                resident_n = wip.len() as u32;
+                // Keep device wave width — compacted host len would skip live GPU slots.
+                resident_n = gpu_n;
             } else {
                 resident = false;
             }
@@ -317,7 +384,7 @@ pub fn workshift_naive_gpu(
         };
 
         // Park WIP with the staging slot; next loop harvests before refill/dispatch.
-        pending = Some((slot, std::mem::take(&mut wip)));
+        pending = Some((slot, std::mem::take(&mut wip), resident_n));
         resident = false; // residency restored from unfinished after harvest
 
         if context.time_workshift_started.elapsed().as_millis() > 9 && wave_n > 2048 {
@@ -327,7 +394,7 @@ pub fn workshift_naive_gpu(
     }
 
     // Flush the last in-flight wave.
-    if let Some((slot, prev_wip)) = pending.take() {
+    if let Some((slot, prev_wip, _gpu_n)) = pending.take() {
         if let Ok((finishes, iter_delta)) = gpu.harvest_sparse_slot(slot) {
             gpu.clear_finish_accumulators();
             context.total_iterations_today += iter_delta;
@@ -345,6 +412,11 @@ pub fn workshift_naive_gpu(
             context.total_bouts_today += 1;
         }
     }
+
+    // Persist partial GPU progress onto host seats. Without this, the next shift
+    // re-uploads z/iters=0 and hard seats never accumulate — a false stall
+    // (missed resume), not tenacity.
+    sync_gpu_partials_to_host(context, gpu);
 
     // Near-complete: publish missed finals + CPU mop (no pull_seats — too expensive).
     if context.percent_completed >= 90.0 {
@@ -453,6 +525,28 @@ fn publish_gpu_finishes(
     PublishFinishOutcome {
         buffer_full,
         need_reupload,
+    }
+}
+
+/// Copy resident GPU seat progress onto undelivered host points so the next
+/// shift resumes (halt recognition needs accumulated iters / z, not a reset).
+fn sync_gpu_partials_to_host(context: &mut WorkContext<f64>, gpu: &NaiveGpuContext) {
+    let Ok(seats) = gpu.pull_seats() else {
+        return;
+    };
+    for s in &seats {
+        let index = s.seat_index as usize;
+        if index >= context.points.len() {
+            continue;
+        }
+        let p = &mut context.points[index];
+        if p.delivered {
+            continue;
+        }
+        if s.iterations < p.iterations {
+            continue;
+        }
+        apply_finish_to_point(p, s);
     }
 }
 
@@ -581,26 +675,28 @@ fn cpu_residual_undelivered(context: &mut WorkContext<f64>, kernel: &DirectKerne
 }
 
 /// True when f32 cannot distinguish neighboring seats (F32 precision wall).
+/// Uses generator plane geometry — must not depend on lazy seat init (otherwise
+/// deep zooms stay on F32 until seats happen to be started, which is too late).
 fn f32_collapses_neighbors(context: &WorkContext<f64>) -> bool {
-    let w = context.res.0 as usize;
-    if w < 2 || context.points.len() < 2 {
+    let w = context.res.0;
+    let h = context.res.1;
+    if w < 2 || h < 1 {
         return false;
     }
-    let limit = w.saturating_sub(1).min(64);
-    for i in 0..limit {
-        let a = &context.points[i];
-        let b = &context.points[i + 1];
-        if !a.initialized || !b.initialized {
-            continue;
-        }
-        if a.c.0 == b.c.0 && a.c.1 == b.c.1 {
-            continue;
-        }
-        if (a.c.0 as f32) == (b.c.0 as f32) && (a.c.1 as f32) == (b.c.1 as f32) {
-            return true;
-        }
+    let x = w / 2;
+    let y = h / 2;
+    let x1 = (x + 1).min(w - 1);
+    if x1 == x {
+        return false;
     }
-    false
+    let d0 = context.c_generator.get_c((x, y));
+    let d1 = context.c_generator.get_c((x1, y));
+    let a = c_for_seat_f64(context, d0);
+    let b = c_for_seat_f64(context, d1);
+    if a.0 == b.0 && a.1 == b.1 {
+        return false;
+    }
+    (a.0 as f32) == (b.0 as f32) && (a.1 as f32) == (b.1 as f32)
 }
 
 fn apply_finish_to_point(point: &mut Point<f64>, fin: &HarvestedFinish) {

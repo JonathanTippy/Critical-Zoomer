@@ -4825,3 +4825,183 @@ fn steady_state_home_pps_gpu_vs_cpu_ratio() {
         }
     });
 }
+
+/// Faux-user zoom past the F32 precision wall must escalate naive GPU to F64
+/// (or honest CPU DirectKernel when the adapter has no SHADER_F64).
+/// Collapse is detected from generator plane geometry, not lazy seat init.
+#[test]
+// r[verify cz.craft.kernel-seam+1]
+fn steady_state_naive_gpu_f64_gear_via_faux_user_zoom() {
+    run_big(|| {
+        use crate::assemblies::headgroup::window::coords::{
+            commands_from_goto_line, format_location_readout, ul_for_center, viewport_center,
+        };
+        use crate::assemblies::headgroup::window::transforms::transform;
+        use crate::assemblies::headgroup::window::sampling::SamplingContext;
+        use crate::delta_gear::ComputeGear;
+
+        let _gpu_guard = super::naive_gpu::lock_gpu_tests();
+        let Some(mut gpu) = super::naive_gpu::NaiveGpuContext::try_new() else {
+            eprintln!("steady_state_naive_gpu_f64_gear_via_faux_user_zoom: no GPU — skipped");
+            return;
+        };
+
+        let res = (64u32, 48u32);
+        let mut nav = SamplingContext {
+            screen: None,
+            screen_size: res,
+            location: ul_for_center(IntExp::from(-2), IntExp::from(-2), -2, res),
+            updated: false,
+            mouse_drag_start: None,
+        };
+        // Stepwise zoom toward a mid-set center (faux user input path).
+        let target = "-0.75 + 0.0i mag 2^20";
+        let cmds = commands_from_goto_line(target).expect("goto");
+        let mut dead = SamplingContext {
+            screen: None,
+            screen_size: res,
+            location: ul_for_center(IntExp::ZERO, IntExp::ZERO, 0, res),
+            updated: false,
+            mouse_drag_start: None,
+        };
+        transform(cmds, &mut dead);
+        let (dre, dim) = viewport_center(&dead.location, res);
+
+        let mut prev: Option<(WorkContext<f64>, ObjectivePosAndZoom)> = None;
+        let mut saw_f64_path = false;
+        for pot in [0, 8, 12, 16, 18, 20] {
+            let line = format_location_readout(&dre, &dim, pot);
+            transform(
+                commands_from_goto_line(&line).expect("zoom step"),
+                &mut nav,
+            );
+            assert_eq!(nav.location.zoom_pot, pot);
+            let frame = (nav.location.clone(), res);
+            let mut ctx = match prev.take() {
+                Some((old, old_obj)) => {
+                    from_stencil::<f64>(frame.clone(), Some((old, old_obj))).expect("zoom replace")
+                }
+                None => from_stencil::<f64>(frame.clone(), None).expect("fresh"),
+            };
+            // One workshift is enough for gear selection (collapse is geometric).
+            workshift(0, 0, 0, 0, &mut ctx, Some(&mut gpu));
+            let _ = work_update(&mut ctx);
+
+            if pot >= 18 {
+                let gear = ctx.active_gear;
+                let used_gpu = ctx.last_used_naive_gpu;
+                eprintln!(
+                    "faux zoom pot={pot}: gear={gear:?} used_gpu={used_gpu} gpu_prec={:?}",
+                    gpu.precision
+                );
+                if gpu.has_f64() {
+                    assert_eq!(
+                        gear,
+                        ComputeGear::F64,
+                        "pot {pot}: adapter has SHADER_F64 — HUD gear must be F64, got {gear:?}"
+                    );
+                    assert!(
+                        used_gpu,
+                        "pot {pot}: should stay on naive GPU F64 path"
+                    );
+                    assert_eq!(gpu.precision, super::naive_gpu::GpuPrecision::F64);
+                } else {
+                    assert!(
+                        !used_gpu,
+                        "pot {pot}: no GPU F64 — must fall back to CPU naive, not walled F32"
+                    );
+                    assert_eq!(gear, ComputeGear::F64);
+                }
+                saw_f64_path = true;
+            } else if pot <= 12 && ctx.last_used_naive_gpu {
+                assert_eq!(
+                    ctx.active_gear,
+                    ComputeGear::F32,
+                    "shallow pot {pot}: expect F32 GPU gear"
+                );
+            }
+            prev = Some((ctx, frame.0));
+        }
+        assert!(saw_f64_path, "zoom path never reached pot≥18");
+    });
+}
+
+/// Deep cusp view: unfinished work must never flatline (stall = missed halt /
+/// missed progress, not "tenacity"). Progress = iterations and/or completions
+/// every shift while seats remain undelivered.
+#[test]
+// r[verify cz.craft.wall-clock-law+1]
+// r[verify cz.craft.emergent-cadence+1]
+fn steady_state_naive_gpu_deep_cusp_never_stalls() {
+    run_big(|| {
+        use crate::assemblies::headgroup::window::coords::{
+            commands_from_goto_line, ul_for_center,
+        };
+        use crate::assemblies::headgroup::window::transforms::transform;
+        use crate::assemblies::headgroup::window::sampling::SamplingContext;
+
+        let _gpu_guard = super::naive_gpu::lock_gpu_tests();
+        let Some(mut gpu) = super::naive_gpu::NaiveGpuContext::try_new() else {
+            eprintln!("steady_state_naive_gpu_deep_cusp_never_stalls: no GPU — skipped");
+            return;
+        };
+
+        let res = (96u32, 64u32);
+        let goto = "-0.749971479177 + 0.00652307272i mag 2^15";
+        let mut nav = SamplingContext {
+            screen: None,
+            screen_size: res,
+            location: ul_for_center(IntExp::ZERO, IntExp::ZERO, 0, res),
+            updated: false,
+            mouse_drag_start: None,
+        };
+        transform(commands_from_goto_line(goto).expect("goto"), &mut nav);
+        assert_eq!(nav.location.zoom_pot, 15);
+
+        let mut ctx = from_stencil::<f64>((nav.location.clone(), res), None).expect("deep cusp");
+        let center = ((res.0 / 2) as i32, (res.1 / 2) as i32);
+        let center_idx = index_from_pos(&center, res.0);
+        let mut zero_progress = 0u32;
+        let mut max_center_iters = 0u32;
+        let mut shifts = 0u32;
+        while shifts < 80 {
+            let unfinished = ctx.points.iter().any(|p| !p.delivered);
+            if !unfinished {
+                break;
+            }
+            workshift(0, 0, 0, 0, &mut ctx, Some(&mut gpu));
+            let completed = work_update(&mut ctx);
+            let progress = ctx.total_iterations_today + completed.len() as u32;
+            if progress == 0 {
+                zero_progress += 1;
+            } else {
+                zero_progress = 0;
+            }
+            assert!(
+                zero_progress < 2,
+                "deep cusp stalled: {zero_progress} consecutive shifts with zero iterations and zero completions (halt recognition / progress failure, not tenacity)"
+            );
+            max_center_iters = max_center_iters.max(ctx.points[center_idx].iterations);
+            shifts += 1;
+        }
+        eprintln!(
+            "deep cusp never-stall: shifts={shifts} center_iters={max_center_iters} delivered={}",
+            ctx.points.iter().filter(|p| p.delivered).count()
+        );
+        // Center must have been worked (halt progress), not left untouched while
+        // the shift loop spun on empty claims.
+        assert!(
+            max_center_iters > 0 || ctx.points[center_idx].delivered,
+            "center seat never received iteration work"
+        );
+        // If still unfinished after many shifts, iterations must have climbed —
+        // a frozen mid-seat is a stall (missed escape/repeat halt), not patience.
+        if !ctx.points[center_idx].delivered {
+            assert!(
+                max_center_iters >= 1_000,
+                "unfinished center stuck at {max_center_iters} iters — likely missed halt or abandoned WIP"
+            );
+        }
+    });
+}
+

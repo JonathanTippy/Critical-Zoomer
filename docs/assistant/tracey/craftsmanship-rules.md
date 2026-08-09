@@ -456,7 +456,10 @@ multi-bout amortize only when finals are sparse.
   completion while fill is still progressing (≤50 ms at 10 ms/shift).
 
 **Test.** Never-stall suite in craftsmanship_tests.rs (same three tests as wall-clock-law);
-`steady_state_naive_gpu_home_continuous_outputs`. Actor send loop idle/complete still by
+`steady_state_naive_gpu_home_continuous_outputs`;
+`steady_state_naive_gpu_deep_cusp_never_stalls` (missed resume/empty-queue feed, not tenacity);
+`steady_state_naive_gpu_f64_gear_via_faux_user_zoom` (generator-plane F32→F64 escalate).
+Actor send loop idle/complete still by
 code review + e2e.
 
 r[cz.craft.load-proportional-ignorance+1]
