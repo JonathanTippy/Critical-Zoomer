@@ -1,0 +1,18 @@
+This folder is for **PO/dev quotes** (and short lock-lists derived directly from those quotes). It is more authoritative than other grok-docs, still fallible.
+
+**Not for:** bug stacks, implementation status, RCA, test notes, answer-vs-defaults tallies — those go in `docs/grok-docs/` (parent of this folder).
+
+## Files here
+
+- `context-from-n-perturbation-chat.md` — planning-chat quotes / decisions
+- `phase-0-1-applied.md` — Phase 0–1 apply quotes
+- `phase-1.5-period.md` — period-determination quotes + Batch B1 answers
+- `tile-quality-and-homothety.md` — tile quality / homothety quotes
+- `tile-workcore-boundary.md` — workcore tiles-only quotes
+- `scheduler-and-edges.md` — screen-edge, in-fill, small-time quotes
+- `unknown-nores.md` — unknown must be NORES (not black)
+- `phase-order.md` — scheduler phase preference + jobs
+
+## Best practice
+
+Prefer direct, unedited quotes. Most of the content in this area should be that form.
