@@ -1,5 +1,5 @@
 use super::buffers::*;
-use super::device::{GpuPrecision, NaiveGpuContext, MAX_WAVE, SPARSE_FINISH_CAP};
+use super::device::{GpuPrecision, NaiveGpuContext, MAX_WAVE};
 use crate::assemblies::workgroup::screen_worker::workshift::{BoutCap, Point, Step};
 use bytemuck::{bytes_of, cast_slice, pod_read_unaligned};
 use std::sync::mpsc;
@@ -135,8 +135,8 @@ impl NaiveGpuContext {
             pass.dispatch_workgroups((wip_count + 255) / 256, 1, 1);
         }
         // Header + compact finish prefix in the same submit (no second GPU sync).
-        // Iterate-heavy stays under SPARSE_FINISH_CAP; shallow floods may truncate.
-        let sparse_n = wip_count.min(SPARSE_FINISH_CAP);
+        // Header + finish records for the whole WIP (shallow home can finish all seats).
+        let sparse_n = wip_count.min(MAX_WAVE);
         encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, &self.sparse_staging, 0, 4);
         encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, &self.sparse_staging, 4, 4);
         encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, &self.header_staging, 0, 4);
@@ -247,7 +247,7 @@ impl NaiveGpuContext {
             pass.set_bind_group(0, &self.bind_group, &[]);
             pass.dispatch_workgroups((wip_count + 255) / 256, 1, 1);
         }
-        let sparse_n = wip_count.min(SPARSE_FINISH_CAP);
+        let sparse_n = wip_count.min(MAX_WAVE);
         encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, &self.sparse_staging, 0, 4);
         encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, &self.sparse_staging, 4, 4);
         encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, &self.header_staging, 0, 4);
@@ -281,12 +281,12 @@ impl NaiveGpuContext {
         Ok(u32::from_ne_bytes([header[4], header[5], header[6], header[7]]))
     }
 
-    /// Sparse finals from the compact finish prefix (same submit as compute).
+    /// Finals from the finish prefix copied with compute (up to full WIP).
     pub fn harvest_sparse_finals(&self) -> Result<(Vec<HarvestedFinish>, u32), String> {
         let header = map_bytes(&self.device, &self.header_staging, 8)?;
         let count = u32::from_ne_bytes([header[0], header[1], header[2], header[3]]);
         let iter_delta = u32::from_ne_bytes([header[4], header[5], header[6], header[7]]);
-        let n_fin = count.min(SPARSE_FINISH_CAP).min(MAX_WAVE) as usize;
+        let n_fin = count.min(MAX_WAVE) as usize;
         if n_fin == 0 {
             return Ok((Vec::new(), iter_delta));
         }

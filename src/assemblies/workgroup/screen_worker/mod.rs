@@ -395,19 +395,17 @@ async fn internal_behavior<A: SteadyActor>(
         // Split borrows: take GPU handle, then mutate live context.
         let mut gpu = state.naive_gpu.take();
         if let Some(live) = &mut state.work_context {
-            let iters_before = live.context.total_iterations_today;
-            workshift (
-                token_budget
-                , iteration_token_cost
-                , bout_token_cost
-                , point_token_cost
-                , &mut live.context
-                , gpu.as_mut()
+            // workshift zeros `total_iterations_today` then counts only this shift.
+            // Do not subtract a leftover prior-shift total (that zeroed IPS on the HUD).
+            workshift(
+                token_budget,
+                iteration_token_cost,
+                bout_token_cost,
+                point_token_cost,
+                &mut live.context,
+                gpu.as_mut(),
             );
-            iters_delta = live
-                .context
-                .total_iterations_today
-                .saturating_sub(iters_before) as u64;
+            iters_delta = live.context.total_iterations_today as u64;
         }
         state.naive_gpu = gpu;
         state.total_workshifts += 1;
@@ -429,7 +427,7 @@ async fn internal_behavior<A: SteadyActor>(
     Ok(())
 }
 
-fn telemetry_update<T>(
+pub(crate) fn telemetry_update<T>(
     frame_info: Option<(ObjectivePosAndZoom, (u32, u32))>,
     completed_points: Vec<(CompletedPoint<T>, usize)>,
     mut ctx: Option<&mut WorkContext<T>>,

@@ -1,7 +1,12 @@
 # Benchmarks (first-class performance tracking)
 
-Fitness numbers live in **benchmarks**, not tests. Tests carry only smoke-level timing asserts;
-anything that answers "how fast is it" belongs here.
+Fitness *trends* (“how fast is it”) live in **benchmarks**. Steady-state Rust
+integration tests (`docs/assistant/testing.md`) are the lifeblood gate that
+work and IPS still flow through the real loops — smoke floors belong there;
+do not demote them into Criterion-only.
+
+Tests may carry smoke-level timing / IPS-floor asserts on the production
+workshift path. Anything that answers “how fast vs last week” belongs here.
 
 ## Suite
 

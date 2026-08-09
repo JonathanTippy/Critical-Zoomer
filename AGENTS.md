@@ -59,6 +59,12 @@ Run the full test suite after workgroup/colorer edits. Keep tracey links intact
 isolated Xvfb screenshot check — see `scripts/README.md`; do not add new e2e
 shell suites or check in PNGs there.
 
+**Steady-state Rust integration tests are the lifeblood of testing** (see
+`docs/assistant/testing.md`). When changing scheduling, naive GPU, or HUD
+telemetry, extend `steady_state_*` tests in `craftsmanship_tests.rs` so IPS and
+completions are proven through screen-worker and workgroup chains — not only
+in micro probes or Criterion.
+
 For any change that can affect rendered output, also follow
 `docs/assistant/manual-testing.md`. This is assistant-owned work: build the
 current release, run `scripts/xvfb_screenshot_check.sh`, and inspect the PNG

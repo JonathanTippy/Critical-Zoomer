@@ -1,5 +1,5 @@
 pub const MAX_WAVE: u32 = 8192;
-/// Max finals copied in the one-map sparse path (iterate-heavy stays under this).
+/// Soft target for iterate-heavy compact maps; shallow floods may copy the full wave.
 pub const SPARSE_FINISH_CAP: u32 = 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -198,7 +198,7 @@ impl NaiveGpuContext {
         let sparse_staging = make_buf(
             &device,
             "sparse_staging",
-            16 + finish_stride_max * SPARSE_FINISH_CAP as u64,
+            16 + finish_stride_max * MAX_WAVE as u64,
             wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         );
         let header_staging = make_buf(

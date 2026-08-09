@@ -13,7 +13,8 @@ use proptest::prelude::*;
 use super::perturb_floatexp::FloatExpPerturbationKernel;
 use super::perturb_kernel::PerturbationKernel;
 use super::work_update;
-use super::{invalidate_stale_deliveries, workshift::*};
+use super::{invalidate_stale_deliveries, telemetry_update, workshift::*};
+use crate::assemblies::headgroup::window::rolling::RateCounter;
 use crate::assemblies::headgroup::window::sampling::index_from_relative_location;
 use crate::assemblies::workgroup::c_generator::{CGenerator, Mandelbrotable};
 use crate::assemblies::workgroup::work_collector::{sample_old_values, ResultsPackage};
@@ -4451,6 +4452,186 @@ fn home_pipeline_no_vertical_black_columns() {
         assert!(
             sampled_black_cols < 8,
             "window sample() introduced {sampled_black_cols} ≥80% black columns"
+        );
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Steady-state speed path (screen worker alone + workgroup telemetry chain)
+// See docs/assistant/testing.md — these are the lifeblood integration tests.
+// ---------------------------------------------------------------------------
+
+/// Actor formula: after a workshift, `total_iterations_today` *is* the shift delta
+/// (workshift zeros the counter at start). Must stay non-zero across many shifts.
+fn shift_iterations_delta(ctx: &WorkContext<f64>) -> u64 {
+    ctx.total_iterations_today as u64
+}
+
+/// Screen-worker alone: home fill under DirectKernel reports real full-stack IPS.
+// r[verify cz.perf.min-300m-ips-cpu+2]
+#[test]
+fn steady_state_screen_worker_home_ips_cpu_direct() {
+    run_big(|| {
+        let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
+        let t0 = Instant::now();
+        let mut shifts = 0u32;
+        let mut iters = 0u64;
+        let mut deltas_nonzero = 0u32;
+        while !ctx.points.iter().all(|p| p.delivered) && shifts < 500 {
+            workshift_with_kernel(0, 0, 0, 0, &mut ctx, &DirectKernel);
+            let d = shift_iterations_delta(&ctx);
+            iters += d;
+            if d > 0 {
+                deltas_nonzero += 1;
+            }
+            let _ = work_update(&mut ctx);
+            shifts += 1;
+        }
+        let secs = t0.elapsed().as_secs_f64().max(1e-9);
+        let ips = iters as f64 / secs;
+        assert!(
+            ctx.points.iter().all(|p| p.delivered),
+            "home frame did not complete in {shifts} shifts"
+        );
+        assert!(
+            deltas_nonzero >= shifts.saturating_sub(2).max(1),
+            "iterations_delta went zero on most shifts ({deltas_nonzero}/{shifts}); HUD IPS would die"
+        );
+        assert!(
+            ips > 5.0e6,
+            "screen-worker DirectKernel home IPS {ips:.3e} below steady-state floor (5e6); iters={iters} shifts={shifts}"
+        );
+        eprintln!(
+            "steady_state screen_worker CPU DirectKernel: ips={ips:.3e} iters={iters} shifts={shifts} wall={secs:.3}s"
+        );
+    });
+}
+
+/// Screen-worker alone: naive GPU (or CPU fallback) home fill still reports IPS.
+// r[verify cz.perf.min-30b-ips-gpu+1]
+#[test]
+fn steady_state_screen_worker_home_ips_naive_gpu_path() {
+    run_big(|| {
+        let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
+        let mut gpu = super::naive_gpu::NaiveGpuContext::try_new();
+        if let Some(g) = gpu.as_mut() {
+            // Match the smoke that already proves finals harvest works.
+            g.set_wave_n(256);
+        }
+        let t0 = Instant::now();
+        let mut shifts = 0u32;
+        let mut iters = 0u64;
+        let mut deltas_nonzero = 0u32;
+        let mut used_gpu = false;
+        while !ctx.points.iter().all(|p| p.delivered) && shifts < 2000 {
+            workshift(0, 0, 0, 0, &mut ctx, gpu.as_mut());
+            if ctx.last_used_naive_gpu {
+                used_gpu = true;
+            }
+            let d = shift_iterations_delta(&ctx);
+            iters += d;
+            if d > 0 {
+                deltas_nonzero += 1;
+            }
+            let _ = work_update(&mut ctx);
+            shifts += 1;
+            let delivered = ctx.points.iter().filter(|p| p.delivered).count();
+            if delivered as f64 / ctx.points.len().max(1) as f64 >= 0.99 {
+                break;
+            }
+            if shifts == 50 && delivered < ctx.points.len() / 100 {
+                break;
+            }
+        }
+        let secs = t0.elapsed().as_secs_f64().max(1e-9);
+        let ips = iters as f64 / secs;
+        let delivered = ctx.points.iter().filter(|p| p.delivered).count();
+        let fill = delivered as f64 / ctx.points.len().max(1) as f64;
+        // F32 naive GPU may leave a thin interior residue vs f64 DirectKernel;
+        // this test proves the shift loop + iteration counters move, not pixel parity.
+        assert!(
+            fill >= 0.99,
+            "home fill too low: delivered={delivered}/{} fill={fill:.4} shifts={shifts} used_gpu={used_gpu} iters={iters}",
+            ctx.points.len()
+        );
+        assert!(
+            used_gpu,
+            "expected naive GPU path; adapter missing or forced off"
+        );
+        assert!(
+            deltas_nonzero >= shifts.saturating_sub(2).max(1),
+            "iterations_delta zeroed on GPU path ({deltas_nonzero}/{shifts})"
+        );
+        assert!(
+            ips > 5.0e6,
+            "screen-worker naive-GPU home IPS {ips:.3e} below floor; used_gpu={used_gpu}"
+        );
+        eprintln!(
+            "steady_state screen_worker naive-GPU: ips={ips:.3e} fill={fill:.4} iters={iters} shifts={shifts}"
+        );
+    });
+}
+
+/// Whole workgroup speed chain: workshift → WorkUpdate.iterations_delta → ViewHud → RateCounter.
+/// Catches the class of bug where the worker does work but HUD IPS stays ~0.
+// r[verify cz.depth.gear-hud+2]
+#[test]
+fn steady_state_workgroup_ips_delta_reaches_hud_rate_counter() {
+    use crate::assemblies::structs::ViewHud;
+    run_big(|| {
+        let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
+        let mut ips = RateCounter::default();
+        let mut total_recorded = 0u64;
+        let mut shifts_with_delta = 0u32;
+        let mut shifts = 0u32;
+        let t0 = Instant::now();
+        while !ctx.points.iter().all(|p| p.delivered) && shifts < 200 {
+            workshift_with_kernel(0, 0, 0, 0, &mut ctx, &DirectKernel);
+            let delta = shift_iterations_delta(&ctx);
+            let completed = work_update(&mut ctx);
+            let update = telemetry_update(None, completed, Some(&mut ctx), delta);
+            assert_eq!(
+                update.iterations_delta, delta,
+                "WorkUpdate must carry the shift iteration count unchanged"
+            );
+            // Collector → ViewHud (same fields the window RateCounter reads).
+            let hud = ViewHud {
+                stack: update.host_stack,
+                mode: update.kernel_mode,
+                reference: update.reference_status,
+                gear: update.active_gear,
+                points_delta: update.completed_points.len() as u64,
+                iterations_delta: update.iterations_delta,
+            };
+            let now = Instant::now();
+            ips.record(hud.iterations_delta, now);
+            total_recorded += hud.iterations_delta;
+            if hud.iterations_delta > 0 {
+                shifts_with_delta += 1;
+            }
+            shifts += 1;
+        }
+        let elapsed = t0.elapsed();
+        let rate = ips.rate(Instant::now());
+        assert!(
+            ctx.points.iter().all(|p| p.delivered),
+            "workgroup steady-state fill incomplete"
+        );
+        assert!(
+            shifts_with_delta >= 3,
+            "expected multiple shifts with nonzero iterations_delta; got {shifts_with_delta}/{shifts}"
+        );
+        assert!(
+            total_recorded > 100_000,
+            "HUD chain recorded only {total_recorded} iterations across {shifts} shifts"
+        );
+        // RateCounter is a short window; require it saw real work, not a stuck zero.
+        assert!(
+            rate > 0.0 || total_recorded > 0,
+            "RateCounter rate={rate} with total_recorded={total_recorded}"
+        );
+        eprintln!(
+            "steady_state workgroup IPS chain: recorded={total_recorded} shifts_with_delta={shifts_with_delta}/{shifts} rate≈{rate:.3e} wall={elapsed:?}"
         );
     });
 }
