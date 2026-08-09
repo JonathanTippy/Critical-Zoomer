@@ -49,10 +49,17 @@ scheduling overhead included.
 
 r[cz.perf.min-30b-ips-gpu+1]
 
-**Normative summary.** ≥30B iterations/s on GPU in real workgroup conditions. No adapter ⇒ fail.
+**Normative summary.** GPU iterations/s in real workgroup conditions must track the
+machine's measured FLOP advantage over a single CPU core. No adapter ⇒ fail.
 
 **Acceptance criteria.**
-- **SUSPENDED** until the GPU compute port exists.
+- **SUSPENDED as an absolute number.** The 30B figure was a tile-era / one-class
+  stand-in; do not treat it as the live bar.
+- **STANDS as a method (2026-08-08).** Measure CPU single-core FLOPs and GPU total
+  FLOPs on the same machine; full-stack naive `IPS_gpu / IPS_cpu` must match that
+  ratio within about ±20% on iterate-heavy work (scheduling included). Design:
+  `docs/assistant/design/naive-gpu-design.md`, decision D-NGPU-5. Absolute billions
+  may be re-derived later per machine class; they do not replace the ratio method.
 
 r[cz.perf.optimal-ipp+1]
 
@@ -184,7 +191,10 @@ r[cz.pub.gpu-native-work+1]
 path so easy full-screen cases keep throughput.
 
 **Acceptance criteria.**
-- **SUSPENDED** until GPU compute exists. When it returns, applies to the view pipeline.
+- **SUSPENDED** until GPU compute exists. When it returns, applies to the **view**
+  pipeline (`docs/assistant/design/naive-gpu-design.md`): device-resident progress,
+  no full payload readback on the hot path, host reads only tiny done signals
+  (D-NGPU-6).
 
 r[cz.perf.headgroup-stable-path+1]
 

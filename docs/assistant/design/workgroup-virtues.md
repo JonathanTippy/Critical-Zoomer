@@ -346,6 +346,15 @@ v0.0.9's superiority is not any single mechanism — later designs copied the co
 
 Every added capability after v0.0.9 (tiles, mags, batches, orbits, GPU) re-opened one of these closures and then had to re-seal it with gates, carries, versions, and restores — each seal a place for a new bug. The golden design's lesson is not the list of mechanisms; it is that the mechanisms are cheap *because the contract is singular*. Keep "the current truth" a single object, and pivotability, storage sanity, stall-freedom, and freshness are defaults. Distribute it, and they become permanent projects.
 
+### GPU port note (forward-looking; does not amend the inventory)
+
+The Naive GPU design (`naive-gpu-design.md`) keeps these closures intact: one live
+view, whole-truth publishes, pivot order, provisional ≠ final, and
+`BoutCap`/wall-clock interruptibility. Parallelism widens the **bout** (many seats
+per bounded wave) behind the kernel seam; it does not multiply live targets or
+replace the host scheduling queues with a second authority. FLOP→IPS tracking is a
+performance bar on that kernel, not a license to reopen the tile-era seals.
+
 ---
 
 ## 12. What was only better than nothing (the honest 10%)
