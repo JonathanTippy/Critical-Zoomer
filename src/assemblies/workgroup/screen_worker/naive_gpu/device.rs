@@ -1,4 +1,4 @@
-pub const MAX_WAVE: u32 = 4096;
+pub const MAX_WAVE: u32 = 8192;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GpuPrecision {
@@ -12,6 +12,8 @@ pub struct NaiveGpuContext {
     pub precision: GpuPrecision,
     pub generation: u32,
     wave_n: u32,
+    /// WIP count of the last submitted dispatch (for sparse finish map).
+    pub(crate) last_wip_count: std::sync::atomic::AtomicU32,
     pub(crate) pipeline: wgpu::ComputePipeline,
     pub(crate) bind_group_layout: wgpu::BindGroupLayout,
     pub(crate) bind_group: wgpu::BindGroup,
@@ -211,7 +213,7 @@ impl NaiveGpuContext {
         let _ = std::fs::write(
             "/tmp/cz_naive_gpu_status.txt",
             format!(
-                "ok precision={precision:?} adapter={:?} backend={:?} wave_n=2048\n",
+                "ok precision={precision:?} adapter={:?} backend={:?} wave_n=4096\n",
                 info.name, info.backend
             ),
         );
@@ -221,7 +223,8 @@ impl NaiveGpuContext {
             queue,
             precision,
             generation: 0,
-            wave_n: 2048.min(MAX_WAVE),
+            wave_n: 4096.min(MAX_WAVE),
+            last_wip_count: std::sync::atomic::AtomicU32::new(0),
             pipeline,
             bind_group_layout,
             bind_group,

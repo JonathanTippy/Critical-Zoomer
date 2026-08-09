@@ -58,7 +58,7 @@ fn near(ax: f64, ay: f64, bx: f64, by: f64, e: f64) -> bool {
     return ax >= (bx - e) && ax <= (bx + e) && ay >= (by - e) && ay <= (by + e);
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(256)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let i = gid.x;
     if (i >= params.wip_count) { return; }

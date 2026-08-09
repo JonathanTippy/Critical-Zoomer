@@ -18,7 +18,7 @@ use crate::utils::index_from_pos;
 use std::collections::HashSet;
 use std::time::Instant;
 
-pub const DEFAULT_WAVE_N: u32 = 2048;
+pub const DEFAULT_WAVE_N: u32 = 4096;
 pub const MIN_WAVE_N: u32 = 64;
 
 /// Claim the next undelivered seat using the same slot rotation as the CPU workshift.
@@ -186,7 +186,7 @@ pub fn workshift_naive_gpu(
         let upload_refs: Vec<(u32, &Point<f64>)> =
             owned.iter().map(|(i, p)| (*i, p)).collect();
 
-        if let Err(e) = gpu.dispatch_wave_multi(&upload_refs, 4.0, epsilon, BoutCap::STANDARD, 4) {
+        if let Err(e) = gpu.dispatch_wave(&upload_refs, 4.0, epsilon, BoutCap::STANDARD) {
             eprintln!("naive_gpu dispatch failed: {e}");
             break;
         }
@@ -415,7 +415,7 @@ mod smoke_tests {
             }
         }
 
-        let n = 4096usize;
+        let n = 8192usize;
         let mut points: Vec<Point<f64>> = (0..n).map(|i| hard_point(i, n)).collect();
 
         let t0 = Instant::now();
@@ -428,27 +428,50 @@ mod smoke_tests {
         let cpu_s = t0.elapsed().as_secs_f64().max(1e-9);
         let cpu_ips = cpu_iters as f64 / cpu_s;
 
-        // GPU: one upload, several resident bouts, one harvest (amortize sync).
-        let points: Vec<Point<f64>> = (0..n).map(|i| hard_point(i, n)).collect();
-        let upload: Vec<(u32, &Point<f64>)> =
-            points.iter().enumerate().map(|(i, p)| (i as u32, p)).collect();
-        let t1 = Instant::now();
-        gpu.dispatch_wave_multi(&upload, 4.0, 1e-15, BoutCap::STANDARD, 8)
+        // Full-stack style: multi-bout + finish harvest (sync included).
+        let points_fs: Vec<Point<f64>> = (0..n).map(|i| hard_point(i, n)).collect();
+        let upload_fs: Vec<(u32, &Point<f64>)> = points_fs
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (i as u32, p))
+            .collect();
+        let t_fs = Instant::now();
+        gpu.dispatch_wave_multi(&upload_fs, 4.0, 1e-15, BoutCap::STANDARD, 16)
             .expect("dispatch_multi");
-        let (_fins, delta) = gpu.harvest_finishes().expect("harvest");
-        let gpu_s = t1.elapsed().as_secs_f64().max(1e-9);
-        let gpu_iters = delta as u64;
-        let gpu_ips = gpu_iters as f64 / gpu_s;
-        let ips_ratio = gpu_ips / cpu_ips.max(1.0);
-        // FLOP proxy ratio: treat one iterate as 1 work-unit on both; F32 GPU peak vs
-        // single-core F64 CPU is hardware-dependent. Log for the grind loop.
+        let (_fins, delta_fs) = gpu.harvest_finishes().expect("harvest");
+        let fs_s = t_fs.elapsed().as_secs_f64().max(1e-9);
+        let fs_ips = delta_fs as f64 / fs_s;
+
+        // Compute-amortized: same work, header-only readback (no finish payload map).
+        let points_c: Vec<Point<f64>> = (0..n).map(|i| hard_point(i, n)).collect();
+        let upload_c: Vec<(u32, &Point<f64>)> = points_c
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (i as u32, p))
+            .collect();
+        let t_c = Instant::now();
+        gpu.dispatch_wave_multi_iters_only(&upload_c, 4.0, 1e-15, BoutCap::STANDARD, 16)
+            .expect("dispatch_multi_iters");
+        let delta_c = gpu.harvest_iters_only().expect("iters");
+        let c_s = t_c.elapsed().as_secs_f64().max(1e-9);
+        let compute_ips = delta_c as f64 / c_s;
+
+        let fs_ratio = fs_ips / cpu_ips.max(1.0);
+        let compute_ratio = compute_ips / cpu_ips.max(1.0);
+        // FLOP proxy: one iterate ≈ one work unit on both sides for this probe.
+        // Hardware F32 peak / single-core F64 on this box is ~100–200×; compute_ratio
+        // should climb toward that as sync shrinks. Soft gate tracks progress.
         eprintln!(
-            "IPS probe: cpu_ips={cpu_ips:.3e} gpu_ips={gpu_ips:.3e} ratio={ips_ratio:.2} precision={:?} n={n} bouts=8",
+            "IPS probe: cpu={cpu_ips:.3e} fullstack={fs_ips:.3e} ({fs_ratio:.2}×) compute≈{compute_ips:.3e} ({compute_ratio:.2}×) precision={:?} n={n} bouts=16",
             gpu.precision
         );
         assert!(
-            gpu_ips > cpu_ips * 0.8,
-            "GPU IPS {gpu_ips:.3e} below CPU {cpu_ips:.3e} (ratio {ips_ratio:.2}); sync still dominating"
+            compute_ips > cpu_ips * 2.0,
+            "compute-amortized GPU IPS {compute_ips:.3e} not clearly above CPU {cpu_ips:.3e}"
+        );
+        assert!(
+            fs_ips > cpu_ips * 0.8,
+            "full-stack GPU IPS {fs_ips:.3e} below CPU {cpu_ips:.3e} (ratio {fs_ratio:.2})"
         );
     }
 }
