@@ -199,8 +199,12 @@ pub fn workshift_naive_gpu(
     let mut skip: HashSet<usize> = HashSet::new();
     let mut resident = false;
     let mut resident_n: u32 = 0;
-    // Shallow/home: harvest every bout. Iterate-heavy: amortize with multi-bout.
-    let mut bouts_per_dispatch: u32 = 8;
+    // Smoothness = continuous outputs: prefer harvest-every-bout so each ~10 ms
+    // workshift drains fresh finals (virtues §8 / emergent cadence). Escalate to
+    // multi-bout only when the wave is iterate-heavy *and* this shift already
+    // published some points (never starve a shift of visible completions).
+    let mut bouts_per_dispatch: u32 = 1;
+    let mut points_published_this_shift: u32 = 0;
 
     while context.time_workshift_started.elapsed().as_millis() < 10 {
         // Refill host WIP list; only re-upload when residency breaks.
@@ -261,10 +265,11 @@ pub fn workshift_naive_gpu(
 
         let gpu_final_n = finishes.iter().filter(|f| (f.flags & 6) != 0).count();
 
-        // Prefer slightly larger shallow waves so harvest isn't every single bout
-        // (smoother cadence); still flush often when finals dominate.
+        // Adapt bout count after harvest. Keep bout=1 until this shift has
+        // emitted points (≤10 ms continuous output). Then amortize only if
+        // finals are sparse (iterate-heavy).
         let wip_n = wip.len().max(1);
-        if gpu_final_n * 4 >= wip_n {
+        if points_published_this_shift == 0 || gpu_final_n * 4 >= wip_n {
             bouts_per_dispatch = 1;
         } else if gpu_final_n * 16 < wip_n {
             bouts_per_dispatch = 16;
@@ -341,6 +346,7 @@ pub fn workshift_naive_gpu(
                     context.record_hud_completion_batch(1);
                     skip.remove(&index);
                     published_indices.insert(index);
+                    points_published_this_shift += 1;
                 }
                 PushOutcome::BufferFull => {
                     skip.remove(&index);

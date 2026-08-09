@@ -4675,6 +4675,63 @@ fn steady_state_workgroup_ips_delta_reaches_hud_rate_counter() {
     });
 }
 
+/// Smoothness: continuous outputs on home naive-GPU — after the first completion,
+/// no more than 5 consecutive shifts without a drained completion while fill is
+/// still progressing (≤50 ms at ~10 ms/shift). r[verify cz.craft.emergent-cadence+1]
+#[test]
+fn steady_state_naive_gpu_home_continuous_outputs() {
+    run_big(|| {
+        let _gpu_guard = super::naive_gpu::lock_gpu_tests();
+        let Some(mut gpu) = super::naive_gpu::NaiveGpuContext::try_new() else {
+            eprintln!("steady_state_naive_gpu_home_continuous_outputs: no GPU — skipped");
+            return;
+        };
+        let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
+        let mut shifts = 0u32;
+        let mut seen_first_point = false;
+        let mut gap = 0u32;
+        let mut max_gap = 0u32;
+        let mut shifts_with_points = 0u32;
+        while shifts < 500 {
+            workshift(0, 0, 0, 0, &mut ctx, Some(&mut gpu));
+            let completed = work_update(&mut ctx);
+            let n = completed.len() as u32;
+            shifts += 1;
+            if n > 0 {
+                seen_first_point = true;
+                shifts_with_points += 1;
+                max_gap = max_gap.max(gap);
+                gap = 0;
+            } else if seen_first_point {
+                gap += 1;
+                max_gap = max_gap.max(gap);
+                assert!(
+                    gap <= 5,
+                    "home GPU quiet for {gap} shifts (>50 ms) after first completion; shift={shifts} fill={:.2}%",
+                    ctx.percent_completed
+                );
+            }
+            let delivered = ctx.points.iter().filter(|p| p.delivered).count();
+            if delivered as f64 / ctx.points.len().max(1) as f64 >= 0.90 {
+                break;
+            }
+        }
+        assert!(
+            seen_first_point,
+            "home GPU produced no completions in {shifts} shifts"
+        );
+        let fill = ctx.points.iter().filter(|p| p.delivered).count() as f64
+            / ctx.points.len().max(1) as f64;
+        assert!(
+            fill >= 0.90,
+            "home continuous-output fill too low: {fill:.4} shifts={shifts}"
+        );
+        eprintln!(
+            "steady_state home continuous outputs: shifts={shifts} with_points={shifts_with_points} max_gap={max_gap} fill={fill:.4}"
+        );
+    });
+}
+
 /// Iterate-only telemetry must still reach the HUD: a shift can burn iterations
 /// with zero completions (deep interior) and must not drop `iterations_delta`.
 // r[verify cz.depth.gear-hud+2]

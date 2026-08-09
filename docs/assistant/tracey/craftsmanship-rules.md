@@ -438,18 +438,26 @@ The 10ms constant itself stays code-reviewed (timing is not meaningfully unit-te
 r[cz.craft.emergent-cadence+1]
 
 **Normative summary.** Publish cadence is emergent: every non-empty shift sends; there is no
-publish timer or gate.
+publish timer or gate. Smoothness means **continuous outputs**: while unfinished and seats
+are finishable, each ~10 ms workshift should drain fresh completions (viewer freshness);
+gaps of visible new points must stay within about one 50 ms pulse. Iterate-heavy interior
+may burn iterations without finals — that is not a cadence failure.
 
-**Code site.** `screen_worker/mod.rs` — post-shift drain-and-send, every shift.
+**Code site.** `screen_worker/mod.rs` — post-shift drain-and-send, every shift;
+`naive_gpu/mod.rs` — harvest-every-bout until the shift has published points, then optional
+multi-bout amortize only when finals are sparse.
 
 **Acceptance criteria.**
 - [ ] While incomplete, publishes track workrate with no fixed interval; when complete,
   publishing goes idle (no empty publishes).
 - Worker-layer never-stall: unfinished frames must show progress every workshift
   (`total_iterations_today` / seat advance / completions).
+- Home/shallow GPU fill: after the first completion, ≤5 consecutive shifts without a
+  completion while fill is still progressing (≤50 ms at 10 ms/shift).
 
-**Test.** Never-stall suite in craftsmanship_tests.rs (same three tests as wall-clock-law).
-Actor send loop idle/complete still by code review + e2e.
+**Test.** Never-stall suite in craftsmanship_tests.rs (same three tests as wall-clock-law);
+`steady_state_naive_gpu_home_continuous_outputs`. Actor send loop idle/complete still by
+code review + e2e.
 
 r[cz.craft.load-proportional-ignorance+1]
 

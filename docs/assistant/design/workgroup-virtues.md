@@ -283,6 +283,8 @@ Look at the timing architecture from the outside:
 
 The architecture's rule — "send hoarded work on transform, or every 50ms while incomplete; always have new work at that interval" — is satisfied **without a scheduler**: the shift loop naturally produces completions several times per 50ms window under any non-trivial frame, and the natural remap-on-frame-info covers the transform case. The cadence is an emergent property of the shift clock plus per-shift drain. There is no timer to tune, no "publish every N" constant to get wrong, no burst-then-starve behavior. The design found the cadence inside the work rhythm rather than bolting it on.
 
+**Smoothness (developer, 2026-08-09):** continuous outputs — get finished points out at the full ~10 ms workshift rate when overhead allows, and never leave a finishable frame quiet for longer than about one 50 ms pulse. Multi-bout GPU amortize is allowed only after a shift has already published some finals (or when the wave is clearly iterate-heavy).
+
 And the worker's idle path — `percent_completed < 100` keeps it chaining shifts with no sleep; complete means it sleeps on the 50ms/command wait — means the machine is exactly as busy as the screen is unfinished. Load is proportional to ignorance. There is no polling, no spin, no wasted cycles on a finished frame.
 
 ---
