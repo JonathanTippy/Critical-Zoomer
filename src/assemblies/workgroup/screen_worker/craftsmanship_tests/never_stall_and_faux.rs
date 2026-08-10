@@ -42,10 +42,9 @@ fn unfinished_synthetic_workshift_never_stalls() {
 
         let mut zero_streak = 0u32;
         const MAX_ZERO: u32 = 2;
-        // Keep the shift count modest: release builds can burn through the
-        // near-cusp SLOW fixture's period-detection budget if attention holds
-        // one seat for too many 10ms shifts.
-        for _ in 0..12 {
+        let mut shifts = 0u32;
+        while ctx.points.iter().skip(3).any(|p| !p.delivered) {
+            check_test_budget();
             if !frame_unfinished(&ctx) {
                 break;
             }
@@ -62,7 +61,6 @@ fn unfinished_synthetic_workshift_never_stalls() {
                 "zero-progress streak={zero_streak} on unfinished synthetic frame"
             );
             let _ = work_update(&mut ctx);
-            // Keep unfinished seats visible to the rotation after drains/rotates.
             if ctx.out_queue.is_empty() {
                 for y in 0..ctx.res.1 as i32 {
                     for x in 0..ctx.res.0 as i32 {
@@ -72,6 +70,12 @@ fn unfinished_synthetic_workshift_never_stalls() {
                         }
                     }
                 }
+            }
+            shifts += 1;
+            // SLOW seats never finish in a test shift; stop after ESC completes and
+            // several never-stall shifts on the remaining interior fixture.
+            if ctx.points[2].delivered && shifts >= 8 {
+                break;
             }
         }
         assert!(
@@ -88,8 +92,8 @@ fn unfinished_home_workshift_never_stalls() {
         let mut ctx = from_stencil(home_frame(), None).expect("home");
         let mut zero_streak = 0u32;
         const MAX_ZERO: u32 = 2;
-        for _ in 0..8 {
-            assert!(frame_unfinished(&ctx), "home must still be unfinished early");
+        while frame_unfinished(&ctx) {
+            check_test_budget();
             let before = seat_iter_sum(&ctx);
             let before_done = ctx.completed_points.len;
             perturb_workshift(0, 0, 0, 0, &mut ctx);
@@ -115,7 +119,8 @@ fn reference_install_mid_fill_keeps_shift_progress() {
         let _gpu_guard = super::naive_gpu::lock_gpu_tests();
         let frame = home_frame();
         let mut ctx = from_stencil(frame.clone(), None).expect("home");
-        for _ in 0..3 {
+        while ctx.percent_completed < 5.0 {
+            check_test_budget();
             perturb_workshift(0, 0, 0, 0, &mut ctx);
             let _ = work_update(&mut ctx);
         }
@@ -130,10 +135,8 @@ fn reference_install_mid_fill_keeps_shift_progress() {
 
         let mut zero_streak = 0u32;
         const MAX_ZERO: u32 = 2;
-        for _ in 0..8 {
-            if !frame_unfinished(&ctx) {
-                break;
-            }
+        while frame_unfinished(&ctx) {
+            check_test_budget();
             let before = seat_iter_sum(&ctx);
             let before_done = ctx.completed_points.len;
             perturb_workshift(0, 0, 0, 0, &mut ctx);
@@ -142,10 +145,10 @@ fn reference_install_mid_fill_keeps_shift_progress() {
             } else {
                 zero_streak += 1;
             }
-        assert!(
-            zero_streak < MAX_ZERO,
-            "reference install mid-fill created zero-progress window (streak={zero_streak})"
-        );
+            assert!(
+                zero_streak < MAX_ZERO,
+                "reference install mid-fill created zero-progress window (streak={zero_streak})"
+            );
             let _ = work_update(&mut ctx);
         }
     });
@@ -170,11 +173,9 @@ fn frame_at_center(re: f64, im: f64, pot: i32, res: (u32, u32)) -> (ObjectivePos
     (ul_for_center(f64_to_intexp(re), f64_to_intexp(im), pot, res), res)
 }
 
-fn fill_until<K: SeatKernel<FloatExp>>(ctx: &mut WorkContext<FloatExp>, kernel: &K, shifts: u32) {
-    for _ in 0..shifts {
-        if ctx.points.iter().all(|p| p.delivered) {
-            break;
-        }
+fn fill_until_delivered<K: SeatKernel<FloatExp>>(ctx: &mut WorkContext<FloatExp>, kernel: &K) {
+    while !ctx.points.iter().all(|p| p.delivered) {
+        check_test_budget();
         ctx.attention_index = 0;
         workshift_with_kernel(0, 0, 0, 0, ctx, kernel);
         let _ = work_update(ctx);
@@ -293,8 +294,8 @@ fn faux_user_zoom_to_hard_minibrot_matches_direct() {
         );
 
         let mut direct = from_stencil(hard.clone(), None).expect("hard direct");
-        fill_until(&mut direct, &DirectKernel, 40);
-        fill_until(&mut clean, &FloatExpPerturbationKernel, 40);
+        fill_until_delivered(&mut direct, &DirectKernel);
+        fill_until_delivered(&mut clean, &FloatExpPerturbationKernel);
         let (disagree, compared) = disagree_rate(&direct, &clean);
         assert!(
             compared > 0,
@@ -328,7 +329,7 @@ fn faux_user_zoom_to_hard_minibrot_matches_direct() {
         let mut blob = from_stencil(hard.clone(), None).expect("blob");
         blob.latest_reference = Some(short_covering);
         activate_reference_floor(&mut blob);
-        fill_until(&mut blob, &FloatExpPerturbationKernel, 40);
+        fill_until_delivered(&mut blob, &FloatExpPerturbationKernel);
         let (blob_disagree, blob_compared) = disagree_rate(&direct, &blob);
         assert!(
             blob_compared > 0 && blob_disagree * 100 / blob_compared.max(1) >= 5,
@@ -337,7 +338,7 @@ fn faux_user_zoom_to_hard_minibrot_matches_direct() {
 
         // Dead-reckon control: fresh shell with no sticky prior (goto semantics).
         let mut dead = from_stencil(hard, None).expect("dead reckon");
-        fill_until(&mut dead, &FloatExpPerturbationKernel, 40);
+        fill_until_delivered(&mut dead, &FloatExpPerturbationKernel);
         let (dead_disagree, dead_compared) = disagree_rate(&direct, &dead);
         assert!(
             dead_compared > 0 && dead_disagree * 100 / dead_compared.max(1) < 5,
@@ -353,10 +354,8 @@ fn unfinished_frame_never_zero_pps_streak() {
     run_big(|| {
         let mut ctx = from_stencil(home_frame(), None).expect("home");
         let mut zero_pps = 0u32;
-        for _ in 0..12 {
-            if !frame_unfinished(&ctx) {
-                break;
-            }
+        while frame_unfinished(&ctx) {
+            check_test_budget();
             perturb_workshift(0, 0, 0, 0, &mut ctx);
             let ppsish = ctx.total_points_today + ctx.total_iterations_today;
             if ppsish == 0 {
@@ -552,10 +551,8 @@ fn deep_view_gear_floor_stays_scaled_after_fill() {
             ComputeGear::ScaledF64,
             "deep relative view_gear floor must be ScaledF64, not F64"
         );
-        for _ in 0..80 {
-            if ctx.points.iter().all(|p| p.delivered) {
-                break;
-            }
+        while !ctx.points.iter().all(|p| p.delivered) {
+            check_test_budget();
             workshift(16_000_000, 2, 4, 150, &mut ctx, None);
             while ctx.completed_points.try_pop().is_some() {}
         }
@@ -628,10 +625,12 @@ fn pin_exterior_not_marked_in_at_zoom_52() {
             "relative shell must bootstrap a reference (escaped ok)"
         );
         // Production path: bounded workshifts, not a single uncapped bout.
-        for _ in 0..8_000 {
-            if ctx.points.iter().all(|p| p.delivered || p.escapes || p.repeats) {
-                break;
-            }
+        while !ctx
+            .points
+            .iter()
+            .all(|p| p.delivered || p.escapes || p.repeats)
+        {
+            check_test_budget();
             workshift(16_000_000, 2, 4, 150, &mut ctx, None);
             while ctx.completed_points.try_pop().is_some() {}
         }
@@ -746,10 +745,12 @@ fn pin_not_blocky_delta_c_at_zoom_49() {
             "generator delta_c must stay per-seat ({} unique of {seats})",
             delta_c_bits.len()
         );
-        for _ in 0..8_000 {
-            if ctx.points.iter().all(|p| p.delivered || p.escapes || p.repeats) {
-                break;
-            }
+        while !ctx
+            .points
+            .iter()
+            .all(|p| p.delivered || p.escapes || p.repeats)
+        {
+            check_test_budget();
             workshift(16_000_000, 2, 4, 150, &mut ctx, None);
             while ctx.completed_points.try_pop().is_some() {}
         }
@@ -1203,10 +1204,8 @@ fn home_reference_arrival_reopens_stale_deliveries() {
         let req = select_reference_request::<FloatExp>(None, &frame);
         let mut ctx = from_stencil(frame, None).expect("home");
         // Finish a slice on the zero-orbit floor before reference publishes.
-        for _ in 0..2000 {
-            if ctx.percent_completed >= 35.0 {
-                break;
-            }
+        while ctx.percent_completed < 35.0 {
+            check_test_budget();
             perturb_workshift(16_000_000, 2, 4, 150, &mut ctx);
             let _ = work_update(&mut ctx);
         }
@@ -1224,10 +1223,8 @@ fn home_reference_arrival_reopens_stale_deliveries() {
             delivered_after < delivered_before,
             "reference gen-1 must reopen stale zero-orbit deliveries"
         );
-        for _ in 0..8000 {
-            if ctx.points.iter().all(|p| p.delivered) {
-                break;
-            }
+        while !ctx.points.iter().all(|p| p.delivered) {
+            check_test_budget();
             perturb_workshift(16_000_000, 2, 4, 150, &mut ctx);
             let _ = work_update(&mut ctx);
         }
@@ -1251,10 +1248,8 @@ fn home_worker_no_vertical_repeat_columns() {
             c: req.c,
             generation: 1,
         }));
-        for _ in 0..10000 {
-            if ctx.points.iter().all(|p| p.delivered) {
-                break;
-            }
+        while !ctx.points.iter().all(|p| p.delivered) {
+            check_test_budget();
             ctx.attention_index = 0;
             perturb_workshift(0, 0, 0, 0, &mut ctx);
             work_update(&mut ctx);
@@ -1304,10 +1299,8 @@ fn home_zero_orbit_floor_pipeline_no_vertical_black_columns() {
         let frame = home_frame();
         let mut ctx = from_stencil(frame.clone(), None).expect("home");
         // No published reference — production zero-orbit floor only.
-        for _ in 0..5000 {
-            if ctx.percent_completed >= 100.0 {
-                break;
-            }
+        while ctx.percent_completed < 100.0 {
+            check_test_budget();
             perturb_workshift(16_000_000, 2, 4, 150, &mut ctx);
             let _ = work_update(&mut ctx);
         }
@@ -1500,10 +1493,8 @@ fn home_production_budget_pipeline_no_vertical_black_columns() {
         const ITER_COST: u32 = 2;
         const BOUT_COST: u32 = 4;
         const POINT_COST: u32 = 150;
-        for _ in 0..5000 {
-            if ctx.percent_completed >= 100.0 {
-                break;
-            }
+        while ctx.percent_completed < 100.0 {
+            check_test_budget();
             perturb_workshift(TOKEN_BUDGET, ITER_COST, BOUT_COST, POINT_COST, &mut ctx);
             let _ = work_update(&mut ctx);
         }
@@ -1551,10 +1542,8 @@ fn home_incremental_collector_matches_worker_delivery() {
         }));
         let mut collector_results =
             vec![CompletedPoint::Dummy {}; (ctx.res.0 * ctx.res.1) as usize];
-        for _ in 0..5000 {
-            if ctx.percent_completed >= 100.0 {
-                break;
-            }
+        while ctx.percent_completed < 100.0 {
+            check_test_budget();
             perturb_workshift(16_000_000, 2, 4, 150, &mut ctx);
             for (point, index) in work_update(&mut ctx) {
                 collector_results[index] = point;
@@ -1610,10 +1599,8 @@ fn home_pipeline_with_live_series_no_vertical_black_columns() {
             c: req.c,
             generation: 1,
         }));
-        for _ in 0..5000 {
-            if ctx.percent_completed >= 100.0 {
-                break;
-            }
+        while ctx.percent_completed < 100.0 {
+            check_test_budget();
             perturb_workshift(16_000_000, 2, 4, 150, &mut ctx);
             let _ = work_update(&mut ctx);
         }
@@ -1772,10 +1759,8 @@ fn home_pipeline_no_vertical_black_columns() {
             c: req.c,
             generation: 1,
         }));
-        for _ in 0..10000 {
-            if ctx.points.iter().all(|p| p.delivered) {
-                break;
-            }
+        while !ctx.points.iter().all(|p| p.delivered) {
+            check_test_budget();
             ctx.attention_index = 0;
             perturb_workshift(0, 0, 0, 0, &mut ctx);
             work_update(&mut ctx);

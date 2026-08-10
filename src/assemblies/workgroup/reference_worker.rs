@@ -362,18 +362,25 @@ mod tests {
     fn selection_uses_deepest_completed_interior_then_center_fallback() {
         let f = frame();
         let mut context = from_stencil::<f64>(f.clone(), None).unwrap();
-        context.points[1].delivered = true;
-        context.points[1].repeats = true;
-        context.points[1].iterations = 12;
-        context.points[7].delivered = true;
-        context.points[7].repeats = true;
-        context.points[7].iterations = 80;
+        let shallow = (1u32, 1u32);
+        let deep = (30u32, 40u32);
+        let shallow_i = (shallow.1 * TEST_SCREEN_RES.0 + shallow.0) as usize;
+        let deep_i = (deep.1 * TEST_SCREEN_RES.0 + deep.0) as usize;
+        context.points[shallow_i].delivered = true;
+        context.points[shallow_i].repeats = true;
+        context.points[shallow_i].iterations = 12;
+        context.points[deep_i].delivered = true;
+        context.points[deep_i].repeats = true;
+        context.points[deep_i].iterations = 80;
 
         let selected = select_reference_request(Some((&context, &f)), &f);
-        assert_eq!(selected.c, objective_c(&f, 3, 1));
+        assert_eq!(selected.c, objective_c(&f, deep.0, deep.1));
 
         let fallback = select_reference_request::<f64>(None, &f);
-        assert_eq!(fallback.c, objective_c(&f, 2, 1));
+        assert_eq!(
+            fallback.c,
+            objective_c(&f, TEST_SCREEN_RES.0 / 2, TEST_SCREEN_RES.1 / 2)
+        );
     }
 
     #[test]
@@ -381,9 +388,11 @@ mod tests {
     fn sticky_selection_drops_interior_outside_new_view() {
         let old = frame();
         let mut context = from_stencil::<f64>(old.clone(), None).unwrap();
-        context.points[7].delivered = true;
-        context.points[7].repeats = true;
-        context.points[7].iterations = 80;
+        let deep = (30u32, 40u32);
+        let deep_i = (deep.1 * TEST_SCREEN_RES.0 + deep.0) as usize;
+        context.points[deep_i].delivered = true;
+        context.points[deep_i].repeats = true;
+        context.points[deep_i].iterations = 80;
         // Zoom hard into a distant minibrot-like corner that does not contain
         // the previous deepest interior seat.
         let new = (
@@ -393,7 +402,7 @@ mod tests {
             },
             old.1,
         );
-        let old_deep = objective_c(&old, 3, 1);
+        let old_deep = objective_c(&old, deep.0, deep.1);
         assert!(
             !reference_c_covers_frame(&old_deep, &new),
             "fixture must place old deep c outside the new view"

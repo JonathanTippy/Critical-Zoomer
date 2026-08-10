@@ -22,7 +22,8 @@ fn steady_state_screen_worker_home_ips_cpu_direct() {
         let mut shifts = 0u32;
         let mut iters = 0u64;
         let mut deltas_nonzero = 0u32;
-        while !ctx.points.iter().all(|p| p.delivered) && shifts < 500 {
+        while !ctx.points.iter().all(|p| p.delivered) {
+            check_test_budget();
             workshift_with_kernel(0, 0, 0, 0, &mut ctx, &DirectKernel);
             let d = shift_iterations_delta(&ctx);
             iters += d;
@@ -71,7 +72,8 @@ fn steady_state_screen_worker_home_ips_naive_gpu_path() {
         let mut deltas_nonzero = 0u32;
         let mut used_gpu = false;
         let mut cpu_fallback_shifts = 0u32;
-        while !ctx.points.iter().all(|p| p.delivered) && shifts < 4000 {
+        while !ctx.points.iter().all(|p| p.delivered) {
+            check_test_budget();
             let unfinished = ctx.points.iter().any(|p| !p.delivered);
             workshift(0, 0, 0, 0, &mut ctx, gpu.as_mut());
             if ctx.last_used_naive_gpu {
@@ -86,12 +88,6 @@ fn steady_state_screen_worker_home_ips_naive_gpu_path() {
             }
             let _ = work_update(&mut ctx);
             shifts += 1;
-            if shifts == 50 {
-                let delivered = ctx.points.iter().filter(|p| p.delivered).count();
-                if delivered < ctx.points.len() / 100 {
-                    break;
-                }
-            }
         }
         let secs = t0.elapsed().as_secs_f64().max(1e-9);
         let ips = iters as f64 / secs;
@@ -136,7 +132,9 @@ fn steady_state_naive_gpu_home_neighbor_queues_grow() {
         let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
         let q0 = ctx.out_queue.len() + ctx.in_queue.len() + ctx.edge_queue.len();
         let mut saw_final = false;
-        for _ in 0..64 {
+        let mut q = q0;
+        while !(saw_final && q > q0) && !ctx.points.iter().all(|p| p.delivered) {
+            check_test_budget();
             workshift(0, 0, 0, 0, &mut ctx, Some(&mut gpu));
             assert!(
                 ctx.last_used_naive_gpu,
@@ -146,7 +144,7 @@ fn steady_state_naive_gpu_home_neighbor_queues_grow() {
             if !completed.is_empty() {
                 saw_final = true;
             }
-            let q = ctx.out_queue.len() + ctx.in_queue.len() + ctx.edge_queue.len();
+            q = ctx.out_queue.len() + ctx.in_queue.len() + ctx.edge_queue.len();
             if saw_final && q > q0 {
                 eprintln!(
                     "steady_state neighbor queues grew: out={} in={} edge={}",
@@ -156,11 +154,7 @@ fn steady_state_naive_gpu_home_neighbor_queues_grow() {
                 );
                 return;
             }
-            if ctx.points.iter().filter(|p| p.delivered).count() > ctx.points.len() / 10 {
-                break;
-            }
         }
-        let q = ctx.out_queue.len() + ctx.in_queue.len() + ctx.edge_queue.len();
         assert!(
             saw_final,
             "expected at least one GPU Final on home within budget"
@@ -188,7 +182,8 @@ fn steady_state_naive_gpu_home_fills_without_cpu_mop() {
         let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
         let mut shifts = 0u32;
         let mut cpu_while_unfinished = 0u32;
-        while !ctx.points.iter().all(|p| p.delivered) && shifts < 4000 {
+        while !ctx.points.iter().all(|p| p.delivered) {
+            check_test_budget();
             let unfinished = ctx.points.iter().any(|p| !p.delivered);
             workshift(0, 0, 0, 0, &mut ctx, Some(&mut gpu));
             if unfinished && !ctx.last_used_naive_gpu {
@@ -226,7 +221,8 @@ fn steady_state_naive_gpu_home_no_dummy_holes() {
             vec![CompletedPoint::Dummy {}; (ctx.res.0 * ctx.res.1) as usize];
         let mut shifts = 0u32;
         let mut cpu_while_unfinished = 0u32;
-        while !ctx.points.iter().all(|p| p.delivered) && shifts < 4000 {
+        while !ctx.points.iter().all(|p| p.delivered) {
+            check_test_budget();
             let unfinished = ctx.points.iter().any(|p| !p.delivered);
             workshift(0, 0, 0, 0, &mut ctx, Some(&mut gpu));
             if unfinished && !ctx.last_used_naive_gpu {
@@ -276,7 +272,8 @@ fn steady_state_workgroup_ips_delta_reaches_hud_rate_counter() {
         let mut shifts_with_points = 0u32;
         let mut shifts = 0u32;
         let t0 = Instant::now();
-        while !ctx.points.iter().all(|p| p.delivered) && shifts < 200 {
+        while !ctx.points.iter().all(|p| p.delivered) {
+            check_test_budget();
             workshift_with_kernel(0, 0, 0, 0, &mut ctx, &DirectKernel);
             let delta = shift_iterations_delta(&ctx);
             let completed = work_update(&mut ctx);
@@ -365,7 +362,9 @@ fn steady_state_naive_gpu_home_continuous_outputs() {
         let mut gap = 0u32;
         let mut max_gap = 0u32;
         let mut shifts_with_points = 0u32;
-        while shifts < 500 {
+        let mut fill = 0.0f64;
+        while fill < 0.90 {
+            check_test_budget();
             workshift(0, 0, 0, 0, &mut ctx, Some(&mut gpu));
             let completed = work_update(&mut ctx);
             let n = completed.len() as u32;
@@ -384,10 +383,8 @@ fn steady_state_naive_gpu_home_continuous_outputs() {
                     ctx.percent_completed
                 );
             }
-            let delivered = ctx.points.iter().filter(|p| p.delivered).count();
-            if delivered as f64 / ctx.points.len().max(1) as f64 >= 0.90 {
-                break;
-            }
+            fill = ctx.points.iter().filter(|p| p.delivered).count() as f64
+                / ctx.points.len().max(1) as f64;
         }
         assert!(
             seen_first_point,
@@ -442,15 +439,15 @@ fn steady_state_home_pps_gpu_vs_cpu_ratio() {
             let mut shifts = 0u32;
             let mut points = 0u64;
             // Same bulk window as GPU (90%) — fair PPS rate, not endgame mop tax.
-            while shifts < 2000 {
+            let mut fill = 0.0f64;
+            while fill < 0.90 {
+                check_test_budget();
                 workshift_with_kernel(0, 0, 0, 0, &mut ctx, &DirectKernel);
                 let completed = work_update(&mut ctx);
                 points += completed.len() as u64;
                 shifts += 1;
-                let delivered = ctx.points.iter().filter(|p| p.delivered).count();
-                if delivered as f64 / ctx.points.len().max(1) as f64 >= 0.90 {
-                    break;
-                }
+                fill = ctx.points.iter().filter(|p| p.delivered).count() as f64
+                    / ctx.points.len().max(1) as f64;
             }
             let secs = t0.elapsed().as_secs_f64().max(1e-9);
             let fill = points as f64 / ctx.points.len().max(1) as f64;
@@ -479,15 +476,15 @@ fn steady_state_home_pps_gpu_vs_cpu_ratio() {
             let mut shifts = 0u32;
             let mut points = 0u64;
             // Bulk GPU fill to 90% for a PPS rate sample (full close is other pins).
-            while shifts < 2000 {
+            let mut fill = 0.0f64;
+            while fill < 0.90 {
+                check_test_budget();
                 workshift(0, 0, 0, 0, &mut ctx, Some(gpu));
                 let completed = work_update(&mut ctx);
                 points += completed.len() as u64;
                 shifts += 1;
-                let delivered = ctx.points.iter().filter(|p| p.delivered).count();
-                if delivered as f64 / ctx.points.len().max(1) as f64 >= 0.90 {
-                    break;
-                }
+                fill = ctx.points.iter().filter(|p| p.delivered).count() as f64
+                    / ctx.points.len().max(1) as f64;
             }
             let secs = t0.elapsed().as_secs_f64().max(1e-9);
             let fill = points as f64 / ctx.points.len().max(1) as f64;
@@ -669,11 +666,8 @@ fn steady_state_naive_gpu_deep_cusp_never_stalls() {
         let mut max_center_iters = 0u32;
         let mut shifts = 0u32;
         let mut cumulative_iters = 0u64;
-        while shifts < 80 {
-            let unfinished = ctx.points.iter().any(|p| !p.delivered);
-            if !unfinished {
-                break;
-            }
+        while ctx.points.iter().any(|p| !p.delivered) {
+            check_test_budget();
             workshift(0, 0, 0, 0, &mut ctx, Some(&mut gpu));
             let completed = work_update(&mut ctx);
             cumulative_iters += ctx.total_iterations_today as u64;
@@ -723,7 +717,8 @@ fn home_workshift_stays_on_direct_kernel_without_ref() {
         let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
         assert!(!ctx.coords_are_relative);
         assert!(ctx.latest_reference.is_none());
-        for _ in 0..5 {
+        while !ctx.points.iter().all(|p| p.delivered) {
+            check_test_budget();
             workshift(0, 0, 0, 0, &mut ctx, None);
             assert!(
                 !ctx.perturbation_kernel_required(),
@@ -751,7 +746,8 @@ fn home_workshift_first_publish_within_20pct_of_direct_kernel() {
             let t0 = Instant::now();
             let mut shifts = 0u32;
             let mut got = 0usize;
-            while got == 0 && shifts < 50_000 {
+            while got == 0 {
+                check_test_budget();
                 if use_workshift {
                     workshift(0, 0, 0, 0, &mut ctx, None);
                 } else {
@@ -797,7 +793,8 @@ fn home_workshift_full_frame_within_20pct_of_direct_kernel() {
             let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
             let t0 = Instant::now();
             let mut shifts = 0u32;
-            while !ctx.points.iter().all(|p| p.delivered) && shifts < 500 {
+            while !ctx.points.iter().all(|p| p.delivered) {
+                check_test_budget();
                 if use_workshift {
                     workshift(0, 0, 0, 0, &mut ctx, None);
                 } else {
@@ -868,7 +865,8 @@ fn naive_f64_direct_kernel_home_preserves_v009_iteration_budget() {
         let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
         let mut shifts = 0u32;
         let mut iters = 0u64;
-        while !ctx.points.iter().all(|p| p.delivered) && shifts < 500 {
+        while !ctx.points.iter().all(|p| p.delivered) {
+            check_test_budget();
             workshift_with_kernel(0, 0, 0, 0, &mut ctx, &DirectKernel);
             iters += shift_iterations_delta(&ctx);
             let _ = work_update(&mut ctx);

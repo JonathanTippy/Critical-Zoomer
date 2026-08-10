@@ -1,7 +1,33 @@
+/// Hard wall budget for every craftsmanship test. Shift caps are banned; if the
+/// code under test is wrong a fill may never finish — this is the only halt.
+const TEST_WALL_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
+
+thread_local! {
+    static TEST_BUDGET_START: std::cell::Cell<Option<std::time::Instant>> =
+        std::cell::Cell::new(None);
+}
+
+fn check_test_budget() {
+    TEST_BUDGET_START.with(|c| {
+        let Some(start) = c.get() else {
+            return;
+        };
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed <= TEST_WALL_BUDGET,
+            "test exceeded 1s wall budget ({elapsed:?})"
+        );
+    });
+}
+
 fn run_big(f: impl FnOnce() + Send + 'static) {
     std::thread::Builder::new()
         .stack_size(64 << 20)
-        .spawn(f)
+        .spawn(move || {
+            TEST_BUDGET_START.with(|c| c.set(Some(std::time::Instant::now())));
+            f();
+            check_test_budget();
+        })
         .unwrap()
         .join()
         .unwrap();
@@ -589,14 +615,17 @@ fn workshift_always_terminates() {
         let mut ctx = make_context(0);
         let t = Instant::now();
         shift(&mut ctx);
-        assert!(t.elapsed().as_secs() < 5);
+        assert!(t.elapsed() <= TEST_WALL_BUDGET);
 
         // queues full of slow work: bounded by the clock
         let mut ctx = make_context(2);
         ctx.out_queue.push_back(((3, 0), 0));
         let t = Instant::now();
         shift(&mut ctx);
-        assert!(t.elapsed().as_secs() < 5, "the wall clock, not the workload, bounds a shift");
+        assert!(
+            t.elapsed() <= TEST_WALL_BUDGET,
+            "the wall clock, not the workload, bounds a shift"
+        );
         assert_eq!(ctx.workshifts, 3);
     });
 }

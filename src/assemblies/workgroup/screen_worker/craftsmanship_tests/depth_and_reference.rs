@@ -174,7 +174,7 @@ fn reference_floor_trials_only_when_genuinely_stuck() {
             "direct_fast_enough",
             "fast direct fill must not trial perturbation"
         );
-        ctx.hud_points_window = 2500;
+        ctx.hud_points_window = (ctx.screen_point_count() / 6) as u32;
         ctx.hud_window_started =
             std::time::Instant::now() - std::time::Duration::from_secs(1);
         assert_eq!(
@@ -298,6 +298,7 @@ fn reference_complete_when_glitch_seats_already_delivered() {
 
 fn fill_until_complete_perturb(ctx: &mut WorkContext<FloatExp>) {
     while ctx.percent_completed < 100.0 {
+        check_test_budget();
         perturb_workshift(16_000_000, 2, 4, 150, ctx);
         let _ = work_update(ctx);
     }
@@ -305,6 +306,7 @@ fn fill_until_complete_perturb(ctx: &mut WorkContext<FloatExp>) {
 
 fn fill_until_complete_direct(ctx: &mut WorkContext<FloatExp>) {
     while ctx.percent_completed < 100.0 {
+        check_test_budget();
         workshift_with_kernel(16_000_000, 2, 4, 150, ctx, &DirectKernel);
         let _ = work_update(ctx);
     }
@@ -351,18 +353,14 @@ fn home_workshift_with_reference_matches_direct() {
             c: req.c,
             generation: 1,
         }));
-        for _ in 0..10000 {
-            if direct.points.iter().all(|p| p.delivered) {
-                break;
-            }
+        while !direct.points.iter().all(|p| p.delivered) {
+            check_test_budget();
             direct.attention_index = 0;
             workshift_with_kernel(0, 0, 0, 0, &mut direct, &DirectKernel);
             work_update(&mut direct);
         }
-        for _ in 0..10000 {
-            if perturb.points.iter().all(|p| p.delivered) {
-                break;
-            }
+        while !perturb.points.iter().all(|p| p.delivered) {
+            check_test_budget();
             perturb.attention_index = 0;
             perturb_workshift(0, 0, 0, 0, &mut perturb);
             work_update(&mut perturb);
@@ -488,34 +486,20 @@ fn f64_gear_home_fills_without_per_seat_gear_scan() {
         let direct_start = Instant::now();
         let mut direct_shifts = 0u32;
         while !direct_ctx.points.iter().all(|p| p.delivered) {
+            check_test_budget();
             workshift_with_kernel(0, 0, 0, 0, &mut direct_ctx, &DirectKernel);
             while direct_ctx.completed_points.try_pop().is_some() {}
             direct_shifts += 1;
-            assert!(direct_start.elapsed().as_secs() < 8, "direct home fill stalled");
-            if direct_shifts > 5_000 {
-                panic!("direct home did not finish");
-            }
         }
 
         let mut ctx = from_stencil::<f64>(frame, None).expect("home f64");
         let start = Instant::now();
         let mut shifts = 0u32;
         while !ctx.points.iter().all(|p| p.delivered) {
+            check_test_budget();
             workshift(0, 0, 0, 0, &mut ctx, None);
             while ctx.completed_points.try_pop().is_some() {}
             shifts += 1;
-            assert!(
-                start.elapsed().as_secs() < 8,
-                "f64 home fill stalled: shifts={shifts} pct={:.1} gear={:?}",
-                ctx.percent_completed,
-                ctx.active_gear
-            );
-            if shifts > 5_000 {
-                panic!(
-                    "f64 home did not finish in 5000 shifts (pct={:.1})",
-                    ctx.percent_completed
-                );
-            }
         }
         if cfg!(debug_assertions) {
             assert!(
@@ -544,7 +528,6 @@ fn f64_gear_home_fills_without_per_seat_gear_scan() {
 // r[verify cz.depth.compute-gear+1]
 fn seahorse_pot_19_f64_promotes_scaled_f64_and_delivers() {
     use crate::delta_gear::ComputeGear;
-    use std::time::Instant;
     run_big(|| {
         let frame = frame_at_center(-0.743643887037151, 0.131825904205216, 19, TEST_SCREEN_RES);
         let req = select_reference_request::<FloatExp>(None, &frame);
@@ -566,22 +549,12 @@ fn seahorse_pot_19_f64_promotes_scaled_f64_and_delivers() {
             "deep view deltas must promote past plain f64 (dc_mag={dc_mag:.3e} gear={:?})",
             delta.gear
         );
-        let start = Instant::now();
         let mut shifts = 0u32;
         while ctx.points.iter().filter(|p| p.delivered).count() < 100 {
+            check_test_budget();
             workshift(16_000_000, 2, 4, 150, &mut ctx, None);
             while ctx.completed_points.try_pop().is_some() {}
             shifts += 1;
-            assert!(
-                shifts < 5_000,
-                "seahorse pot 19 stalled: delivered={} gear={:?}",
-                ctx.points.iter().filter(|p| p.delivered).count(),
-                ctx.active_gear
-            );
-            assert!(
-                start.elapsed().as_secs() < 30,
-                "seahorse pot 19 timed out"
-            );
         }
     });
 }
@@ -821,10 +794,8 @@ fn small_time_matches_direct_kernel_on_interior() {
         }
         DirectKernel.start_seat(&mut direct, (0, 0));
         PerturbationKernel.start_seat(&mut perturb, (0, 0));
-        for _ in 0..500 {
-            if direct.points[0].escapes || direct.points[0].repeats {
-                break;
-            }
+        while !(direct.points[0].escapes || direct.points[0].repeats) {
+            check_test_budget();
             DirectKernel.iterate_bout(
                 &mut direct.points[0],
                 None,
@@ -833,10 +804,8 @@ fn small_time_matches_direct_kernel_on_interior() {
                 BoutCap::new(256),
             );
         }
-        for _ in 0..500 {
-            if perturb.points[0].escapes || perturb.points[0].repeats {
-                break;
-            }
+        while !(perturb.points[0].escapes || perturb.points[0].repeats) {
+            check_test_budget();
             PerturbationKernel.iterate_bout(
                 &mut perturb.points[0],
                 perturb
