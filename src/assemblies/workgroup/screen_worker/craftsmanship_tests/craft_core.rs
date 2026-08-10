@@ -123,6 +123,7 @@ fn make_context(workshifts: u32) -> WorkContext<FloatExp> {
         pert_trial_cooldown: 0,
         generator_generation: 0,
         last_used_naive_gpu: false,
+        manual_gear: None,
     }
 }
 

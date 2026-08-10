@@ -49,6 +49,8 @@ pub struct WorkerState<T: Mandelbrotable> {
     , pending_reference: Option<std::sync::Arc<PublishedReference>>
     // Optional Naive GPU compute island; None → CPU DirectKernel for naive.
     , naive_gpu: Option<naive_gpu::NaiveGpuContext>
+    // Latest debug manual-gear override from settings (`None` = auto policy).
+    , manual_gear: Option<crate::assemblies::structs::KernelMode>
 }
 
 /// The single live render target: a work context and the frame_info it was
@@ -91,12 +93,13 @@ pub async fn run(
     attention_in: SteadyRx<Option<(i32, i32)>>,
     reference_requests_out: SteadyTx<ReferenceRequest>,
     references_in: SteadyRx<PublishedReference>,
+    settings_in: SteadyRx<crate::settings::Settings>,
     state: SteadyState<WorkerState<f64>>,
 ) -> Result<(), Box<dyn Error>> {
     // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
         actor.into_spotlight(
-            [&commands_in, &attention_in, &references_in],
+            [&commands_in, &attention_in, &references_in, &settings_in],
             [&updates_out, &reference_requests_out],
         ),
         commands_in,
@@ -104,6 +107,7 @@ pub async fn run(
         attention_in,
         reference_requests_out,
         references_in,
+        settings_in,
         state,
     )
         .await
@@ -116,6 +120,7 @@ async fn internal_behavior<A: SteadyActor>(
     attention_in: SteadyRx<Option<(i32, i32)>>,
     reference_requests_out: SteadyTx<ReferenceRequest>,
     references_in: SteadyRx<PublishedReference>,
+    settings_in: SteadyRx<crate::settings::Settings>,
     state: SteadyState<WorkerState<f64>>,
 ) -> Result<(), Box<dyn Error>> {
 
@@ -126,6 +131,7 @@ async fn internal_behavior<A: SteadyActor>(
     let mut attention_in = attention_in.lock().await;
     let mut reference_requests_out = reference_requests_out.lock().await;
     let mut references_in = references_in.lock().await;
+    let mut settings_in = settings_in.lock().await;
 
     // Init wgpu off the async executor — pollster::block_on nested in async can fail.
     let mut naive_gpu = std::thread::Builder::new()
@@ -150,6 +156,7 @@ async fn internal_behavior<A: SteadyActor>(
         , total_workshifts: 0
         , pending_reference: None
         , naive_gpu: None
+        , manual_gear: None
     }).await;
     // Inject after lock so a pre-existing empty SteadyState cannot drop the device.
     if state.naive_gpu.is_none() {
@@ -173,6 +180,19 @@ async fn internal_behavior<A: SteadyActor>(
                 actor.wait_periodic(max_sleep),
                 actor.wait_avail(&mut commands_in, 1),
             );
+        }
+
+        if actor.avail_units(&mut settings_in) > 0 {
+            while actor.avail_units(&mut settings_in) > 1 {
+                let _ = actor.try_take(&mut settings_in).expect("internal error");
+            }
+            if let Some(settings) = actor.try_take(&mut settings_in) {
+                state.manual_gear = settings.manual_gear_override();
+                let gear = state.manual_gear;
+                if let Some(live) = &mut state.work_context {
+                    live.context.manual_gear = gear;
+                }
+            }
         }
 
         if actor.avail_units(&mut attention_in) > 0 {
@@ -273,6 +293,7 @@ async fn internal_behavior<A: SteadyActor>(
                     };
 
                     if let Some(mut new_ctx) = from_stencil(frame_info.clone(), previous_for_shell) {
+                        new_ctx.manual_gear = state.manual_gear;
                         if let Some(pending) = state.pending_reference.clone() {
                             // r[impl cz.depth.reference-coverage+1]
                             if crate::assemblies::workgroup::reference_worker::reference_c_covers_frame(
@@ -428,6 +449,9 @@ pub fn usable_reference<T: Mandelbrotable>(ctx: &WorkContext<T>) -> bool {
 
 pub fn classify_kernel_mode<T: Mandelbrotable>(ctx: &WorkContext<T>) -> crate::assemblies::structs::KernelMode {
     use crate::assemblies::structs::KernelMode;
+    if let Some(forced) = ctx.manual_gear {
+        return forced;
+    }
     if ctx.perturbation_kernel_required() {
         KernelMode::Pert
     } else if ctx.last_used_naive_gpu {

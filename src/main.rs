@@ -11,6 +11,7 @@ use rug::*;
 
 use std::thread;
 use assemblies::{headgroup, shadergroup, workgroup};
+use settings::Settings;
 
 pub mod actor {}
 pub mod settings;
@@ -119,7 +120,7 @@ fn build_graph(graph: &mut Graph) {
     let (
         window_tx_to_stuff
         , stuff_rx_from_window
-    ) = channel_builder.with_capacity(50).build_channel_bundle();
+    ) = channel_builder.with_capacity(50).build_channel_bundle::<Settings, 3>();
 
     //work controller to worker commands channel
 
@@ -182,7 +183,11 @@ fn build_graph(graph: &mut Graph) {
 
     //let mut responsive_team = graph.actor_troupe();
 
-    let (colorer_settings, escaper_settings) = (stuff_rx_from_window[0].clone(), stuff_rx_from_window[1].clone());
+    let (colorer_settings, escaper_settings, worker_settings) = (
+        stuff_rx_from_window[0].clone(),
+        stuff_rx_from_window[1].clone(),
+        stuff_rx_from_window[2].clone(),
+    );
 
     let state = new_state();
     actor_builder.with_name(NAME_WINDOW)
@@ -215,6 +220,7 @@ fn build_graph(graph: &mut Graph) {
                        worker_rx_from_window.clone(),
                        screen_worker_tx_to_reference_worker.clone(),
                        screen_worker_rx_from_reference_worker.clone(),
+                       worker_settings.clone(),
                        state.clone(),
                    ) //#!#//
                //, MemberOf(&mut responsive_team));

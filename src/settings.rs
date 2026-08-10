@@ -120,7 +120,19 @@ impl Settings {
         , estimate_extra_iterations: false
         , id_counter: 7
         , currently_selected_coloring_instruction: 0
+        // Debug: force compute kernel; host type stays auto from depth.
+        , manual_gear_enabled: false
+        , manual_gear: crate::assemblies::structs::KernelMode::Naive
     };
+
+    /// Resolved manual gear for the screen worker (`None` = automatic policy).
+    pub fn manual_gear_override(&self) -> Option<crate::assemblies::structs::KernelMode> {
+        if self.manual_gear_enabled {
+            Some(self.manual_gear)
+        } else {
+            None
+        }
+    }
 }
 
 pub const DEFAULT_SETTINGS_WINDOW_CONTEXT:SettingsWindowContext = SettingsWindowContext{
@@ -140,6 +152,10 @@ pub struct Settings {
     , pub estimate_extra_iterations:bool
     , pub currently_selected_coloring_instruction: u64
     , pub id_counter: u64
+    // When true, `manual_gear` selects the entire compute kernel (debug).
+    // Host stack / type remains automatic from depth admission.
+    , pub manual_gear_enabled: bool
+    , pub manual_gear: crate::assemblies::structs::KernelMode
 }
 
 

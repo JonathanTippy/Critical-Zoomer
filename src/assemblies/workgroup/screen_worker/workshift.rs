@@ -171,6 +171,9 @@ pub struct WorkContext<T: Mandelbrotable> {
     , pub generator_generation: u64
     // Set when the last workshift ran the Naive GPU wave path (HUD).
     , pub last_used_naive_gpu: bool
+    // Debug override: force an entire compute kernel. `None` = automatic
+    // PPS / depth policy. Host stack type remains auto from admission.
+    , pub manual_gear: Option<crate::assemblies::structs::KernelMode>
 }
 
 /// Brief perturbation probe when direct is genuinely stuck (>2s to clear remaining).
@@ -817,6 +820,7 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
         pert_trial_cooldown: carried_trial_cooldown,
         generator_generation,
         last_used_naive_gpu: false,
+        manual_gear: None,
     };
     if ctx.coords_are_relative && ctx.latest_reference.is_none() {
         let bootstrap = bootstrap_relative_reference(
@@ -1174,7 +1178,19 @@ fn run_workshift_kernel(
     context: &mut WorkContext<f64>,
     gpu: Option<&mut super::naive_gpu::NaiveGpuContext>,
 ) {
-    if context.perturbation_kernel_required() {
+    use crate::assemblies::structs::KernelMode;
+    let forced = context.manual_gear;
+    let use_pert = match forced {
+        Some(KernelMode::Pert) => true,
+        Some(KernelMode::Naive) | Some(KernelMode::NaiveGpu) => false,
+        None => context.perturbation_kernel_required(),
+    };
+    let use_gpu = match forced {
+        Some(KernelMode::NaiveGpu) => true,
+        Some(KernelMode::Naive) | Some(KernelMode::Pert) => false,
+        None => !use_pert,
+    };
+    if use_pert {
         workshift_with_kernel(
             day_token_allowance,
             iteration_token_cost,
@@ -1183,15 +1199,26 @@ fn run_workshift_kernel(
             context,
             &super::perturb_kernel::PerturbationKernel,
         );
-    } else if let Some(gpu) = gpu {
-        super::naive_gpu::workshift_naive_gpu(
-            day_token_allowance,
-            iteration_token_cost,
-            point_token_cost,
-            bout_token_cost,
-            context,
-            gpu,
-        );
+    } else if use_gpu {
+        if let Some(gpu) = gpu {
+            super::naive_gpu::workshift_naive_gpu(
+                day_token_allowance,
+                iteration_token_cost,
+                point_token_cost,
+                bout_token_cost,
+                context,
+                gpu,
+            );
+        } else {
+            workshift_with_kernel(
+                day_token_allowance,
+                iteration_token_cost,
+                point_token_cost,
+                bout_token_cost,
+                context,
+                &DirectKernel,
+            );
+        }
     } else {
         workshift_with_kernel(
             day_token_allowance,

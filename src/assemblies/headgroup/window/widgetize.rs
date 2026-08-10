@@ -1,12 +1,38 @@
 use eframe::emath::Rect;
 use egui::{color_picker, Ui};
 use egui_dnd::dnd;
+use crate::assemblies::structs::KernelMode;
 use crate::settings::*;
 impl Settings {
     pub fn widgetize(&mut self, ui:&mut Ui) {
 
         ui.label("bailout radius:");
         self.bailout_radius.widgetize(ui);
+
+        ui.separator();
+        ui.label("Debug — compute kernel (gear)");
+        ui.checkbox(&mut self.manual_gear_enabled, "Manual gear");
+        ui.add_enabled_ui(self.manual_gear_enabled, |ui| {
+            ui.horizontal(|ui| {
+                ui.radio_value(
+                    &mut self.manual_gear,
+                    KernelMode::Naive,
+                    KernelMode::Naive.manual_gear_label(),
+                );
+                ui.radio_value(
+                    &mut self.manual_gear,
+                    KernelMode::NaiveGpu,
+                    KernelMode::NaiveGpu.manual_gear_label(),
+                );
+                ui.radio_value(
+                    &mut self.manual_gear,
+                    KernelMode::Pert,
+                    KernelMode::Pert.manual_gear_label(),
+                );
+            });
+        });
+        ui.label("Host type stays auto from depth.");
+        ui.separator();
 
         ui.label("order of coloring steps:");
 

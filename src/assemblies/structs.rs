@@ -59,6 +59,15 @@ impl KernelMode {
             KernelMode::Pert => "pert",
         }
     }
+
+    /// Debug radio labels for manual gear (entire compute kernel).
+    pub fn manual_gear_label(self) -> &'static str {
+        match self {
+            KernelMode::Naive => "Naive",
+            KernelMode::NaiveGpu => "Naive GPU",
+            KernelMode::Pert => "Perturbation",
+        }
+    }
 }
 
 /// Running reference pipeline status for the HUD.

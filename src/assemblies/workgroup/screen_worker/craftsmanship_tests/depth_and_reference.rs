@@ -162,6 +162,28 @@ fn telemetry_mode_naive_then_pert() {
     });
 }
 
+/// Manual gear forces the whole compute kernel; host type stays auto.
+#[test]
+fn manual_gear_forces_kernel_mode_on_hud() {
+    use crate::assemblies::structs::KernelMode;
+    use crate::assemblies::workgroup::screen_worker::classify_kernel_mode;
+    run_big_stack_size(|| {
+        let frame = home_frame();
+        let mut ctx = from_stencil::<f64>(frame, None).expect("home view");
+        assert_eq!(classify_kernel_mode(&ctx), KernelMode::Naive);
+        ctx.manual_gear = Some(KernelMode::Pert);
+        assert_eq!(classify_kernel_mode(&ctx), KernelMode::Pert);
+        workshift(0, 0, 0, 0, &mut ctx, None);
+        assert_eq!(
+            classify_kernel_mode(&ctx),
+            KernelMode::Pert,
+            "forced pert must stick through a workshift"
+        );
+        ctx.manual_gear = Some(KernelMode::Naive);
+        assert_eq!(classify_kernel_mode(&ctx), KernelMode::Naive);
+    });
+}
+
 // r[verify cz.depth.gear-hud+2]
 #[test]
 fn reference_floor_trials_only_when_genuinely_stuck() {
