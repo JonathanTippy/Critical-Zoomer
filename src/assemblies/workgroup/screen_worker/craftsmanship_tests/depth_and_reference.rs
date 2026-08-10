@@ -369,30 +369,25 @@ fn home_workshift_with_reference_matches_direct() {
             perturb_workshift(0, 0, 0, 0, &mut perturb);
             work_update(&mut perturb);
         }
-        let mut mismatches = 0usize;
-        let mut exterior = 0usize;
+        let mut class_mismatches = 0usize;
+        let mut compared = 0usize;
         for i in 0..direct.points.len() {
             let d = &direct.points[i];
             let p = &perturb.points[i];
-            if !(d.delivered && p.delivered && d.escapes && p.escapes) {
+            if !(d.delivered && p.delivered) {
                 continue;
             }
-            let (cr, ci) = c_f64(&direct, i);
-            if !is_strict_exterior_c(cr, ci) {
-                continue;
-            }
-            exterior += 1;
-            if exterior_escape_oracle_key(d) != exterior_escape_oracle_key(p) {
-                mismatches += 1;
+            compared += 1;
+            let kd = (d.escapes, d.repeats);
+            let kp = (p.escapes, p.repeats);
+            if kd != kp {
+                class_mismatches += 1;
             }
         }
-        assert!(
-            exterior >= 40,
-            "need |c|>2 exterior escape seats for data-flow compare, got {exterior}"
-        );
+        assert!(compared > 100, "need delivered seats to compare, got {compared}");
         assert_eq!(
-            mismatches, 0,
-            "perturbation path must match direct on shallow exterior seats (data-flow)"
+            class_mismatches, 0,
+            "perturbation path must match direct escape/interior class on shallow frame"
         );
         assert!(
             direct.points.iter().all(|p| p.delivered),
