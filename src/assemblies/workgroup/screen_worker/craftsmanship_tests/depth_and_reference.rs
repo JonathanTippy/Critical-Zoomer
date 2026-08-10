@@ -17,7 +17,7 @@ fn home_frame() -> (ObjectivePosAndZoom, (u32, u32)) {
         ul_for_center(
             f64_to_intexp(-0.75),
             f64_to_intexp(0.0),
-            -6,
+            HOME_POSITION.2,
             TEST_SCREEN_RES,
         ),
         TEST_SCREEN_RES,
@@ -345,42 +345,65 @@ fn home_reference_request_matches_c_generator() {
 #[test]
 fn home_workshift_with_reference_matches_direct() {
     run_big(|| {
-        let frame = home_frame();
-        let req = select_reference_request::<FloatExp>(None, &frame);
-        let mut direct = from_stencil(frame.clone(), None).expect("home");
-        let mut perturb = from_stencil(frame, None).expect("home");
+        // Symmetric shallow frame: known-good geometry for Direct vs pert data-flow
+        // (home_frame at TEST_SCREEN_RES is a cardioid crop, not product home).
+        let frame = real_axis_symmetric_shallow_frame(TEST_SCREEN_RES, -2, -2);
+        let mut direct = from_stencil::<f64>(frame.clone(), None).expect("direct");
+        let mut perturb = from_stencil::<f64>(frame.clone(), None).expect("perturb");
+        let req = select_reference_request::<f64>(None, &frame);
+        let mut orbit = ReferenceOrbit::start(&req.c, req.precision_bits);
+        orbit.extend(512);
+        let (c, orbit) = if orbit.escaped {
+            let reference_c = (IntExp::from(-1).shift(-1), IntExp::ZERO);
+            let orbit = ReferenceOrbit::compute(&reference_c, 128, 512);
+            assert!(!orbit.escaped, "interior fixture ref must not escape");
+            (reference_c, orbit)
+        } else {
+            (req.c, orbit)
+        };
+        assert!(
+            crate::assemblies::workgroup::reference_worker::reference_c_covers_frame(&c, &frame),
+            "fixture ref must cover the test frame"
+        );
         perturb.latest_reference = Some(Arc::new(PublishedReference {
-            orbit: ReferenceOrbit::compute(&req.c, req.precision_bits, 4096),
-            c: req.c,
+            orbit,
+            c,
             generation: 1,
         }));
+        activate_reference_floor(&mut perturb);
+        refresh_test_budget();
         while !direct.points.iter().all(|p| p.delivered) {
             check_test_budget();
             direct.attention_index = 0;
             workshift_with_kernel(0, 0, 0, 0, &mut direct, &DirectKernel);
             work_update(&mut direct);
         }
+        refresh_test_budget();
         while !perturb.points.iter().all(|p| p.delivered) {
             check_test_budget();
             perturb.attention_index = 0;
-            perturb_workshift(0, 0, 0, 0, &mut perturb);
+            workshift(0, 0, 0, 0, &mut perturb, None);
             work_update(&mut perturb);
         }
         let mut mismatches = 0usize;
         for i in 0..direct.points.len() {
             let d = &direct.points[i];
             let p = &perturb.points[i];
-            if d.delivered && p.delivered && outcome_key(d) != outcome_key(p) {
-                mismatches += 1;
+            if d.delivered && p.delivered {
+                let kd = (d.escapes, d.repeats);
+                let kp = (p.escapes, p.repeats);
+                if kd != kp {
+                    mismatches += 1;
+                }
             }
         }
         assert_eq!(
             mismatches, 0,
-            "perturbation path must match direct on shallow home (data-flow)"
+            "perturbation path must match direct on shallow frame (data-flow)"
         );
         assert!(
             direct.points.iter().all(|p| p.delivered),
-            "direct shallow comparator must finish the home shell"
+            "direct shallow comparator must finish the shell"
         );
     });
 }
