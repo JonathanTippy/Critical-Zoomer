@@ -215,8 +215,6 @@ impl<T: Mandelbrotable> WorkContext<T> {
 
     /// Read-only policy label for HUD telemetry (no side effects).
     pub fn floor_policy_label(&self) -> &'static str {
-        let pps = self.hud_pps_estimate();
-        let remaining = self.points.iter().filter(|p| !p.delivered).count() as u64;
         if self.reference_floor_active {
             return "trial_active";
         }
@@ -230,9 +228,12 @@ impl<T: Mandelbrotable> WorkContext<T> {
                 "no_ref"
             };
         }
+        // Only scan seats when a usable reference exists (trial decisions).
+        let remaining = self.points.iter().filter(|p| !p.delivered).count() as u64;
         if remaining == 0 {
             return "complete";
         }
+        let pps = self.hud_pps_estimate();
         let min_samples = (self.screen_point_count() as u32 / 200).max(200);
         if self.hud_points_window < min_samples {
             return "warming_up";
@@ -248,9 +249,6 @@ impl<T: Mandelbrotable> WorkContext<T> {
 
     /// Brief perturbation trial when direct fill would take >2s at current PPS.
     pub fn update_reference_floor_policy(&mut self) -> &'static str {
-        let pps = self.hud_pps_estimate();
-        let remaining = self.points.iter().filter(|p| !p.delivered).count() as u64;
-
         if self.reference_floor_active {
             return "trial_active";
         }
@@ -265,9 +263,12 @@ impl<T: Mandelbrotable> WorkContext<T> {
         if published.orbit.escaped {
             return "ref_escaped";
         }
+        // Seat scan only when a live reference could justify a trial.
+        let remaining = self.points.iter().filter(|p| !p.delivered).count() as u64;
         if remaining == 0 {
             return "complete";
         }
+        let pps = self.hud_pps_estimate();
         let min_samples = (self.screen_point_count() as u32 / 200).max(200);
         if self.hud_points_window < min_samples {
             return "warming_up";
@@ -833,35 +834,7 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
             res,
             published.as_ref(),
         );
-        // #region agent log
-        crate::debug_agent::log_hud(
-            "H1",
-            "screen_worker/workshift.rs:from_stencil",
-            "bootstrap_ref",
-            &format!(
-                "{{\"zoom_pot\":{},\"orbit_len\":{},\"escaped\":{}}}",
-                obj.zoom_pot,
-                published.orbit.iterates.len(),
-                published.orbit.escaped,
-            ),
-        );
-        // #endregion
     }
-    // #region agent log
-    crate::debug_agent::log_hud(
-        "H2",
-        "screen_worker/workshift.rs:from_stencil",
-        "shell_admitted",
-        &format!(
-            "{{\"zoom_pot\":{},\"admission\":\"{}\",\"coords_relative\":{},\"has_ref\":{},\"gen\":{}}}",
-            obj.zoom_pot,
-            if coords_are_relative { "relative" } else { "absolute" },
-            coords_are_relative,
-            ctx.latest_reference.is_some(),
-            generator_generation,
-        ),
-    );
-    // #endregion
     Some(ctx)
 }
 
@@ -1187,25 +1160,9 @@ pub fn workshift(
         gpu,
     );
     let trial_tick = context.tick_pert_trial();
-    let policy_after = context.update_reference_floor_policy();
-    if policy_before != policy_after
-        && (policy_after == "promote_trial"
-            || trial_tick == Some("trial_expired"))
-    {
-        // #region agent log
-        crate::debug_agent::log_hud(
-            "H6",
-            "screen_worker/workshift.rs:workshift",
-            "floor_policy_changed",
-            &format!(
-                "{{\"from\":\"{policy_before}\",\"to\":\"{policy_after}\",\"ref_floor\":{},\"pps\":{:.1},\"screen_pts\":{},\"remaining\":{}}}",
-                context.reference_floor_active,
-                context.hud_pps_estimate(),
-                context.screen_point_count(),
-                context.points.iter().filter(|p| !p.delivered).count(),
-            ),
-        );
-        // #endregion
+    // Skip the post-shift policy scan when we already know there is no ref to trial.
+    if policy_before != "no_ref" || trial_tick.is_some() {
+        let _ = context.update_reference_floor_policy();
     }
 }
 
@@ -1217,28 +1174,6 @@ fn run_workshift_kernel(
     context: &mut WorkContext<f64>,
     gpu: Option<&mut super::naive_gpu::NaiveGpuContext>,
 ) {
-    // #region agent log
-    crate::debug_agent::log_hud(
-        "H1",
-        "screen_worker/workshift.rs:run_workshift_kernel",
-        "kernel_dispatch",
-        &format!(
-            "{{\"coords_relative\":{},\"ref_floor\":{},\"has_ref\":{},\"kernel\":\"{}\",\"policy\":\"{}\",\"remaining\":{}}}",
-            context.coords_are_relative,
-            context.reference_floor_active,
-            context.latest_reference.is_some(),
-            if context.perturbation_kernel_required() {
-                "pert"
-            } else if gpu.is_some() {
-                "naive_gpu"
-            } else {
-                "direct"
-            },
-            context.floor_policy_label(),
-            context.points.iter().filter(|p| !p.delivered).count(),
-        ),
-    );
-    // #endregion
     if context.perturbation_kernel_required() {
         workshift_with_kernel(
             day_token_allowance,

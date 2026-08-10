@@ -377,8 +377,8 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "diagnostic only"]
-    fn home_absolute_vs_relative_admission_zoom_scan_verbose() {
+    // r[verify cz.depth.relative-coords+1]
+    fn home_f64_admission_has_legal_path_or_hard_wall() {
         use crate::constants::{DEFAULT_WINDOW_RES, HOME_POSITION};
         let compute_loc = (
             IntExp::from(HOME_POSITION.0),
@@ -386,16 +386,20 @@ mod tests {
         );
         let res = DEFAULT_WINDOW_RES;
         let view_center = view_center_for_test(&compute_loc, HOME_POSITION.2, res);
-        for zoom_pot in 40..55i64 {
-            let abs = CGenerator::<f64>::new(&compute_loc, zoom_pot, res).is_some();
-            let picked = admit_generator::<f64>(
-                &compute_loc,
-                zoom_pot,
-                res,
-                None,
-                &view_center,
+        // Shallow: must admit (absolute or relative).
+        for zoom_pot in 0..40i64 {
+            assert!(
+                admit_generator::<f64>(&compute_loc, zoom_pot, res, None, &view_center).is_some(),
+                "home zoom_pot={zoom_pot} must admit f64 absolute or relative"
             );
-            eprintln!("zoom_pot={zoom_pot} abs={abs} picked={:?}", picked.map(|p| if p.is_relative() { "rel" } else { "abs" }));
+        }
+        // Documented hard wall on home: neither absolute nor relative f64 admits
+        // at pot 44–45 — FloatExp host must take over (not silent empty work).
+        for zoom_pot in 44..46i64 {
+            assert!(
+                admit_generator::<f64>(&compute_loc, zoom_pot, res, None, &view_center).is_none(),
+                "home zoom_pot={zoom_pot}: f64 must fail closed so FloatExp host can own the view"
+            );
         }
     }
 

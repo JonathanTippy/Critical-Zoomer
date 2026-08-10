@@ -835,24 +835,6 @@ impl SeatKernel<f64> for PerturbationKernel {
             let delta_c = context.points[index].delta_c;
             let c = c_for_seat_f64(context, delta_c);
             context.points[index].c = c;
-            // #region agent log
-            if context.coords_are_relative && index == 0 {
-                crate::debug_agent::log_hud(
-                    "H3",
-                    "perturb_kernel.rs:start_seat",
-                    "relative_c",
-                    &format!(
-                        "{{\"delta_c\":[{:.3e},{:.3e}],\"c\":[{:.6},{:.6}],\"has_ref\":{},\"ref_floor\":{}}}",
-                        delta_c.0,
-                        delta_c.1,
-                        c.0,
-                        c.1,
-                        context.latest_reference.is_some(),
-                        context.reference_floor_active,
-                    ),
-                );
-            }
-            // #endregion
             init_delta(
                 &mut context.points[index],
                 orbit,
@@ -863,50 +845,6 @@ impl SeatKernel<f64> for PerturbationKernel {
                 &context.coord_anchor,
             );
             // Series approximation deferred — no apply_series_skip.
-            // #region agent log
-            if context.coords_are_relative && index == 0 {
-                let lc = context.points[index].delta_c;
-                let gear = context.points[index]
-                    .delta
-                    .as_ref()
-                    .map(|d| d.gear.hud_label())
-                    .unwrap_or("none");
-                let lc_mag = (lc.0 * lc.0 + lc.1 * lc.1).sqrt();
-                let delta_lc_mag = context.points[index]
-                    .delta
-                    .as_ref()
-                    .map(|d| d.delta_c.norm_squared().to_f64().sqrt())
-                    .unwrap_or(0.0);
-                crate::debug_agent::log_hud(
-                    "A,B",
-                    "perturb_kernel.rs:start_seat",
-                    "relative_init_gear",
-                    &format!(
-                        "{{\"gear\":\"{gear}\",\"delta_c_mag\":{lc_mag:.3e},\"delta_delta_c_mag\":{delta_lc_mag:.3e},\"zero_orbit\":{},\"has_ref\":{}}}",
-                        std::ptr::eq(orbit, zero_orbit()),
-                        published.is_some(),
-                    ),
-                );
-            }
-            // #endregion
-            // #region agent log
-            if context.coords_are_relative && index == 0 {
-                let lc = context.points[index].delta_c;
-                crate::debug_agent::log_hud(
-                    "H4",
-                    "perturb_kernel.rs:start_seat",
-                    "post_init_delta_c",
-                    &format!(
-                        "{{\"delta_c\":[{:.6},{:.6}],\"c\":[{:.6},{:.6}],\"delta_c_mag\":{:.6}}}",
-                        lc.0,
-                        lc.1,
-                        c.0,
-                        c.1,
-                        (lc.0 * lc.0 + lc.1 * lc.1).sqrt()
-                    ),
-                );
-            }
-            // #endregion
         }
         // HUD gear aggregate is refreshed once per workshift — never per seat.
         // Scanning all seats here is O(n) per bout and collapses home fill.
@@ -1094,84 +1032,6 @@ impl SeatKernel<f64> for PerturbationKernel {
             .map(|d| (d.c.re.to_f64(), d.c.im.to_f64()))
             .unwrap_or(point.c);
         let out = direct_completion_with_c(point, c);
-        // #region agent log
-        {
-            let delta_c2 = point.delta_c.0 * point.delta_c.0 + point.delta_c.1 * point.delta_c.1;
-            let c2 = c.0 * c.0 + c.1 * c.1;
-            if point.escapes || point.repeats {
-                static COMP_N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-                let n = COMP_N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                if n < 5 {
-                    let (sl0, sl1, et, st) = match &out {
-                        CompletedPoint::Escapes {
-                            start_location,
-                            escape_time,
-                            small_time,
-                            ..
-                        } => (
-                            start_location.0.into(),
-                            start_location.1.into(),
-                            *escape_time,
-                            *small_time,
-                        ),
-                        CompletedPoint::Repeats { small_time, .. } => {
-                            (c.0, c.1, point.iterations, *small_time)
-                        }
-                        _ => (0.0, 0.0, 0, 0),
-                    };
-                    crate::debug_agent::log_hud(
-                        "H4",
-                        "perturb_kernel.rs:completion",
-                        "completion_start_location",
-                        &format!(
-                            "{{\"start_loc\":[{sl0:.6},{sl1:.6}],\"delta_c2\":{delta_c2:.6},\"c2\":{c2:.6},\"et\":{et},\"st\":{st},\"escapes\":{},\"repeats\":{}}}",
-                            point.escapes,
-                            point.repeats
-                        ),
-                    );
-                }
-            }
-            let st = match &out {
-                CompletedPoint::Escapes { small_time, .. }
-                | CompletedPoint::Repeats { small_time, .. } => *small_time,
-                _ => 999,
-            };
-            if c2 <= 4.0 && (point.escapes || point.repeats) {
-                crate::debug_agent::log(
-                    "B,E",
-                    "perturb_kernel.rs:completion",
-                    "interior_small_time",
-                    &format!(
-                        "{{\"c2\":{c2},\"st\":{st},\"et\":{},\"escapes\":{},\"repeats\":{}}}",
-                        point.iterations, point.escapes, point.repeats
-                    ),
-                );
-            } else if point.escapes && c2 > 4.0 {
-                static OUTER_N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-                let n = OUTER_N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                if n < 30 || n % 200 == 0 {
-                    let zero = point
-                        .delta
-                        .as_ref()
-                        .map(|d| d.generation == 0)
-                        .unwrap_or(true);
-                    let et = match &out {
-                        CompletedPoint::Escapes { escape_time, small_time, .. } => (*escape_time, *small_time),
-                        _ => (999, 999),
-                    };
-                    crate::debug_agent::log(
-                        "A,C,D",
-                        "perturb_kernel.rs:completion",
-                        "outer_escape_completion",
-                        &format!(
-                            "{{\"c2\":{c2},\"et\":{},\"st\":{},\"zero_gen\":{zero},\"direct_only\":{},\"iters\":{}}}",
-                            et.0, et.1, point.direct_only, point.iterations
-                        ),
-                    );
-                }
-            }
-        }
-        // #endregion
         out
     }
 }

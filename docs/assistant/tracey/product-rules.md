@@ -24,11 +24,13 @@ r[cz.seamless.perturbation-always-on+1]
 r[cz.seamless.gpu-preferred+1]
 
 **Normative summary.** GPU acceleration must always be on (no user toggle); when a device
-exists it is preferred over CPU for tile work.
+exists it is preferred over CPU for compute work (views, not tiles).
 
 **Acceptance criteria.**
-- **SUSPENDED.** v0.0.9's GPU use is display-side only (shadergroup escaper/colorer); iteration
-  is CPU. Returns with the GPU compute port — as views-not-tiles, per the design target.
+- **SUSPENDED as absolute preference wording until the view GPU port is the default home
+  path.** Display-side GPU (shadergroup) stands; naive-GPU workgroup compute is live and
+  preferred when a device exists (`mode:naive-gpu`). Do not reintroduce tile-session
+  wording.
 
 r[cz.seamless.reference-background+1]
 

@@ -106,9 +106,6 @@ async fn internal_behavior<A: SteadyActor>(
                         points_delta: 0,
                         iterations_delta: U.iterations_delta,
                     };
-                    // #region agent log
-                    agent_log_package_exterior_stats("after_remap", "B,E", completed_work);
-                    // #endregion
                 } else {
                     //let j = U.completed_points;
                     let l = U.completed_points.len();
@@ -131,11 +128,6 @@ async fn internal_behavior<A: SteadyActor>(
                         points_delta: l as u64,
                         iterations_delta: U.iterations_delta,
                     };
-                    // #region agent log
-                    if crate::debug_agent::should_sample(40) {
-                        agent_log_package_exterior_stats("incremental_publish", "A,C,E", completed_work);
-                    }
-                    // #endregion
                     actor.try_send(&mut values_out,
                                    View{
                                        stencil: PointStencil{
@@ -274,81 +266,6 @@ async fn internal_behavior<A: SteadyActor>(
 }
 
 
-// #region agent log
-fn agent_log_package_exterior_stats<T>(
-    tag: &str,
-    hypothesis_id: &str,
-    package: &ResultsPackage<T>,
-) where
-    T: Clone + Into<f64> + Copy,
-{
-    let mut dummy = 0u32;
-    let mut escapes = 0u32;
-    let mut repeats = 0u32;
-    let mut outer_c = 0u32; // |c|^2 > 4
-    let mut outer_et0 = 0u32;
-    let mut outer_et1 = 0u32;
-    let mut outer_et_gt1 = 0u32;
-    let mut outer_st_nonzero = 0u32;
-    let mut start_vs_seat_mismatch = 0u32;
-    let loc = &package.location;
-    let space: f64 = IntExp::from(1)
-        .shift(-(loc.zoom_pot + PIXELS_PER_UNIT_POT))
-        .into();
-    let origin_re: f64 = loc.pos.0.clone().into();
-    let origin_im: f64 = loc.pos.1.clone().into();
-    for (i, r) in package.results.iter().enumerate() {
-        let seat = (i as u32) % package.screen_res.0;
-        let row = (i as u32) / package.screen_res.0;
-        let seat_c_re = origin_re + seat as f64 * space;
-        let seat_c_im = origin_im - row as f64 * space;
-        match r {
-            CompletedPoint::Dummy {} => dummy += 1,
-            CompletedPoint::Repeats { .. } => repeats += 1,
-            CompletedPoint::Escapes {
-                escape_time,
-                small_time,
-                start_location,
-                ..
-            } => {
-                escapes += 1;
-                let cr: f64 = start_location.0.into();
-                let ci: f64 = start_location.1.into();
-                let c2 = cr * cr + ci * ci;
-                let seat_c2 = seat_c_re * seat_c_re + seat_c_im * seat_c_im;
-                let dc = (cr - seat_c_re).abs() + (ci - seat_c_im).abs();
-                if dc > space * 0.75 {
-                    start_vs_seat_mismatch += 1;
-                }
-                // Prefer seat plane c for "outer ring" classification after Answer rebuild.
-                let outer = seat_c2 > 4.0;
-                if outer {
-                    outer_c += 1;
-                    match *escape_time {
-                        0 => outer_et0 += 1,
-                        1 => outer_et1 += 1,
-                        _ => outer_et_gt1 += 1,
-                    }
-                    if *small_time != 0 {
-                        outer_st_nonzero += 1;
-                    }
-                }
-                let _ = c2;
-            }
-        }
-    }
-    let data = format!(
-        "{{\"tag\":\"{tag}\",\"zoom\":{},\"dummy\":{dummy},\"escapes\":{escapes},\"repeats\":{repeats},\"outer_c\":{outer_c},\"outer_et0\":{outer_et0},\"outer_et1\":{outer_et1},\"outer_et_gt1\":{outer_et_gt1},\"outer_st_nonzero\":{outer_st_nonzero},\"start_vs_seat_mismatch\":{start_vs_seat_mismatch}}}",
-        loc.zoom_pot
-    );
-    crate::debug_agent::log(
-        hypothesis_id,
-        "work_collector.rs:package_stats",
-        "exterior_package_stats",
-        &data,
-    );
-}
-// #endregion
 
 // r[impl cz.craft.clamped-remap-smear+1]
 // r[impl cz.craft.shared-remap-transform+1]

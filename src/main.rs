@@ -22,6 +22,7 @@ pub mod floatexp;
 pub mod reference;
 pub mod series;
 pub mod delta_gear;
+pub mod gearbox;
 pub mod perturb;
 pub mod assemblies;
 pub mod debug_agent;

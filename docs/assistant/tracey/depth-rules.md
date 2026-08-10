@@ -255,17 +255,36 @@ module for depth tests.
 
 r[cz.depth.series-approximation+1]
 
-**Rule.** *Deferred (open issue).* Series approximation is not on the live path until
-relative `delta_c` + escaped-ref soft-continue membership stay green under
-`pin_exterior_not_marked_in_at_zoom_52` and `pin_not_blocky_delta_c_at_zoom_49`.
-When re-enabled: a published reference may include series coefficients; seats may skip a
-safe prefix by evaluating the series in `delta_c`, then resume ordinary delta iteration.
-Skip never invents a final answer.
+**Rule.** Series approximation stays **off the production path** until membership
+pins stay green under `pin_exterior_not_marked_in_at_zoom_52` and
+`pin_not_blocky_delta_c_at_zoom_49`. When re-enabled: a published reference may
+include series coefficients; seats may skip a safe prefix by evaluating the
+series in `delta_c`, then resume ordinary delta iteration. Skip never invents a
+final answer. Until then, hard tests must prove production kernels do **not**
+call `apply_series_skip` — never `#[ignore]` those checks
+(`docs/assistant/quality-doctrine.md`).
 
 **Implementation.** Dormant: `src/series.rs`. Not attached from `reference_worker`;
-no `apply_series_skip` in production kernels.
+no `apply_series_skip` in production kernels (`perturb_kernel.rs`).
 
-**Verification.** *(parked / ignored until re-enable)* former series package tests.
+**Verification.** `series_approximation_not_wired_into_production_kernels`,
+plus series package parity tests that run against the dormant module / future
+wire-up (must stay green or be fixed in code — no ignore).
+
+r[cz.depth.oracle-gear+1]
+
+**Rule.** The FloatExp absolute (“slidy”) **Oracle** gear exists only for tests
+and benches. It iterates `z ← z² + c` without perturbation, reference, or
+series. Production `workshift` dispatch must never select it. Deep membership
+parity uses Oracle (or rug doubling), not f64 `DirectKernel`.
+
+**Implementation.** `src/gearbox/oracle.rs` — `OracleKernel`, `iterate_oracle_bout`.
+
+**Verification.** `oracle_escapes_far_exterior`,
+`oracle_matches_direct_escape_time_on_shallow_sample`,
+`oracle_marks_cardioid_center_repeat`,
+`deep_relative_exterior_not_instant_black_at_reported_location`,
+`production_workshift_never_dispatches_oracle_gear`.
 
 r[cz.depth.compute-gear+1]
 

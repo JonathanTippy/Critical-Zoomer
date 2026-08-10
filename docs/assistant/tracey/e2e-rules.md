@@ -55,7 +55,8 @@ flat-black empty panes mid-wait.
 r[cz.e2e.fill-first-tile-1s+1]
 
 **Normative summary.** After startup/home, Mandelbrot structure must be visible
-quickly (fitness ceiling — product target is much faster).
+quickly (fitness ceiling — product target is much faster). Rule id keeps the
+historical “tile” token; the live machine is a single view.
 
 **Acceptance criteria.**
 - [ ] Headed: settled PNG from `xvfb_screenshot_check.sh` shows structure
@@ -65,11 +66,12 @@ quickly (fitness ceiling — product target is much faster).
 r[cz.e2e.fill-all-tiles-10s+1]
 
 **Normative summary.** Home view must complete without dishonest empty panes
-within a short settle window.
+within a short settle window. Rule id keeps the historical “tiles” token; live
+fills are one view with Dummy placeholders for unfinished seats.
 
 **Acceptance criteria.**
-- [ ] Headed screenshot check + craftsmanship/workgroup Rust fills; v0.0.9 has no
-  tile NORES pack — unfinished seats are Dummy placeholders.
+- [ ] Headed screenshot check + craftsmanship/workgroup Rust fills; unfinished
+  seats are Dummy placeholders (no tile NORES pack).
 - ~~`scripts/e2e_home_fill_fitness.sh`~~ **Retired**.
 
 r[cz.e2e.perf-zoom-simple+1]
