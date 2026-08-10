@@ -1,22 +1,34 @@
 # Gearbox — engine and type switching
 
-Status: **landing** — `src/gearbox/` owns compute-gear vocabulary and the
-test-only Oracle path. Perturbation delta stepping still lives in
-`delta_gear.rs` until fully moved; callers should prefer `gearbox` for
-policy and HUD labels.
+Status: **landing** — `src/gearbox/` owns compute-gear vocabulary, PPS kernel
+selection helpers, and the test-only Oracle path. Perturbation delta stepping
+still lives in `delta_gear.rs` until fully moved; callers should prefer
+`gearbox` for policy and HUD labels.
 
 ## Separation of concerns
 
 | Concern | Owner |
 |---|---|
 | Fastest safe delta recurrence (F64 → ScaledF64 → FloatExp) | `delta_gear` / gearbox policy |
-| View admission → default gear | `gearbox::policy` |
+| View admission → default **type**/delta gear | `gearbox::policy` |
+| **PPS race** among legal compute kernels | `gearbox::policy` + `workshift` |
 | Production naive absolute f64 | `DirectKernel` (scheduler-owned) |
 | Production perturbation | `PerturbationKernel` |
 | **Test-only** deep naive truth | `gearbox::oracle::OracleKernel` |
 
 The scheduler (`workshift`) stays free of gear arithmetic. Gears answer “how
 do I step this seat?”; queues, remap, and publish stay craftsmanship.
+
+## PPS kernel selection (`r[cz.perf.pps-selected-kernel+1]`)
+
+Do **not** assume Naive GPU is fastest. On each absolute view, sample legal
+kernels (Naive CPU, Naive GPU if present, Perturbation) for a few shifts each,
+then **lock** the highest measured completed-points-per-second winner until
+Replace / honesty bump / manual override. Relative (dishonest-naive) views
+hard-lock Perturbation with no race.
+
+Manual gear (settings) overrides the race. Host numeric type remains automatic
+from depth admission.
 
 ## Oracle gear (bulletproof quality, tests only)
 

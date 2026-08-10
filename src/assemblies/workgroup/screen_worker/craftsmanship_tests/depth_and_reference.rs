@@ -943,10 +943,12 @@ fn series_safe_skip_does_not_pass_bailout_for_far_delta() {
 // r[verify cz.depth.series-approximation+1]
 fn home_package_with_live_series_obeys_real_axis_symmetry() {
     run_big_stack_size(|| {
+        let _perf_guard = super::naive_gpu::lock_gpu_tests();
         // Origin real −2, zoom −2: covers the main cardioid plus |c|≳2 exterior.
         let frame = real_axis_symmetric_shallow_frame(TEST_SCREEN_RES, -2, -2);
         let mut ctx = from_stencil(frame.clone(), None).expect("symmetric shell");
         install_covering_reference_with_series(&mut ctx, &frame);
+        refresh_test_budget();
         fill_until_complete_perturb(&mut ctx);
         assert!(
             ctx.percent_completed >= 100.0,
