@@ -835,11 +835,21 @@ fn home_workshift_full_frame_within_20pct_of_direct_kernel() {
             );
             t0.elapsed().as_secs_f64()
         };
-        let direct = fill(false);
-        let via_workshift = fill(true);
+        // Sub-10ms home fills are scheduler-noisy under cargo parallel; median of 5
+        // keeps the ≤1.20× bar hard (same pattern as first-publish pin).
+        let mut direct_samples = Vec::new();
+        let mut via_samples = Vec::new();
+        for _ in 0..5 {
+            direct_samples.push(fill(false));
+            via_samples.push(fill(true));
+        }
+        direct_samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        via_samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let direct = direct_samples[2];
+        let via_workshift = via_samples[2];
         let ratio = via_workshift / direct.max(1e-9);
         eprintln!(
-            "home wall: direct={direct:.3}s workshift={via_workshift:.3}s ratio={ratio:.2}×"
+            "home wall median-of-5: direct={direct:.3}s workshift={via_workshift:.3}s ratio={ratio:.2}×"
         );
         assert!(
             ratio <= 1.20,

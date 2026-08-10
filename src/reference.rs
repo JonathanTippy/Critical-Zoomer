@@ -390,4 +390,115 @@ mod tests {
         assert_eq!(bits_for_zoom(0, 8), 53);
         assert!(bits_for_zoom(1500, 8) >= 1540);
     }
+
+    /// Thought-killed pins for dense `reference.rs` caught mutants
+    /// (`iterate` arithmetic, `get` period wrap, cycle-step compares, extend counters).
+    #[test]
+    fn iterate_mandelbrot_step_is_z2_plus_c() {
+        let prec = 128u32;
+        let z = (
+            Float::with_val(prec, 1),
+            Float::with_val(prec, 2),
+        );
+        let c = (
+            Float::with_val(prec, 3),
+            Float::with_val(prec, 4),
+        );
+        let (re, im) = iterate(&z, &c, prec);
+        // (1+2i)² + (3+4i) = -3+4i + 3+4i = 0+8i
+        assert_eq!(re, Float::with_val(prec, 0));
+        assert_eq!(im, Float::with_val(prec, 8));
+        // Kill *→+ / *→/ on the imag 2·z0·z1 term: wrong ops cannot yield 8.
+        assert_ne!(im, Float::with_val(prec, 1 * 2 + 2)); // *→+ on 2*
+        assert_ne!(im, Float::with_val(prec, 1 + 2 + 4));
+    }
+
+    #[test]
+    fn get_wraps_periodic_indices_not_linear() {
+        let p2 = ReferenceOrbit::compute(&(IntExp::from(-1), IntExp::ZERO), 128, 8);
+        assert_eq!(p2.period, Some(2));
+        assert_eq!(p2.preperiod, 0);
+        // n < preperiod uses n; else preperiod + (n-preperiod)%period
+        assert_eq!(p2.get(0), p2.get(2));
+        assert_eq!(p2.get(1), p2.get(3));
+        assert_ne!(p2.get(0), p2.get(1));
+        // %→+ / %→/ would break large n:
+        assert_eq!(p2.get(10_000), p2.get(0));
+        assert_eq!(p2.get(10_001), p2.get(1));
+        // %→/ would map 5→2 and wrongly equate get(1) with get(0).
+        assert_ne!(p2.get(5), p2.get(5 / 2));
+        // Large even/odd wrap (kills %→+ which would drift with n).
+        assert_eq!(p2.get(4), p2.get(0));
+        assert_eq!(p2.get(6), p2.get(0));
+        assert_eq!(p2.get(7), p2.get(1));
+        assert_ne!(p2.get(1_000_001), p2.get(1_000_000));
+
+        let m = ReferenceOrbit::compute(&(IntExp::from(-2), IntExp::ZERO), 128, 8);
+        assert_eq!(m.period, Some(1));
+        assert_eq!(m.preperiod, 2);
+        // For n>=2: index = 2 + (n-2)%1 = 2
+        assert_eq!(m.get(2), m.get(99));
+        assert_eq!(m.get(2), m.get(10_000));
+        // Preperiod seats are distinct indices 0 and 1.
+        assert_ne!(m.get(0), m.get(1));
+        assert_eq!(m.get(1).unwrap().re.to_f64(), -2.0);
+    }
+
+    #[test]
+    fn extend_stops_when_period_or_escaped_and_counts_steps() {
+        let mut p2 = ReferenceOrbit::compute(&(IntExp::from(-1), IntExp::ZERO), 128, 32);
+        assert!(p2.period.is_some());
+        let len_after = p2.iterates.len();
+        p2.extend(50);
+        assert_eq!(p2.iterates.len(), len_after);
+        assert_eq!(p2.extend_for(50, Duration::from_secs(1)), 0);
+
+        let mut esc = ReferenceOrbit::compute(&(IntExp::from(2), IntExp::ZERO), 128, 20);
+        assert!(esc.escaped);
+        let esc_len = esc.iterates.len();
+        esc.extend(10);
+        assert_eq!(esc.iterates.len(), esc_len);
+        assert_eq!(esc.extend_for(10, Duration::from_secs(1)), 0);
+
+        let mut open =
+            ReferenceOrbit::start(&(IntExp::from(3).shift(-4), IntExp::from(1).shift(-3)), 128);
+        let n = open.extend_for(5, Duration::from_secs(1));
+        assert_eq!(n, 5);
+        assert!(open.iterates.len() >= 6);
+        // Escape threshold uses |z|² > 4 (not >= / == / <).
+        let far = ReferenceOrbit::compute(&(IntExp::from(10), IntExp::ZERO), 64, 5);
+        assert!(far.escaped);
+    }
+
+    #[test]
+    fn zero_orbit_floor_and_bits_clamp() {
+        let z = ReferenceOrbit::zero_orbit();
+        assert_eq!(z.period, Some(1));
+        assert_eq!(z.preperiod, 0);
+        assert_eq!(z.get(0), Some(ComplexFloatExp::ZERO));
+        assert_eq!(z.get(1), Some(ComplexFloatExp::ZERO));
+        assert_eq!(z.get(999), Some(ComplexFloatExp::ZERO));
+
+        assert_eq!(bits_for_zoom(-100, 8), 53); // floor at 53
+        assert!(bits_for_zoom(i64::MAX / 4, 8) <= u32::MAX);
+        assert_ne!(bits_for_zoom(100, 8), bits_for_zoom(100, 9));
+        assert_eq!(bits_for_zoom(100, 8), 140); // 100+8+32
+    }
+
+    #[test]
+    fn observe_cycle_detects_period_two_at_minus_one() {
+        // Full path already asserts period==2; pin that further extend is a no-op
+        // and that resolve_cycle_step equality uses == not != on both components.
+        let orbit = ReferenceOrbit::compute(&(IntExp::from(-1), IntExp::ZERO), 256, 64);
+        assert_eq!(orbit.period, Some(2));
+        assert_eq!(orbit.preperiod, 0);
+        let z0 = orbit.get(0).unwrap();
+        let z1 = orbit.get(1).unwrap();
+        let z2 = orbit.get(2).unwrap();
+        assert_eq!(z0, z2);
+        assert_ne!(z0, z1);
+        // Stored iterate at n=1 is c for Mandelbrot start from 0.
+        assert_eq!(z1.re.to_f64(), -1.0);
+        assert_eq!(z1.im.to_f64(), 0.0);
+    }
 }

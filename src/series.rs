@@ -100,3 +100,93 @@ impl SeriesApproximation {
         best
     }
 }
+
+#[cfg(test)]
+mod mutant_kill {
+    //! Thought-killed pins for `series.rs` caught mutants (`from_orbit` recurrence,
+    //! `evaluate` Horner-ish sum, `safe_skip` thresholds). Series is deferred on the
+    //! live path but still must stay correct for the dormant module.
+    use super::*;
+    use crate::utils::IntExp;
+
+    fn short_escape_orbit() -> ReferenceOrbit {
+        // c=0.25+0i stays bounded briefly; use a modest exterior for finite orbit.
+        ReferenceOrbit::compute(&(IntExp::from(1).shift(-2), IntExp::ZERO), 128, 24)
+    }
+
+    #[test]
+    fn from_orbit_rejects_too_short_and_clamps_order() {
+        let tiny = ReferenceOrbit::start(&(IntExp::ZERO, IntExp::ZERO), 53);
+        assert!(SeriesApproximation::from_orbit(&tiny, 4).is_none());
+
+        let orbit = short_escape_orbit();
+        assert!(orbit.iterates.len() >= 2);
+        let s = SeriesApproximation::from_orbit(&orbit, 100).expect("series");
+        assert_eq!(s.order, 16); // clamp high
+        let s1 = SeriesApproximation::from_orbit(&orbit, 0).expect("series");
+        assert_eq!(s1.order, 1); // clamp low
+        assert!(SeriesApproximation::from_orbit(&orbit, 2).is_some());
+    }
+
+    #[test]
+    fn from_orbit_seeds_a1_and_recurs_2z_a_plus_1() {
+        let orbit = short_escape_orbit();
+        let s = SeriesApproximation::from_orbit(&orbit, 2).expect("series");
+        assert_eq!(s.coeffs[0].len(), 2);
+        assert_eq!(s.coeffs[0][0], ComplexFloatExp::ZERO);
+        // n=1: a1=1, a2=0
+        assert_eq!(
+            s.coeffs[1][0],
+            ComplexFloatExp::new(FloatExp::ONE, FloatExp::ZERO)
+        );
+        assert_eq!(s.coeffs[1][1], ComplexFloatExp::ZERO);
+
+        if s.coeffs.len() > 2 {
+            let z1 = orbit.iterates[1];
+            let a1 = s.coeffs[1][0];
+            let two = ComplexFloatExp::new(FloatExp::TWO, FloatExp::ZERO);
+            let expect_a1 = z1 * a1 * two + ComplexFloatExp::new(FloatExp::ONE, FloatExp::ZERO);
+            assert_eq!(s.coeffs[2][0], expect_a1);
+            // *→+ on 2 Z a would not match.
+            let wrong = z1 * a1 + two + ComplexFloatExp::new(FloatExp::ONE, FloatExp::ZERO);
+            assert_ne!(s.coeffs[2][0], wrong);
+        }
+    }
+
+    #[test]
+    fn evaluate_is_power_series_not_constant_none() {
+        let orbit = short_escape_orbit();
+        let s = SeriesApproximation::from_orbit(&orbit, 3).expect("series");
+        let dc = ComplexFloatExp::new(FloatExp::from(1e-3), FloatExp::ZERO);
+        assert!(s.evaluate(s.coeffs.len(), dc).is_none());
+        let v = s.evaluate(1, dc).expect("eval");
+        // At n=1: a1=1 → δz ≈ δc
+        assert!((v.re.to_f64() - 1e-3).abs() < 1e-9, "got {}", v.re.to_f64());
+        assert_ne!(v, ComplexFloatExp::ZERO);
+        // Sum must use * and + correctly across powers.
+        let v2 = s.evaluate(1, ComplexFloatExp::new(FloatExp::from(2e-3), FloatExp::ZERO))
+            .unwrap();
+        assert!(v2.re.to_f64().abs() > v.re.to_f64().abs());
+    }
+
+    #[test]
+    fn safe_skip_not_constant_and_respects_bounds() {
+        let empty = SeriesApproximation {
+            order: 1,
+            coeffs: vec![],
+        };
+        assert_eq!(empty.safe_skip(ComplexFloatExp::ZERO, 10), 0);
+
+        let orbit = short_escape_orbit();
+        let s = SeriesApproximation::from_orbit(&orbit, 4).expect("series");
+        let dc = ComplexFloatExp::new(FloatExp::from(1e-8), FloatExp::ZERO);
+        let n = s.safe_skip(dc, 1000);
+        assert!(n >= 1);
+        assert!(n < s.coeffs.len());
+        assert_ne!(n, 0);
+        // Huge δc should stop early (dz_n > 1e6 break).
+        let huge = ComplexFloatExp::new(FloatExp::from(1e3), FloatExp::ZERO);
+        let n_huge = s.safe_skip(huge, 1000);
+        assert!(n_huge <= n);
+    }
+}

@@ -933,12 +933,17 @@ fn home_package_with_live_series_obeys_real_axis_symmetry() {
 // r[verify cz.depth.delta-kernel+1]
 fn home_package_with_live_series_matches_direct_kernel_answers() {
     run_big_stack_size(|| {
+        // Serialize against other heavy craftsmanship fills: under cargo's parallel
+        // harness this package (two homes + series install) can trip the 1s wall
+        // by a few ms without any logic regression.
+        let _perf_guard = super::naive_gpu::lock_gpu_tests();
         let frame = real_axis_symmetric_shallow_frame(TEST_SCREEN_RES, -2, -2);
         let mut direct = from_stencil(frame.clone(), None).expect("direct");
         let mut perturb = from_stencil(frame.clone(), None).expect("perturb");
         install_covering_reference_with_series(&mut perturb, &frame);
         // Direct ignores the reference; install anyway so shells stay aligned.
         install_covering_reference_with_series(&mut direct, &frame);
+        refresh_test_budget();
 
         fill_until_complete_direct(&mut direct);
         fill_until_complete_perturb(&mut perturb);
