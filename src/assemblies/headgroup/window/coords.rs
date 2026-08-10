@@ -203,20 +203,24 @@ fn parse_normalized_complex(s: &str) -> Option<(IntExp, IntExp)> {
         return Some((re, im));
     }
     if without_i.len() > 1 {
-        if let Some(minus) = without_i[1..].rfind('-') {
-            let idx = minus + 1;
-            let (re_s, im_s) = without_i.split_at(idx);
-            let im = if im_s == "-" {
-                IntExp::from(-1)
-            } else {
-                decimal_str_to_intexp(im_s)?
-            };
-            let re = if re_s.is_empty() {
-                IntExp::ZERO
-            } else {
-                decimal_str_to_intexp(re_s)?
-            };
-            return Some((re, im));
+        // Skip the first Unicode scalar (not byte 1) so non-ASCII input cannot panic.
+        let first_end = without_i.chars().next().map(|c| c.len_utf8()).unwrap_or(0);
+        if first_end < without_i.len() {
+            if let Some(minus) = without_i[first_end..].rfind('-') {
+                let idx = first_end + minus;
+                let (re_s, im_s) = without_i.split_at(idx);
+                let im = if im_s == "-" {
+                    IntExp::from(-1)
+                } else {
+                    decimal_str_to_intexp(im_s)?
+                };
+                let re = if re_s.is_empty() {
+                    IntExp::ZERO
+                } else {
+                    decimal_str_to_intexp(re_s)?
+                };
+                return Some((re, im));
+            }
         }
     }
     let im = decimal_str_to_intexp(without_i)?;
@@ -321,6 +325,9 @@ pub fn apply_button_enabled(line_valid: bool, _already_at_location: bool) -> boo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+    use crate::assemblies::headgroup::window::sampling::SamplingContext;
+    use crate::assemblies::headgroup::window::transforms::transform;
 
     // r[verify cz.ui.coords-parse+2]
     #[test]
@@ -643,5 +650,53 @@ mod tests {
         assert!(!goto_line_is_valid("1 + 2i"));
         assert!(goto_line_is_valid("1 + 2i mag 2^3"));
         assert!(goto_line_is_valid("home"));
+    }
+
+    /// Headgroup property pin: arbitrary UTF-8 never panics the goto parsers.
+    // r[verify cz.ui.coords-parse+2]
+    proptest! {
+        #[test]
+        fn goto_parsers_never_panic_on_arbitrary_utf8(s in ".*") {
+            let _ = goto_line_is_valid(&s);
+            let _ = commands_from_goto_line(&s);
+            let _ = parse_complex(&s);
+        }
+    }
+
+    /// Headgroup property pin: HUD readout → goto recovers pot and lands near center.
+    // r[verify cz.ui.location-readout+2]
+    // r[verify cz.ui.goto-absolute-center+1]
+    proptest! {
+        #[test]
+        fn readout_roundtrips_through_goto(
+            re in -2.0f64..2.0,
+            im in -2.0f64..2.0,
+            pot in -4i32..24,
+        ) {
+            let screen = (800u32, 480u32);
+            let loc = ul_for_center(f64_to_intexp(re), f64_to_intexp(im), pot, screen);
+            let (cre, cim) = viewport_center(&loc, screen);
+            let line = format_location_readout(&cre, &cim, loc.zoom_pot);
+            let cmds = commands_from_goto_line(&line)
+                .unwrap_or_else(|| panic!("readout must be valid goto: {line}"));
+            let mut ctx = SamplingContext {
+                screen: None,
+                screen_size: screen,
+                location: ul_for_center(IntExp::ZERO, IntExp::ZERO, 0, screen),
+                updated: false,
+                mouse_drag_start: None,
+            };
+            transform(cmds, &mut ctx);
+            assert_eq!(ctx.location.zoom_pot, pot, "line={line}");
+            let (got_re, got_im) = viewport_center(&ctx.location, screen);
+            let err_re = (f64::from(got_re) - re).abs();
+            let err_im = (f64::from(got_im) - im).abs();
+            // Readout formatting is lossy at high |pot|; require coarse recovery.
+            let tol = (2.0f64).powi((-pot).clamp(0, 20)) * 8.0 + 1e-3;
+            assert!(
+                err_re < tol && err_im < tol,
+                "line={line} err=({err_re},{err_im}) tol={tol}"
+            );
+        }
     }
 }

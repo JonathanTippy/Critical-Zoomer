@@ -1,0 +1,29 @@
+[package]
+name = "critical_zoomer-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+critical_zoomer = { path = ".." }
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "coords_goto"
+path = "fuzz_targets/coords_goto.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "admission_edges"
+path = "fuzz_targets/admission_edges.rs"
+test = false
+doc = false
+bench = false
