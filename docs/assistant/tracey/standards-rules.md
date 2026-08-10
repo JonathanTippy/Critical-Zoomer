@@ -106,11 +106,15 @@ r[cz.perf.play-minimize+1]
 phases; continuous delivery of work so far.
 
 **Acceptance criteria.**
-- [ ] STANDS — v0.0.9 is the golden reference: publish begins with the first remapped package
-  and continues every shift. Known residual: WorkContext construction is one lump per pivot
-  (virtues §12 lists incremental construction as the remaining play reduction).
+- [x] Production home first publish within 20% of DirectKernel
+  (`home_workshift_first_publish_within_20pct_of_direct_kernel`).
+- [x] Criterion `time_to_first_publish` measures fill-only via `iter_custom`
+  (not context construction).
 - **Benchmark.** `time_to_first_publish` in `benches/workgroup_fitness.rs` tracks
   first-work latency against the baseline (`docs/assistant/benchmarks.md`).
+
+**Verification.** `home_workshift_first_publish_within_20pct_of_direct_kernel`,
+`home_workshift_stays_on_direct_kernel_without_ref`.
 
 r[cz.perf.play-8bump-100ms+1]
 

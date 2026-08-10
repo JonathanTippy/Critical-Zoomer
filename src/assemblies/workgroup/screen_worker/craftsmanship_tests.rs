@@ -5279,6 +5279,43 @@ fn home_workshift_stays_on_direct_kernel_without_ref() {
     });
 }
 
+/// First non-empty publish on home must stay within 20% of DirectKernel (guards
+/// policy tax on the play-minimize path). If *both* paths are slow vs historical
+/// ~39–52 ms Criterion, that is a DirectKernel-path FIX NOW — not a soft floor.
+// r[verify cz.perf.play-minimize+1]
+#[test]
+fn home_workshift_first_publish_within_20pct_of_direct_kernel() {
+    run_big(|| {
+        let fill_first = |use_workshift: bool| {
+            let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
+            let t0 = Instant::now();
+            let mut shifts = 0u32;
+            let mut got = 0usize;
+            while got == 0 && shifts < 50_000 {
+                if use_workshift {
+                    workshift(0, 0, 0, 0, &mut ctx, None);
+                } else {
+                    workshift_with_kernel(0, 0, 0, 0, &mut ctx, &DirectKernel);
+                }
+                got = work_update(&mut ctx).len();
+                shifts += 1;
+            }
+            assert!(got > 0, "no first publish shifts={shifts} workshift={use_workshift}");
+            (t0.elapsed().as_secs_f64(), shifts, got)
+        };
+        let (direct_t, direct_s, _) = fill_first(false);
+        let (via_t, via_s, _) = fill_first(true);
+        let ratio = via_t / direct_t.max(1e-9);
+        eprintln!(
+            "home first publish: direct={direct_t:.4}s/{direct_s}sh workshift={via_t:.4}s/{via_s}sh ratio={ratio:.2}×"
+        );
+        assert!(
+            ratio <= 1.20,
+            "workshift first publish {via_t:.4}s is >20% slower than DirectKernel {direct_t:.4}s (ratio={ratio:.2}×); FIX NOW — do not soften"
+        );
+    });
+}
+
 /// Production `workshift` home fill must stay within 20% of DirectKernel wall time
 /// (guards policy/scan tax regressions that made home feel slow post-v0.0.9).
 // r[verify cz.perf.min-300m-ips-cpu+2]

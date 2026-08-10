@@ -11,7 +11,7 @@
 Anything else that slips into colorer / escaper / window sampling is a charter
 violation until justified or reverted.
 
-## Diff vs `e6a0560` (audit 2026-08-09)
+## Diff vs `e6a0560` (audit 2026-08-09, tick refresh)
 
 | Area | Δ | Charter? |
 |---|---|---|
@@ -19,9 +19,10 @@ violation until justified or reverted.
 | `headgroup/window/rolling.rs` | +76 (PPS / rates) | **Yes** — HUD |
 | `headgroup/window/mod.rs` | HUD wiring | **Yes** — HUD |
 | `headgroup/window/snip.rs` | +72 in-app PPM | Borderline — faux-user / assistant visual; keep |
-| `headgroup/window/inputs.rs` | small | Review if zoom-debt salvage |
-| `headgroup/window/sampling.rs` | small | Review |
-| `shadergroup/colorer/color.rs` | +319 filament / period edges | **Documented feature** — shade rules; needs headed verify |
+| `headgroup/window/inputs.rs` | pointer → `Option` attention | **Yes** — location / attention for spiral |
+| `headgroup/window/sampling.rs` | `SetPos` via coords + HUD pass-through | **Yes** — goto + HUD |
+| `headgroup/window/transforms.rs` | +12 command-only apply | **Yes** — goto / tests (no pixel path) |
+| `shadergroup/colorer/color.rs` | +319 filament / period edges | **Bucket 3** — shade rules; headed verify required |
 | `shadergroup/escaper.rs` | escape-continues / ring | Tied to shade; keep with shade rules |
 
 ## Enforcement

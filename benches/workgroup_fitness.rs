@@ -103,24 +103,32 @@ fn fill_floatexp(ctx: &mut WorkContext<FloatExp>) {
     workshift_with_kernel(0, 0, 0, 0, ctx, &FloatExpPerturbationKernel);
 }
 
+/// Criterion `b.iter` times the whole closure. Returning a `Duration` does **not**
+/// make Criterion use that duration — so prior `time_to_*` numbers accidentally
+/// included `from_stencil` + `run_big` thread spawn. Use `iter_custom` so the
+/// reported median is only fill→publish wall time (matches the pin tests).
 fn time_to_first_publish(c: &mut Criterion) {
     let mut group = c.benchmark_group("workgroup_fitness");
     group.sample_size(30);
     group.bench_function("time_to_first_publish", |b| {
-        b.iter(|| {
-            run_big(|| {
-                let mut ctx = home_context_f64();
-                let start = Instant::now();
-                let first = loop {
-                    fill_f64(&mut ctx);
-                    let got = drain_f64(&mut ctx);
-                    if got > 0 {
-                        break got;
-                    }
-                };
-                black_box(first);
-                start.elapsed()
-            })
+        b.iter_custom(|iters| {
+            let mut total = std::time::Duration::ZERO;
+            for _ in 0..iters {
+                total += run_big(|| {
+                    let mut ctx = home_context_f64();
+                    let start = Instant::now();
+                    let first = loop {
+                        fill_f64(&mut ctx);
+                        let got = drain_f64(&mut ctx);
+                        if got > 0 {
+                            break got;
+                        }
+                    };
+                    black_box(first);
+                    start.elapsed()
+                });
+            }
+            total
         });
     });
     group.finish();
@@ -130,34 +138,38 @@ fn time_to_full_frame(c: &mut Criterion) {
     let mut group = c.benchmark_group("workgroup_fitness");
     group.sample_size(10);
     group.bench_function("time_to_full_frame", |b| {
-        b.iter(|| {
-            run_big(|| {
-                let mut ctx = home_context_f64();
-                let start = Instant::now();
-                let mut shifts = 0u32;
-                loop {
-                    fill_f64(&mut ctx);
-                    drain_f64(&mut ctx);
-                    shifts += 1;
-                    if frame_complete_f64(&ctx) {
-                        break;
+        b.iter_custom(|iters| {
+            let mut total = std::time::Duration::ZERO;
+            for _ in 0..iters {
+                total += run_big(|| {
+                    let mut ctx = home_context_f64();
+                    let start = Instant::now();
+                    let mut shifts = 0u32;
+                    loop {
+                        fill_f64(&mut ctx);
+                        drain_f64(&mut ctx);
+                        shifts += 1;
+                        if frame_complete_f64(&ctx) {
+                            break;
+                        }
+                        if shifts > 200_000 {
+                            panic!("home frame did not complete");
+                        }
                     }
-                    if shifts > 200_000 {
-                        panic!("home frame did not complete");
-                    }
-                }
-                let elapsed = start.elapsed();
-                let ips = ctx.total_iterations as f64 / elapsed.as_secs_f64();
-                println!(
-                    "full_stack_ips_f64_gear: {:.0}  ({} iterations, {} shifts, {:.2?}) gear={:?}",
-                    ips,
-                    ctx.total_iterations,
-                    shifts,
-                    elapsed,
-                    ctx.active_gear
-                );
-                elapsed
-            })
+                    let elapsed = start.elapsed();
+                    let ips = ctx.total_iterations as f64 / elapsed.as_secs_f64();
+                    println!(
+                        "full_stack_ips_f64_gear: {:.0}  ({} iterations, {} shifts, {:.2?}) gear={:?}",
+                        ips,
+                        ctx.total_iterations,
+                        shifts,
+                        elapsed,
+                        ctx.active_gear
+                    );
+                    elapsed
+                });
+            }
+            total
         });
     });
     group.finish();
@@ -167,30 +179,34 @@ fn time_to_full_frame_with_reference(c: &mut Criterion) {
     let mut group = c.benchmark_group("workgroup_fitness");
     group.sample_size(10);
     group.bench_function("time_to_full_frame_with_reference", |b| {
-        b.iter(|| {
-            run_big(|| {
-                let mut ctx = home_context_f64_with_reference();
-                let start = Instant::now();
-                let mut shifts = 0u32;
-                loop {
-                    fill_f64(&mut ctx);
-                    drain_f64(&mut ctx);
-                    shifts += 1;
-                    if frame_complete_f64(&ctx) {
-                        break;
+        b.iter_custom(|iters| {
+            let mut total = std::time::Duration::ZERO;
+            for _ in 0..iters {
+                total += run_big(|| {
+                    let mut ctx = home_context_f64_with_reference();
+                    let start = Instant::now();
+                    let mut shifts = 0u32;
+                    loop {
+                        fill_f64(&mut ctx);
+                        drain_f64(&mut ctx);
+                        shifts += 1;
+                        if frame_complete_f64(&ctx) {
+                            break;
+                        }
+                        if shifts > 200_000 {
+                            panic!("home frame with reference did not complete");
+                        }
                     }
-                    if shifts > 200_000 {
-                        panic!("home frame with reference did not complete");
-                    }
-                }
-                let elapsed = start.elapsed();
-                let ips = ctx.total_iterations as f64 / elapsed.as_secs_f64();
-                println!(
-                    "full_stack_ips_f64_gear_ref: {:.0}  ({} iterations, {} shifts, {:.2?})",
-                    ips, ctx.total_iterations, shifts, elapsed
-                );
-                elapsed
-            })
+                    let elapsed = start.elapsed();
+                    let ips = ctx.total_iterations as f64 / elapsed.as_secs_f64();
+                    println!(
+                        "full_stack_ips_f64_gear_ref: {:.0}  ({} iterations, {} shifts, {:.2?})",
+                        ips, ctx.total_iterations, shifts, elapsed
+                    );
+                    elapsed
+                });
+            }
+            total
         });
     });
     group.finish();
@@ -200,29 +216,33 @@ fn time_to_full_frame_direct_oracle(c: &mut Criterion) {
     let mut group = c.benchmark_group("workgroup_fitness");
     group.sample_size(10);
     group.bench_function("time_to_full_frame_direct_oracle", |b| {
-        b.iter(|| {
-            run_big(|| {
-                let mut ctx = home_context_f64();
-                let start = Instant::now();
-                let mut shifts = 0u32;
-                loop {
-                    fill_direct(&mut ctx);
-                    drain_f64(&mut ctx);
-                    shifts += 1;
-                    if frame_complete_f64(&ctx) {
-                        break;
+        b.iter_custom(|iters| {
+            let mut total = std::time::Duration::ZERO;
+            for _ in 0..iters {
+                total += run_big(|| {
+                    let mut ctx = home_context_f64();
+                    let start = Instant::now();
+                    let mut shifts = 0u32;
+                    loop {
+                        fill_direct(&mut ctx);
+                        drain_f64(&mut ctx);
+                        shifts += 1;
+                        if frame_complete_f64(&ctx) {
+                            break;
+                        }
+                        if shifts > 200_000 {
+                            panic!("direct home frame did not complete");
+                        }
                     }
-                    if shifts > 200_000 {
-                        panic!("direct home frame did not complete");
-                    }
-                }
-                let elapsed = start.elapsed();
-                println!(
-                    "full_stack_ips_direct_f64: shifts={} elapsed={:.2?}",
-                    shifts, elapsed
-                );
-                elapsed
-            })
+                    let elapsed = start.elapsed();
+                    println!(
+                        "full_stack_ips_direct_f64: shifts={} elapsed={:.2?}",
+                        shifts, elapsed
+                    );
+                    elapsed
+                });
+            }
+            total
         });
     });
     group.finish();
@@ -232,21 +252,26 @@ fn worker_1080p_full_frame(c: &mut Criterion) {
     let mut group = c.benchmark_group("workgroup_resolution");
     group.sample_size(10);
     group.bench_function("worker_1080p_full_frame", |b| {
-        b.iter(|| {
-            run_big(|| {
-                let mut ctx = from_stencil((home_frame().0, (1920, 1080)), None).expect("1080p");
-                let start = Instant::now();
-                let mut shifts = 0u32;
-                while !frame_complete_f64(&ctx) {
-                    fill_f64(&mut ctx);
-                    drain_f64(&mut ctx);
-                    shifts += 1;
-                    if shifts > 1_000_000 {
-                        panic!("1080p frame did not complete");
+        b.iter_custom(|iters| {
+            let mut total = std::time::Duration::ZERO;
+            for _ in 0..iters {
+                total += run_big(|| {
+                    let mut ctx = from_stencil((home_frame().0, (1920, 1080)), None).expect("1080p");
+                    let start = Instant::now();
+                    let mut shifts = 0u32;
+                    while !frame_complete_f64(&ctx) {
+                        fill_f64(&mut ctx);
+                        drain_f64(&mut ctx);
+                        shifts += 1;
+                        if shifts > 1_000_000 {
+                            panic!("1080p frame did not complete");
+                        }
                     }
-                }
-                black_box((start.elapsed(), shifts))
-            })
+                    black_box(shifts);
+                    start.elapsed()
+                });
+            }
+            total
         });
     });
     group.finish();

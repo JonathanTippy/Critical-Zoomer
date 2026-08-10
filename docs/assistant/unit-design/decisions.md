@@ -2,6 +2,13 @@
 
 Recorded from the unit-design closing pass. These override assistant guesses in this tree. They do **not** override authoritative `docs/authoritative/` content; where they contradict authoritative text, flag and ask.
 
+> **Do not implement from suspended tile-era rows.** Memory / tile manager,
+> Scheduling (mag columns), tile-keyed work, and tile publisher topology below
+> are **archive of Q&A** — not a live design target. Live GPU/depth work follows
+> `docs/assistant/design/workgroup-virtues.md`, `naive-gpu-design.md`, and
+> `docs/assistant/quality-doctrine.md`. Tile-era prose that used to live under
+> `design/Stale/` is in `docs/assistant/Trash/design-Stale-tile-era/`.
+
 > **2026-08-06 post-revert status.** The codebase is back at v0.0.9 (e6a0560); the tile machine is gone from the live tree. Sections below split:
 > - **Standing (product/process, still binding):** Design fallbacks rule; Coloring & settings; Shading; D-UI-1; D-PER-3/4/6 as algorithm preferences (v0.0.9's every-iteration loop check is consistent with them); D-REF precision principles for when perturbation returns; **Naive GPU view port** (`docs/assistant/design/naive-gpu-design.md`) and the D-NGPU-* rows below.
 > - **Suspended (tile-machine-specific):** Memory / tile manager; Scheduling (tile columns); D-STEN-1 fields beyond v0.0.9's PointStencil; D-WORK-1 (tile keys); Publisher topology D-PUB-2..6 as *tile* topology; most of the GPU-native completion block as *tile* wording; D-PLAY-TICK as written (v0.0.9's ~10ms wall-clock workshift is the golden cadence — see `docs/assistant/design/workgroup-virtues.md`; re-derive any tick design from it). Policies that still apply to the view port are restated under D-NGPU-* / `naive-gpu-design.md`.

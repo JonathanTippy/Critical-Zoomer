@@ -10,6 +10,8 @@ PO quotes archive: `Trash/stale/less stale but still stale/grok-docs/he-said/`.
 
 Any new workgroup work (GPU, depth, perturbation) must not re-break the v0.0.9 invariants: one live target, one truth package, shared remap transform, small interruptible bouts, whole-snapshot publishes, fixed pivot order, no competing versions. A regression of these is a fail regardless of feature gain. Reference: `docs/assistant/design/workgroup-virtues.md` (enshrined).
 
+**Quality grind (2026-08-09):** no soft-skip / soft floor / `#[ignore]` on hard bars (`quality-doctrine.md`). Headgroup/shadergroup edits outside location+HUD need a note here first (`headgroup-charter.md`). Criterion `time_to_*` previously inflated by context construction (`b.iter`); fixed to `iter_custom` — first-publish “~96 ms vs ~40 ms” was largely measurement, not a DirectKernel slip. Pins: `home_workshift_first_publish_within_20pct_of_direct_kernel`, `home_workshift_full_frame_within_20pct_of_direct_kernel`. **PPS bar:** hard floor ≥1× CPU; aspiration ~160×.
+
 ## DAT failures (2026-08-01) — product watchlist on the v0.0.9 baseline
 
 Developer acceptance test failed on the tile machine. Most items were tile-era implementation failures (closed by revert). The items below are **product-level**: they describe things v0.0.9 already did right, and they must keep working on the restored baseline. Verify headed before DAT.

@@ -45,16 +45,27 @@ Benchmarks vary run to run; noise is normal. Trends matter.
 
 Hot-path `debug_agent` NDJSON + `format!` call sites removed; reference-floor
 policy no longer scans all seats when there is no usable reference (home
-DirectKernel path). Criterion medians after policy fast-path (sample-size 10):
+DirectKernel path).
 
-| metric | median | vs accepted |
+**Measurement fix (tick 9):** `time_to_*` benches now use Criterion
+`iter_custom` so the reported median is **only** fill→done wall time. Prior
+`b.iter` accidentally timed `from_stencil` + `run_big` thread spawn as well
+(returning a `Duration` does not override Criterion’s wall clock). Historical
+rows below that used `b.iter` are **construction-inflated** — do not treat a
+drop after this fix as a code speedup, and do not compare new honest medians
+directly to old inflated ones without noting the method change.
+
+Honest medians after `iter_custom` (2026-08-09 tick 9, sample-size 10/30):
+
+| metric | median | notes |
 |---|---|---|
-| time_to_first_publish | ~96 ms | still above ~39–52 ms DirectKernel-era first-publish |
-| time_to_full_frame (production `workshift`) | **~357 ms** | matches ~357 ms accepted f64-gear row |
-| time_to_full_frame_with_reference | **~360 ms** | restored |
-| time_to_full_frame_direct_oracle | **~357 ms** | at/under ~378 ms accepted |
+| time_to_first_publish | **~12.3 ms** | fill-only; was ~90–96 ms when construction was timed |
+| time_to_full_frame (production `workshift`) | **~270 ms** | **ACCEPTED** honest fill-only baseline (was ~357 ms inflated) |
+| time_to_full_frame_with_reference | **~272 ms** | matches production within noise |
+| time_to_full_frame_direct_oracle | **~274 ms** | matches production within noise |
 
-Pin: `home_workshift_full_frame_within_20pct_of_direct_kernel`.
+Pin: `home_workshift_full_frame_within_20pct_of_direct_kernel`,
+`home_workshift_first_publish_within_20pct_of_direct_kernel`.
 
 ## Baseline
 
@@ -105,6 +116,10 @@ Pin: `home_workshift_full_frame_within_20pct_of_direct_kernel`.
 | time_to_full_frame (f64 gear ladder) **ACCEPTED** | ~356.6 ms (351.3–363.5 ms; wall ~270–290 ms / 22–24 shifts; ~3.7e7 ips) | 2026-08-07 | grok-probation | parity-or-better vs DirectKernel f64 oracle |
 | time_to_full_frame_with_reference (f64 gear) | ~366.1 ms (359.3–373.6 ms; wall ~277–300 ms) | 2026-08-07 | grok-probation | published reference + series present |
 | time_to_full_frame_direct_oracle (f64 DirectKernel) | ~377.6 ms (353.5–422.5 ms; wall ~268–290 ms typical) | 2026-08-07 | grok-probation | fair f64-host oracle |
+| time_to_first_publish (iter_custom fill-only) **ACCEPTED** | ~12.3 ms (12.25–12.31 ms) | 2026-08-09 | quality/squeaky-clean | replaces construction-inflated ~90 ms rows |
+| time_to_full_frame (iter_custom fill-only) **ACCEPTED** | ~270 ms (267.9–272.2 ms) | 2026-08-09 | quality/squeaky-clean | honest fill; prior ~357 ms included construction |
+| time_to_full_frame_with_reference (iter_custom) | ~272 ms (270.5–273.0 ms) | 2026-08-09 | quality/squeaky-clean | |
+| time_to_full_frame_direct_oracle (iter_custom) | ~274 ms (271.9–275.3 ms) | 2026-08-09 | quality/squeaky-clean | |
 | gear_micro scaled_f64_1k_steps | ~8.19 µs | 2026-08-07 | grok-probation | ~4.6× vs floatexp_1k (~37.6 µs) |
 | gear_micro floatexp_1k_steps | ~37.6 µs | 2026-08-07 | grok-probation | all-FloatExp delta step train |
 | gear_micro f64_1k_steps | ~5.74 µs | 2026-08-07 | grok-probation | plain f64 step train |
