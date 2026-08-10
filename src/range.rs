@@ -87,7 +87,6 @@ impl<T: Value, const MUST_INTEGER:bool> Range<T, MUST_INTEGER> {
                 }
             }
         };
-        println!("new Range: {:?}", returned);
         returned
     }
 
@@ -284,7 +283,7 @@ impl<T: Value, const Int: bool> Mul<T> for Range<T, Int> {
     fn mul (self, other:T) -> Self {
         Range::choose([
                                      self.lower_bound * other
-                                     , self.lower_bound * other
+                                     , self.upper_bound * other
                                  ])
     }
 }
@@ -426,4 +425,118 @@ fn test_alternating_nan_bounds() {
     let sum = known_low + known_high;
     // (5 + NaN) and (NaN + 10) should both be NaN.
     assert!(sum.is_agnostic(), "Mixed NaN bounds must conserve ignorance");
+}
+
+/// Thought-killed pins for the dense `range.rs` caught-mutant cluster.
+#[test]
+fn range_scalar_mul_uses_both_bounds() {
+    // Was a real bug: Mul<T> multiplied lower_bound twice and collapsed the interval.
+    let a = Range::<f64, false> {
+        lower_bound: 2.0,
+        upper_bound: 4.0,
+    };
+    let c = a * 3.0;
+    assert!(c.lower_bound <= 6.0 + 1e-9, "got {:?}", c);
+    assert!(c.upper_bound >= 12.0 - 1e-9, "got {:?}", c);
+    assert!(c.upper_bound - c.lower_bound > 1.0, "interval must not collapse: {:?}", c);
+}
+
+#[test]
+fn range_guess_middle_and_compare_ops() {
+    let a = Range::<f64, false> {
+        lower_bound: 2.0,
+        upper_bound: 6.0,
+    };
+    let mid = a.guess_middle();
+    assert!((mid - 4.0).abs() < 1e-9, "mid={mid}");
+    assert_ne!(mid, 2.0 * 6.0); // +→*
+    assert_ne!(mid, 2.0 - 6.0); // +→-
+
+    let left = a.guess_left();
+    let right = a.guess_right();
+    assert_eq!(left, 2.0);
+    assert_eq!(right, 6.0);
+
+    let b = Range::<f64, false> {
+        lower_bound: 10.0,
+        upper_bound: 12.0,
+    };
+    assert!(a.can_ne(b));
+    assert!(a.must_ne(b));
+    assert!(!a.must_eq(b));
+    assert!(a.can_lt(b));
+    assert!(a.must_lt(b));
+    assert!(b.can_gt(a));
+    assert!(b.must_gt(a));
+    assert!(!a.can_eq(b));
+
+    let same = Range::<f64, false>::new(3.0);
+    assert!(same.must_eq(Range::new(3.0)));
+    assert!(!same.can_ne(Range::new(3.0)));
+}
+
+#[test]
+fn range_square_positive_and_straddling() {
+    let pos = Range::<f64, false> {
+        lower_bound: 2.0,
+        upper_bound: 3.0,
+    }
+    .square();
+    assert!(pos.lower_bound <= 4.0);
+    assert!(pos.upper_bound >= 9.0);
+    assert!(!pos.can_be_zero());
+
+    let straddle = Range::<f64, false> {
+        lower_bound: -2.0,
+        upper_bound: 3.0,
+    };
+    assert!(straddle.can_be_zero());
+    let sq = straddle.square();
+    assert!(sq.lower_bound <= 0.0);
+    assert!(sq.upper_bound >= 9.0);
+}
+
+#[test]
+fn range_add_sub_mul_interval_arithmetic() {
+    let a = Range::<f64, false> {
+        lower_bound: 1.0,
+        upper_bound: 2.0,
+    };
+    let b = Range::<f64, false> {
+        lower_bound: 3.0,
+        upper_bound: 4.0,
+    };
+    let sum = a + b;
+    assert!(sum.lower_bound <= 4.0);
+    assert!(sum.upper_bound >= 6.0);
+
+    let diff = b - a;
+    // [3,4]-[1,2] = [1,3]
+    assert!(diff.lower_bound <= 1.0 + 1e-9);
+    assert!(diff.upper_bound >= 3.0 - 1e-9);
+
+    let prod = a * b;
+    // endpoints 3,4,6,8 → [3,8]
+    assert!(prod.lower_bound <= 3.0 + 1e-6);
+    assert!(prod.upper_bound >= 8.0 - 1e-6);
+
+    let shifted = a + 5.0;
+    assert!(shifted.lower_bound <= 6.0 + 1e-9);
+    assert!(shifted.upper_bound >= 7.0 - 1e-9);
+    let sub_s = b - 1.0;
+    assert!(sub_s.lower_bound <= 2.0 + 1e-9);
+    assert!(sub_s.upper_bound >= 3.0 - 1e-9);
+}
+
+#[test]
+fn nan_min_max_propagate_ignorance() {
+    let n = f64::NAN;
+    assert!(min(n, 1.0).is_nan());
+    assert!(min(1.0, n).is_nan());
+    assert_eq!(min(1.0, 2.0), 1.0);
+    assert_eq!(min(2.0, 1.0), 1.0);
+    assert!(max(n, 1.0).is_nan());
+    assert!(max(1.0, n).is_nan());
+    assert_eq!(max(1.0, 2.0), 2.0);
+    assert_eq!(max(2.0, 1.0), 2.0);
 }

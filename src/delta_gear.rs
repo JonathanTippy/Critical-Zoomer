@@ -292,6 +292,7 @@ pub fn f64_from_fe(z: ComplexFloatExp) -> (f64, f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     // r[verify cz.depth.compute-gear+1]
     #[test]
@@ -365,5 +366,207 @@ mod tests {
             aggregate_seat_gears(&[ComputeGear::F64, ComputeGear::F64]),
             ComputeGear::F64
         );
+    }
+
+    /// Thought-killed pins for the dense `delta_gear` caught-mutant cluster
+    /// (`mutants.out/caught.txt`: cmul/cadd/cnorm/cscale/scaled_f64_step/…).
+    #[test]
+    fn complex_helpers_kill_arithmetic_mutants() {
+        assert_eq!(cscale((3.0, -4.0), 2.0), (6.0, -8.0));
+        assert_ne!(cscale((3.0, -4.0), 2.0), (3.0 + 2.0, -4.0 + 2.0)); // *→+
+        assert_ne!(cscale((3.0, -4.0), 2.0), (3.0 / 2.0, -4.0 / 2.0)); // *→/
+
+        // (1+2i)(3+4i) = -5 + 10i
+        assert_eq!(cmul((1.0, 2.0), (3.0, 4.0)), (-5.0, 10.0));
+        assert_ne!(cmul((1.0, 2.0), (3.0, 4.0)), (1.0 * 3.0 + 2.0 * 4.0, 0.0));
+
+        assert_eq!(cadd((1.0, 2.0), (3.0, 4.0)), (4.0, 6.0));
+        assert_ne!(cadd((1.0, 2.0), (3.0, 4.0)), (1.0 - 3.0, 2.0 - 4.0));
+        assert_ne!(cadd((1.0, 2.0), (3.0, 4.0)), (1.0 * 3.0, 2.0 * 4.0));
+
+        assert_eq!(cnorm_sq((3.0, 4.0)), 25.0);
+        assert_ne!(cnorm_sq((3.0, 4.0)), 3.0 * 3.0 - 4.0 * 4.0);
+        assert_ne!(cnorm_sq((3.0, 4.0)), 3.0 + 4.0);
+
+        assert_eq!(pair_magnitude((-2.0, 5.0)), 5.0);
+        assert_eq!(hud_labels_are_distinct(), true);
+    }
+
+    fn hud_labels_are_distinct() -> bool {
+        let labels = [
+            ComputeGear::F32.hud_label(),
+            ComputeGear::F64.hud_label(),
+            ComputeGear::ScaledF64.hud_label(),
+            ComputeGear::FloatExp.hud_label(),
+            ComputeGear::Mixed.hud_label(),
+        ];
+        labels.iter().collect::<std::collections::BTreeSet<_>>().len() == labels.len()
+    }
+
+    #[test]
+    fn f64_admission_and_useful_floors() {
+        assert!(f64_delta_admitted(0.0, 0.0));
+        assert!(f64_delta_admitted(1e-200, 0.0));
+        assert!(!f64_delta_admitted(1e-301, 0.0));
+        assert!(!f64_delta_admitted(1e301, 0.0));
+        // Kill ==→!= on the zero short-circuit and ||→&& / threshold flips.
+        assert!(f64_perturbation_useful(0.0, 0.0));
+        assert!(f64_perturbation_useful(1e-6, 0.0));
+        assert!(!f64_perturbation_useful(1e-8, 0.0));
+        assert!(f64_perturbation_useful(F64_PERTURB_USEFUL_FLOOR, 0.0));
+        assert!(!f64_perturbation_useful(F64_PERTURB_USEFUL_FLOOR * 0.5, 0.0));
+    }
+
+    #[test]
+    fn f64_step_applies_two_z_term_when_ref_nonzero() {
+        let z_ref = (0.5, 0.0);
+        let dz = (0.1, 0.0);
+        let dc = (0.01, 0.0);
+        let (dz_on, _, gear_on) = f64_step(z_ref, dz, dc, (1.0, 0.0), false);
+        let (dz_off, _, gear_off) = f64_step(z_ref, dz, dc, (1.0, 0.0), true);
+        // With Z: 2*0.5*0.1 + 0.01 + 0.01 = 0.12; without: 0.01+0.01=0.02
+        assert!((dz_on.0 - 0.12).abs() < 1e-12, "got {}", dz_on.0);
+        assert!((dz_off.0 - 0.02).abs() < 1e-12, "got {}", dz_off.0);
+        assert_ne!(dz_on.0, dz_off.0);
+        assert_eq!(gear_on, ComputeGear::F64);
+        assert_eq!(gear_off, ComputeGear::F64);
+    }
+
+    #[test]
+    fn f64_step_promotes_when_delta_becomes_useless() {
+        let (dz, _, gear) = f64_step(
+            (0.0, 0.0),
+            (1e-9, 0.0),
+            (1e-9, 0.0),
+            (1.0, 0.0),
+            true,
+        );
+        assert!(dz.0.abs() < F64_PERTURB_USEFUL_FLOOR);
+        assert_eq!(gear, ComputeGear::ScaledF64);
+    }
+
+    #[test]
+    fn scaled_f64_step_rescales_large_and_small_w() {
+        let scale = FloatExp::ONE;
+        // |w| large enough that |S·w²| is finite but > F64_OVERFLOW_CEIL → rescale.
+        let (w_big, s_big, g_big) =
+            scaled_f64_step((0.0, 0.0), (1e152, 0.0), (0.0, 0.0), scale, true);
+        assert_eq!(g_big, ComputeGear::ScaledF64);
+        assert!((w_big.0.abs() - 1.0).abs() < 1e-9, "w={}", w_big.0);
+        assert!(s_big.to_f64().is_finite() && s_big.to_f64() > 1.0);
+
+        // Tiny |w| (but above underflow) → bring back near 1.
+        let (w_tiny, s_tiny, g_tiny) =
+            scaled_f64_step((0.0, 0.0), (1e-10, 0.0), (0.0, 0.0), FloatExp::ONE, true);
+        assert_eq!(g_tiny, ComputeGear::ScaledF64);
+        assert!((w_tiny.0.abs() - 1.0).abs() < 1e-6, "w={}", w_tiny.0);
+        assert!(s_tiny.to_f64() < 1.0);
+
+        // Non-finite / zero scale → FloatExp promotion.
+        let (_, _, g_bad) =
+            scaled_f64_step((0.0, 0.0), (1.0, 0.0), (0.0, 0.0), FloatExp::from(0.0), true);
+        assert_eq!(g_bad, ComputeGear::FloatExp);
+    }
+
+    #[test]
+    fn scaled_f64_step_matches_algebra_on_unit_scale() {
+        // is_zero_ref: w' = S·w² + d with S=1 → w² + d
+        let (w1, s1, g) = scaled_f64_step((0.0, 0.0), (0.5, 0.25), (0.1, -0.2), FloatExp::ONE, true);
+        assert_eq!(g, ComputeGear::ScaledF64);
+        assert_eq!(s1, FloatExp::ONE);
+        let w2 = cmul((0.5, 0.25), (0.5, 0.25));
+        let expect = cadd(w2, (0.1, -0.2));
+        assert!((w1.0 - expect.0).abs() < 1e-12);
+        assert!((w1.1 - expect.1).abs() < 1e-12);
+    }
+
+    #[test]
+    fn gear_for_delta_requires_both_admitted_for_f64() {
+        let ok = ComplexFloatExp::new(FloatExp::from(1e-4), FloatExp::ZERO);
+        let underflow = ComplexFloatExp::new(FloatExp::from(1e-320), FloatExp::ZERO);
+        // One side not admitted → not plain F64 (&& mutant would incorrectly stay F64).
+        assert_ne!(gear_for_delta(ok, underflow), ComputeGear::F64);
+        assert_ne!(gear_for_delta(underflow, ok), ComputeGear::F64);
+        assert_eq!(gear_for_delta(ok, ok), ComputeGear::F64);
+    }
+
+    #[test]
+    fn fe_pair_helpers_and_narrow() {
+        let z = ComplexFloatExp::new(FloatExp::from(1.25), FloatExp::from(-0.5));
+        assert_eq!(fe_to_f64_pair(z), Some((1.25, -0.5)));
+        assert_eq!(f64_from_fe(z), (1.25, -0.5));
+        assert_eq!(narrow_z_ref(z), Some((1.25, -0.5)));
+        let round = floatexp_from_f64_pair((2.0, 3.0));
+        assert_eq!(f64_from_fe(round), (2.0, 3.0));
+        assert_eq!(fe_to_f64_or_zero(FloatExp::from(7.0)), 7.0);
+        // Non-finite → 0 for fe_to_f64_or_zero
+        let huge = FloatExp::new(1.0, 10_000);
+        assert_eq!(fe_to_f64_or_zero(huge), 0.0);
+    }
+
+    #[test]
+    fn aggregate_covers_all_single_and_mixed_paths() {
+        assert_eq!(aggregate_seat_gears(&[]), ComputeGear::F64);
+        assert_eq!(
+            aggregate_seat_gears(&[ComputeGear::FloatExp]),
+            ComputeGear::FloatExp
+        );
+        assert_eq!(
+            aggregate_seat_gears(&[ComputeGear::ScaledF64]),
+            ComputeGear::ScaledF64
+        );
+        assert_eq!(
+            aggregate_seat_gears(&[ComputeGear::F64, ComputeGear::FloatExp]),
+            ComputeGear::Mixed
+        );
+        assert_eq!(
+            aggregate_seat_gears(&[ComputeGear::Mixed]),
+            ComputeGear::Mixed
+        );
+        // F32 ignored in pert aggregates.
+        assert_eq!(
+            aggregate_seat_gears(&[ComputeGear::F32, ComputeGear::F64]),
+            ComputeGear::F64
+        );
+    }
+
+    #[test]
+    fn scaled_scale_from_dz_picks_max_abs_component() {
+        let dz = ComplexFloatExp::new(FloatExp::from(1e-20), FloatExp::from(-3e-20));
+        let s = scaled_scale_from_dz(dz);
+        assert_eq!(s, FloatExp::from(3e-20));
+        assert_eq!(
+            scaled_scale_from_dz(ComplexFloatExp::new(FloatExp::ZERO, FloatExp::ZERO)),
+            FloatExp::ONE
+        );
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(128))]
+
+        #[test]
+        fn cmul_agrees_with_schoolbook(
+            a0 in -1e3f64..1e3,
+            a1 in -1e3f64..1e3,
+            b0 in -1e3f64..1e3,
+            b1 in -1e3f64..1e3,
+        ) {
+            let got = cmul((a0, a1), (b0, b1));
+            prop_assert!((got.0 - (a0 * b0 - a1 * b1)).abs() < 1e-9);
+            prop_assert!((got.1 - (a0 * b1 + a1 * b0)).abs() < 1e-9);
+        }
+
+        #[test]
+        fn f64_step_zero_ref_is_dz2_plus_dc(
+            dz0 in -1e2f64..1e2,
+            dz1 in -1e2f64..1e2,
+            dc0 in -1e2f64..1e2,
+            dc1 in -1e2f64..1e2,
+        ) {
+            let (dz, _, _) = f64_step((0.0, 0.0), (dz0, dz1), (dc0, dc1), (1.0, 0.0), true);
+            let expect = cadd(cmul((dz0, dz1), (dz0, dz1)), (dc0, dc1));
+            prop_assert!((dz.0 - expect.0).abs() < 1e-6);
+            prop_assert!((dz.1 - expect.1).abs() < 1e-6);
+        }
     }
 }
