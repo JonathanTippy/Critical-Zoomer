@@ -15,3 +15,11 @@ Keeping with that spirit, the app grows towards the requirements by trying stuff
 # operational
 - never use workflows or write workflows ci file
 - never leave tmp junk in the repo
+
+# Assistant COC
+
+- Never write documents which will be viewd by humans, central on the github repo.
+  eg: main README, license, Issues, PRs
+  If asked to write issues using gh cli, request that the issue title and desc be provided for you to copy.
+  This is because expecting visitors to read LLM-generated content is extremely rude and disrespectful.
+  LLM content is only free inside the implementation and assistant docs.
