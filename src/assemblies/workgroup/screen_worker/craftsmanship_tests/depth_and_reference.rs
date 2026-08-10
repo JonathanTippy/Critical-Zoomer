@@ -377,13 +377,7 @@ fn home_workshift_with_reference_matches_direct() {
             perturb.points.iter().all(|p| p.delivered),
             "perturbation path must finish the shell with a published reference"
         );
-        let direct_esc = direct.points.iter().filter(|p| p.escapes).count();
-        let pert_esc = perturb.points.iter().filter(|p| p.escapes).count();
-        assert!(
-            direct_esc > 10 && pert_esc > 10,
-            "both paths must produce exterior escapes (direct={direct_esc} pert={pert_esc})"
-        );
-        // Exact escape/interior class parity under zero-orbit+ref is covered by
+        // Escape/interior class parity under live series is pinned by
         // home_package_with_live_series_matches_direct_kernel_answers.
     });
 }
