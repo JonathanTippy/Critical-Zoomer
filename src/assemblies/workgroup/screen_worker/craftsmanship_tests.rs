@@ -4981,17 +4981,22 @@ fn steady_state_home_pps_gpu_vs_cpu_ratio() {
             let t0 = Instant::now();
             let mut shifts = 0u32;
             let mut points = 0u64;
-            while !ctx.points.iter().all(|p| p.delivered) && shifts < 2000 {
+            // Same bulk window as GPU (90%) — fair PPS rate, not endgame mop tax.
+            while shifts < 2000 {
                 workshift_with_kernel(0, 0, 0, 0, &mut ctx, &DirectKernel);
                 let completed = work_update(&mut ctx);
                 points += completed.len() as u64;
                 shifts += 1;
+                let delivered = ctx.points.iter().filter(|p| p.delivered).count();
+                if delivered as f64 / ctx.points.len().max(1) as f64 >= 0.90 {
+                    break;
+                }
             }
             let secs = t0.elapsed().as_secs_f64().max(1e-9);
-            assert_eq!(
-                points,
-                ctx.points.len() as u64,
-                "CPU home PPS measure incomplete: points={points}/{} shifts={shifts}",
+            let fill = points as f64 / ctx.points.len().max(1) as f64;
+            assert!(
+                fill >= 0.90,
+                "CPU home fill too low for PPS probe: points={points}/{} fill={fill:.4}",
                 ctx.points.len()
             );
             points as f64 / secs
@@ -5245,6 +5250,31 @@ fn steady_state_naive_gpu_deep_cusp_never_stalls() {
                 max_center_iters >= 1_000,
                 "unfinished center stuck at {max_center_iters} iters — likely missed halt or abandoned WIP"
             );
+        }
+    });
+}
+
+/// Shallow home must stay on DirectKernel (no soft-trial without a usable ref).
+/// Guards the post-v0.0.9 workshift policy from silently running pert at home.
+// r[verify cz.perf.pps-selected-kernel+1]
+#[test]
+fn home_workshift_stays_on_direct_kernel_without_ref() {
+    run_big(|| {
+        let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
+        assert!(!ctx.coords_are_relative);
+        assert!(ctx.latest_reference.is_none());
+        for _ in 0..5 {
+            workshift(0, 0, 0, 0, &mut ctx, None);
+            assert!(
+                !ctx.perturbation_kernel_required(),
+                "home must not require pert without relative coords or trial floor"
+            );
+            assert!(
+                !ctx.reference_floor_active,
+                "home must not soft-trial pert without a published reference"
+            );
+            assert!(!ctx.last_used_naive_gpu);
+            let _ = work_update(&mut ctx);
         }
     });
 }

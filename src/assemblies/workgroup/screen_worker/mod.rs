@@ -211,49 +211,7 @@ async fn internal_behavior<A: SteadyActor>(
                             cur.orbit.iterates.len() > newest.orbit.iterates.len()
                         });
                     if keep_longer_bootstrap {
-                        // #region agent log
-                        crate::debug_agent::log_hud(
-                            "H2",
-                            "screen_worker/mod.rs:ref_keep_bootstrap",
-                            "kept_longer_bootstrap",
-                            &format!(
-                                "{{\"new_len\":{},\"kept_len\":{},\"zoom_pot\":{}}}",
-                                newest.orbit.iterates.len(),
-                                live.context
-                                    .latest_reference
-                                    .as_ref()
-                                    .map(|r| r.orbit.iterates.len())
-                                    .unwrap_or(0),
-                                zoom_pot
-                            ),
-                        );
-                        // #endregion
                     } else {
-                    // #region agent log
-                    crate::debug_agent::log(
-                        "A",
-                        "screen_worker/mod.rs:ref_install",
-                        "reference_installed_live",
-                        &format!(
-                            "{{\"generation\":{},\"orbit_len\":{}}}",
-                            newest.generation,
-                            newest.orbit.iterates.len()
-                        ),
-                    );
-                    crate::debug_agent::log_hud(
-                        "H1",
-                        "screen_worker/mod.rs:ref_install",
-                        "reference_installed_live",
-                        &format!(
-                            "{{\"generation\":{},\"orbit_len\":{},\"escaped\":{},\"period\":{:?},\"zoom_pot\":{}}}",
-                            newest.generation,
-                            newest.orbit.iterates.len(),
-                            newest.orbit.escaped,
-                            newest.orbit.period,
-                            zoom_pot
-                        ),
-                    );
-                    // #endregion
                     live.context.latest_reference = Some(newest.clone());
                     let compute_loc = (
                         live.frame_info.0.pos.0.clone(),
@@ -269,22 +227,6 @@ async fn internal_behavior<A: SteadyActor>(
                     }
                 }
             } else {
-                // #region agent log
-                if let Some(live) = &state.work_context {
-                    let zoom_pot = live.frame_info.0.zoom_pot;
-                    crate::debug_agent::log_hud(
-                        "H2",
-                        "screen_worker/mod.rs:ref_rejected_escaped",
-                        "reference_escaped_not_installed",
-                        &format!(
-                            "{{\"generation\":{},\"orbit_len\":{},\"zoom_pot\":{}}}",
-                            newest.generation,
-                            newest.orbit.iterates.len(),
-                            zoom_pot
-                        ),
-                    );
-                }
-                // #endregion
             }
         }
 
@@ -356,20 +298,6 @@ async fn internal_behavior<A: SteadyActor>(
                                 state.pending_reference = None;
                             }
                         }
-                        // #region agent log
-                        crate::debug_agent::log(
-                            "A,E",
-                            "screen_worker/mod.rs:replace",
-                            "replace_shell",
-                            &format!(
-                                "{{\"has_ref\":{},\"zoom\":{},\"res\":[{},{}]}}",
-                                new_ctx.latest_reference.is_some(),
-                                frame_info.0.zoom_pot,
-                                frame_info.1.0,
-                                frame_info.1.1
-                            ),
-                        );
-                        // #endregion
                         state.work_context = Some(LiveTarget { context: new_ctx, frame_info: frame_info.clone() });
                         actor.try_send(
                             &mut updates_out,
@@ -467,9 +395,6 @@ where
             ComputeGear::F64,
         ),
     };
-    if let Some(c) = ctx.as_ref() {
-        hud_telemetry_debug_log(c, kernel_mode, reference_status);
-    }
     WorkUpdate {
         frame_info,
         completed_points,
@@ -479,76 +404,6 @@ where
         reference_status,
         iterations_delta,
     }
-}
-
-fn hud_telemetry_debug_log<T: Mandelbrotable>(
-    ctx: &WorkContext<T>,
-    kernel_mode: crate::assemblies::structs::KernelMode,
-    reference_status: crate::assemblies::structs::ReferenceStatus,
-) {
-    use crate::assemblies::structs::{KernelMode, ReferenceStatus};
-    use std::sync::atomic::{AtomicU8, Ordering};
-    static LAST_MODE: AtomicU8 = AtomicU8::new(255);
-    static LAST_REF: AtomicU8 = AtomicU8::new(255);
-    let mode_tag = match kernel_mode {
-        KernelMode::Naive => 0u8,
-        KernelMode::NaiveGpu => 2u8,
-        KernelMode::Pert => 1u8,
-    };
-    let ref_tag = match reference_status {
-        ReferenceStatus::Wip => 0u8,
-        ReferenceStatus::Complete => 1u8,
-    };
-    let mode_changed = LAST_MODE.swap(mode_tag, Ordering::Relaxed) != mode_tag;
-    let ref_changed = LAST_REF.swap(ref_tag, Ordering::Relaxed) != ref_tag;
-    if !mode_changed && !ref_changed && !crate::debug_agent::should_sample(60) {
-        return;
-    }
-    let has_ref = ctx.latest_reference.is_some();
-    let escaped = ctx
-        .latest_reference
-        .as_ref()
-        .map(|r| r.orbit.escaped)
-        .unwrap_or(false);
-    let generation = ctx
-        .latest_reference
-        .as_ref()
-        .map(|r| r.generation)
-        .unwrap_or(0);
-    let direct_only = ctx.points.iter().filter(|p| p.direct_only).count();
-    let initialized = ctx.points.iter().filter(|p| p.initialized).count();
-    // #region agent log
-    let undelivered_glitch = ctx
-        .points
-        .iter()
-        .filter(|p| p.direct_only && !p.delivered)
-        .count();
-    let remaining = ctx.points.iter().filter(|p| !p.delivered).count();
-    let policy = ctx.floor_policy_label();
-    crate::debug_agent::log_hud(
-        if mode_changed { "H1" } else if ref_changed { "H3" } else { "H5" },
-        "screen_worker/mod.rs:telemetry_update",
-        if mode_changed { "hud_mode_changed" } else { "hud_telemetry_sample" },
-        &format!(
-            "{{\"mode\":\"{}\",\"ref\":\"{}\",\"has_ref\":{},\"escaped\":{},\"generation\":{},\"direct_only\":{},\"undelivered_glitch\":{},\"initialized\":{},\"pps\":{:.1},\"screen_pts\":{},\"ref_floor\":{},\"dispatch\":\"{}\",\"remaining\":{},\"policy\":\"{}\",\"res_w\":{}}}",
-            kernel_mode.hud_label(),
-            reference_status.hud_label(),
-            has_ref,
-            escaped,
-            generation,
-            direct_only,
-            undelivered_glitch,
-            initialized,
-            ctx.hud_pps_estimate(),
-            ctx.screen_point_count(),
-            ctx.reference_floor_active,
-            if ctx.perturbation_kernel_required() { "pert" } else { "direct" },
-            remaining,
-            policy,
-            ctx.res.0
-        ),
-    );
-    // #endregion
 }
 
 /// Host stack admitted for this `WorkContext` monomorphization.

@@ -365,8 +365,14 @@ pub fn workshift_naive_gpu(
             context.total_iterations = context.total_iterations.saturating_add(iter_delta);
             let gpu_final_n = finishes.iter().filter(|f| (f.flags & 6) != 0).count();
             let wip_n = prev_wip.len().max(1);
-            if points_published_this_shift == 0 || gpu_final_n * 4 >= wip_n {
+            // Shallow floods finish most seats per bout — still allow 2 bouts/dispatch
+            // after the first publish to amortize submit/sync tax (PPS ≥1× floor) while
+            // keeping per-shift harvest for continuous outputs.
+            if points_published_this_shift == 0 {
                 bouts_per_dispatch = 1;
+            } else if gpu_final_n * 4 >= wip_n {
+                // Shallow: pack more ALU per submit; still harvest every workshift.
+                bouts_per_dispatch = 4;
             } else if gpu_final_n * 16 < wip_n {
                 bouts_per_dispatch = 16;
             } else {

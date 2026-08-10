@@ -833,35 +833,7 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
             res,
             published.as_ref(),
         );
-        // #region agent log
-        crate::debug_agent::log_hud(
-            "H1",
-            "screen_worker/workshift.rs:from_stencil",
-            "bootstrap_ref",
-            &format!(
-                "{{\"zoom_pot\":{},\"orbit_len\":{},\"escaped\":{}}}",
-                obj.zoom_pot,
-                published.orbit.iterates.len(),
-                published.orbit.escaped,
-            ),
-        );
-        // #endregion
     }
-    // #region agent log
-    crate::debug_agent::log_hud(
-        "H2",
-        "screen_worker/workshift.rs:from_stencil",
-        "shell_admitted",
-        &format!(
-            "{{\"zoom_pot\":{},\"admission\":\"{}\",\"coords_relative\":{},\"has_ref\":{},\"gen\":{}}}",
-            obj.zoom_pot,
-            if coords_are_relative { "relative" } else { "absolute" },
-            coords_are_relative,
-            ctx.latest_reference.is_some(),
-            generator_generation,
-        ),
-    );
-    // #endregion
     Some(ctx)
 }
 
@@ -1192,20 +1164,6 @@ pub fn workshift(
         && (policy_after == "promote_trial"
             || trial_tick == Some("trial_expired"))
     {
-        // #region agent log
-        crate::debug_agent::log_hud(
-            "H6",
-            "screen_worker/workshift.rs:workshift",
-            "floor_policy_changed",
-            &format!(
-                "{{\"from\":\"{policy_before}\",\"to\":\"{policy_after}\",\"ref_floor\":{},\"pps\":{:.1},\"screen_pts\":{},\"remaining\":{}}}",
-                context.reference_floor_active,
-                context.hud_pps_estimate(),
-                context.screen_point_count(),
-                context.points.iter().filter(|p| !p.delivered).count(),
-            ),
-        );
-        // #endregion
     }
 }
 
@@ -1217,28 +1175,6 @@ fn run_workshift_kernel(
     context: &mut WorkContext<f64>,
     gpu: Option<&mut super::naive_gpu::NaiveGpuContext>,
 ) {
-    // #region agent log
-    crate::debug_agent::log_hud(
-        "H1",
-        "screen_worker/workshift.rs:run_workshift_kernel",
-        "kernel_dispatch",
-        &format!(
-            "{{\"coords_relative\":{},\"ref_floor\":{},\"has_ref\":{},\"kernel\":\"{}\",\"policy\":\"{}\",\"remaining\":{}}}",
-            context.coords_are_relative,
-            context.reference_floor_active,
-            context.latest_reference.is_some(),
-            if context.perturbation_kernel_required() {
-                "pert"
-            } else if gpu.is_some() {
-                "naive_gpu"
-            } else {
-                "direct"
-            },
-            context.floor_policy_label(),
-            context.points.iter().filter(|p| !p.delivered).count(),
-        ),
-    );
-    // #endregion
     if context.perturbation_kernel_required() {
         workshift_with_kernel(
             day_token_allowance,
