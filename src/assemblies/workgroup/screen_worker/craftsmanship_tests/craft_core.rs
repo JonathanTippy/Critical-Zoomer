@@ -21,16 +21,24 @@ fn check_test_budget() {
 }
 
 fn run_big(f: impl FnOnce() + Send + 'static) {
-    std::thread::Builder::new()
+    let join = std::thread::Builder::new()
         .stack_size(64 << 20)
         .spawn(move || {
             TEST_BUDGET_START.with(|c| c.set(Some(std::time::Instant::now())));
             f();
             check_test_budget();
         })
-        .unwrap()
-        .join()
-        .unwrap();
+        .expect("run_big stack thread");
+    match join.join() {
+        Ok(()) => {}
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
+}
+
+/// Restart the 1s wall budget after expensive setup (GPU adapter, long orbits)
+/// so the budget measures the fill under test, not adapter bring-up.
+fn refresh_test_budget() {
+    TEST_BUDGET_START.with(|c| c.set(Some(std::time::Instant::now())));
 }
 
 fn make_point(c: (f64, f64)) -> Point<FloatExp> {

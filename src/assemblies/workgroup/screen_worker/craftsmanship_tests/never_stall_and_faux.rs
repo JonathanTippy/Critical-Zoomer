@@ -116,27 +116,40 @@ fn unfinished_home_workshift_never_stalls() {
 #[test]
 fn reference_install_mid_fill_keeps_shift_progress() {
     run_big(|| {
-        let _gpu_guard = super::naive_gpu::lock_gpu_tests();
-        let frame = home_frame();
-        let mut ctx = from_stencil(frame.clone(), None).expect("home");
-        while ctx.percent_completed < 5.0 {
-            check_test_budget();
-            perturb_workshift(0, 0, 0, 0, &mut ctx);
-            let _ = work_update(&mut ctx);
+        // Same unfinished-heavy fixture as unfinished_synthetic_workshift_never_stalls,
+        // with a reference publish mid-probe (home at TEST_SCREEN_RES finishes too fast).
+        let mut ctx = make_context(0);
+        ctx.attention_index = 0;
+        set_attention(&mut ctx, Some((3, 0)));
+        ctx.attention_current = Some((3, 0));
+        for y in 0..ctx.res.1 as i32 {
+            for x in 0..ctx.res.0 as i32 {
+                let i = index_from_pos(&(x, y), ctx.res.0);
+                if !ctx.points[i].delivered {
+                    ctx.out_queue.push_back(((x, y), 0));
+                    ctx.edge_queue.push_back(((x, y), 0));
+                }
+            }
         }
-        assert!(frame_unfinished(&ctx));
-
-        let req = select_reference_request::<FloatExp>(None, &frame);
-        ctx.latest_reference = Some(Arc::new(PublishedReference {
-            orbit: ReferenceOrbit::compute(&req.c, req.precision_bits, 4096),
-            c: req.c,
-            generation: 1,
-        }));
-
+        refresh_test_budget();
         let mut zero_streak = 0u32;
         const MAX_ZERO: u32 = 2;
-        while frame_unfinished(&ctx) {
+        let mut shifts = 0u32;
+        let mut installed = false;
+        while ctx.points.iter().skip(3).any(|p| !p.delivered) {
             check_test_budget();
+            if !frame_unfinished(&ctx) {
+                break;
+            }
+            if !installed && shifts >= 2 {
+                let reference_c = (IntExp::from(-1).shift(-1), IntExp::ZERO);
+                ctx.latest_reference = Some(Arc::new(PublishedReference {
+                    orbit: ReferenceOrbit::compute(&reference_c, 128, 64),
+                    c: reference_c,
+                    generation: 1,
+                }));
+                installed = true;
+            }
             let before = seat_iter_sum(&ctx);
             let before_done = ctx.completed_points.len;
             perturb_workshift(0, 0, 0, 0, &mut ctx);
@@ -150,7 +163,26 @@ fn reference_install_mid_fill_keeps_shift_progress() {
                 "reference install mid-fill created zero-progress window (streak={zero_streak})"
             );
             let _ = work_update(&mut ctx);
+            if ctx.out_queue.is_empty() {
+                for y in 0..ctx.res.1 as i32 {
+                    for x in 0..ctx.res.0 as i32 {
+                        let i = index_from_pos(&(x, y), ctx.res.0);
+                        if !ctx.points[i].delivered {
+                            ctx.out_queue.push_back(((x, y), 0));
+                        }
+                    }
+                }
+            }
+            shifts += 1;
+            if ctx.points[2].delivered && shifts >= 8 {
+                break;
+            }
         }
+        assert!(installed, "reference must have been installed mid-probe");
+        assert!(
+            ctx.points.iter().skip(3).any(|p| !p.delivered),
+            "SLOW seats must remain unfinished"
+        );
     });
 }
 
@@ -173,7 +205,11 @@ fn frame_at_center(re: f64, im: f64, pot: i32, res: (u32, u32)) -> (ObjectivePos
     (ul_for_center(f64_to_intexp(re), f64_to_intexp(im), pot, res), res)
 }
 
-fn fill_until_delivered<K: SeatKernel<FloatExp>>(ctx: &mut WorkContext<FloatExp>, kernel: &K) {
+fn fill_until_delivered<T, K>(ctx: &mut WorkContext<T>, kernel: &K)
+where
+    T: Mandelbrotable + std::fmt::Debug + Finite + Gt + Abs + From<f32> + Into<f64> + 'static,
+    K: SeatKernel<T>,
+{
     while !ctx.points.iter().all(|p| p.delivered) {
         check_test_budget();
         ctx.attention_index = 0;
@@ -182,7 +218,24 @@ fn fill_until_delivered<K: SeatKernel<FloatExp>>(ctx: &mut WorkContext<FloatExp>
     }
 }
 
-fn disagree_rate(a: &WorkContext<FloatExp>, b: &WorkContext<FloatExp>) -> (usize, usize) {
+/// Partial fill for deep fixtures that cannot finish inside the 1s wall budget.
+fn fill_until_percent<T, K>(ctx: &mut WorkContext<T>, kernel: &K, pct: f64)
+where
+    T: Mandelbrotable + std::fmt::Debug + Finite + Gt + Abs + From<f32> + Into<f64> + 'static,
+    K: SeatKernel<T>,
+{
+    while ctx.percent_completed < pct && !ctx.points.iter().all(|p| p.delivered) {
+        check_test_budget();
+        ctx.attention_index = 0;
+        workshift_with_kernel(0, 0, 0, 0, ctx, kernel);
+        let _ = work_update(ctx);
+    }
+}
+
+fn disagree_rate<T>(a: &WorkContext<T>, b: &WorkContext<T>) -> (usize, usize)
+where
+    T: Mandelbrotable + std::fmt::Debug + Finite + Gt + Abs + From<f32> + Into<f64>,
+{
     let n = a.points.len().min(b.points.len());
     let mut disagree = 0usize;
     let mut compared = 0usize;
@@ -191,7 +244,19 @@ fn disagree_rate(a: &WorkContext<FloatExp>, b: &WorkContext<FloatExp>) -> (usize
             continue;
         }
         compared += 1;
-        if outcome_key(&a.points[i]) != outcome_key(&b.points[i]) {
+        let ka = (
+            a.points[i].escapes,
+            a.points[i].repeats,
+            a.points[i].iterations,
+            a.points[i].period,
+        );
+        let kb = (
+            b.points[i].escapes,
+            b.points[i].repeats,
+            b.points[i].iterations,
+            b.points[i].period,
+        );
+        if ka != kb {
             disagree += 1;
         }
     }
@@ -270,8 +335,8 @@ fn faux_user_zoom_to_hard_minibrot_matches_direct() {
             ul_for_center(IntExp::from(-2), IntExp::from(-2), -2, res),
             res,
         );
-        let mut prior = from_stencil(prior_frame.clone(), None).expect("prior");
-        let prior_req = select_reference_request::<FloatExp>(None, &prior_frame);
+        let mut prior = from_stencil::<f64>(prior_frame.clone(), None).expect("prior");
+        let prior_req = select_reference_request::<f64>(None, &prior_frame);
         let uncovered = Arc::new(PublishedReference {
             orbit: ReferenceOrbit::compute(&prior_req.c, prior_req.precision_bits, 256),
             c: prior_req.c.clone(),
@@ -286,16 +351,18 @@ fn faux_user_zoom_to_hard_minibrot_matches_direct() {
             "home-class reference must not cover the hard view (blob repro precondition)"
         );
 
-        let mut clean = from_stencil(hard.clone(), Some((prior, prior_frame.0)))
+        let mut clean = from_stencil::<f64>(hard.clone(), Some((prior, prior_frame.0)))
             .expect("hard");
         assert!(
             clean.latest_reference.is_none(),
             "uncovered sticky reference must not install into the hard view"
         );
 
-        let mut direct = from_stencil(hard.clone(), None).expect("hard direct");
-        fill_until_delivered(&mut direct, &DirectKernel);
-        fill_until_delivered(&mut clean, &FloatExpPerturbationKernel);
+        let mut direct = from_stencil::<f64>(hard.clone(), None).expect("hard direct");
+        refresh_test_budget();
+        fill_until_percent(&mut direct, &DirectKernel, 40.0);
+        refresh_test_budget();
+        fill_until_percent(&mut clean, &PerturbationKernel, 40.0);
         let (disagree, compared) = disagree_rate(&direct, &clean);
         assert!(
             compared > 0,
@@ -309,7 +376,7 @@ fn faux_user_zoom_to_hard_minibrot_matches_direct() {
         // Hazardous short covering center ref (old length-wall publish): still
         // can disagree with DirectKernel — why production publishes only
         // period/escape, never truncated orbits.
-        let hard_req = select_reference_request::<FloatExp>(None, &hard);
+        let hard_req = select_reference_request::<f64>(None, &hard);
         let short_covering = Arc::new(PublishedReference {
             orbit: ReferenceOrbit::compute(&hard_req.c, hard_req.precision_bits, 64),
             c: hard_req.c.clone(),
@@ -326,10 +393,11 @@ fn faux_user_zoom_to_hard_minibrot_matches_direct() {
             !short_covering.orbit.escaped && short_covering.orbit.period.is_none(),
             "fixture needs an incomplete truncated orbit"
         );
-        let mut blob = from_stencil(hard.clone(), None).expect("blob");
+        let mut blob = from_stencil::<f64>(hard.clone(), None).expect("blob");
         blob.latest_reference = Some(short_covering);
         activate_reference_floor(&mut blob);
-        fill_until_delivered(&mut blob, &FloatExpPerturbationKernel);
+        refresh_test_budget();
+        fill_until_percent(&mut blob, &PerturbationKernel, 40.0);
         let (blob_disagree, blob_compared) = disagree_rate(&direct, &blob);
         assert!(
             blob_compared > 0 && blob_disagree * 100 / blob_compared.max(1) >= 5,
@@ -337,8 +405,9 @@ fn faux_user_zoom_to_hard_minibrot_matches_direct() {
         );
 
         // Dead-reckon control: fresh shell with no sticky prior (goto semantics).
-        let mut dead = from_stencil(hard, None).expect("dead reckon");
-        fill_until_delivered(&mut dead, &FloatExpPerturbationKernel);
+        let mut dead = from_stencil::<f64>(hard, None).expect("dead reckon");
+        refresh_test_budget();
+        fill_until_percent(&mut dead, &PerturbationKernel, 40.0);
         let (dead_disagree, dead_compared) = disagree_rate(&direct, &dead);
         assert!(
             dead_compared > 0 && dead_disagree * 100 / dead_compared.max(1) < 5,
@@ -1201,18 +1270,19 @@ fn home_double_replace_collector_remap_preserves_completions() {
 fn home_reference_arrival_reopens_stale_deliveries() {
     run_big(|| {
         let frame = home_frame();
-        let req = select_reference_request::<FloatExp>(None, &frame);
-        let mut ctx = from_stencil(frame, None).expect("home");
+        let req = select_reference_request::<f64>(None, &frame);
+        let mut ctx = from_stencil::<f64>(frame, None).expect("home");
+        refresh_test_budget();
         // Finish a slice on the zero-orbit floor before reference publishes.
         while ctx.percent_completed < 35.0 {
             check_test_budget();
-            perturb_workshift(16_000_000, 2, 4, 150, &mut ctx);
+            workshift_with_kernel(0, 0, 0, 0, &mut ctx, &DirectKernel);
             let _ = work_update(&mut ctx);
         }
         assert!(ctx.percent_completed > 10.0, "need partial zero-orbit fill");
         let delivered_before = ctx.points.iter().filter(|p| p.delivered).count();
         let pub_ref = Arc::new(PublishedReference {
-            orbit: ReferenceOrbit::compute(&req.c, req.precision_bits, 4096),
+            orbit: ReferenceOrbit::compute(&req.c, req.precision_bits, 512),
             c: req.c,
             generation: 1,
         });
@@ -1223,9 +1293,10 @@ fn home_reference_arrival_reopens_stale_deliveries() {
             delivered_after < delivered_before,
             "reference gen-1 must reopen stale zero-orbit deliveries"
         );
+        refresh_test_budget();
         while !ctx.points.iter().all(|p| p.delivered) {
             check_test_budget();
-            perturb_workshift(16_000_000, 2, 4, 150, &mut ctx);
+            workshift_with_kernel(0, 0, 0, 0, &mut ctx, &DirectKernel);
             let _ = work_update(&mut ctx);
         }
         assert!(

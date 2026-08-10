@@ -8,17 +8,18 @@ use crate::reference::ReferenceOrbit;
 use std::sync::Arc;
 
 fn home_frame() -> (ObjectivePosAndZoom, (u32, u32)) {
-    // Match the live window's ObjectivePosAndZoom: display Y is stored unflipped;
-    // `from_stencil` / `objective_c` apply the compute-space Y flip once.
-    // Screen size is the shared lib-test resolution (not product DEFAULT_WINDOW_RES).
+    // Product UL+zoom at TEST_SCREEN_RES crops a corner; product *center* at the
+    // same zoom is still a tiny exterior-biased patch (1 iter/seat). Use a
+    // home-class window: cardioid-centered, zoomed out so ~40 seats span ~the
+    // same world width as product 854×480 @ pot -2 (~6.7 units → pot -6).
+    use crate::assemblies::headgroup::window::coords::{f64_to_intexp, ul_for_center};
     (
-        ObjectivePosAndZoom {
-            pos: (
-                IntExp::from(HOME_POSITION.0),
-                IntExp::from(HOME_POSITION.1),
-            ),
-            zoom_pot: HOME_POSITION.2,
-        },
+        ul_for_center(
+            f64_to_intexp(-0.75),
+            f64_to_intexp(0.0),
+            -6,
+            TEST_SCREEN_RES,
+        ),
         TEST_SCREEN_RES,
     )
 }
