@@ -43,18 +43,18 @@ Benchmarks vary run to run; noise is normal. Trends matter.
 
 ### Quality grind note (2026-08-09 evening)
 
-Hot-path `debug_agent` NDJSON + `format!` call sites removed from workshift /
-HUD / pert paths (FIX NOW). Post-strip Criterion medians (sample-size 10,
-center-half CPUs):
+Hot-path `debug_agent` NDJSON + `format!` call sites removed; reference-floor
+policy no longer scans all seats when there is no usable reference (home
+DirectKernel path). Criterion medians after policy fast-path (sample-size 10):
 
-| metric | median | vs accepted docs row |
+| metric | median | vs accepted |
 |---|---|---|
-| time_to_first_publish | ~97 ms | still above ~39–52 ms DirectKernel-era; track vs ~90 ms f64-gear |
-| time_to_full_frame (production `workshift`) | ~511 ms → remeasure after strip | still above ~357 ms accepted f64-gear — FIX NOW open |
-| time_to_full_frame_direct_oracle | ~421 ms | within ~20% of ~378 ms accepted |
+| time_to_first_publish | ~96 ms | still above ~39–52 ms DirectKernel-era first-publish |
+| time_to_full_frame (production `workshift`) | **~357 ms** | matches ~357 ms accepted f64-gear row |
+| time_to_full_frame_with_reference | **~360 ms** | restored |
+| time_to_full_frame_direct_oracle | **~357 ms** | at/under ~378 ms accepted |
 
-Do not update accepted baselines until production `workshift` home is within
-20% of DirectKernel oracle on the same machine.
+Pin: `home_workshift_full_frame_within_20pct_of_direct_kernel`.
 
 ## Baseline
 

@@ -215,8 +215,6 @@ impl<T: Mandelbrotable> WorkContext<T> {
 
     /// Read-only policy label for HUD telemetry (no side effects).
     pub fn floor_policy_label(&self) -> &'static str {
-        let pps = self.hud_pps_estimate();
-        let remaining = self.points.iter().filter(|p| !p.delivered).count() as u64;
         if self.reference_floor_active {
             return "trial_active";
         }
@@ -230,9 +228,12 @@ impl<T: Mandelbrotable> WorkContext<T> {
                 "no_ref"
             };
         }
+        // Only scan seats when a usable reference exists (trial decisions).
+        let remaining = self.points.iter().filter(|p| !p.delivered).count() as u64;
         if remaining == 0 {
             return "complete";
         }
+        let pps = self.hud_pps_estimate();
         let min_samples = (self.screen_point_count() as u32 / 200).max(200);
         if self.hud_points_window < min_samples {
             return "warming_up";
@@ -248,9 +249,6 @@ impl<T: Mandelbrotable> WorkContext<T> {
 
     /// Brief perturbation trial when direct fill would take >2s at current PPS.
     pub fn update_reference_floor_policy(&mut self) -> &'static str {
-        let pps = self.hud_pps_estimate();
-        let remaining = self.points.iter().filter(|p| !p.delivered).count() as u64;
-
         if self.reference_floor_active {
             return "trial_active";
         }
@@ -265,9 +263,12 @@ impl<T: Mandelbrotable> WorkContext<T> {
         if published.orbit.escaped {
             return "ref_escaped";
         }
+        // Seat scan only when a live reference could justify a trial.
+        let remaining = self.points.iter().filter(|p| !p.delivered).count() as u64;
         if remaining == 0 {
             return "complete";
         }
+        let pps = self.hud_pps_estimate();
         let min_samples = (self.screen_point_count() as u32 / 200).max(200);
         if self.hud_points_window < min_samples {
             return "warming_up";
@@ -1159,11 +1160,9 @@ pub fn workshift(
         gpu,
     );
     let trial_tick = context.tick_pert_trial();
-    let policy_after = context.update_reference_floor_policy();
-    if policy_before != policy_after
-        && (policy_after == "promote_trial"
-            || trial_tick == Some("trial_expired"))
-    {
+    // Skip the post-shift policy scan when we already know there is no ref to trial.
+    if policy_before != "no_ref" || trial_tick.is_some() {
+        let _ = context.update_reference_floor_policy();
     }
 }
 

@@ -5279,6 +5279,45 @@ fn home_workshift_stays_on_direct_kernel_without_ref() {
     });
 }
 
+/// Production `workshift` home fill must stay within 20% of DirectKernel wall time
+/// (guards policy/scan tax regressions that made home feel slow post-v0.0.9).
+// r[verify cz.perf.min-300m-ips-cpu+2]
+#[test]
+fn home_workshift_full_frame_within_20pct_of_direct_kernel() {
+    run_big(|| {
+        let _gpu_guard = super::naive_gpu::lock_gpu_tests();
+        let fill = |use_workshift: bool| {
+            let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
+            let t0 = Instant::now();
+            let mut shifts = 0u32;
+            while !ctx.points.iter().all(|p| p.delivered) && shifts < 500 {
+                if use_workshift {
+                    workshift(0, 0, 0, 0, &mut ctx, None);
+                } else {
+                    workshift_with_kernel(0, 0, 0, 0, &mut ctx, &DirectKernel);
+                }
+                let _ = work_update(&mut ctx);
+                shifts += 1;
+            }
+            assert!(
+                ctx.points.iter().all(|p| p.delivered),
+                "home incomplete shifts={shifts} workshift={use_workshift}"
+            );
+            t0.elapsed().as_secs_f64()
+        };
+        let direct = fill(false);
+        let via_workshift = fill(true);
+        let ratio = via_workshift / direct.max(1e-9);
+        eprintln!(
+            "home wall: direct={direct:.3}s workshift={via_workshift:.3}s ratio={ratio:.2}×"
+        );
+        assert!(
+            ratio <= 1.20,
+            "workshift home {via_workshift:.3}s is >20% slower than DirectKernel {direct:.3}s (ratio={ratio:.2}×); FIX NOW — do not soften"
+        );
+    });
+}
+
 /// Series must stay off the production kernels until membership pins stay green.
 /// Hard pin — never `#[ignore]` (quality-doctrine).
 // r[verify cz.depth.series-approximation+1]
