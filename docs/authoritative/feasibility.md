@@ -39,4 +39,13 @@ in:
 Conclusion:
 
 perfect is not aimed for (yet) and may or may not be possible, but existing solutions all have gaps.
-I don't like how they set an i teration count limit. It stops you from exploring the actual mandelbrot set, and makes the mandelbrot set act like other fractals, where it has a finite repeating shape, whereas the entire draw of the mandelbrot set, which makes it interesting instead of boring, is that unlike other fractals, the shape which is repeating is infinitely complex.
+The main one is the iteration count limit. It stops you from exploring the actual mandelbrot set, and makes the mandelbrot set act like other fractals, where it has a finite repeating shape, whereas the entire draw of the mandelbrot set, which makes it interesting instead of boring, is that unlike other fractals, the shape which is repeating is infinitely complex.
+
+# Conclusion 2:
+According to mu-ency, a leading Mandelbrot wiki, its best to limit iteration count to only high enough that you can see where you're going. On the surface, it sounds like solid advice; harder areas make it take longer to see where you're going. *if* those areas are being prioritized. 
+The key is not to; Prioritize whatever the user is looking at and moving towards. For this to work well, eye tracking may be necessary.
+There is a problem with this: the mu-ency wisdom is that with limited iteration count, you won't visit more difficult areas in browsing, which will allow you to browse quickly.
+The central problem which this app aims to solve is to allow the user to visit any area they choose without it getting slow.
+Feasibility is considered blocked.
+
+

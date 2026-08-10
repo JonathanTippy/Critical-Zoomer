@@ -20,7 +20,7 @@ fn check_test_budget() {
     });
 }
 
-fn run_big(f: impl FnOnce() + Send + 'static) {
+fn run_big_stack_size(f: impl FnOnce() + Send + 'static) {
     let join = std::thread::Builder::new()
         .stack_size(64 << 20)
         .spawn(move || {
@@ -383,7 +383,7 @@ fn exterior_or_wrong_period_is_not_accepted() {
 // verifies r[cz.craft.lifo-drain+1]
 #[test]
 fn completion_drain_is_lifo() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let mut ctx = make_context(0);
         for i in 0..50usize {
             assert!(ctx.completed_points.try_push((CompletedPoint::Dummy {}, i)));
@@ -398,7 +398,7 @@ fn completion_drain_is_lifo() {
 // verifies r[cz.craft.edge-push-front+1]
 #[test]
 fn edge_neighbors_jump_queue_front() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let ctx = make_context(0);
         let mut queue: VecDeque<((i32, i32), u32)> = VecDeque::new();
         queue.push_back(((0, 0), 999)); // pre-existing entry
@@ -418,7 +418,7 @@ fn edge_neighbors_jump_queue_front() {
 // verifies r[cz.craft.cost-metadata+1]
 #[test]
 fn queue_entries_carry_source_cost() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let mut ctx = make_context(0);
         ctx.points[index_from_pos(&(1, 0), ctx.res.0)].iterations = 42;
         let mut q: VecDeque<((i32, i32), u32)> = VecDeque::new();
@@ -441,7 +441,7 @@ fn queue_entries_carry_source_cost() {
 // scredge over edge (the old first-shift motion-edge proof).
 #[test]
 fn scredge_first_only_on_shift_zero() {
-    run_big(|| {
+    run_big_stack_size(|| {
         // shift 0: scredge seat (3,1) is worked before the edge seat (2,0),
         // so the first completion in the buffer belongs to (3,1).
         let mut ctx = make_context(0);
@@ -452,7 +452,7 @@ fn scredge_first_only_on_shift_zero() {
         assert_eq!(ctx.completed_points.stuff[0].1, index_from_pos(&(3, 1), ctx.res.0),
             "shift 0 fallthrough must prove the motion edge first");
     });
-    run_big(|| {
+    run_big_stack_size(|| {
         // shift 1: edge outranks scredge.
         let mut ctx = make_context(1);
         ctx.scredge_poses.push_back((3, 1));
@@ -467,7 +467,7 @@ fn scredge_first_only_on_shift_zero() {
 // r[verify cz.craft.pan-zoom-slot0+1]
 #[test]
 fn slots_one_to_four_ignore_motion() {
-    run_big(|| {
+    run_big_stack_size(|| {
         // Motion only affects slot 0. For each of slots 1..=4, Panned and
         // Zoomed contexts must make the same leading pick.
         // Slot 1..=3 lead edge; slot 4 leads scredge.
@@ -492,7 +492,7 @@ fn slots_one_to_four_ignore_motion() {
 // r[verify cz.craft.attention-spiral+1]
 #[test]
 fn spiral_skips_offscreen_seats() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let mut ctx = make_context(0);
         // Anchor at the corner; ring 1 walks off-screen on the negative side.
         set_attention(&mut ctx, Some((0, 0)));
@@ -514,7 +514,7 @@ fn spiral_skips_offscreen_seats() {
 // Out rotation and the fact that neither queue loses entries.
 #[test]
 fn out_rotates_without_loss() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let mut ctx = make_context(2); // % 5 == 2: out first
         ctx.out_queue.push_back(((3, 0), 0));
         ctx.out_queue.push_back(((3, 1), 0));
@@ -524,7 +524,7 @@ fn out_rotates_without_loss() {
         assert!(poses.contains(&(3, 0)) && poses.contains(&(3, 1)));
         assert!(!ctx.points[index_from_pos(&(3, 0), ctx.res.0)].delivered);
     });
-    run_big(|| {
+    run_big_stack_size(|| {
         let mut ctx = make_context(5); // % 5 == 0, != 0: in reachable
         ctx.in_queue.push_back(((3, 0), 0));
         shift(&mut ctx);
@@ -536,7 +536,7 @@ fn out_rotates_without_loss() {
 // verifies r[cz.craft.provisional-not-delivered+1]
 #[test]
 fn provisional_answer_never_marks_delivered() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let mut ctx = make_context(0);
         ctx.scredge_poses.push_back((3, 1));
         shift(&mut ctx);
@@ -562,7 +562,7 @@ fn provisional_answer_never_marks_delivered() {
 // verifies r[cz.craft.undeliver-on-full+1]
 #[test]
 fn full_buffer_undelivers_and_stops() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let mut ctx = make_context(1); // % 5 == 1: edge first
         while ctx.completed_points.try_push((CompletedPoint::Dummy {}, 0)) {}
         assert_eq!(ctx.completed_points.len, 100000);
@@ -587,7 +587,7 @@ fn full_buffer_undelivers_and_stops() {
 // verifies r[cz.craft.shared-remap-transform+1]
 #[test]
 fn remap_onto_same_view_is_fixed_point() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let res = TEST_SCREEN_RES;
         let results: Vec<CompletedPoint<FloatExp>> = (0..(res.0 * res.1))
             .map(|i| CompletedPoint::Escapes {
@@ -618,7 +618,7 @@ fn remap_onto_same_view_is_fixed_point() {
 // not queue state). The 10ms constant itself stays code-reviewed.
 #[test]
 fn workshift_always_terminates() {
-    run_big(|| {
+    run_big_stack_size(|| {
         // no queues at all: immediate exit
         let mut ctx = make_context(0);
         let t = Instant::now();
@@ -641,7 +641,7 @@ fn workshift_always_terminates() {
 // r[verify cz.craft.stencil-only-replace+2]
 #[test]
 fn fresh_shell_leaves_seats_uninitialized() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let frame_info = (
             ObjectivePosAndZoom {
                 pos: (IntExp::from(-2), IntExp::from(2)),
@@ -662,7 +662,7 @@ fn fresh_shell_leaves_seats_uninitialized() {
 // r[verify cz.craft.stencil-only-replace+2]
 #[test]
 fn ensure_started_matches_generator_bit_for_bit() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let res = TEST_SCREEN_RES;
         let frame_info = (
             ObjectivePosAndZoom {
@@ -694,7 +694,7 @@ fn ensure_started_matches_generator_bit_for_bit() {
 // r[verify cz.craft.stencil-only-replace+2]
 #[test]
 fn replace_reuses_points_capacity_and_resets_initialized() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let frame_a = (
             ObjectivePosAndZoom {
                 pos: (IntExp::from(-2), IntExp::from(2)),
@@ -728,7 +728,7 @@ fn replace_reuses_points_capacity_and_resets_initialized() {
 // r[verify cz.craft.attention-spiral+1]
 #[test]
 fn from_stencil_defaults_attention_anchor_to_center() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let frame = (
             ObjectivePosAndZoom {
                 pos: (IntExp::from(-2), IntExp::from(2)),
@@ -761,7 +761,7 @@ fn square_ring_spiral_is_nondecreasing_chebyshev() {
 // r[verify cz.craft.attention-spiral+1]
 #[test]
 fn attention_slot_picks_spiral_before_queues() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let mut ctx = make_context(0);
         ctx.attention_index = 0;
         set_attention(&mut ctx, Some((1, 0)));
@@ -777,7 +777,7 @@ fn attention_slot_picks_spiral_before_queues() {
 // r[verify cz.craft.attention-spiral+1]
 #[test]
 fn spiral_skips_delivered_and_falls_through_when_exhausted() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let mut ctx = make_context(0);
         set_attention(&mut ctx, Some((0, 0)));
         ctx.attention_index = 0;
@@ -792,7 +792,7 @@ fn spiral_skips_delivered_and_falls_through_when_exhausted() {
 // r[verify cz.craft.attention-spiral+1]
 #[test]
 fn attention_bout_works_seat_to_completion() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let mut ctx = make_context(0);
         set_attention(&mut ctx, Some((2, 0))); // ESC seat
         ctx.attention_index = 0;
@@ -809,7 +809,7 @@ fn attention_bout_works_seat_to_completion() {
 // r[verify cz.craft.attention-spiral+1]
 #[test]
 fn attention_holds_seat_across_bouts_until_complete() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let mut ctx = make_context(0);
         set_attention(&mut ctx, Some((2, 0))); // ESC seat, escapes quickly
         ctx.attention_index = 0;
@@ -836,7 +836,7 @@ fn attention_holds_seat_across_bouts_until_complete() {
 // r[verify cz.craft.attention-spiral+1]
 #[test]
 fn attention_releases_held_seat_delivered_elsewhere() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let mut ctx = make_context(0);
         set_attention(&mut ctx, Some((2, 0)));
         ctx.attention_index = 0;
@@ -857,7 +857,7 @@ fn attention_releases_held_seat_delivered_elsewhere() {
 // r[verify cz.craft.attention-spiral+1]
 #[test]
 fn set_attention_none_restores_center_anchor() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let mut ctx = make_context(0);
         set_attention(&mut ctx, Some((3, 1)));
         assert_eq!(ctx.attention_anchor, (3, 1));
@@ -888,7 +888,7 @@ fn bout_cap_clamps_above_max() {
 // r[verify cz.craft.bout-cap+1]
 #[test]
 fn attention_bout_on_hard_seat_never_exceeds_max_bout() {
-    run_big(|| {
+    run_big_stack_size(|| {
         // SLOW never completes inside a shift; the held-seat tenacity must
         // still bound each bout to MAX_BOUT iterations (no unbounded call).
         let mut ctx = make_context(0);
@@ -914,7 +914,7 @@ fn attention_bout_on_hard_seat_never_exceeds_max_bout() {
 // r[verify cz.craft.pan-zoom-slot0+1]
 #[test]
 fn from_stencil_classifies_zoom_pan_neither() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let base = ObjectivePosAndZoom {
             pos: (IntExp::from(-2), IntExp::from(2)),
             zoom_pot: -2,
@@ -951,7 +951,7 @@ fn from_stencil_classifies_zoom_pan_neither() {
 // r[verify cz.craft.pan-zoom-slot0+1]
 #[test]
 fn pan_scredge_lead_only_on_first_shift() {
-    run_big(|| {
+    run_big_stack_size(|| {
         // After the first shift of a pan shell, slot 0 returns to attention —
         // stopping the pan must not leave scredge sticky forever.
         let mut ctx = make_context(5); // workshifts % 5 == 0, but not the first
@@ -971,7 +971,7 @@ fn pan_scredge_lead_only_on_first_shift() {
 // r[verify cz.craft.pan-zoom-slot0+1]
 #[test]
 fn pan_slot0_prefers_scredge_over_attention() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let mut ctx = make_context(0);
         ctx.motion = Motion::Panned;
         ctx.attention_index = 0;
@@ -994,7 +994,7 @@ fn pan_slot0_prefers_scredge_over_attention() {
 // r[verify cz.craft.pan-zoom-slot0+1]
 #[test]
 fn zoom_slot0_prefers_attention_over_scredge() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let mut ctx = make_context(0);
         ctx.motion = Motion::Zoomed;
         ctx.attention_index = 0;

@@ -138,7 +138,7 @@ fn telemetry_mode_naive_then_pert() {
     use crate::assemblies::workgroup::screen_worker::{
         classify_kernel_mode, classify_reference_status, host_stack_for_context,
     };
-    run_big(|| {
+    run_big_stack_size(|| {
         let frame = home_frame();
         let ctx = from_stencil::<FloatExp>(frame.clone(), None).expect("home view");
         assert_eq!(classify_kernel_mode(&ctx), KernelMode::Naive);
@@ -165,7 +165,7 @@ fn telemetry_mode_naive_then_pert() {
 // r[verify cz.depth.gear-hud+2]
 #[test]
 fn reference_floor_trials_only_when_genuinely_stuck() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let frame = home_frame();
         let mut ctx = from_stencil::<FloatExp>(frame.clone(), None).expect("home view");
         install_usable_interior_reference(&mut ctx, &frame, 1);
@@ -190,7 +190,7 @@ fn reference_floor_trials_only_when_genuinely_stuck() {
 // r[verify cz.depth.gear-hud+2]
 #[test]
 fn reference_floor_trial_expires() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let frame = home_frame();
         let mut ctx = from_stencil::<FloatExp>(frame.clone(), None).expect("home view");
         install_usable_interior_reference(&mut ctx, &frame, 1);
@@ -209,7 +209,7 @@ fn reference_complete_with_reused_ref() {
     use crate::assemblies::workgroup::screen_worker::{
         classify_kernel_mode, classify_reference_status,
     };
-    run_big(|| {
+    run_big_stack_size(|| {
         let frame = home_frame();
         let mut ctx = from_stencil::<FloatExp>(frame.clone(), None).expect("home view");
         install_usable_interior_reference(&mut ctx, &frame, 1);
@@ -227,7 +227,7 @@ fn reference_wip_while_started_seats_await_ref() {
     use crate::assemblies::workgroup::screen_worker::{
         classify_kernel_mode, classify_reference_status,
     };
-    run_big(|| {
+    run_big_stack_size(|| {
         let frame = home_frame();
         let ctx = from_stencil::<FloatExp>(frame.clone(), None).expect("home view");
         assert_eq!(classify_kernel_mode(&ctx), KernelMode::Naive);
@@ -315,7 +315,7 @@ fn fill_until_complete_direct(ctx: &mut WorkContext<FloatExp>) {
 
 #[test]
 fn home_reference_request_matches_c_generator() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let frame = home_frame();
         let req = select_reference_request::<FloatExp>(None, &frame);
         let ctx = from_stencil(frame, None).expect("home view");
@@ -344,7 +344,7 @@ fn home_reference_request_matches_c_generator() {
 /// oracle. Ground truth at depth is the rug precision-doubling oracle.
 #[test]
 fn home_workshift_with_reference_matches_direct() {
-    run_big(|| {
+    run_big_stack_size(|| {
         // Symmetric shallow frame: known-good geometry for Direct vs pert data-flow.
         let frame = real_axis_symmetric_shallow_frame(TEST_SCREEN_RES, -2, -2);
         let req = select_reference_request::<FloatExp>(None, &frame);
@@ -468,7 +468,7 @@ fn zero_orbit_center_reports_period_one() {
 // r[verify cz.depth.gear-hud+2]
 fn f64_gear_home_fills_without_per_seat_gear_scan() {
     use std::time::Instant;
-    run_big(|| {
+    run_big_stack_size(|| {
         // Small home-centered frame: this pins f64 gear fill, not full-window soak.
         let frame = (
             ObjectivePosAndZoom {
@@ -526,7 +526,7 @@ fn f64_gear_home_fills_without_per_seat_gear_scan() {
 // r[verify cz.depth.compute-gear+1]
 fn seahorse_pot_19_f64_promotes_scaled_f64_and_delivers() {
     use crate::delta_gear::ComputeGear;
-    run_big(|| {
+    run_big_stack_size(|| {
         let frame = frame_at_center(-0.743643887037151, 0.131825904205216, 19, TEST_SCREEN_RES);
         let req = select_reference_request::<FloatExp>(None, &frame);
         let pub_ref = Arc::new(PublishedReference {
@@ -868,7 +868,7 @@ fn series_safe_skip_does_not_pass_bailout_for_far_delta() {
 // r[verify cz.math.mandelbrot-real-axis-symmetry+1]
 // r[verify cz.depth.series-approximation+1]
 fn home_package_with_live_series_obeys_real_axis_symmetry() {
-    run_big(|| {
+    run_big_stack_size(|| {
         // Origin real −2, zoom −2: covers the main cardioid plus |c|≳2 exterior.
         let frame = real_axis_symmetric_shallow_frame(TEST_SCREEN_RES, -2, -2);
         let mut ctx = from_stencil(frame.clone(), None).expect("symmetric shell");
@@ -932,7 +932,7 @@ fn home_package_with_live_series_obeys_real_axis_symmetry() {
 // r[verify cz.depth.series-approximation+1]
 // r[verify cz.depth.delta-kernel+1]
 fn home_package_with_live_series_matches_direct_kernel_answers() {
-    run_big(|| {
+    run_big_stack_size(|| {
         let frame = real_axis_symmetric_shallow_frame(TEST_SCREEN_RES, -2, -2);
         let mut direct = from_stencil(frame.clone(), None).expect("direct");
         let mut perturb = from_stencil(frame.clone(), None).expect("perturb");
@@ -1349,7 +1349,7 @@ fn phase_two_perturbation_test_inventory_is_present() {
 #[test]
 // r[verify cz.depth.floatexp-host-coords+1]
 fn deep_frame_admitted_past_f64_collapse() {
-    run_big(|| {
+    run_big_stack_size(|| {
         // Plain f64 CGenerator collapses here; FloatExp must still admit.
         let frame = (
             ObjectivePosAndZoom {

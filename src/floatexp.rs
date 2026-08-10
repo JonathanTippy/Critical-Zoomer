@@ -447,4 +447,36 @@ mod tests {
         assert!(FloatExp::new(1.0, -5000) > FloatExp::ZERO);
         assert!(FloatExp::new(-1.0, -5000) < FloatExp::ZERO);
     }
+
+    /// Fast pins for `to_f64` mutants that previously *timed out* under the full suite
+    /// (`mutants.out/timeout.txt`). Keep these local and cheap.
+    #[test]
+    fn to_f64_rejects_constant_and_branch_mutants() {
+        assert_eq!(FloatExp::from(2.0).to_f64(), 2.0);
+        assert_eq!(FloatExp::from(-3.5).to_f64(), -3.5);
+        assert_eq!(FloatExp::ONE.to_f64(), 1.0);
+        assert_ne!(FloatExp::from(2.0).to_f64(), 0.0);
+        assert_ne!(FloatExp::from(2.0).to_f64(), 1.0);
+        assert_ne!(FloatExp::from(2.0).to_f64(), -1.0);
+
+        // Overflow / underflow branch direction (kill exponent bound flips).
+        assert!(FloatExp::new(1.0, (i32::MAX as i64) + 10).to_f64().is_infinite());
+        assert!(FloatExp::new(-1.0, (i32::MAX as i64) + 10).to_f64().is_sign_negative());
+        assert_eq!(FloatExp::new(1.5, (i32::MIN as i64) - 10).to_f64(), 0.0);
+        assert!(FloatExp::new(-1.5, (i32::MIN as i64) - 10)
+            .to_f64()
+            .is_sign_negative());
+
+        // Subnormal path uses mantissa * 2^(e+1022) * MIN_POSITIVE — not +.
+        let sub = FloatExp::new(1.0, -1070);
+        let got = sub.to_f64();
+        assert!(got > 0.0 && got.is_finite(), "subnormal got {got}");
+        assert_ne!(got, 1.0 + 2.0f64.powi((-1070 + 1022) as i32) * f64::MIN_POSITIVE);
+
+        // Normal path: mantissa * from_bits(biased << 52).
+        let normal = FloatExp::new(1.5, 0);
+        assert_eq!(normal.to_f64(), 1.5);
+        let bits_mutant = 1.5 * f64::from_bits((1023u64) >> 52);
+        assert_ne!(normal.to_f64(), bits_mutant);
+    }
 }
