@@ -1,6 +1,6 @@
 coverage: living baseline 2026-08-09T22:06:56-05:00
 coverage: cpuset=1-3 target=/home/jonathan/git/Critical-Zoomer/target
-coverage: tip=bb87de6
+coverage: tip=f9c27e0
 TOTAL function 80.42% (768/955); line 77.63% (10748/13845); region 78.67% (15914/20229)
 HTML: target/llvm-cov/html/html/index.html (local; not committed)
 Regenerate: scripts/coverage.sh
