@@ -75,6 +75,9 @@ Quality grind / no soft-skip: `docs/assistant/quality-doctrine.md` and
 `docs/assistant/quality-slip-review.md`. Never `#[ignore]` / soft-floor a
 failing invariant; Criterion ≥20% slip is FIX NOW.
 
+Headgroup/shadergroup edits outside location bar + HUD need an explicit note
+(`docs/assistant/headgroup-charter.md`).
+
 **Steady-state Rust integration tests are the lifeblood of testing** (see
 `docs/assistant/testing.md`). When changing scheduling, naive GPU, or HUD
 telemetry, extend `steady_state_*` tests in `craftsmanship_tests.rs` so IPS and

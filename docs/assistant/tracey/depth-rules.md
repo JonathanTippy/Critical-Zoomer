@@ -282,6 +282,7 @@ parity uses Oracle (or rug doubling), not f64 `DirectKernel`.
 
 **Verification.** `oracle_escapes_far_exterior`,
 `oracle_matches_direct_escape_time_on_shallow_sample`,
+`oracle_marks_cardioid_center_repeat`,
 `deep_relative_exterior_not_instant_black_at_reported_location`,
 `production_workshift_never_dispatches_oracle_gear`.
 

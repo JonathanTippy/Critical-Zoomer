@@ -227,5 +227,14 @@ difficulty threshold and a covering reference exists; stick with the winner
 until Replace / type change / ref generation change / cooldown re-probe.
 
 **Acceptance criteria.**
-- [ ] HUD reports stack + mode + ref + gear truthfully (`r[cz.depth.gear-hud+2]`).
-- [ ] Dual production kernel dispatch + probe controller (deferred follow-up).
+- [x] Dual production kernel dispatch: `DirectKernel` / `PerturbationKernel` /
+  naive GPU (`run_workshift_kernel`).
+- [x] Shallow home without a reference stays on DirectKernel (no silent pert trial).
+- [x] Production `workshift` home wall time within 20% of DirectKernel
+  (`home_workshift_full_frame_within_20pct_of_direct_kernel`).
+- [ ] Soft-probe controller fully dead-reckoned + HUD stack truth (follow-up).
+
+**Verification.** `home_workshift_stays_on_direct_kernel_without_ref`,
+`home_workshift_full_frame_within_20pct_of_direct_kernel`,
+`telemetry_mode_naive_then_pert`,
+`steady_state_home_pps_gpu_vs_cpu_ratio`.

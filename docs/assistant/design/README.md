@@ -14,6 +14,7 @@ Assistant-owned index for this folder. The developer's files speak for themselve
 
 - `../quality-doctrine.md` — no ignore / soft-skip / soft floor; FIX NOW on Criterion.
 - `../quality-slip-review.md` — how the bar softened after v0.0.9 and how to stop.
+- `../headgroup-charter.md` — what may change outside the workgroup.
 
 ## Trashed tile-era design
 
