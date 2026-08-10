@@ -1659,6 +1659,7 @@ fn home_pipeline_with_live_series_no_vertical_black_columns() {
             c: req.c,
             generation: 1,
         }));
+        refresh_test_budget();
         while ctx.percent_completed < 100.0 {
             check_test_budget();
             perturb_workshift(16_000_000, 2, 4, 150, &mut ctx);

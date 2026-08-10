@@ -372,7 +372,9 @@ impl Mul for ComplexFloatExp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::IntExp;
     use proptest::prelude::*;
+    use std::cmp::Ordering;
 
     fn slow_normalize(mantissa: f64, exponent: i64) -> FloatExp {
         assert!(mantissa.is_finite());
@@ -478,5 +480,109 @@ mod tests {
         assert_eq!(normal.to_f64(), 1.5);
         let bits_mutant = 1.5 * f64::from_bits((1023u64) >> 52);
         assert_ne!(normal.to_f64(), bits_mutant);
+    }
+
+    /// Thought-killed pins for dense `floatexp.rs` caught mutants (add/mul/cmp/complex).
+    #[test]
+    fn add_mul_eq_ord_kill_operator_mutants() {
+        let a = FloatExp::from(1.5);
+        let b = FloatExp::from(0.75);
+        let sum = a + b;
+        assert!((sum.to_f64() - 2.25).abs() < 1e-12, "sum={}", sum.to_f64());
+        // Zero identity / short-circuit.
+        assert_eq!(a + FloatExp::ZERO, a);
+        assert_eq!(FloatExp::ZERO + b, b);
+        // Large exponent gap: smaller addend dropped (shift > 54).
+        let huge = FloatExp::new(1.0, 100);
+        let tiny = FloatExp::new(1.0, 0);
+        assert_eq!(huge + tiny, huge);
+        // Exponent alignment uses >= then scale — not flipped comparisons alone.
+        let c = FloatExp::new(1.0, 5);
+        let d = FloatExp::new(1.0, 3);
+        let aligned = c + d;
+        assert!((aligned.to_f64() - (32.0 + 8.0)).abs() < 1e-9, "{}", aligned.to_f64());
+
+        let prod = a * b;
+        assert!((prod.to_f64() - 1.125).abs() < 1e-12, "{}", prod.to_f64());
+        assert_eq!(a * FloatExp::ZERO, FloatExp::ZERO);
+        assert_eq!(FloatExp::ZERO * b, FloatExp::ZERO);
+        // 1.5 * 1.5 = 2.25 → renormalize to mantissa 1.125 exp+1
+        let sq = FloatExp::from(1.5).square();
+        assert!((sq.mantissa - 1.125).abs() < 1e-12);
+        assert_eq!(sq.exponent, 1);
+
+        let neg = -a;
+        assert_eq!(neg.mantissa, -1.5);
+        assert_eq!((a - b).to_f64(), (a + (-b)).to_f64());
+
+        // Eq: zero ignores exponent; nonzero requires both fields.
+        assert_eq!(FloatExp::new(0.0, 99), FloatExp::ZERO);
+        assert_ne!(FloatExp::new(1.0, 0), FloatExp::new(1.0, 1));
+        assert_eq!(FloatExp::new(1.0, 0), FloatExp::ONE);
+
+        assert!(FloatExp::from(-2.0) < FloatExp::ZERO);
+        assert!(FloatExp::ZERO < FloatExp::from(2.0));
+        assert!(FloatExp::from(-3.0) < FloatExp::from(-1.0));
+        assert!(FloatExp::new(1.0, 10) > FloatExp::new(1.5, 9));
+        assert_eq!(
+            FloatExp::from(1.0).partial_cmp(&FloatExp::from(1.0)),
+            Some(Ordering::Equal)
+        );
+    }
+
+    #[test]
+    fn complex_ops_and_intexp_conversion() {
+        let z = ComplexFloatExp::new(FloatExp::from(1.0), FloatExp::from(2.0));
+        let w = ComplexFloatExp::new(FloatExp::from(3.0), FloatExp::from(4.0));
+        let sum = z + w;
+        assert!((sum.re.to_f64() - 4.0).abs() < 1e-12);
+        assert!((sum.im.to_f64() - 6.0).abs() < 1e-12);
+        let diff = w - z;
+        assert!((diff.re.to_f64() - 2.0).abs() < 1e-12);
+        assert!((diff.im.to_f64() - 2.0).abs() < 1e-12);
+        // (1+2i)(3+4i) = -5+10i
+        let prod = z * w;
+        assert!((prod.re.to_f64() + 5.0).abs() < 1e-12, "re={}", prod.re.to_f64());
+        assert!((prod.im.to_f64() - 10.0).abs() < 1e-12, "im={}", prod.im.to_f64());
+        // Kill *→+ on complex mul components.
+        assert_ne!(prod.re.to_f64(), 1.0 * 3.0 + 2.0 * 4.0);
+
+        let n2 = z.norm_squared();
+        assert!((n2.to_f64() - 5.0).abs() < 1e-12);
+
+        let ie = IntExp {
+            val: rug::Integer::from(3),
+            exp: 2,
+        }; // 3 * 2^2 = 12
+        let fe = FloatExp::from(ie);
+        assert!((fe.to_f64() - 12.0).abs() < 1e-9, "{}", fe.to_f64());
+        assert_eq!(FloatExp::from(IntExp::ZERO), FloatExp::ZERO);
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(128))]
+
+        #[test]
+        fn complex_mul_agrees_with_schoolbook(
+            a0 in -1e2f64..1e2,
+            a1 in -1e2f64..1e2,
+            b0 in -1e2f64..1e2,
+            b1 in -1e2f64..1e2,
+        ) {
+            let z = ComplexFloatExp::new(FloatExp::from(a0), FloatExp::from(a1));
+            let w = ComplexFloatExp::new(FloatExp::from(b0), FloatExp::from(b1));
+            let p = z * w;
+            let expect_re = a0 * b0 - a1 * b1;
+            let expect_im = a0 * b1 + a1 * b0;
+            prop_assert!((p.re.to_f64() - expect_re).abs() < 1e-6 * (1.0 + expect_re.abs()));
+            prop_assert!((p.im.to_f64() - expect_im).abs() < 1e-6 * (1.0 + expect_im.abs()));
+        }
+
+        #[test]
+        fn sub_is_add_of_negation(a in -1e50f64..1e50, b in -1e50f64..1e50) {
+            let fa = FloatExp::from(a);
+            let fb = FloatExp::from(b);
+            prop_assert_eq!(fa - fb, fa + (-fb));
+        }
     }
 }
