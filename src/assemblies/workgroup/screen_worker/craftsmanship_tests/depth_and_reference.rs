@@ -184,6 +184,58 @@ fn manual_gear_forces_kernel_mode_on_hud() {
     });
 }
 
+/// PPS race must not assume GPU wins — highest measured sample locks.
+// r[verify cz.perf.pps-selected-kernel+1]
+#[test]
+fn pps_probe_locks_highest_measured_kernel() {
+    use crate::assemblies::structs::KernelMode;
+    use crate::assemblies::workgroup::screen_worker::classify_kernel_mode;
+    use crate::gearbox::{best_pps_kernel, legal_kernels};
+    assert_eq!(
+        best_pps_kernel(&[
+            (KernelMode::Naive, 2.0e6),
+            (KernelMode::NaiveGpu, 9.0e6),
+            (KernelMode::Pert, 1.0e5),
+        ]),
+        Some(KernelMode::NaiveGpu)
+    );
+    assert_eq!(
+        best_pps_kernel(&[
+            (KernelMode::Naive, 3.0e6),
+            (KernelMode::NaiveGpu, 1.0e6),
+            (KernelMode::Pert, 5.0e5),
+        ]),
+        Some(KernelMode::Naive)
+    );
+    assert_eq!(
+        legal_kernels(false, true).first().copied(),
+        Some(KernelMode::Naive),
+        "race order must not put GPU first as a preference"
+    );
+    run_big_stack_size(|| {
+        let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
+        // No GPU handle → race is Naive vs Pert; home should lock Naive.
+        for _ in 0..20 {
+            check_test_budget();
+            workshift(0, 0, 0, 0, &mut ctx, None);
+            if ctx.pps_locked_kernel.is_some() {
+                break;
+            }
+        }
+        assert_eq!(
+            ctx.pps_locked_kernel,
+            Some(KernelMode::Naive),
+            "home without GPU must lock Naive after PPS race, got {:?}",
+            ctx.pps_locked_kernel
+        );
+        assert_eq!(classify_kernel_mode(&ctx), KernelMode::Naive);
+        assert!(
+            !ctx.reference_floor_active,
+            "winning Naive must not leave a pert floor sticky"
+        );
+    });
+}
+
 // r[verify cz.depth.gear-hud+2]
 #[test]
 fn reference_floor_trials_only_when_genuinely_stuck() {

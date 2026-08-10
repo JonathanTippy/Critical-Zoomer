@@ -1548,6 +1548,7 @@ fn home_production_budget_pipeline_no_vertical_black_columns() {
             c: req.c,
             generation: 1,
         }));
+        refresh_test_budget();
         const TOKEN_BUDGET: u32 = 16_000_000;
         const ITER_COST: u32 = 2;
         const BOUT_COST: u32 = 4;

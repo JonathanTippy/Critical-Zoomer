@@ -124,6 +124,12 @@ fn make_context(workshifts: u32) -> WorkContext<FloatExp> {
         generator_generation: 0,
         last_used_naive_gpu: false,
         manual_gear: None,
+        pps_locked_kernel: None,
+        pps_probe_queue: Vec::new(),
+        pps_probe_shifts_left: 0,
+        pps_probe_points: 0,
+        pps_probe_started: Instant::now(),
+        pps_probe_samples: Vec::new(),
     }
 }
 

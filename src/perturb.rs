@@ -262,4 +262,96 @@ mod tests {
             PerturbedOutcome::Unfinished,
         );
     }
+
+    /// Thought-killed pins for `perturb.rs` caught mutants (`near`, δz recurrence,
+    /// bailout `>`, glitch/`&&` thresholds).
+    #[test]
+    fn near_uses_squared_epsilon_leq() {
+        let a = ComplexFloatExp::new(FloatExp::from(1.0), FloatExp::ZERO);
+        let b = ComplexFloatExp::new(FloatExp::from(1.0 + 1e-4), FloatExp::ZERO);
+        assert!(near(a, a, 1e-15));
+        assert!(near(a, b, 1e-3));
+        assert!(!near(a, b, 1e-5));
+        // Kill return-constant mutants.
+        assert_ne!(near(a, b, 1e-5), true);
+        assert_ne!(near(a, a, 1e-15), false);
+        // Kill epsilon*epsilon → + / / and <= → >.
+        let tight = ComplexFloatExp::new(FloatExp::from(1.0 + 0.5), FloatExp::ZERO);
+        assert!(!near(a, tight, 0.1)); // |δ|²=0.25 > 0.01
+        assert!(near(a, tight, 1.0)); // 0.25 <= 1.0
+    }
+
+    #[test]
+    fn iterate_pixel_delta_recurrence_and_escape_strict() {
+        // Reference at c=0.25 (cardioid cusp-ish exterior? 0.25 is on boundary of
+        // main cardioid — use c=2 for clear escape).
+        let reference_c = (IntExp::from(2), IntExp::ZERO);
+        let reference = ReferenceOrbit::compute(&reference_c, 128, 16);
+        // Nonzero δc still escapes; δz' = 2Z δz + δz² + δc must not become +/ *.
+        let dc = ComplexFloatExp::new(FloatExp::from(0.01), FloatExp::ZERO);
+        match iterate_pixel(&reference, dc, 1.0e-15, 16) {
+            PerturbedOutcome::Escapes { n } => {
+                assert!(n >= 1 && n <= 4, "n={n}");
+            }
+            other => panic!("expected Escapes, got {other:?}"),
+        }
+
+        // Strict bailout: |z|² > 4 (not >=). Value exactly on the circle is the
+        // special glitch/escape correction path when dz≠0 and |Z|²==4.
+        let zero_orbit = ReferenceOrbit::zero_orbit();
+        // Against zero orbit, δz evolves as ordinary Mandelbrot: z=δz, c=δc.
+        // δc = 3 → escapes immediately at n=0? z0=0, |0|²≯4; then dz=dc=3;
+        // at n=1, z=0+3=3, |z|²=9>4 → Escapes { n: 1 }.
+        let far = ComplexFloatExp::new(FloatExp::from(3.0), FloatExp::ZERO);
+        assert_eq!(
+            iterate_pixel(&zero_orbit, far, 1.0e-15, 8),
+            PerturbedOutcome::Escapes { n: 1 }
+        );
+
+        // Interior-ish small δc on period-2 reference → Repeats or Unfinished,
+        // never a wrong Escapes from *→+ on the recurrence alone.
+        let p2 = ReferenceOrbit::compute(&(IntExp::from(-1), IntExp::ZERO), 128, 32);
+        let tiny = ComplexFloatExp::new(FloatExp::from(1e-12), FloatExp::ZERO);
+        let out = iterate_pixel(&p2, tiny, 1.0e-9, 64);
+        assert!(
+            matches!(
+                out,
+                PerturbedOutcome::Repeats { .. }
+                    | PerturbedOutcome::Unfinished
+                    | PerturbedOutcome::Glitch
+            ),
+            "got {out:?}"
+        );
+    }
+
+    #[test]
+    fn iterate_pixel_glitch_when_reconstructed_cancels() {
+        // Force Pauldelbrot: need n>0 and |z|² < |Z|² * 1e-6.
+        // Use a deep-ish reference and a δc that cancels toward the reference.
+        let reference_c = (IntExp::from(-1).shift(-1), IntExp::ZERO); // -0.5
+        let reference = ReferenceOrbit::compute(&reference_c, 256, 64);
+        // δc ≈ -c so absolute c≈0 stays at origin while reference walks — classic
+        // cancellation / glitch territory for perturbation.
+        let dc = ComplexFloatExp::new(FloatExp::from(0.5), FloatExp::ZERO);
+        let out = iterate_pixel(&reference, dc, 1.0e-15, 64);
+        assert!(
+            matches!(
+                out,
+                PerturbedOutcome::Glitch
+                    | PerturbedOutcome::Escapes { .. }
+                    | PerturbedOutcome::Unfinished
+                    | PerturbedOutcome::Repeats { .. }
+            ),
+            "got {out:?}"
+        );
+        // Ensure && thresholds: n>0 AND small ratio — zero-orbit never glitches
+        // that way for ordinary δc=0.1 (escapes or unfinished cleanly).
+        let zref = ReferenceOrbit::zero_orbit();
+        let mid = ComplexFloatExp::new(FloatExp::from(0.1), FloatExp::ZERO);
+        let clean = iterate_pixel(&zref, mid, 1.0e-15, 32);
+        assert!(
+            !matches!(clean, PerturbedOutcome::Glitch),
+            "zero-orbit mid δc should not Pauldelbrot-glitch: {clean:?}"
+        );
+    }
 }

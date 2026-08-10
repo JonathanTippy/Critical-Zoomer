@@ -452,6 +452,12 @@ pub fn classify_kernel_mode<T: Mandelbrotable>(ctx: &WorkContext<T>) -> crate::a
     if let Some(forced) = ctx.manual_gear {
         return forced;
     }
+    if let Some(locked) = ctx.pps_locked_kernel {
+        return locked;
+    }
+    if let Some(&probing) = ctx.pps_probe_queue.first() {
+        return probing;
+    }
     if ctx.perturbation_kernel_required() {
         KernelMode::Pert
     } else if ctx.last_used_naive_gpu {

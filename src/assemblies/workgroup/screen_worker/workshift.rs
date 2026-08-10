@@ -174,6 +174,15 @@ pub struct WorkContext<T: Mandelbrotable> {
     // Debug override: force an entire compute kernel. `None` = automatic
     // PPS / depth policy. Host stack type remains auto from admission.
     , pub manual_gear: Option<crate::assemblies::structs::KernelMode>
+    // PPS race winner for this view (`None` = still probing / not started).
+    // r[impl cz.perf.pps-selected-kernel+1]
+    , pub pps_locked_kernel: Option<crate::assemblies::structs::KernelMode>
+    // Remaining candidates to sample (front = current probe target).
+    , pub pps_probe_queue: Vec<crate::assemblies::structs::KernelMode>
+    , pub pps_probe_shifts_left: u8
+    , pub pps_probe_points: u32
+    , pub pps_probe_started: Instant
+    , pub pps_probe_samples: Vec<(crate::assemblies::structs::KernelMode, f64)>
 }
 
 /// Brief perturbation probe when direct is genuinely stuck (>2s to clear remaining).
@@ -317,6 +326,93 @@ impl<T: Mandelbrotable> WorkContext<T> {
     pub fn perturbation_reference_active(&self) -> bool {
         self.reference_floor_active
             || (self.coords_are_relative && self.latest_reference.is_some())
+    }
+
+    /// Kernel the next workshift should run (manual → honesty → soft trial → PPS).
+    // r[impl cz.perf.pps-selected-kernel+1]
+    pub fn dispatch_kernel(
+        &self,
+        _gpu_available: bool,
+    ) -> crate::assemblies::structs::KernelMode {
+        use crate::assemblies::structs::KernelMode;
+        if let Some(m) = self.manual_gear {
+            return m;
+        }
+        if self.coords_are_relative {
+            return KernelMode::Pert;
+        }
+        // Soft trial / PPS-locked Pert with an active floor.
+        if self.reference_floor_active {
+            return KernelMode::Pert;
+        }
+        if let Some(m) = self.pps_locked_kernel {
+            return m;
+        }
+        if let Some(&m) = self.pps_probe_queue.first() {
+            return m;
+        }
+        KernelMode::Naive
+    }
+
+    /// Start or continue the PPS race; lock when every legal candidate is sampled.
+    // r[impl cz.perf.pps-selected-kernel+1]
+    pub fn ensure_pps_probe(&mut self, gpu_available: bool) {
+        use crate::gearbox::{legal_kernels, PPS_PROBE_SHIFTS_PER_CANDIDATE};
+        if self.manual_gear.is_some() {
+            return;
+        }
+        if self.coords_are_relative {
+            self.pps_locked_kernel = Some(crate::assemblies::structs::KernelMode::Pert);
+            self.pps_probe_queue.clear();
+            return;
+        }
+        if self.pps_locked_kernel.is_some() {
+            return;
+        }
+        if self.pps_probe_queue.is_empty() && self.pps_probe_samples.is_empty() {
+            self.pps_probe_queue = legal_kernels(false, gpu_available);
+            self.pps_probe_shifts_left = PPS_PROBE_SHIFTS_PER_CANDIDATE;
+            self.pps_probe_points = 0;
+            self.pps_probe_started = Instant::now();
+            self.pps_probe_samples.clear();
+        }
+    }
+
+    /// After a probe shift: accumulate completions and advance / lock.
+    // r[impl cz.perf.pps-selected-kernel+1]
+    pub fn finish_pps_probe_shift(&mut self, points_completed: u32) {
+        use crate::gearbox::{best_pps_kernel, PPS_PROBE_SHIFTS_PER_CANDIDATE};
+        if self.manual_gear.is_some() || self.pps_locked_kernel.is_some() {
+            return;
+        }
+        if self.pps_probe_queue.is_empty() {
+            return;
+        }
+        self.pps_probe_points = self.pps_probe_points.saturating_add(points_completed);
+        if self.pps_probe_shifts_left > 0 {
+            self.pps_probe_shifts_left -= 1;
+        }
+        if self.pps_probe_shifts_left > 0 {
+            return;
+        }
+        let mode = self.pps_probe_queue.remove(0);
+        let secs = self.pps_probe_started.elapsed().as_secs_f64().max(1e-4);
+        let pps = self.pps_probe_points as f64 / secs;
+        self.pps_probe_samples.push((mode, pps));
+        if self.pps_probe_queue.is_empty() {
+            self.pps_locked_kernel = best_pps_kernel(&self.pps_probe_samples);
+            // Bind a published ref when Perturbation wins the race.
+            if self.pps_locked_kernel
+                == Some(crate::assemblies::structs::KernelMode::Pert)
+                && self.latest_reference.as_ref().is_some_and(|r| !r.orbit.escaped)
+            {
+                self.reference_floor_active = true;
+            }
+            return;
+        }
+        self.pps_probe_shifts_left = PPS_PROBE_SHIFTS_PER_CANDIDATE;
+        self.pps_probe_points = 0;
+        self.pps_probe_started = Instant::now();
     }
 }
 
@@ -821,6 +917,12 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
         generator_generation,
         last_used_naive_gpu: false,
         manual_gear: None,
+        pps_locked_kernel: None,
+        pps_probe_queue: Vec::new(),
+        pps_probe_shifts_left: 0,
+        pps_probe_points: 0,
+        pps_probe_started: Instant::now(),
+        pps_probe_samples: Vec::new(),
     };
     if ctx.coords_are_relative && ctx.latest_reference.is_none() {
         let bootstrap = bootstrap_relative_reference(
@@ -1154,7 +1256,15 @@ pub fn workshift(
         context.pert_trial_cooldown -= 1;
     }
     context.last_used_naive_gpu = false;
-    let policy_before = context.update_reference_floor_policy();
+    let gpu_available = gpu.is_some();
+    context.ensure_pps_probe(gpu_available);
+    // Soft-trial only after the PPS race locks (do not fight the probe).
+    let policy_before = if context.pps_locked_kernel.is_some() || context.manual_gear.is_some()
+    {
+        context.update_reference_floor_policy()
+    } else {
+        "probing"
+    };
     run_workshift_kernel(
         day_token_allowance,
         iteration_token_cost,
@@ -1163,9 +1273,10 @@ pub fn workshift(
         context,
         gpu,
     );
+    let points_delta = context.total_points_today;
+    context.finish_pps_probe_shift(points_delta);
     let trial_tick = context.tick_pert_trial();
-    // Skip the post-shift policy scan when we already know there is no ref to trial.
-    if policy_before != "no_ref" || trial_tick.is_some() {
+    if (policy_before != "no_ref" && policy_before != "probing") || trial_tick.is_some() {
         let _ = context.update_reference_floor_policy();
     }
 }
@@ -1179,37 +1290,41 @@ fn run_workshift_kernel(
     gpu: Option<&mut super::naive_gpu::NaiveGpuContext>,
 ) {
     use crate::assemblies::structs::KernelMode;
-    let forced = context.manual_gear;
-    let use_pert = match forced {
-        Some(KernelMode::Pert) => true,
-        Some(KernelMode::Naive) | Some(KernelMode::NaiveGpu) => false,
-        None => context.perturbation_kernel_required(),
-    };
-    let use_gpu = match forced {
-        Some(KernelMode::NaiveGpu) => true,
-        Some(KernelMode::Naive) | Some(KernelMode::Pert) => false,
-        None => !use_pert,
-    };
-    if use_pert {
-        workshift_with_kernel(
-            day_token_allowance,
-            iteration_token_cost,
-            point_token_cost,
-            bout_token_cost,
-            context,
-            &super::perturb_kernel::PerturbationKernel,
-        );
-    } else if use_gpu {
-        if let Some(gpu) = gpu {
-            super::naive_gpu::workshift_naive_gpu(
+    let gpu_available = gpu.is_some();
+    let mode = context.dispatch_kernel(gpu_available);
+    match mode {
+        KernelMode::Pert => {
+            workshift_with_kernel(
                 day_token_allowance,
                 iteration_token_cost,
                 point_token_cost,
                 bout_token_cost,
                 context,
-                gpu,
+                &super::perturb_kernel::PerturbationKernel,
             );
-        } else {
+        }
+        KernelMode::NaiveGpu => {
+            if let Some(gpu) = gpu {
+                super::naive_gpu::workshift_naive_gpu(
+                    day_token_allowance,
+                    iteration_token_cost,
+                    point_token_cost,
+                    bout_token_cost,
+                    context,
+                    gpu,
+                );
+            } else {
+                workshift_with_kernel(
+                    day_token_allowance,
+                    iteration_token_cost,
+                    point_token_cost,
+                    bout_token_cost,
+                    context,
+                    &DirectKernel,
+                );
+            }
+        }
+        KernelMode::Naive => {
             workshift_with_kernel(
                 day_token_allowance,
                 iteration_token_cost,
@@ -1219,15 +1334,6 @@ fn run_workshift_kernel(
                 &DirectKernel,
             );
         }
-    } else {
-        workshift_with_kernel(
-            day_token_allowance,
-            iteration_token_cost,
-            point_token_cost,
-            bout_token_cost,
-            context,
-            &DirectKernel,
-        );
     }
 }
 

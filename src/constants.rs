@@ -10,3 +10,23 @@ pub const MOVE_SPEED_IN_SCREENS: f32 = 0.42;
 pub const PIXELS_PER_UNIT_POT:i32 = 9;
 
 pub const SCROLL_SPEED:f32 = 40.0;
+
+#[cfg(test)]
+mod mutant_kill {
+    use super::*;
+
+    /// Thought-killed pins for `constants.rs` caught mutants (delete `-` on home UL).
+    #[test]
+    fn home_position_and_screen_constants_signed() {
+        assert_eq!(HOME_POSITION, (-2, -2, -2));
+        assert_ne!(HOME_POSITION.0, 2);
+        assert_ne!(HOME_POSITION.1, 2);
+        assert_ne!(HOME_POSITION.2, 2);
+        assert!(HOME_POSITION.0 < 0 && HOME_POSITION.1 < 0 && HOME_POSITION.2 < 0);
+        assert_eq!(PIXELS_PER_UNIT_POT, 9);
+        assert_eq!(TEST_SCREEN_RES, (40, 71));
+        assert_ne!(TEST_SCREEN_RES, DEFAULT_WINDOW_RES);
+        assert!(MOVE_SPEED_PPS > 0);
+        assert!(SCROLL_SPEED > 0.0);
+    }
+}
