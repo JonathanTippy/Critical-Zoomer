@@ -19,6 +19,7 @@ use crate::assemblies::headgroup::window::sampling::index_from_relative_location
 use crate::assemblies::workgroup::c_generator::{CGenerator, Mandelbrotable};
 use crate::assemblies::workgroup::work_collector::{sample_old_values, ResultsPackage};
 use crate::assemblies::workgroup::screen_worker::workshift::get_random_mixmap;
+use crate::constants::TEST_SCREEN_RES;
 use crate::utils::{index_from_pos, pos_from_index, IntExp, ObjectivePosAndZoom};
 use crate::floatexp::{ComplexFloatExp, FloatExp};
 

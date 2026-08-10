@@ -550,7 +550,7 @@ fn steady_state_naive_gpu_f64_gear_via_faux_user_zoom() {
             return;
         };
 
-        let res = (64u32, 48u32);
+        let res = TEST_SCREEN_RES;
         let mut nav = SamplingContext {
             screen: None,
             screen_size: res,
@@ -650,7 +650,7 @@ fn steady_state_naive_gpu_deep_cusp_never_stalls() {
             return;
         };
 
-        let res = (96u32, 64u32);
+        let res = TEST_SCREEN_RES;
         let goto = "-0.749971479177 + 0.00652307272i mag 2^15";
         let mut nav = SamplingContext {
             screen: None,

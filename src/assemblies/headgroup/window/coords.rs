@@ -328,6 +328,7 @@ mod tests {
     use proptest::prelude::*;
     use crate::assemblies::headgroup::window::sampling::SamplingContext;
     use crate::assemblies::headgroup::window::transforms::transform;
+    use crate::constants::TEST_SCREEN_RES;
 
     // r[verify cz.ui.coords-parse+2]
     #[test]
@@ -357,29 +358,29 @@ mod tests {
     #[test]
     fn move_up_increases_math_imag() {
         // Arrow/W up uses negative stored pixels_y; stored pos.1 is negated imag.
-        let mut loc = ul_for_center(IntExp::ZERO, IntExp::ZERO, 0, (800, 480));
-        let (_, im0) = viewport_center(&loc, (800, 480));
+        let mut loc = ul_for_center(IntExp::ZERO, IntExp::ZERO, 0, TEST_SCREEN_RES);
+        let (_, im0) = viewport_center(&loc, TEST_SCREEN_RES);
         let im0 = f64::from(im0);
         let delta = IntExp { val: Integer::from(64), exp: 0 };
         loc.pos.1 = loc.pos.1.clone() + (IntExp::from(0) - delta)
             .shift(-loc.zoom_pot)
             .shift(-PIXELS_PER_UNIT_POT);
-        let (_, im1) = viewport_center(&loc, (800, 480));
+        let (_, im1) = viewport_center(&loc, TEST_SCREEN_RES);
         let im1 = f64::from(im1);
         assert!(im1 > im0, "Up must look toward +imag; im0={im0} im1={im1}");
     }
 
     #[test]
     fn grab_drag_down_increases_math_imag() {
-        let start = ul_for_center(IntExp::ZERO, IntExp::ZERO, 0, (800, 480));
-        let (_, im0) = viewport_center(&start, (800, 480));
+        let start = ul_for_center(IntExp::ZERO, IntExp::ZERO, 0, TEST_SCREEN_RES);
+        let (_, im0) = viewport_center(&start, TEST_SCREEN_RES);
         let im0 = f64::from(im0);
         let objective_drag_y = IntExp { val: Integer::from(32), exp: 0 }
             .shift(-start.zoom_pot)
             .shift(-PIXELS_PER_UNIT_POT);
         let mut loc = start;
         loc.pos.1 = loc.pos.1 - objective_drag_y;
-        let (_, im1) = viewport_center(&loc, (800, 480));
+        let (_, im1) = viewport_center(&loc, TEST_SCREEN_RES);
         let im1 = f64::from(im1);
         assert!(im1 > im0, "mouse-down grab must raise math imag; im0={im0} im1={im1}");
     }
@@ -387,8 +388,8 @@ mod tests {
     // r[verify cz.ui.location-readout+2]
     #[test]
     fn ul_for_center_zero_centers_viewport() {
-        let loc = ul_for_center(IntExp::ZERO, IntExp::ZERO, 0, (800, 480));
-        let (re, im) = viewport_center(&loc, (800, 480));
+        let loc = ul_for_center(IntExp::ZERO, IntExp::ZERO, 0, TEST_SCREEN_RES);
+        let (re, im) = viewport_center(&loc, TEST_SCREEN_RES);
         let re_f = f64::from(re);
         let im_f = f64::from(im);
         assert!(re_f.abs() < 1e-6, "re={re_f}");
@@ -398,9 +399,9 @@ mod tests {
     // r[verify cz.ui.location-readout+2]
     #[test]
     fn location_readout_includes_magnification_pot() {
-        let loc = ul_for_center(IntExp::from(1), IntExp::from(-1), 5, (800, 480));
+        let loc = ul_for_center(IntExp::from(1), IntExp::from(-1), 5, TEST_SCREEN_RES);
         assert_eq!(loc.zoom_pot, 5);
-        let (re, im) = viewport_center(&loc, (800, 480));
+        let (re, im) = viewport_center(&loc, TEST_SCREEN_RES);
         assert!((f64::from(re.clone()) - 1.0).abs() < 1e-6);
         assert!((f64::from(im.clone()) + 1.0).abs() < 1e-6);
         let text = format_location_readout(&re, &im, loc.zoom_pot);
@@ -413,18 +414,18 @@ mod tests {
     // r[verify cz.ui.location-readout+2]
     #[test]
     fn location_readout_tracks_center_not_ul() {
-        let loc = ul_for_center(IntExp::from(2), IntExp::ZERO, 0, (800, 480));
+        let loc = ul_for_center(IntExp::from(2), IntExp::ZERO, 0, TEST_SCREEN_RES);
         // UL real is left of center; readout must report center=2, not UL.
         assert!(f64::from(loc.pos.0.clone()) < 2.0);
-        let (re, _) = viewport_center(&loc, (800, 480));
+        let (re, _) = viewport_center(&loc, TEST_SCREEN_RES);
         assert!((f64::from(re) - 2.0).abs() < 1e-6);
     }
 
     // r[verify cz.ui.location-readout+2]
     #[test]
     fn location_readout_string_has_center_and_mag() {
-        let loc = ul_for_center(IntExp::from(0), IntExp::from(0), 3, (800, 480));
-        let (re, im) = viewport_center(&loc, (800, 480));
+        let loc = ul_for_center(IntExp::from(0), IntExp::from(0), 3, TEST_SCREEN_RES);
+        let (re, im) = viewport_center(&loc, TEST_SCREEN_RES);
         let text = format_location_readout(&re, &im, loc.zoom_pot);
         assert!(text.contains('0'), "got {text}");
         assert!(text.contains("mag 2^3"), "got {text}");
@@ -472,8 +473,8 @@ mod tests {
     // r[verify cz.ui.goto-accepts-readout+1]
     #[test]
     fn goto_accepts_format_location_readout_roundtrip() {
-        let loc = ul_for_center(IntExp::from(1), IntExp::from(-1), 5, (800, 480));
-        let (re, im) = viewport_center(&loc, (800, 480));
+        let loc = ul_for_center(IntExp::from(1), IntExp::from(-1), 5, TEST_SCREEN_RES);
+        let (re, im) = viewport_center(&loc, TEST_SCREEN_RES);
         let text = format_location_readout(&re, &im, loc.zoom_pot);
         assert!(
             goto_line_is_valid(&text),
@@ -528,8 +529,8 @@ mod tests {
         fn empty_ctx(zoom: i32) -> SamplingContext {
             SamplingContext {
                 screen: None,
-                screen_size: (800, 480),
-                location: ul_for_center(IntExp::ZERO, IntExp::ZERO, zoom, (800, 480)),
+                screen_size: TEST_SCREEN_RES,
+                location: ul_for_center(IntExp::ZERO, IntExp::ZERO, zoom, TEST_SCREEN_RES),
                 updated: false,
                 mouse_drag_start: None,
             }
@@ -541,8 +542,8 @@ mod tests {
         let mut from_mag0 = empty_ctx(0);
         transform(cmds.clone(), &mut from_mag5);
         transform(cmds, &mut from_mag0);
-        let (re5, im5) = viewport_center(&from_mag5.location, (800, 480));
-        let (re0, im0) = viewport_center(&from_mag0.location, (800, 480));
+        let (re5, im5) = viewport_center(&from_mag5.location, TEST_SCREEN_RES);
+        let (re0, im0) = viewport_center(&from_mag0.location, TEST_SCREEN_RES);
         assert_eq!(from_mag5.location.zoom_pot, 2);
         assert_eq!(from_mag0.location.zoom_pot, 2);
         assert!(
@@ -563,7 +564,7 @@ mod tests {
         use crate::assemblies::headgroup::window::transforms::transform;
         use crate::assemblies::headgroup::window::sampling::SamplingContext;
 
-        let screen = (800, 480);
+        let screen = TEST_SCREEN_RES;
         let mut ctx = SamplingContext {
             screen: None,
             screen_size: screen,
@@ -602,7 +603,7 @@ mod tests {
         use crate::assemblies::headgroup::window::transforms::transform;
         use crate::assemblies::headgroup::window::sampling::SamplingContext;
 
-        let screen = (800, 480);
+        let screen = TEST_SCREEN_RES;
         let mk = |re: f64, im: f64| SamplingContext {
             screen: None,
             screen_size: screen,
@@ -673,7 +674,7 @@ mod tests {
             im in -2.0f64..2.0,
             pot in -4i32..24,
         ) {
-            let screen = (800u32, 480u32);
+            let screen = TEST_SCREEN_RES;
             let loc = ul_for_center(f64_to_intexp(re), f64_to_intexp(im), pot, screen);
             let (cre, cim) = viewport_center(&loc, screen);
             let line = format_location_readout(&cre, &cim, loc.zoom_pot);

@@ -879,6 +879,7 @@ pub fn lock_gpu_tests() -> std::sync::MutexGuard<'static, ()> {
 mod smoke_tests {
     use super::*;
     use crate::assemblies::workgroup::screen_worker::workshift::from_stencil;
+    use crate::constants::TEST_SCREEN_RES;
     use crate::utils::{IntExp, ObjectivePosAndZoom};
 
     #[test]
@@ -907,7 +908,7 @@ mod smoke_tests {
                 pos: (IntExp::ZERO, IntExp::ZERO),
                 zoom_pot: -2,
             },
-            (64u32, 64u32),
+            TEST_SCREEN_RES,
         );
         let mut ctx = from_stencil(frame, None).expect("home shell");
         workshift_naive_gpu(0, 0, 0, 0, &mut ctx, &mut gpu);

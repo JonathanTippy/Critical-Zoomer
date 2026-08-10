@@ -211,7 +211,7 @@ fn faux_user_zoom_to_hard_minibrot_matches_direct() {
         use crate::assemblies::headgroup::window::transforms::transform;
         use crate::assemblies::headgroup::window::sampling::SamplingContext;
 
-        let res = (48u32, 32u32);
+        let res = TEST_SCREEN_RES;
         // Dead-reckon: IntExp goto line applied through the headgroup command path.
         let goto = "-0.161913425661 + 1.035546905361i mag 2^20";
         let cmds = commands_from_goto_line(goto).expect("goto");
@@ -381,7 +381,7 @@ fn zoom_past_f64_absolute_wall_admits_replace() {
     use crate::assemblies::workgroup::c_generator::admit_generator;
     run_big(|| {
         let compute_loc = (IntExp::from(-1).shift(-1), IntExp::ZERO);
-        let res = (1280u32, 720u32);
+        let res = TEST_SCREEN_RES;
         let zoom_pot = 50i64;
         let view_center = view_center_compute(&compute_loc, zoom_pot as i32, res);
         assert!(
@@ -409,7 +409,7 @@ fn from_stencil_carried_ref_anchors_to_ref_c() {
                 pos: (IntExp::from(-1).shift(-1), IntExp::ZERO),
                 zoom_pot: 50,
             },
-            (1280u32, 720u32),
+            TEST_SCREEN_RES,
         );
         let mut shell = from_stencil::<f64>(frame.clone(), None).expect("deep shell");
         let ref_req = select_reference_request::<f64>(None, &frame);
@@ -441,7 +441,7 @@ fn reference_install_rebuilds_c_generator() {
                 pos: (IntExp::from(-1).shift(-1), IntExp::ZERO),
                 zoom_pot: 50,
             },
-            (1280u32, 720u32),
+            TEST_SCREEN_RES,
         );
         let mut ctx = from_stencil::<f64>(frame.clone(), None).expect("shell");
         let ref_req = select_reference_request::<f64>(None, &frame);
@@ -478,7 +478,7 @@ fn deep_relative_shell_hard_bumps_to_pert() {
                 pos: (IntExp::from(-1).shift(-1), IntExp::ZERO),
                 zoom_pot: 50,
             },
-            (1280u32, 720u32),
+            TEST_SCREEN_RES,
         );
         let ctx = from_stencil::<f64>(frame, None).expect("deep shell");
         assert!(ctx.coords_are_relative);
@@ -502,7 +502,7 @@ fn relative_shell_init_uses_f64_gear_not_floatexp() {
                 pos: (IntExp::from(-1).shift(-1), IntExp::ZERO),
                 zoom_pot: 50,
             },
-            (64u32, 64u32),
+            TEST_SCREEN_RES,
         );
         let mut ctx = from_stencil::<f64>(frame, None).expect("relative shell");
         assert!(ctx.coords_are_relative);
@@ -534,7 +534,7 @@ fn deep_view_gear_floor_stays_scaled_after_fill() {
     use crate::delta_gear::ComputeGear;
     use crate::assemblies::headgroup::window::coords::{decimal_str_to_intexp, ul_for_center};
     run_big(|| {
-        let res = (64u32, 48u32);
+        let res = TEST_SCREEN_RES;
         // Issue #5 locus past absolute collapse.
         let frame = (
             ul_for_center(
@@ -611,7 +611,7 @@ fn pin_exterior_not_marked_in_at_zoom_52() {
     use super::perturb_kernel::PerturbationKernel;
     use crate::assemblies::headgroup::window::coords::{decimal_str_to_intexp, ul_for_center};
     run_big(|| {
-        let res = (8u32, 8u32);
+        let res = TEST_SCREEN_RES;
         let frame = (
             ul_for_center(
                 decimal_str_to_intexp("0.747115302704").unwrap(),
@@ -714,7 +714,7 @@ fn pin_not_blocky_delta_c_at_zoom_49() {
     use super::perturb_kernel::PerturbationKernel;
     use crate::assemblies::headgroup::window::coords::{decimal_str_to_intexp, ul_for_center};
     run_big(|| {
-        let res = (8u32, 8u32);
+        let res = TEST_SCREEN_RES;
         let frame = (
             ul_for_center(
                 decimal_str_to_intexp("0.360069520505").unwrap(),
@@ -782,7 +782,7 @@ fn c_intexp_add_distinct_per_seat_at_user_zoom_49() {
     use crate::assemblies::headgroup::window::coords::{decimal_str_to_intexp, ul_for_center};
     use super::workshift::{from_stencil, c_for_seat_f64, DirectKernel, SeatKernel};
     run_big(|| {
-        let res = (64u32, 64u32);
+        let res = TEST_SCREEN_RES;
         let zoom_pot = 49i32;
         let center_re = decimal_str_to_intexp("0.360069520505").unwrap();
         let center_im = decimal_str_to_intexp("0.613443210714").unwrap();
@@ -855,7 +855,7 @@ fn relative_perturb_matches_direct_at_user_zoom_49() {
     use crate::reference::ReferenceOrbit;
     use std::sync::Arc;
     run_big(|| {
-        let res = (32u32, 32u32);
+        let res = TEST_SCREEN_RES;
         let zoom_pot = 49i32;
         let center_re = decimal_str_to_intexp("0.360069520505").unwrap();
         let center_im = decimal_str_to_intexp("0.613443210714").unwrap();
@@ -943,7 +943,7 @@ fn deep_relative_exterior_not_instant_black_at_reported_location() {
     use crate::gearbox::oracle::{OracleAnswer, OracleKernel};
     use super::workshift::c_floatexp_from_delta_c;
     run_big(|| {
-        let res = (32u32, 32u32);
+        let res = TEST_SCREEN_RES;
         let zoom_pot = 74i32;
         let center_re = decimal_str_to_intexp("0.95703125").unwrap();
         let center_im = decimal_str_to_intexp("-0.08984375").unwrap();
@@ -1036,7 +1036,7 @@ fn relative_shell_perturbation_center_is_interior_at_depth() {
                 pos: (IntExp::from(-1).shift(-1), IntExp::ZERO),
                 zoom_pot: 50,
             },
-            (64u32, 64u32),
+            TEST_SCREEN_RES,
         );
         let mut ctx = from_stencil::<f64>(frame, None).expect("relative shell");
         assert!(ctx.coords_are_relative);
@@ -1077,7 +1077,7 @@ fn f64_deep_zoom_admits_relative_stencil() {
     use crate::delta_gear::ComputeGear;
     run_big(|| {
         let compute_loc = (IntExp::from(-1).shift(-1), IntExp::ZERO);
-        let res = (1280u32, 720u32);
+        let res = TEST_SCREEN_RES;
         let zoom_pot = 50i64;
         assert!(
             f64_stencil_admits(&compute_loc, zoom_pot, res),
@@ -1121,7 +1121,7 @@ fn relative_abs_matches_absolute_generator_home() {
                 pos: (IntExp::from(-1).shift(-1), IntExp::ZERO),
                 zoom_pot: 200,
             },
-            (8u32, 8u32),
+            TEST_SCREEN_RES,
         );
         let deep_ctx = from_stencil::<FloatExp>(deep, None).expect("deep");
         assert!(

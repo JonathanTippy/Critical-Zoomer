@@ -268,6 +268,7 @@ async fn internal_behavior<A: SteadyActor>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::constants::TEST_SCREEN_RES;
     use crate::assemblies::workgroup::screen_worker::workshift::from_stencil;
     use crate::utils::ObjectivePosAndZoom;
 
@@ -338,7 +339,7 @@ mod tests {
                 pos: (IntExp::from(-2), IntExp::from(1)),
                 zoom_pot: -2,
             },
-            (4, 2),
+            TEST_SCREEN_RES,
         )
     }
 

@@ -212,12 +212,14 @@ mod tests {
     use super::*;
     use crate::assemblies::workgroup::work_controller::get_points;
 
+    use crate::constants::TEST_SCREEN_RES;
+
     #[test]
     // r[verify cz.depth.c-generator-fails-closed+1]
     fn generator_matches_v009_grid_bit_for_bit() {
         for zoom in [-8, -2, 0, 7, 30] {
             let loc = (IntExp::from(-2), IntExp::from(1));
-            let res = (17, 11);
+            let res = TEST_SCREEN_RES;
             let generator = CGenerator::<f64>::new(&loc, zoom, res).unwrap();
             let old = get_points::<f64>(res, loc, zoom);
             for row in 0..res.1 {
@@ -245,8 +247,8 @@ mod tests {
     #[test]
     fn successful_generator_has_distinct_neighbors() {
         let loc = (IntExp::from(-2), IntExp::from(1));
-        let generator = CGenerator::<f64>::new(&loc, 12, (800, 480)).unwrap();
-        for seat in 0..799 {
+        let generator = CGenerator::<f64>::new(&loc, 12, TEST_SCREEN_RES).unwrap();
+        for seat in 0..(TEST_SCREEN_RES.0 - 1) {
             assert_ne!(generator.get_c((seat, 0)), generator.get_c((seat + 1, 0)));
         }
     }
@@ -254,7 +256,7 @@ mod tests {
     #[test]
     fn stack_picker_f64_before_floatexp() {
         let loc = (IntExp::from(-2), IntExp::from(1));
-        let res = (17, 11);
+        let res = TEST_SCREEN_RES;
         let view_center = (
             loc.0.clone() + IntExp::from(8),
             loc.1.clone() - IntExp::from(5),
@@ -266,7 +268,7 @@ mod tests {
     #[test]
     fn admit_generator_probes_only_constant_work() {
         let loc = (IntExp::from(-2), IntExp::from(1));
-        let res = (800, 480);
+        let res = TEST_SCREEN_RES;
         let view_center = view_center_for_test(&loc, 12, res);
         let start = std::time::Instant::now();
         for _ in 0..10_000 {

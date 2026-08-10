@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 use crate::assemblies::workgroup::reference_worker::{PublishedReference, select_reference_request};
-use crate::constants::{HOME_POSITION, TEST_SCREEN_RES};
+use crate::constants::HOME_POSITION;
 use crate::reference::ReferenceOrbit;
 use std::sync::Arc;
 
@@ -482,7 +482,7 @@ fn f64_gear_home_fills_without_per_seat_gear_scan() {
                 ),
                 zoom_pot: HOME_POSITION.2,
             },
-            (64u32, 48u32),
+            TEST_SCREEN_RES,
         );
         let mut direct_ctx = from_stencil::<f64>(frame.clone(), None).expect("home direct");
         let direct_start = Instant::now();
@@ -546,7 +546,7 @@ fn seahorse_pot_19_f64_promotes_scaled_f64_and_delivers() {
     use crate::delta_gear::ComputeGear;
     use std::time::Instant;
     run_big(|| {
-        let frame = frame_at_center(-0.743643887037151, 0.131825904205216, 19, (64, 48));
+        let frame = frame_at_center(-0.743643887037151, 0.131825904205216, 19, TEST_SCREEN_RES);
         let req = select_reference_request::<FloatExp>(None, &frame);
         let pub_ref = Arc::new(PublishedReference {
             orbit: ReferenceOrbit::compute(&req.c, req.precision_bits, 512),
@@ -594,7 +594,7 @@ fn f64_gear_zero_orbit_center_reports_period_one() {
             pos: (IntExp::ZERO, IntExp::ZERO),
             zoom_pot: 0,
         },
-        (8u32, 8u32),
+        TEST_SCREEN_RES,
     );
     let mut ctx = from_stencil::<f64>(frame, None).expect("f64 grid");
     // Force seat 0 to c=0 (period-1 center).
@@ -717,7 +717,7 @@ fn published_reference_with_series_matches_direct_outside_r2() {
                 pos: (IntExp::from(-1), IntExp::from(-1)),
                 zoom_pot: -3,
             },
-            (4u32, 4u32),
+            TEST_SCREEN_RES,
         );
         let mut direct = from_stencil::<f64>(frame.clone(), None).expect("direct shell");
         let mut perturb = from_stencil::<f64>(frame, None).expect("perturb shell");
@@ -783,7 +783,7 @@ fn small_time_matches_direct_kernel_on_interior() {
             pos: (IntExp::from(-1), IntExp::from(-1)),
             zoom_pot: -3,
         },
-        (4u32, 4u32),
+        TEST_SCREEN_RES,
     );
     let reference_c = (IntExp::from(-1).shift(-1), IntExp::ZERO);
     let orbit = ReferenceOrbit::compute(&reference_c, 128, 512);
@@ -903,10 +903,10 @@ fn series_safe_skip_does_not_pass_bailout_for_far_delta() {
 fn home_package_with_live_series_obeys_real_axis_symmetry() {
     run_big(|| {
         // Origin real −2, zoom −2: covers the main cardioid plus |c|≳2 exterior.
-        let frame = real_axis_symmetric_shallow_frame((96, 65), -2, -2);
+        let frame = real_axis_symmetric_shallow_frame(TEST_SCREEN_RES, -2, -2);
         let mut ctx = from_stencil(frame.clone(), None).expect("symmetric shell");
         install_covering_reference_with_series(&mut ctx, &frame);
-        fill_until_complete_perturb(&mut ctx, 8_000);
+        fill_until_complete_perturb(&mut ctx);
         assert!(
             ctx.percent_completed >= 100.0,
             "symmetric frame must finish, got {:.1}%",
@@ -966,15 +966,15 @@ fn home_package_with_live_series_obeys_real_axis_symmetry() {
 // r[verify cz.depth.delta-kernel+1]
 fn home_package_with_live_series_matches_direct_kernel_answers() {
     run_big(|| {
-        let frame = real_axis_symmetric_shallow_frame((96, 65), -2, -2);
+        let frame = real_axis_symmetric_shallow_frame(TEST_SCREEN_RES, -2, -2);
         let mut direct = from_stencil(frame.clone(), None).expect("direct");
         let mut perturb = from_stencil(frame.clone(), None).expect("perturb");
         install_covering_reference_with_series(&mut perturb, &frame);
         // Direct ignores the reference; install anyway so shells stay aligned.
         install_covering_reference_with_series(&mut direct, &frame);
 
-        fill_until_complete_direct(&mut direct, 8_000);
-        fill_until_complete_perturb(&mut perturb, 8_000);
+        fill_until_complete_direct(&mut direct);
+        fill_until_complete_perturb(&mut perturb);
         assert!(
             direct.percent_completed >= 100.0 && perturb.percent_completed >= 100.0,
             "both packages must finish (direct={:.1}% perturb={:.1}%)",
@@ -1037,7 +1037,7 @@ fn exterior_loci_with_series_match_direct_kernel_answers() {
             pos: (IntExp::from(-1), IntExp::from(-1)),
             zoom_pot: -3,
         },
-        (4u32, 4u32),
+        TEST_SCREEN_RES,
     );
 
     // Far exterior + near-bailout ring (angles around the circle).
@@ -1389,7 +1389,7 @@ fn deep_frame_admitted_past_f64_collapse() {
                 pos: (IntExp::from(-2), IntExp::from(2)),
                 zoom_pot: 80,
             },
-            (32u32, 24u32),
+            TEST_SCREEN_RES,
         );
         let compute_loc = (frame.0.pos.0.clone(), IntExp::ZERO - frame.0.pos.1.clone());
         assert!(
@@ -1496,7 +1496,7 @@ fn live_series_skip_initializes_delta_prefix() {
             pos: (IntExp::from(-1).shift(-1), IntExp::ZERO),
             zoom_pot: -2,
         },
-        (8u32, 8u32),
+        TEST_SCREEN_RES,
     );
     let mut live = from_stencil::<f64>(frame.clone(), None).expect("shell");
     live.latest_reference = Some(Arc::new(PublishedReference {
@@ -1534,7 +1534,7 @@ fn design_depth_zoom_pot_representable() {
             pos: (IntExp::from(-1).shift(-1), IntExp::ZERO),
             zoom_pot: 200,
         },
-        (8u32, 6u32),
+        TEST_SCREEN_RES,
     );
     assert!(
         from_stencil_relative::<FloatExp>(deep, None).is_some(),

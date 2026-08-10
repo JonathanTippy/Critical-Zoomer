@@ -32,27 +32,20 @@ fn make_point(c: (f64, f64)) -> Point<FloatExp> {
     }
 }
 
-/// 4x2 screen. points[0]/points[1] sit 1e-9 apart so the pitch epsilon is
-/// ~4e-12; `esc` escapes in ~2 iterations; `slow` is near-parabolic interior
-/// (multiplier ~1-2e-8, needs ~1e9 iterations to trip loop detection — far
-/// beyond any 10ms shift), so it never completes inside a test.
+/// `TEST_SCREEN_RES` grid. points[0]/points[1] sit 1e-9 apart so the pitch
+/// epsilon is ~4e-12; `esc` escapes in ~2 iterations; `slow` is near-parabolic
+/// interior (multiplier ~1-2e-8, needs ~1e9 iterations to trip loop detection
+/// — far beyond any 10ms shift), so it never completes inside a test.
 const ESC: (f64, f64) = (2.0, 2.0);
 const SLOW: (f64, f64) = (0.25 - 1e-16, 0.0);
 
 fn make_context(workshifts: u32) -> WorkContext<FloatExp> {
-    let res = (4u32, 2u32);
-    let cs = [
-        (0.0, 0.0),
-        (1e-9, 0.0),
-        ESC,
-        SLOW,
-        SLOW,
-        SLOW,
-        SLOW,
-        SLOW,
-    ];
-    let points: Vec<Point<FloatExp>> = cs.iter().map(|&c| make_point(c)).collect();
-    let n = points.len();
+    let res = TEST_SCREEN_RES;
+    let n = (res.0 as usize) * (res.1 as usize);
+    let mut points: Vec<Point<FloatExp>> = (0..n).map(|_| make_point(SLOW)).collect();
+    points[0] = make_point((0.0, 0.0));
+    points[1] = make_point((1e-9, 0.0));
+    points[2] = make_point(ESC);
     let c_generator = CGenerator::<FloatExp>::new(&(IntExp::from(0), IntExp::from(0)), -2, res).unwrap();
     let center = ((res.0 / 2) as i32, (res.1 / 2) as i32);
     WorkContext {
@@ -446,7 +439,7 @@ fn slots_one_to_four_ignore_motion() {
         // Slot 1..=3 lead edge; slot 4 leads scredge.
         for slot in 1u32..=4 {
             let lead = if slot == 4 { (3, 1) } else { (2, 0) };
-            let lead_index = index_from_pos(&lead, (4u32, 2u32).0);
+            let lead_index = index_from_pos(&lead, TEST_SCREEN_RES.0);
             for motion in [Motion::Panned, Motion::Zoomed] {
                 let mut ctx = make_context(slot); // workshifts % 5 == slot
                 ctx.motion = motion;
@@ -561,7 +554,7 @@ fn full_buffer_undelivers_and_stops() {
 #[test]
 fn remap_onto_same_view_is_fixed_point() {
     run_big(|| {
-        let res = (4u32, 3u32);
+        let res = TEST_SCREEN_RES;
         let results: Vec<CompletedPoint<FloatExp>> = (0..(res.0 * res.1))
             .map(|i| CompletedPoint::Escapes {
                 escape_time: i,
@@ -617,11 +610,14 @@ fn fresh_shell_leaves_seats_uninitialized() {
                 pos: (IntExp::from(-2), IntExp::from(2)),
                 zoom_pot: -2,
             },
-            (8u32, 4u32),
+            TEST_SCREEN_RES,
         );
         let ctx = from_stencil::<FloatExp>(frame_info, None).unwrap();
         assert!(ctx.points.iter().all(|p| !p.initialized && !p.delivered));
-        assert_eq!(ctx.points.len(), 32);
+        assert_eq!(
+            ctx.points.len(),
+            TEST_SCREEN_RES.0 as usize * TEST_SCREEN_RES.1 as usize
+        );
         assert!(!ctx.scredge_poses.is_empty());
     });
 }
@@ -630,7 +626,7 @@ fn fresh_shell_leaves_seats_uninitialized() {
 #[test]
 fn ensure_started_matches_generator_bit_for_bit() {
     run_big(|| {
-        let res = (17u32, 11u32);
+        let res = TEST_SCREEN_RES;
         let frame_info = (
             ObjectivePosAndZoom {
                 pos: (IntExp::from(-2), IntExp::from(2)),
@@ -667,7 +663,7 @@ fn replace_reuses_points_capacity_and_resets_initialized() {
                 pos: (IntExp::from(-2), IntExp::from(2)),
                 zoom_pot: -2,
             },
-            (8u32, 4u32),
+            TEST_SCREEN_RES,
         );
         let mut ctx = from_stencil::<FloatExp>(frame_a.clone(), None).unwrap();
         ensure_started(&mut ctx, (0, 0));
@@ -679,12 +675,15 @@ fn replace_reuses_points_capacity_and_resets_initialized() {
                 pos: (IntExp::from(-2), IntExp::from(2)),
                 zoom_pot: -1,
             },
-            (8u32, 4u32),
+            TEST_SCREEN_RES,
         );
         let ctx2 = from_stencil(frame_b, Some((ctx, frame_a.0.clone()))).unwrap();
         assert!(ctx2.points.iter().all(|p| !p.initialized));
         assert!(ctx2.points.capacity() >= cap);
-        assert_eq!(ctx2.points.len(), 32);
+        assert_eq!(
+            ctx2.points.len(),
+            TEST_SCREEN_RES.0 as usize * TEST_SCREEN_RES.1 as usize
+        );
         assert_eq!(ctx2.motion, Motion::Zoomed);
     });
 }
@@ -698,11 +697,14 @@ fn from_stencil_defaults_attention_anchor_to_center() {
                 pos: (IntExp::from(-2), IntExp::from(2)),
                 zoom_pot: -2,
             },
-            (8u32, 4u32),
+            TEST_SCREEN_RES,
         );
         let ctx = from_stencil::<FloatExp>(frame, None).unwrap();
         assert_eq!(ctx.attention, None);
-        assert_eq!(ctx.attention_anchor, (4, 2));
+        assert_eq!(
+            ctx.attention_anchor,
+            ((TEST_SCREEN_RES.0 / 2) as i32, (TEST_SCREEN_RES.1 / 2) as i32)
+        );
         assert_eq!(ctx.attention_index, 0);
     });
 }
@@ -827,7 +829,10 @@ fn set_attention_none_restores_center_anchor() {
         ctx.attention_current = Some((3, 1));
         set_attention(&mut ctx, None);
         assert_eq!(ctx.attention, None);
-        assert_eq!(ctx.attention_anchor, (2, 1)); // 4x2 center
+        assert_eq!(
+            ctx.attention_anchor,
+            ((TEST_SCREEN_RES.0 / 2) as i32, (TEST_SCREEN_RES.1 / 2) as i32),
+        );
         assert_eq!(ctx.attention_index, 0, "anchor change restarts the spiral");
         assert_eq!(ctx.attention_current, None, "anchor change drops the hold");
     });
@@ -877,7 +882,7 @@ fn from_stencil_classifies_zoom_pan_neither() {
             pos: (IntExp::from(-2), IntExp::from(2)),
             zoom_pot: -2,
         };
-        let res = (8u32, 4u32);
+        let res = TEST_SCREEN_RES;
         let fresh = from_stencil::<FloatExp>((base.clone(), res), None).unwrap();
         assert_eq!(fresh.motion, Motion::Neither);
 
