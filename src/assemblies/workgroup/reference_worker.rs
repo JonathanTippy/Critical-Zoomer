@@ -153,8 +153,8 @@ fn objective_c(
 }
 
 /// True when `c` lies inside the viewport rectangle of `frame` (inclusive).
-/// Previous references may only be carried across a pivot when they still cover
-/// the new view — otherwise the zero-orbit floor is the interim answer.
+/// Coverage is diagnostic / fixture helper — carry/reuse no longer drops refs
+/// merely because they left the view (greedy keep; see reference-reuse paraphrase).
 // r[impl cz.depth.reference-coverage+1]
 pub fn reference_c_covers_frame(
     c: &(IntExp, IntExp),
@@ -175,10 +175,9 @@ pub fn reference_c_covers_frame(
 }
 
 /// Choose once at pivot: deepest delivered interior seat from the previous
-/// live view **only if that seat still covers the new frame**, otherwise the
-/// new view's center. Progress within a view never calls this function.
+/// live view (even if it left the new viewport — off-screen refs stay useful),
+/// otherwise the new view's center. Progress within a view never calls this.
 // r[impl cz.depth.reference-sticky-selection+1]
-// r[impl cz.depth.reference-coverage+1]
 pub fn select_reference_request<T: Mandelbrotable>(
     previous: Option<(&WorkContext<T>, &(ObjectivePosAndZoom, (u32, u32)))>,
     new_frame: &(ObjectivePosAndZoom, (u32, u32)),
@@ -191,15 +190,10 @@ pub fn select_reference_request<T: Mandelbrotable>(
                 .enumerate()
                 .filter(|(_, point)| point.delivered && point.repeats && !point.escapes)
                 .max_by_key(|(_, point)| point.iterations)
-                .and_then(|(index, _point)| {
+                .map(|(index, _point)| {
                     let seat = index as u32 % context.res.0;
                     let row = index as u32 / context.res.0;
-                    let c = objective_c(frame, seat, row);
-                    if reference_c_covers_frame(&c, new_frame) {
-                        Some(c)
-                    } else {
-                        None
-                    }
+                    objective_c(frame, seat, row)
                 })
         })
         .unwrap_or_else(|| {
@@ -384,8 +378,8 @@ mod tests {
     }
 
     #[test]
-    // r[verify cz.depth.reference-coverage+1]
-    fn sticky_selection_drops_interior_outside_new_view() {
+    // r[verify cz.depth.reference-sticky-selection+1]
+    fn sticky_selection_keeps_interior_outside_new_view() {
         let old = frame();
         let mut context = from_stencil::<f64>(old.clone(), None).unwrap();
         let deep = (30u32, 40u32);
@@ -393,8 +387,8 @@ mod tests {
         context.points[deep_i].delivered = true;
         context.points[deep_i].repeats = true;
         context.points[deep_i].iterations = 80;
-        // Zoom hard into a distant minibrot-like corner that does not contain
-        // the previous deepest interior seat.
+        // Zoom hard into a distant corner that does not contain the previous
+        // deepest interior seat — still keep that sticky c (greedy reuse).
         let new = (
             ObjectivePosAndZoom {
                 pos: (IntExp::from(1), IntExp::from(-1)),
@@ -409,9 +403,8 @@ mod tests {
         );
         let selected = select_reference_request(Some((&context, &old)), &new);
         assert_eq!(
-            selected.c,
-            objective_c(&new, new.1.0 / 2, new.1.1 / 2),
-            "uncovered sticky interior must fall back to new center"
+            selected.c, old_deep,
+            "off-screen sticky interior must still be requested"
         );
     }
 

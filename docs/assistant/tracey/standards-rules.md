@@ -239,9 +239,11 @@ manual gear override.
   (`home_workshift_full_frame_within_20pct_of_direct_kernel`).
 - [x] PPS race picks highest measured sample (`pps_probe_locks_highest_measured_kernel`);
   GPU is not preferred by policy order alone.
+- [x] Re-evaluate locked winner every ~100ms (`pps_probe_reevaluates_after_interval`).
 
 **Verification.** `home_workshift_stays_on_direct_kernel_without_ref`,
 `home_workshift_full_frame_within_20pct_of_direct_kernel`,
 `telemetry_mode_naive_then_pert`,
 `steady_state_home_pps_gpu_vs_cpu_ratio`,
-`pps_probe_locks_highest_measured_kernel`.
+`pps_probe_locks_highest_measured_kernel`,
+`pps_probe_reevaluates_after_interval`.

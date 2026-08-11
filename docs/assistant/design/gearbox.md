@@ -23,8 +23,9 @@ do I step this seat?”; queues, remap, and publish stay craftsmanship.
 
 Do **not** assume Naive GPU is fastest. On each absolute view, sample legal
 kernels (Naive CPU, Naive GPU if present, Perturbation) for a few shifts each,
-then **lock** the highest measured completed-points-per-second winner until
-Replace / honesty bump / manual override. Relative (dishonest-naive) views
+then **lock** the highest measured completed-points-per-second winner.
+**Re-evaluate every ~100ms** (`PPS_REEVAL_INTERVAL`) so a gear that slows mid-fill
+(especially Naive GPU) can lose the lock. Relative (dishonest-naive) views
 hard-lock Perturbation with no race.
 
 Manual gear (settings) overrides the race. Host numeric type remains automatic

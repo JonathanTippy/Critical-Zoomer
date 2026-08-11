@@ -177,12 +177,17 @@ pub struct WorkContext<T: Mandelbrotable> {
     // PPS race winner for this view (`None` = still probing / not started).
     // r[impl cz.perf.pps-selected-kernel+1]
     , pub pps_locked_kernel: Option<crate::assemblies::structs::KernelMode>
+    // When the current lock was taken — re-probe after `PPS_REEVAL_INTERVAL`.
+    , pub pps_lock_started: Instant
     // Remaining candidates to sample (front = current probe target).
     , pub pps_probe_queue: Vec<crate::assemblies::structs::KernelMode>
     , pub pps_probe_shifts_left: u8
     , pub pps_probe_points: u32
     , pub pps_probe_started: Instant
     , pub pps_probe_samples: Vec<(crate::assemblies::structs::KernelMode, f64)>
+    // Greedy kept references (off-screen still useful). `latest_reference` is
+    // the preferred bind for the view generator.
+    , pub reference_library: Vec<Arc<PublishedReference>>
 }
 
 /// Brief perturbation probe when direct is genuinely stuck (>2s to clear remaining).
@@ -355,9 +360,11 @@ impl<T: Mandelbrotable> WorkContext<T> {
     }
 
     /// Start or continue the PPS race; lock when every legal candidate is sampled.
+    /// Re-opens the race every `PPS_REEVAL_INTERVAL` so slowing gears (Naive GPU)
+    /// can lose the lock.
     // r[impl cz.perf.pps-selected-kernel+1]
     pub fn ensure_pps_probe(&mut self, gpu_available: bool) {
-        use crate::gearbox::{legal_kernels, PPS_PROBE_SHIFTS_PER_CANDIDATE};
+        use crate::gearbox::{legal_kernels, PPS_PROBE_SHIFTS_PER_CANDIDATE, PPS_REEVAL_INTERVAL};
         if self.manual_gear.is_some() {
             return;
         }
@@ -366,8 +373,17 @@ impl<T: Mandelbrotable> WorkContext<T> {
             self.pps_probe_queue.clear();
             return;
         }
-        if self.pps_locked_kernel.is_some() {
-            return;
+        if let Some(_) = self.pps_locked_kernel {
+            if self.pps_lock_started.elapsed() >= PPS_REEVAL_INTERVAL {
+                self.pps_locked_kernel = None;
+                self.pps_probe_queue.clear();
+                self.pps_probe_samples.clear();
+                self.pps_probe_shifts_left = 0;
+                // Drop soft trial floor so the race can re-pick Naive/GPU.
+                self.reference_floor_active = false;
+            } else {
+                return;
+            }
         }
         if self.pps_probe_queue.is_empty() && self.pps_probe_samples.is_empty() {
             self.pps_probe_queue = legal_kernels(false, gpu_available);
@@ -401,6 +417,7 @@ impl<T: Mandelbrotable> WorkContext<T> {
         self.pps_probe_samples.push((mode, pps));
         if self.pps_probe_queue.is_empty() {
             self.pps_locked_kernel = best_pps_kernel(&self.pps_probe_samples);
+            self.pps_lock_started = Instant::now();
             // Bind a published ref when Perturbation wins the race.
             if self.pps_locked_kernel
                 == Some(crate::assemblies::structs::KernelMode::Pert)
@@ -413,6 +430,48 @@ impl<T: Mandelbrotable> WorkContext<T> {
         self.pps_probe_shifts_left = PPS_PROBE_SHIFTS_PER_CANDIDATE;
         self.pps_probe_points = 0;
         self.pps_probe_started = Instant::now();
+    }
+
+    /// Remember a published reference for greedy reuse (including off-screen).
+    pub fn remember_reference(&mut self, published: Arc<PublishedReference>) {
+        if !self
+            .reference_library
+            .iter()
+            .any(|r| r.generation == published.generation)
+        {
+            self.reference_library.push(published.clone());
+        }
+        self.latest_reference = Some(published);
+    }
+
+    /// Prefer the library member with the smallest |δc| to this absolute seat c.
+    /// Falls back to `latest_reference`. Glitched seats use zero-orbit via
+    /// `direct_only` and do not call this for binding.
+    pub fn best_reference_for_c(
+        &self,
+        seat_c: &crate::floatexp::ComplexFloatExp,
+    ) -> Option<Arc<PublishedReference>> {
+        use crate::floatexp::{ComplexFloatExp, FloatExp};
+        let mut best: Option<(Arc<PublishedReference>, FloatExp)> = None;
+        for r in &self.reference_library {
+            if r.orbit.escaped && r.orbit.period.is_none() {
+                // Escaped refs still useful for pre-escape iterates; keep.
+            }
+            let rc = ComplexFloatExp::new(
+                FloatExp::from(r.c.0.clone()),
+                FloatExp::from(r.c.1.clone()),
+            );
+            let d = seat_c.clone() - rc;
+            let mag = d.re.abs() + d.im.abs();
+            match best {
+                None => best = Some((r.clone(), mag)),
+                Some((_, ref best_mag)) if mag < *best_mag => {
+                    best = Some((r.clone(), mag));
+                }
+                _ => {}
+            }
+        }
+        best.map(|(r, _)| r).or_else(|| self.latest_reference.clone())
     }
 }
 
@@ -747,16 +806,14 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
     frame_info: (ObjectivePosAndZoom, (u32, u32)),
     previous: Option<(WorkContext<T>, ObjectivePosAndZoom)>,
 ) -> Option<WorkContext<T>> {
+    let carried_library = previous
+        .as_ref()
+        .map(|(old, _)| old.reference_library.clone())
+        .unwrap_or_default();
+    // Greedy keep: off-screen references stay useful across zoom.
     let carried_reference = previous
         .as_ref()
-        .and_then(|(old, _)| old.latest_reference.clone())
-        .filter(|published| {
-            // r[impl cz.depth.reference-coverage+1]
-            crate::assemblies::workgroup::reference_worker::reference_c_covers_frame(
-                &published.c,
-                &frame_info,
-            )
-        });
+        .and_then(|(old, _)| old.latest_reference.clone());
     let (carried_hud_points, carried_hud_started, carried_trial_cooldown) = previous
         .as_ref()
         .map(|(old, _)| {
@@ -908,7 +965,7 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
         view_gear,
         active_gear: view_gear,
         coords_are_relative,
-        latest_reference: carried_reference,
+        latest_reference: carried_reference.clone(),
         hud_points_window: carried_hud_points,
         hud_window_started: carried_hud_started,
         reference_floor_active: false,
@@ -918,11 +975,21 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
         last_used_naive_gpu: false,
         manual_gear: None,
         pps_locked_kernel: None,
+        pps_lock_started: Instant::now(),
         pps_probe_queue: Vec::new(),
         pps_probe_shifts_left: 0,
         pps_probe_points: 0,
         pps_probe_started: Instant::now(),
         pps_probe_samples: Vec::new(),
+        reference_library: {
+            let mut lib = carried_library;
+            if let Some(ref r) = carried_reference {
+                if !lib.iter().any(|x| x.generation == r.generation) {
+                    lib.push(r.clone());
+                }
+            }
+            lib
+        },
     };
     if ctx.coords_are_relative && ctx.latest_reference.is_none() {
         let bootstrap = bootstrap_relative_reference(
@@ -1479,15 +1546,35 @@ where
         kernel.start_seat(context, pos);
 
         // Disjoint fields: take the reference so we can mutably borrow the seat.
-        // Evaluate "reference active" against the held snapshot — never against
-        // `latest_reference` after take() (that always looks empty and forced
-        // zero-orbit with generator delta_c → false interior / flat black).
+        // Prefer the library member matching this seat's bound generation so
+        // off-screen / multi-ref picks stay coherent through iterate_bout.
         let held_reference = context.latest_reference.take();
+        let bound_gen = context.points[index]
+            .delta
+            .as_ref()
+            .map(|d| d.generation)
+            .filter(|_| !context.points[index].direct_only);
+        let seat_orbit_arc = bound_gen.and_then(|g| {
+            context
+                .reference_library
+                .iter()
+                .find(|r| r.generation == g)
+                .cloned()
+                .or_else(|| {
+                    held_reference
+                        .clone()
+                        .filter(|r| r.generation == g)
+                })
+        });
         let use_published_orbit = !context.points[index].direct_only
-            && (context.reference_floor_active
+            && (seat_orbit_arc.is_some()
+                || context.reference_floor_active
                 || (context.coords_are_relative && held_reference.is_some()));
         let orbit = if use_published_orbit {
-            held_reference.as_ref().map(|r| &r.orbit)
+            seat_orbit_arc
+                .as_ref()
+                .map(|r| &r.orbit)
+                .or_else(|| held_reference.as_ref().map(|r| &r.orbit))
         } else {
             None
         };

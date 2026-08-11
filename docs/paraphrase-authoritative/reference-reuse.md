@@ -50,8 +50,13 @@ is reuse policy.
 - Not “whole-reference invalidation on glitch.”
 - Not a request to soft-floor correctness or stall rules while chasing speed.
 
-## Feasibility restatement
+## Status (2026-08-10)
 
-Continuous browse without stalls is in. Feasibility stays blocked until
-**sitting still after moves** stops paying rebuild / absolute / zero-orbit cost
-that liberal reference reuse should have avoided.
+Landing in code:
+
+- Sticky selection keeps off-screen interiors.
+- `from_stencil` / pending install carry refs without a viewport coverage drop.
+- `reference_library` + `best_reference_for_c` for per-seat nearest-ref bind.
+- Glitch remains local (`direct_only` → zero orbit).
+
+Discard / byte-budget eviction still deferred.

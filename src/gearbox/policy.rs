@@ -24,6 +24,9 @@ pub fn view_gear_from_relative_admission(relative_ok: bool) -> ComputeGear {
 /// Shifts spent sampling each legal kernel before locking the PPS winner.
 pub const PPS_PROBE_SHIFTS_PER_CANDIDATE: u8 = 3;
 
+/// Re-run the PPS race this often — Naive GPU especially slows as fill progresses.
+pub const PPS_REEVAL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
+
 /// Legal production kernels for this view (honesty first, then PPS race).
 ///
 /// Relative shells cannot run naive honestly → Perturbation only.

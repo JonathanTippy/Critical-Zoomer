@@ -232,7 +232,7 @@ async fn internal_behavior<A: SteadyActor>(
                         });
                     if keep_longer_bootstrap {
                     } else {
-                    live.context.latest_reference = Some(newest.clone());
+                    live.context.remember_reference(newest.clone());
                     let compute_loc = (
                         live.frame_info.0.pos.0.clone(),
                         crate::utils::IntExp::ZERO - live.frame_info.0.pos.1.clone(),
@@ -295,29 +295,19 @@ async fn internal_behavior<A: SteadyActor>(
                     if let Some(mut new_ctx) = from_stencil(frame_info.clone(), previous_for_shell) {
                         new_ctx.manual_gear = state.manual_gear;
                         if let Some(pending) = state.pending_reference.clone() {
-                            // r[impl cz.depth.reference-coverage+1]
-                            if crate::assemblies::workgroup::reference_worker::reference_c_covers_frame(
-                                &pending.c,
-                                &frame_info,
-                            ) {
-                                new_ctx.latest_reference = Some(pending.clone());
-                                let compute_loc = (
-                                    frame_info.0.pos.0.clone(),
-                                    crate::utils::IntExp::ZERO - frame_info.0.pos.1.clone(),
-                                );
-                                rebuild_generator_for_reference(
-                                    &mut new_ctx,
-                                    &compute_loc,
-                                    frame_info.0.zoom_pot as i64,
-                                    frame_info.1,
-                                    pending.as_ref(),
-                                );
-                            } else {
-                                // Uncovered sticky refs cause classic glitch blobs when
-                                // zooming into hard areas. Drop pending only — keep any
-                                // view-center bootstrap from_stencil already installed.
-                                state.pending_reference = None;
-                            }
+                            // Greedy keep: install pending even when off-screen.
+                            new_ctx.remember_reference(pending.clone());
+                            let compute_loc = (
+                                frame_info.0.pos.0.clone(),
+                                crate::utils::IntExp::ZERO - frame_info.0.pos.1.clone(),
+                            );
+                            rebuild_generator_for_reference(
+                                &mut new_ctx,
+                                &compute_loc,
+                                frame_info.0.zoom_pot as i64,
+                                frame_info.1,
+                                pending.as_ref(),
+                            );
                         }
                         state.work_context = Some(LiveTarget { context: new_ctx, frame_info: frame_info.clone() });
                         actor.try_send(

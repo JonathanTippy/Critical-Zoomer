@@ -20,6 +20,8 @@ Manual gear override still wins over probing.
 
 ## Probe
 
-On a fresh view (or when selection is cleared): run a short PPS sample on each
-legal candidate, then stick with the highest PPS until Replace / honesty bump /
-manual override. Completions during the probe still count as real work.
+On a fresh view: sample each legal candidate for a few shifts, lock the highest
+PPS. **Re-open the race every 100ms** while the view is still working — Naive
+GPU in particular tends to slow down as fill progresses, so a one-shot lock is
+wrong. Manual override still wins. Completions during probes still count as
+real work.

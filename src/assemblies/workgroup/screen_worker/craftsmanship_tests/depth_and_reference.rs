@@ -236,6 +236,75 @@ fn pps_probe_locks_highest_measured_kernel() {
     });
 }
 
+/// Locked PPS winner must reopen the race after ~100ms (GPU slowdown).
+// r[verify cz.perf.pps-selected-kernel+1]
+#[test]
+fn pps_probe_reevaluates_after_interval() {
+    use crate::assemblies::structs::KernelMode;
+    use crate::gearbox::PPS_REEVAL_INTERVAL;
+    run_big_stack_size(|| {
+        let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
+        ctx.pps_locked_kernel = Some(KernelMode::NaiveGpu);
+        ctx.pps_lock_started =
+            std::time::Instant::now() - PPS_REEVAL_INTERVAL - std::time::Duration::from_millis(1);
+        ctx.ensure_pps_probe(true);
+        assert!(
+            ctx.pps_locked_kernel.is_none(),
+            "stale lock must clear for re-probe"
+        );
+        assert!(
+            !ctx.pps_probe_queue.is_empty(),
+            "re-probe must enqueue legal kernels"
+        );
+        assert!(
+            ctx.pps_probe_queue.contains(&KernelMode::NaiveGpu),
+            "re-probe must still consider GPU"
+        );
+    });
+}
+
+/// Off-screen sticky reference is carried across Replace (greedy reuse).
+#[test]
+fn from_stencil_keeps_offscreen_sticky_reference() {
+    use crate::assemblies::workgroup::reference_worker::{
+        reference_c_covers_frame, select_reference_request, PublishedReference,
+    };
+    use crate::reference::ReferenceOrbit;
+    use std::sync::Arc;
+    run_big_stack_size(|| {
+        let res = TEST_SCREEN_RES;
+        let prior_frame = home_frame();
+        let mut prior = from_stencil::<f64>(prior_frame.clone(), None).expect("prior");
+        let prior_req = select_reference_request::<f64>(None, &prior_frame);
+        let sticky = Arc::new(PublishedReference {
+            orbit: ReferenceOrbit::compute(&prior_req.c, prior_req.precision_bits, 64),
+            c: prior_req.c.clone(),
+            generation: 7,
+        });
+        prior.remember_reference(sticky.clone());
+        let hard = (
+            crate::utils::ObjectivePosAndZoom {
+                pos: (IntExp::from(1), IntExp::from(-1)),
+                zoom_pot: 8,
+            },
+            res,
+        );
+        assert!(
+            !reference_c_covers_frame(&sticky.c, &hard),
+            "fixture requires off-screen sticky"
+        );
+        let next = from_stencil::<f64>(hard, Some((prior, prior_frame.0))).expect("next");
+        assert!(
+            next.latest_reference.is_some(),
+            "off-screen sticky must carry"
+        );
+        assert!(
+            next.reference_library.iter().any(|r| r.generation == 7),
+            "library must retain sticky generation"
+        );
+    });
+}
+
 // r[verify cz.depth.gear-hud+2]
 #[test]
 fn reference_floor_trials_only_when_genuinely_stuck() {

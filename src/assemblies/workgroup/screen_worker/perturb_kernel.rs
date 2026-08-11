@@ -185,12 +185,8 @@ fn init_delta(
     } else {
         absolute_c_floatexp_from_f64(c)
     };
-    // Relative shells: generator delta_c is already δc vs reference/anchor.
-    let delta_c_fe = if coords_are_relative {
-        floatexp_from_f64_pair(delta_c)
-    } else {
-        plane_fe.clone() - reference_c_floatexp(orbit)
-    };
+    // δc vs the chosen reference (may be off-screen / library pick).
+    let delta_c_fe = plane_fe.clone() - reference_c_floatexp(orbit);
     let delta_z_fe = delta_c_fe.clone();
     let dd = ComplexFloatExp::new(FloatExp::ONE, FloatExp::ZERO);
     let Some(z_ref) = orbit.get(1) else {
@@ -816,11 +812,19 @@ impl SeatKernel<f64> for PerturbationKernel {
     fn start_seat(&self, context: &mut WorkContext<f64>, pos: (i32, i32)) {
         ensure_started(context, pos);
         let index = crate::utils::index_from_pos(&pos, context.res.0);
-        let published = if context.perturbation_reference_active() {
-            context.latest_reference.as_deref()
+        let published_arc = if context.perturbation_reference_active() {
+            let delta_c = context.points[index].delta_c;
+            let c = c_for_seat_f64(context, delta_c);
+            let plane = if context.coords_are_relative {
+                c_floatexp_from_delta_c(delta_c, &context.coord_anchor)
+            } else {
+                absolute_c_floatexp_from_f64(c)
+            };
+            context.best_reference_for_c(&plane)
         } else {
             None
         };
+        let published = published_arc.as_deref();
         maybe_clear_zero_bind(&mut context.points[index], published);
         let generation = active_generation(&context.points[index], published);
         let orbit = active_orbit(
