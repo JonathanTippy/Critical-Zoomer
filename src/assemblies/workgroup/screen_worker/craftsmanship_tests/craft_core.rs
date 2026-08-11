@@ -1112,6 +1112,58 @@ fn mutant_kill_bailout_iterate_period_partials() {
     assert_eq!(p2[0], 1);
 }
 
+/// Thought-killed pins for neighbor queueing bounds / delivered skip / period 0.
+#[test]
+fn mutant_kill_queue_neighbors_and_verified_period_zero() {
+    assert_eq!(verified_period((0.0, 0.0), 0), None);
+    assert_eq!(verified_period_from((0.0, 0.0), 0, (0.0, 0.0)), None);
+    assert_eq!(verified_period((0.0, 0.0), 1), Some(1));
+    assert_eq!(verified_period((-1.0, 0.0), 2), Some(2));
+    assert_ne!(verified_period((-1.0, 0.0), 1), Some(1));
+
+    run_big_stack_size(|| {
+        let mut ctx = make_context(0);
+        let res = ctx.res;
+        // Mark center delivered so it is skipped when queuing from a neighbor.
+        let center = (1i32, 1i32);
+        let center_i = index_from_pos(&center, res.0);
+        ctx.points[center_i].delivered = true;
+        ctx.points[center_i].iterations = 42;
+
+        let mut q = std::collections::VecDeque::new();
+        queue_incomplete_neighbors(&(1, 1), res, &ctx.points, &mut q);
+        // From an interior seat with all neighbors incomplete except itself —
+        // wait, we queue FROM (1,1)'s neighbors looking at those seats' delivered.
+        // Call from (0,0): should enqueue in-bounds undelivered neighbors.
+        q.clear();
+        queue_incomplete_neighbors(&(0, 0), res, &ctx.points, &mut q);
+        assert!(!q.is_empty());
+        // Out-of-bounds seats never appear.
+        assert!(q.iter().all(|(p, _)| {
+            p.0 >= 0 && p.1 >= 0 && p.0 < res.0 as i32 && p.1 < res.1 as i32
+        }));
+        // Difficulty is source iterations.
+        let src_iters = ctx.points[index_from_pos(&(0, 0), res.0)].iterations;
+        assert!(q.iter().all(|(_, d)| *d == src_iters));
+
+        // Delivered neighbor is omitted.
+        q.clear();
+        let right_of_center = (2i32, 1i32);
+        if right_of_center.0 < res.0 as i32 {
+            queue_incomplete_neighbors(&right_of_center, res, &ctx.points, &mut q);
+            assert!(
+                q.iter().all(|(p, _)| *p != center),
+                "delivered center must not be re-queued"
+            );
+        }
+
+        // ||→&& on bounds would accept negatives if only one axis checked — force corner.
+        q.clear();
+        queue_incomplete_neighbors(&(0, 0), res, &ctx.points, &mut q);
+        assert!(!q.iter().any(|(p, _)| p.0 < 0 || p.1 < 0));
+    });
+}
+
 // r[verify cz.craft.pan-zoom-slot0+1]
 #[test]
 fn pan_scredge_lead_only_on_first_shift() {
