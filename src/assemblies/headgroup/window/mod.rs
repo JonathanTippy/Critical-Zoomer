@@ -346,10 +346,18 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     let now = Instant::now();
                     state.pps_counter.record(s.hud.points_delta, now);
                     state.ips_counter.record(s.hud.iterations_delta, now);
-                    state.publisher_fps_counter.record(s.hud.publisher_frames_delta, now);
-                    state.escape_fps_counter.record(s.hud.escape_frames_delta, now);
-                    state.color_fps_counter.record(s.hud.color_frames_delta, now);
-                    state.controller_fps_counter.record(s.hud.controller_frames_delta, now);
+                    if let Some(at) = s.hud.publisher_emitted_at {
+                        state.publisher_fps_counter.record(1, at);
+                    }
+                    if let Some(at) = s.hud.escape_emitted_at {
+                        state.escape_fps_counter.record(1, at);
+                    }
+                    if let Some(at) = s.hud.color_emitted_at {
+                        state.color_fps_counter.record(1, at);
+                    }
+                    if let Some(at) = s.hud.controller_emitted_at {
+                        state.controller_fps_counter.record(1, at);
+                    }
                     state.last_gear_label = s.hud.gear.hud_label();
                     state.last_stack_label = s.hud.stack.hud_label();
                     state.last_mode_label = s.hud.mode.hud_label();

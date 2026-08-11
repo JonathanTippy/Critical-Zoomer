@@ -1,5 +1,4 @@
 use steady_state::*;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::assemblies::headgroup::window::sampling::*;
 use crate::assemblies::structs::*;
@@ -9,15 +8,12 @@ use crate::assemblies::workgroup::screen_worker::workshift::*;
 use crate::constants::*;
 use crate::utils::*;
 
-/// Wakes of the work controller since last drain into a `WorkUpdate`.
-pub static CONTROLLER_WAKE_COUNT: AtomicU64 = AtomicU64::new(0);
-
-pub fn take_controller_frames_delta() -> u64 {
-    CONTROLLER_WAKE_COUNT.swap(0, Ordering::Relaxed)
-}
-
 pub enum WorkerCommand {
-    Replace { frame_info: (ObjectivePosAndZoom, (u32, u32)) },
+    /// `emitted_at` is created on this command at put time (vacant → stamp → send).
+    Replace {
+        frame_info: (ObjectivePosAndZoom, (u32, u32)),
+        emitted_at: std::time::Instant,
+    },
 }
 
 pub struct WorkControllerState {
@@ -74,7 +70,6 @@ async fn internal_behavior<A: SteadyActor>(
             actor.wait_periodic(max_sleep),
             actor.wait_avail(&mut from_sampler, 1),
         );
-        CONTROLLER_WAKE_COUNT.fetch_add(1, Ordering::Relaxed);
 
         if actor.avail_units(&mut from_sampler) > 0 {
             // r[impl cz.craft.drain-to-newest+1]
@@ -97,10 +92,14 @@ async fn internal_behavior<A: SteadyActor>(
             );
 
             // r[impl cz.craft.stencil-only-replace+2]
-            if should_send_replace(&mut state, &frame_info) {
-                actor.try_send(
+            // Instant only on the outgoing command after vacant check.
+            if should_send_replace(&mut state, &frame_info) && !actor.is_full(&mut to_worker) {
+                let _ = actor.try_send(
                     &mut to_worker,
-                    WorkerCommand::Replace { frame_info },
+                    WorkerCommand::Replace {
+                        frame_info,
+                        emitted_at: std::time::Instant::now(),
+                    },
                 );
             }
         }

@@ -273,8 +273,8 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
             EscaperMode::Gpu
         );
         let dirty = state.answers_dirty || radius_dirty;
-        if let Some(v) = &state.values {
-            if dirty {
+        if dirty {
+            if let Some(v) = &state.values {
                 let upload = state.answers_dirty;
                 let (mut screen, escape_hud) = gpu::escape_with_gear(
                     v,
@@ -286,9 +286,20 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
                 );
                 screen.hud.packages_dropped = state.packages_dropped;
                 screen.hud.escape = escape_hud;
-                screen.hud.escape_frames_delta = 1;
-                actor.try_send(&mut screens_out, screen);
-                state.answers_dirty = false;
+                if !actor.is_full(&mut screens_out) {
+                    screen.hud.escape_emitted_at = Some(std::time::Instant::now());
+                    match actor.try_send(&mut screens_out, screen) {
+                        SendOutcome::Success => {
+                            state.answers_dirty = false;
+                            if let Some(v) = &mut state.values {
+                                v.hud.clear_emission_stamps();
+                            }
+                        }
+                        SendOutcome::Blocked(_)
+                        | SendOutcome::Timeout(_)
+                        | SendOutcome::Closed(_) => {}
+                    }
+                }
             }
         }
     }

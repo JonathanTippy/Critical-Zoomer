@@ -313,7 +313,7 @@ fn steady_state_workgroup_ips_delta_reaches_hud_rate_counter() {
             workshift_with_kernel(0, 0, 0, 0, &mut ctx, &DirectKernel);
             let delta = shift_iterations_delta(&ctx);
             let completed = work_update(&mut ctx);
-            let update = telemetry_update(None, completed, Some(&mut ctx), delta);
+            let update = telemetry_update(None, completed, Some(&mut ctx), delta, None);
             assert_eq!(
                 update.iterations_delta, delta,
                 "WorkUpdate must carry the shift iteration count unchanged"
@@ -446,7 +446,7 @@ fn steady_state_naive_gpu_home_continuous_outputs() {
 #[test]
 fn steady_state_ips_delta_sent_without_completions() {
     use crate::assemblies::structs::ViewHud;
-    let update = telemetry_update::<f64>(None, vec![], None, 12_345);
+    let update = telemetry_update::<f64>(None, vec![], None, 12_345, None);
     assert_eq!(update.iterations_delta, 12_345);
     assert!(update.completed_points.is_empty());
     let hud = ViewHud {

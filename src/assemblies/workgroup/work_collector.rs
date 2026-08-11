@@ -1,5 +1,6 @@
 use eframe::epaint::Color32;
 use steady_state::*;
+use std::time::Instant;
 
 use crate::assemblies::headgroup::window::*;
 use crate::assemblies::workgroup::screen_worker::workshift::*;
@@ -27,6 +28,8 @@ pub struct ResultsPackage<T> {
 pub struct WorkCollectorState<T> {
     completed_work: Option<ResultsPackage<T>>
     , surrounding_work: Option<ResultsPackage<T>>
+    // Controller emission Instant received on a WorkUpdate, held until the next publish put.
+    , pending_controller_emitted_at: Option<Instant>
 }
 
 
@@ -69,6 +72,7 @@ async fn internal_behavior<A: SteadyActor>(
     let mut state = state.lock(|| WorkCollectorState {
         completed_work: None
         , surrounding_work: None
+        , pending_controller_emitted_at: None
     }).await;
 
     let max_sleep = Duration::from_millis(50);
@@ -87,6 +91,11 @@ async fn internal_behavior<A: SteadyActor>(
 
         if actor.avail_units(&mut from_worker) > 0 {
             let U =actor.try_take(&mut from_worker).expect("work update seemed available but wasn't...");
+            if let Some(at) = U.controller_emitted_at {
+                state.pending_controller_emitted_at = Some(at);
+            }
+            // Taken up front so publish can stamp the outgoing View without borrowing state twice.
+            let mut ctrl_emit = state.pending_controller_emitted_at.take();
 
             if let Some(surrounding_work) = &mut state.surrounding_work {
                 if let Some(mut f) = U.frame_info.clone() {
@@ -107,7 +116,6 @@ async fn internal_behavior<A: SteadyActor>(
                         iterations_delta: U.iterations_delta,
                         packages_dropped: 0,
                         color: crate::assemblies::structs::ColorerHud::Og,
-                        controller_frames_delta: U.controller_frames_delta,
                         ..Default::default()
                     };
                 } else {
@@ -133,11 +141,13 @@ async fn internal_behavior<A: SteadyActor>(
                         iterations_delta: U.iterations_delta,
                         packages_dropped: 0,
                         color: crate::assemblies::structs::ColorerHud::Og,
-                        controller_frames_delta: U.controller_frames_delta,
-                        publisher_frames_delta: 1,
                         ..Default::default()
                     };
-                    actor.try_send(&mut values_out,
+                    if !actor.is_full(&mut values_out) {
+                        let mut hud = completed_work.hud;
+                        hud.controller_emitted_at = ctrl_emit.take();
+                        hud.publisher_emitted_at = Some(Instant::now());
+                        match actor.try_send(&mut values_out,
                                    View{
                                        stencil: PointStencil{
                                            location: (completed_work.location.clone().pos.0, IntExp::ZERO-completed_work.location.clone().pos.1, completed_work.location.zoom_pot)
@@ -182,8 +192,16 @@ async fn internal_behavior<A: SteadyActor>(
                                            }
                                        }).collect()
                                        , bitmap: vec!(0;completed_work.results.len()),
-                                       hud: completed_work.hud,
-});
+                                       hud,
+}) {
+                            SendOutcome::Success => {}
+                            SendOutcome::Blocked(v)
+                            | SendOutcome::Timeout(v)
+                            | SendOutcome::Closed(v) => {
+                                ctrl_emit = v.hud.controller_emitted_at;
+                            }
+                        }
+                    }
                 }
             } else {
                 let f = U.frame_info.expect("work collector recieved an initial work update without any info");
@@ -201,8 +219,6 @@ async fn internal_behavior<A: SteadyActor>(
                             iterations_delta: U.iterations_delta,
                             packages_dropped: 0,
                             color: crate::assemblies::structs::ColorerHud::Og,
-                            controller_frames_delta: U.controller_frames_delta,
-                            publisher_frames_delta: 1,
                             ..Default::default()
                         }
                     }
@@ -214,7 +230,11 @@ async fn internal_behavior<A: SteadyActor>(
                         let W = vs[i].clone();
                         completed_work.results[W.1] = W.0;
                     }
-                    actor.try_send(&mut values_out, View {
+                    if !actor.is_full(&mut values_out) {
+                        let mut hud = completed_work.hud;
+                        hud.controller_emitted_at = ctrl_emit.take();
+                        hud.publisher_emitted_at = Some(Instant::now());
+                        match actor.try_send(&mut values_out, View {
                         stencil: PointStencil {
                             location: (completed_work.location.clone().pos.0, IntExp::ZERO-completed_work.location.clone().pos.1, completed_work.location.zoom_pot)
                             ,
@@ -267,11 +287,19 @@ async fn internal_behavior<A: SteadyActor>(
                         }).collect()
                         ,
                         bitmap: vec!(0; completed_work.results.len()),
-                        hud: completed_work.hud
-});
+                        hud,
+}) {
+                            SendOutcome::Success => {}
+                            SendOutcome::Blocked(v)
+                            | SendOutcome::Timeout(v)
+                            | SendOutcome::Closed(v) => {
+                                ctrl_emit = v.hud.controller_emitted_at;
+                            }
+                        }
+                    }
                 }
-
             }
+            state.pending_controller_emitted_at = ctrl_emit;
         }
     }
     // Final shutdown log, reporting all statistics.

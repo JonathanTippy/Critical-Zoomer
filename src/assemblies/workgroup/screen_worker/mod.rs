@@ -30,8 +30,8 @@ pub struct WorkUpdate<T> {
     pub reference_status: crate::assemblies::structs::ReferenceStatus,
     /// Iterations performed since the previous update.
     pub iterations_delta: u64,
-    /// Controller wake pulses since the previous WorkUpdate (HUD `ctrl:`).
-    pub controller_frames_delta: u64,
+    /// Oldest pending controller Replace emission time (HUD `ctrl:`).
+    pub controller_emitted_at: Option<std::time::Instant>,
 }
 
 pub struct WorkerState<T: Mandelbrotable> {
@@ -53,6 +53,8 @@ pub struct WorkerState<T: Mandelbrotable> {
     , naive_gpu: Option<naive_gpu::NaiveGpuContext>
     // Latest debug manual-gear override from settings (`None` = auto policy).
     , manual_gear: Option<crate::assemblies::structs::KernelMode>
+    // Controller Replace emission Instant awaiting the next successful WorkUpdate put.
+    , pending_controller_emitted_at: Option<std::time::Instant>
 }
 
 /// The single live render target: a work context and the frame_info it was
@@ -159,6 +161,7 @@ async fn internal_behavior<A: SteadyActor>(
         , pending_reference: None
         , naive_gpu: None
         , manual_gear: None
+        , pending_controller_emitted_at: None
     }).await;
     // Inject after lock so a pre-existing empty SteadyState cannot drop the device.
     if state.naive_gpu.is_none() {
@@ -262,7 +265,8 @@ async fn internal_behavior<A: SteadyActor>(
 
             match actor.try_take(&mut commands_in).unwrap() {
 
-                WorkerCommand::Replace{frame_info} => {
+                WorkerCommand::Replace { frame_info, emitted_at } => {
+                    state.pending_controller_emitted_at = Some(emitted_at);
                     // r[impl cz.craft.pivot-two-message-order+1]
                     // r[impl cz.craft.stencil-only-replace+2]
                     let request = select_reference_request(
@@ -289,12 +293,16 @@ async fn internal_behavior<A: SteadyActor>(
                                     U,
                                     Some(&mut live.context),
                                     iters as u64,
+                                    state.pending_controller_emitted_at.take(),
                                 );
                                 match actor.try_send(&mut updates_out, update) {
                                     SendOutcome::Success => {}
                                     SendOutcome::Blocked(u)
                                     | SendOutcome::Timeout(u)
                                     | SendOutcome::Closed(u) => {
+                                        if let Some(at) = u.controller_emitted_at {
+                                            state.pending_controller_emitted_at = Some(at);
+                                        }
                                         undeliver_failed_batch(
                                             &mut live.context,
                                             &u.completed_points,
@@ -325,15 +333,24 @@ async fn internal_behavior<A: SteadyActor>(
                             );
                         }
                         state.work_context = Some(LiveTarget { context: new_ctx, frame_info: frame_info.clone() });
-                        actor.try_send(
-                            &mut updates_out,
-                            telemetry_update(
-                                Some(frame_info),
-                                vec!(),
-                                state.work_context.as_mut().map(|l| &mut l.context),
-                                0,
-                            ),
+                        let ctrl = state.pending_controller_emitted_at.take();
+                        let update = telemetry_update(
+                            Some(frame_info),
+                            vec!(),
+                            state.work_context.as_mut().map(|l| &mut l.context),
+                            0,
+                            ctrl,
                         );
+                        match actor.try_send(&mut updates_out, update) {
+                            SendOutcome::Success => {}
+                            SendOutcome::Blocked(u)
+                            | SendOutcome::Timeout(u)
+                            | SendOutcome::Closed(u) => {
+                                if let Some(at) = u.controller_emitted_at {
+                                    state.pending_controller_emitted_at = Some(at);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -364,6 +381,8 @@ async fn internal_behavior<A: SteadyActor>(
         state.naive_gpu = gpu;
         state.total_workshifts += 1;
         if state.total_workshifts % 1 == 0 {
+            let ctrl = state.pending_controller_emitted_at.take();
+            let mut restore_ctrl = None;
             if let Some(live) = &mut state.work_context {
                 let c = work_update(&mut live.context);
                 // Send even when this shift only advanced iterations (no finals):
@@ -372,17 +391,30 @@ async fn internal_behavior<A: SteadyActor>(
                     // r[impl cz.craft.emergent-cadence+1]
                     // r[impl cz.depth.gear-hud+2]
                     // r[impl cz.craft.undeliver-on-full+1]
-                    let update =
-                        telemetry_update(None, c, Some(&mut live.context), iters_delta);
+                    let update = telemetry_update(
+                        None,
+                        c,
+                        Some(&mut live.context),
+                        iters_delta,
+                        ctrl,
+                    );
                     match actor.try_send(&mut updates_out, update) {
                         SendOutcome::Success => {}
                         SendOutcome::Blocked(u)
                         | SendOutcome::Timeout(u)
                         | SendOutcome::Closed(u) => {
+                            restore_ctrl = u.controller_emitted_at;
                             undeliver_failed_batch(&mut live.context, &u.completed_points);
                         }
                     }
+                } else {
+                    restore_ctrl = ctrl;
                 }
+            } else {
+                restore_ctrl = ctrl;
+            }
+            if let Some(at) = restore_ctrl {
+                state.pending_controller_emitted_at = Some(at);
             }
         }
     }
@@ -396,6 +428,7 @@ pub(crate) fn telemetry_update<T>(
     completed_points: Vec<(CompletedPoint<T>, usize)>,
     mut ctx: Option<&mut WorkContext<T>>,
     iterations_delta: u64,
+    controller_emitted_at: Option<std::time::Instant>,
 ) -> WorkUpdate<T>
 where
     T: Mandelbrotable + 'static,
@@ -436,7 +469,7 @@ where
         kernel_mode,
         reference_status,
         iterations_delta,
-        controller_frames_delta: crate::assemblies::workgroup::work_controller::take_controller_frames_delta(),
+        controller_emitted_at,
     }
 }
 

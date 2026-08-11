@@ -28,6 +28,8 @@ impl RateCounter {
     }
 
     /// Events per second over the trailing 1s window.
+    /// Call every paint with `Instant::now()` so silence ages out to zero
+    /// without needing a zero-pulse from the source.
     pub fn rate(&mut self, now: Instant) -> f64 {
         self.prune(now);
         let total: u64 = self.events.iter().map(|e| e.1).sum();
@@ -215,6 +217,13 @@ mod tests {
         c2.record(3, t1);
         let t_edge = t1 + Duration::from_secs(1);
         assert!((c2.rate(t_edge) - 3.0).abs() < 1e-9);
+
+        // Emission Instant in the past + query at now → silence ages to zero.
+        let mut c3 = RateCounter::default();
+        let emitted = Instant::now();
+        c3.record(1, emitted);
+        assert!((c3.rate(emitted) - 1.0).abs() < 1e-9);
+        assert_eq!(c3.rate(emitted + Duration::from_millis(1001)), 0.0);
     }
 
     type Rolling = (

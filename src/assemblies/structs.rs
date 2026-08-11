@@ -29,11 +29,11 @@ pub struct ViewHud {
     pub color: ColorerHud,
     /// Escaper path actually used for this view.
     pub escape: EscaperHud,
-    /// Stage frame pulses for HUD RateCounters (usually 0 or 1 per message).
-    pub publisher_frames_delta: u64,
-    pub escape_frames_delta: u64,
-    pub color_frames_delta: u64,
-    pub controller_frames_delta: u64,
+    /// Emission times for stage rates (set only on successful channel put).
+    pub publisher_emitted_at: Option<std::time::Instant>,
+    pub escape_emitted_at: Option<std::time::Instant>,
+    pub color_emitted_at: Option<std::time::Instant>,
+    pub controller_emitted_at: Option<std::time::Instant>,
 }
 
 /// Manual colorer implementation (settings gear; default OG).
@@ -179,6 +179,15 @@ impl ViewHud {
         } else {
             self.reference.hud_label()
         }
+    }
+
+    /// Drop emission Instants after a successful send so the next package
+    /// cannot re-report the same emits at the window.
+    pub fn clear_emission_stamps(&mut self) {
+        self.publisher_emitted_at = None;
+        self.escape_emitted_at = None;
+        self.color_emitted_at = None;
+        self.controller_emitted_at = None;
     }
 }
 

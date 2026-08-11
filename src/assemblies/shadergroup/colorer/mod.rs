@@ -163,32 +163,43 @@ async fn internal_behavior<A: SteadyActor>(
         };
         // Same path every wake (animated layers / bailout upstream): only numbers change.
         // Static + unchanged: skip try_send so we do not flood the window channel.
+        let mut clear_dirty = !dirty.any();
         if let Some(v) = &mut state.values {
             if dirty.any() {
                 let (output, color_hud) =
                     gpu::color_with_gear(v, &mut settings, want_gpu, &gpu, dirty);
-                v.hud.packages_dropped = dropped;
-                v.hud.color = color_hud;
-                v.hud.color_frames_delta = 1;
-
-                actor.try_send(
-                    &mut screens_out,
-                    View {
-                        data: output.clone(),
-                        bitmap: vec![0u8; output.len()],
-                        stencil: PointStencil {
-                            resolution: (v.res.0 as usize, v.res.1 as usize),
-                            location: (
-                                v.objective_location.clone().pos.0,
-                                IntExp::ZERO - v.objective_location.clone().pos.1,
-                                v.objective_location.clone().zoom_pot,
-                            ),
-                            serial_number: 0,
+                if !actor.is_full(&mut screens_out) {
+                    let mut hud = v.hud;
+                    hud.packages_dropped = dropped;
+                    hud.color = color_hud;
+                    hud.color_emitted_at = Some(std::time::Instant::now());
+                    let outcome = actor.try_send(
+                        &mut screens_out,
+                        View {
+                            data: output.clone(),
+                            bitmap: vec![0u8; output.len()],
+                            stencil: PointStencil {
+                                resolution: (v.res.0 as usize, v.res.1 as usize),
+                                location: (
+                                    v.objective_location.clone().pos.0,
+                                    IntExp::ZERO - v.objective_location.clone().pos.1,
+                                    v.objective_location.clone().zoom_pot,
+                                ),
+                                serial_number: 0,
+                            },
+                            hud,
                         },
-                        hud: v.hud,
-                    },
-                );
+                    );
+                    if matches!(outcome, SendOutcome::Success) {
+                        v.hud.packages_dropped = dropped;
+                        v.hud.color = color_hud;
+                        v.hud.clear_emission_stamps();
+                        clear_dirty = true;
+                    }
+                }
             }
+        }
+        if clear_dirty {
             state.values_dirty = false;
             state.params_dirty = false;
         }
