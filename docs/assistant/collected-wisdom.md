@@ -40,6 +40,8 @@ Harvested 2026-08-06 during the v0.0.9 revert cleanup. Each entry: the rule, its
 - v0.0.9 does bailout at iterate time with an animated bailout that works (DAT watchlist); a split escaper stage is a GPU-era design decision, not a baseline requirement.
 - **Single path (2026-08-11):** animated vs static bailout is the same `escape_frame` / `color` body — only numbers change (`shadergroup-virtues.md`). Guard that; do not fork paths.
 - **2026-08-11 Criterion:** colorer is ~10× escaper wall time on filled home; problem child for the ~1.5×-pixel cliff (`shadergroup_fitness`).
+- **Colorer upgrades:** honest rewrite only — feature parity, same results, no simplifications, tests for every behavior. Future settings **color gear** (OG vs GPU), manual like worker gear — not auto (`assembly-boundaries.md`).
+- **Assemblies:** workgroup = answers; shadergroup = bailout tail + coloring; headgroup = present colors (+ stencils). Separation of concerns is what keeps the project workable. Study v0.0.9 for the hundreds of unlisted design decisions.
 
 ## Process
 

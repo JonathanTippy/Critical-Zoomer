@@ -4,9 +4,9 @@
 - **Status:** in progress
 - **Prior session:** [2026-08-11-series-approximation-contract.md](2026-08-11-series-approximation-contract.md)
 
-**Summary:** Diagnosis locked. Colorer upgrades require honest rewrite + full
-parity/tests (no simplifications). Banding first — Stec capacity not grown on
-resize is prime suspect.
+**Summary:** Diagnosis locked. Banding Stec-grow fix landed. Colorer: honest
+rewrite + future OG↔GPU color gear (manual). Assembly SoC + study v0.0.9
+enshrined.
 
 ---
 
@@ -457,3 +457,37 @@ growing it. Default→1.5×/fullscreen kept a too-small completion cap → mid-s
 `BufferFull` → unfinished bands. Fix: grow Stec to ≥ new pixel count; pin
 `enlarge_replace_grows_completion_buffer_to_screen`. Headed verify still wanted.
 Colorer parity bar recorded in `shadergroup-virtues.md`; no colorer rewrite yet.
+
+### Developer
+
+In fact, what I think would be great is a color gear switch in the settings,
+much like we already have the screen worker gear switch, that switches between
+the OG color implementation and the new GPU implementation, at least when we
+get to that. And I just want to reemphasize that separation of concerns is
+really important, and it's what makes this project workable. How the head
+group is only responsible for transforming colors, and that's all. And I mean,
+obviously, it does also produce the stencils, but that's beside the point. And
+the shader group is only responsible for the short bailout tail and converting
+answers into colors, which is coloring. And the work group is only responsible
+for producing answers, and not really much of anything else. So yeah, I just
+want to keep repeating that, because I think it's very important. And
+obviously, the other thing is that I have been working on this manually for
+about a year, and the code is the way it is for very good reasons. And so I
+expect new work to live up to the quality. And I'm going to try and communicate
+enough that, well, I don't know. Honestly, a lot of it will come down to you
+studying the old v0.0.9 work, because it's very rich with tweaks that I made
+and design decisions that I made, mostly design decisions that I couldn't list
+off the top of my head, but there are hundreds of them. And that's what keeps
+the project together and keeps it from falling apart in the slop.
+
+### Assistant
+
+Recorded:
+
+- **Color gear** (when GPU color exists): settings manual OG ↔ GPU, like worker
+  gear; no auto-pick. Design lock in issue-stack + `shadergroup-virtues.md`.
+- **Assembly boundaries:** workgroup = answers; shadergroup = bailout tail +
+  coloring; headgroup = present/transform colors (+ stencils). SoC is what makes
+  the project workable — `assembly-boundaries.md`.
+- **Quality:** v0.0.9 is dense with unlisted decisions; study that code; new work
+  must match that bar, not invent thinner substitutes.
