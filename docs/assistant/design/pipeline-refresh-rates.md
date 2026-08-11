@@ -17,7 +17,20 @@ pipe. Actors **never block waiting** on the next stage: each holds an
 | **UI / feel** | Headgroup present | **Vsync by default**; disable vsync → pace to `head_max_fps` | Game-like present; content tier stays on content period. |
 
 Hardcoding “60 FPS” as the long-term content rate is rejected; 60 is only the
-bootstrap until the head measures present Hz into `auto_vsync_hz`.
+bootstrap until the head learns the display period.
+
+### How `auto_vsync_hz` is learned (stable)
+
+**Do not measure present frame times** into `auto_vsync_hz` — that jittered
+content timers. The head aims at egui’s declared vsync period:
+
+1. Each present: `Settings::resolve_auto_vsync_hz(ctx.predicted_dt, probed)`.
+2. egui’s `predicted_dt` is the integration’s “expected vsync period.”
+3. eframe still often leaves `predicted_dt` at the **1/60 placeholder**; when
+   that is all egui reports, the head uses a **one-shot winit monitor probe**
+   (`ActiveEventLoop` + `refresh_rate_millihertz`) before `run_native`.
+
+Fan Settings to content actors only when the resolved Hz moves (≥0.5 Hz).
 
 ### Workgroup publish
 
@@ -43,8 +56,8 @@ swap. Timer = production intent; channel = latest-resident swap.
 ## Headgroup
 
 `NativeOptions.vsync` defaults on. Settings: vsync checkbox + max FPS when
-uncapped. Measured present period writes `auto_vsync_hz` and fans Settings to
-colorer, escaper, worker, and collector.
+uncapped. Stable `auto_vsync_hz` fans Settings to colorer, escaper, worker, and
+collector.
 
 ## HUD
 
@@ -56,3 +69,4 @@ RateCounters; `ips:` / `pps:` unchanged.
 - Content actors share head-reported vsync period (or manual Hz).
 - Head: vsync default; max FPS + disable vsync paces present.
 - Escape default stays OG.
+- `auto_vsync_hz` does not track instantaneous present FPS.

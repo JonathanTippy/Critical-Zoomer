@@ -133,7 +133,8 @@ slip checks:
 | escape_gpu_radius_only_1_0x | **~3.11 ms** | unchanged class |
 | workgroup time_to_full_frame | **~300 ms** | within ~20% of ~270 ms accepted |
 
-Actors wake on `resolved_content_period()` (Automatic = head `auto_vsync_hz`).
+- Content actors share head-reported vsync period (or manual Hz).
+Actors wake on `resolved_content_period()` (Automatic = egui/OS `auto_vsync_hz`).
 Color gear defaults to **GPU**; escape defaults OG. HUD stamps `color:` /
 `escape:` and stage rates `pub:/esc:/col:/ctrl:`.
 

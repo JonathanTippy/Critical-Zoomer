@@ -129,7 +129,7 @@ impl Settings {
         // Debug: force escaper path; default OG when disabled.
         , manual_escape_gear_enabled: false
         , manual_escape_gear: crate::assemblies::structs::EscaperMode::Og
-        // Content-tier refresh (collector → shade). Automatic uses head-reported vsync Hz.
+        // Content-tier refresh (collector → shade). Automatic uses egui/OS vsync Hz.
         , content_refresh_automatic: true
         , content_refresh_hz: 60.0
         , auto_vsync_hz: 60.0
@@ -199,6 +199,33 @@ impl Settings {
         }
     }
 
+    /// Stable Automatic content Hz from egui's predicted frame period.
+    ///
+    /// Uses `1 / predicted_dt` (egui's vsync aim). eframe historically leaves
+    /// `predicted_dt` at the 1/60 placeholder even on other panels — when that
+    /// placeholder is all egui reports, prefer an OS monitor probe instead of
+    /// measuring present frame times (those jitter and destabilize cadence).
+    pub fn resolve_auto_vsync_hz(predicted_dt: f32, probed_monitor_hz: Option<f64>) -> f64 {
+        let from_egui = if predicted_dt.is_finite() && predicted_dt > 1e-6 {
+            1.0 / f64::from(predicted_dt)
+        } else {
+            60.0
+        };
+        const PLACEHOLDER_HZ: f64 = 60.0;
+        let hz = if (from_egui - PLACEHOLDER_HZ).abs() < 0.05 {
+            probed_monitor_hz.unwrap_or(from_egui)
+        } else {
+            from_egui
+        };
+        if !hz.is_finite() || hz < 1.0 {
+            1.0
+        } else if hz > 240.0 {
+            240.0
+        } else {
+            hz
+        }
+    }
+
     /// Content-tier wake period from [`Self::resolved_content_hz`].
     pub fn resolved_content_period(&self) -> std::time::Duration {
         std::time::Duration::from_secs_f64(1.0 / self.resolved_content_hz())
@@ -249,7 +276,7 @@ pub struct Settings {
     // When true, content actors use `auto_vsync_hz`; else `content_refresh_hz`.
     , pub content_refresh_automatic: bool
     , pub content_refresh_hz: f64
-    // Head-measured / bootstrap vsync Hz for Automatic content refresh.
+    // Egui/OS vsync Hz for Automatic content refresh (not measured present FPS).
     , pub auto_vsync_hz: f64
     , pub head_vsync_enabled: bool
     , pub head_max_fps: f64
@@ -844,6 +871,22 @@ mod mutant_kill {
             s.resolved_head_max_period(),
             Duration::from_secs_f64(1.0 / 60.0)
         );
+    }
+
+    #[test]
+    fn mutant_kill_resolve_auto_vsync_prefers_egui_then_probe() {
+        // Non-placeholder egui predicted_dt wins.
+        let hz = Settings::resolve_auto_vsync_hz(1.0 / 144.0, Some(60.0));
+        assert!((hz - 144.0).abs() < 0.1);
+        // Placeholder 1/60 falls back to OS probe.
+        let hz = Settings::resolve_auto_vsync_hz(1.0 / 60.0, Some(165.0));
+        assert!((hz - 165.0).abs() < 1e-9);
+        // No probe → keep egui placeholder.
+        let hz = Settings::resolve_auto_vsync_hz(1.0 / 60.0, None);
+        assert!((hz - 60.0).abs() < 0.1);
+        // Clamp.
+        assert!((Settings::resolve_auto_vsync_hz(1.0 / 1000.0, None) - 240.0).abs() < 0.1);
+        assert!((Settings::resolve_auto_vsync_hz(2.0, None) - 1.0).abs() < 1e-9);
     }
 
     #[test]

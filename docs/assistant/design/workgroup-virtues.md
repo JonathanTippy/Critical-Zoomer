@@ -281,7 +281,7 @@ Look at the timing architecture from the outside:
   `WorkUpdate`s (`total_workshifts % 1 == 0` — every shift, no gating).
 - The collector swaps those into a single resident package and **publishes to
   shade on the content beat** (`Settings::resolved_content_period()`, Automatic
-  = head-measured vsync Hz). Escaper and colorer share that period.
+  = egui/OS vsync Hz). Escaper and colorer share that period.
 - Every collector publish is still a full `View` snapshot of work-so-far.
 
 Worker → collector cadence remains emergent from the shift clock. Collector →
