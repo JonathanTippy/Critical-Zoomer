@@ -1,12 +1,13 @@
+[![Leaderboard](https://my.kmf-lab.com/leaderboard/static/badge/JonathanTippy.svg)](https://my.kmf-lab.com/leaderboard/JonathanTippy/critical-zoomer)
+[![Honor board](https://my.kmf-lab.com/leaderboard/static/badge/honor/JonathanTippy.svg)](https://my.kmf-lab.com/leaderboard/honor/JonathanTippy)
+[![Dashboard](https://my.kmf-lab.com/leaderboard/static/badge/dashboard/JonathanTippy.svg)](https://my.kmf-lab.com/leaderboard/dashboard)
 
+![Untitled-Artwork_shortened](https://user-images.githubusercontent.com/54297927/212390663-ff8359e9-438a-4742-8cf6-3b7675a27f7a.jpg)
+Artwork by Deborah Tippy
 
 https://github.com/user-attachments/assets/e53e8877-e08f-49b9-bada-f3c851815e2f
 
 
-
-[![Leaderboard](https://my.kmf-lab.com/leaderboard/static/badge/JonathanTippy.svg)](https://my.kmf-lab.com/leaderboard/JonathanTippy/critical-zoomer)
-![Untitled-Artwork_shortened](https://user-images.githubusercontent.com/54297927/212390663-ff8359e9-438a-4742-8cf6-3b7675a27f7a.jpg)
-Artwork by Deborah Tippy
 
 # Critical Zoomer
 a mandelbrot set zoomer written in rust
