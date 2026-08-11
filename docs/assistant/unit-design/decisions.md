@@ -70,7 +70,12 @@ Contingent alternatives recorded in this file (cross-tile WIP, period two-pass, 
 | D-PER-5 | **Period two-pass fields = design fallback only.** Membership/escape/angle then period/small-time *as a period strategy* — suggest with evidence; **no impl without approval**. **Not** the same as required in-fill two-phase (D-GPU-11). |
 | D-PER-6 | **GPU twin-test adaptation.** Branching twin-test is allowed on GPU; when contenders are sparse, compact them and run confirm on that set so the main bout stays uniform. Never invent a period. Period-edge trace / same-period fill may use **certain** periods only; unknown-inside remains valid for early veto. |
 | D-GEAR-1 | Mid-tile gear escalation is **not a design path**: a gear sufficient to discriminate screen resolution is sufficient for iteration. |
-| D-SERIES-1 | Series approximation is **in scope now** (design + implement). |
+| D-SERIES-1 | Series approximation is **in scope** (design + implement). Production remains deferred until membership pins + performance contract (`r[cz.depth.series-approximation+1]`). |
+| D-SERIES-2 | **Always on (2026-08-11 Jonathan).** No enable/disable / worth-it branch. When a covering reference is published, SA runs as part of seat init. Shallow no-op must be nearly free so branching is pointless. |
+| D-SERIES-3 | **Skip is init, not bout work (2026-08-11 Jonathan).** Discovery must be so cheap it is free: binary search over the orbit (O(log N) evals). Easy cases ≈ one access per point. Must not steal iterate-bout budget; that framing does not apply. |
+| D-SERIES-4 | **Win = deep zoom (2026-08-11 Jonathan).** Large skips are the payoff. Overhead when skip is useless must stay in the noise vs seat start / tick feel. |
+| D-SERIES-5 | **Coeffs fused into reference (2026-08-11 Jonathan).** One series step per reference iterate in the same loop/worker — not a separate process. Extra math only as necessary; no extra big-O beyond the recurrence; airtight performance mindfulness from the start (v0.0.9 hot-path habits). |
+| D-SERIES-6 | **Gear promote ≠ restart (2026-08-11 Jonathan).** Mid-orbit gear promotion does not restart seats or re-run series init. Restart stays on reference generation / glitch / unbound paths. |
 | D-CANCEL-1 | Tile cancelled because it left the screen: keep partial calibrated work in the hoard (resume if it returns). |
 | D-REF-1 | Reference precision = requisite precision for point discrimination **plus 20 bits**, as written. |
 | D-REF-2 | Superseded reference dropped when last user finishes/cancels, **or** when live reference count exceeds N (N **assumed** until set). |

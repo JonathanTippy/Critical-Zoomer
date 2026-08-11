@@ -43,3 +43,13 @@ Harvested 2026-08-06 during the v0.0.9 revert cleanup. Each entry: the rule, its
 
 - Keep a live bug/todo stack (`issue-stack.md`); developer quotes archive under `docs/assistant/Trash/stale/less stale but still stale/grok-docs/he-said/`.
 - When the developer answers a design question with a name + mechanism (not just a value), record it verbatim in `unit-design/decisions.md` — bare defaults miss binding detail.
+
+## Series approximation (developer 2026-08-11 — binding intent)
+
+- Product feel is video-game free motion: never frozen by iteration count, never
+  chugged by backlog; tick rate is protected first if forced to choose, but
+  v0.0.9 shows tick and throughput need not fight.
+- SA win is deep zoom; always-on; skip is seat init and must be free (binary
+  search); coeffs fused one-step-per-reference-iterate. See
+  `r[cz.depth.series-approximation+1]`, `depth-design.md`, `D-SERIES-2`…`6`.
+- Prior live SA sketch failed that bar; do not revive unchanged.

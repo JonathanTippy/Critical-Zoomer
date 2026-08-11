@@ -1,5 +1,10 @@
 //! Deferred: not on the live path until membership pins stay green
-//! (`pin_exterior_not_marked_in_at_zoom_52`, `pin_not_blocky_delta_c_at_zoom_49`).
+//! (`pin_exterior_not_marked_in_at_zoom_52`, `pin_not_blocky_delta_c_at_zoom_49`)
+//! **and** a rewrite meets `r[cz.depth.series-approximation+1]` (developer
+//! 2026-08-11): always-on init probe O(log N) / nearly free when skip is
+//! useless; coeffs one step per reference iterate fused into the reference
+//! loop; airtight hot-path habits. This module is the prior sketch (linear
+//! `safe_skip`, heap coeff rows) — not the production target shape.
 //!
 //! Simple series approximation (Martin / Heiland-Allen): skip a safe prefix of
 //! per-pixel delta iterations using coefficients that depend only on the reference.

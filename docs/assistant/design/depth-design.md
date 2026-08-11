@@ -1,11 +1,12 @@
 # Depth design: perturbation with a background reference worker
 
 Status: **partially implemented** — reference worker, perturbation kernel, gear ladder,
-and HUD telemetry are in the tree. Series approximation is **deferred** (open issue) until
-membership pins stay green. **In progress:** CGenerator admission wiring, reference-scoped
-generator rebuild, and PPS-selected naive vs pert dispatch
-(`r[cz.perf.pps-selected-kernel+1]`).
-the per-pixel path uses the **fastest compute gear whose range admits the
+and HUD telemetry are in the tree. Series approximation is **deferred** (open issue)
+until membership pins stay green **and** a performance-minded rewrite lands
+(`r[cz.depth.series-approximation+1]`; developer interview 2026-08-11). **In
+progress:** CGenerator admission wiring, reference-scoped generator rebuild, and
+PPS-selected naive vs pert dispatch (`r[cz.perf.pps-selected-kernel+1]`).
+The per-pixel path uses the **fastest compute gear whose range admits the
 delta**. Research digests live
 in the private sister repo `Critical-Zoomer-Math-Library` (not published with
 CZ). This design is constrained by `workgroup-virtues.md` and must not
@@ -221,11 +222,47 @@ from the matching grid.
 
 ## Series approximation (the actual skip)
 
-From a reference orbit, build a polynomial in Δc that skips the first N iterations
-of every pixel, with an error bound deciding safe N. Coefficients are computed once
-per reference (with the publish snapshot), published alongside the orbit in the same
-generation. Simple series only; biseries / nucleus seek / multi-ref remain named
-deferrals (`r[cz.depth.series-approximation+1]`).
+From a reference orbit, build a polynomial in `delta_c` that skips the first N
+iterations of every pixel, with an error bound deciding safe N. Simple series
+only; biseries / nucleus seek / multi-ref remain named deferrals
+(`r[cz.depth.series-approximation+1]`).
+
+### Product intent (developer 2026-08-11)
+
+- **Why:** deep zoom. Large safe skips are the win. Shallow/home must barely
+  notice SA when the skip is useless.
+- **Always on** when a covering reference is published — no “enable SA”
+  heuristic branch. If the probe is done well, a no-op skip costs almost
+  nothing; branching for worth-it is pointless.
+- **Seat role:** SA is **point initialization**, not iterate-bout work. Skip
+  discovery must be so cheap it is free: binary search through the orbit
+  (O(log N) evaluations), not a linear scan of every index. Easy cases ≈ a
+  single access per point. It must not steal budget from workshift iterate
+  bouts — that framing does not apply.
+- **Reference role:** advance **one series step per reference iterate**, rolled
+  into the same reference loop (same worker, same cadence). Not a separate
+  coeff-building process. Extra math is allowed only to the degree it is
+  necessary; no extra big-O beyond the per-iterate series recurrence; airtight
+  performance mindfulness from the start (hand-coded v0.0.9 habits: tight
+  layout, no slow ops in the hot path, no “too much in the loop”).
+- **Gear:** mid-orbit gear promotion does not restart seats or re-run series
+  init. Restart stays on reference generation / glitch / unbound paths.
+
+### Prior live attempt (2026-08-07/08) — not the target
+
+Wired briefly (`PublishedReference.series` + `apply_series_skip`), then deferred
+for membership pins (`pin_exterior_not_marked_in_at_zoom_52`,
+`pin_not_blocky_delta_c_at_zoom_49`). Audit: even before that yank, the sketch
+failed the performance bar — linear `safe_skip` with full re-evaluate per n,
+heap `Vec<Vec<_>>` coeffs, FloatExp-heavy probe from the f64 path, skip cost
+unbounded relative to seat init. Dormant `src/series.rs` is that sketch; the
+rewrite must not revive it unchanged.
+
+### Acceptance for re-enable
+
+Membership pins green **with SA on**, plus measurable: shallow overhead in the
+noise; deep zoom skip win material; never-stall / workshift tick rates
+preserved; full suite + benches + tracey.
 
 ## Acceptance (this push — all gates together)
 
