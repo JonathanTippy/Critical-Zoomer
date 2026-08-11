@@ -907,6 +907,43 @@ fn mutant_kill_bout_cap_clamp() {
     assert_eq!(MAX_BOUT, 1000);
 }
 
+/// Thought-killed pin: Provisional must not set `delivered`; Final does.
+#[test]
+fn mutant_kill_push_delivery_provisional_not_final() {
+    run_big_stack_size(|| {
+        let mut ctx = make_context(0);
+        let idx = 0usize;
+        ctx.points[idx].delivered = false;
+        let completed = CompletedPoint::Escapes {
+            escape_time: 3,
+            escape_location: (FloatExp::ZERO, FloatExp::ZERO),
+            escape_derivative: (FloatExp::ONE, FloatExp::ZERO),
+            start_location: (FloatExp::ZERO, FloatExp::ZERO),
+            smallness: FloatExp::ZERO,
+            small_time: 0,
+        };
+        let out = ctx.push_delivery(Delivery::Provisional(completed.clone()), idx);
+        assert_eq!(out, PushOutcome::Published);
+        assert!(
+            !ctx.points[idx].delivered,
+            "provisional must not mark delivered"
+        );
+        let out2 = ctx.push_delivery(Delivery::Final(completed), idx);
+        assert_eq!(out2, PushOutcome::Published);
+        assert!(ctx.points[idx].delivered, "final must mark delivered");
+
+        // BufferFull path: Final leaves delivered=false.
+        while ctx.completed_points.try_push((CompletedPoint::Dummy {}, 0)) {}
+        ctx.points[idx].delivered = true;
+        let blocked = ctx.push_delivery(
+            Delivery::Final(CompletedPoint::Dummy {}),
+            idx,
+        );
+        assert_eq!(blocked, PushOutcome::BufferFull);
+        assert!(!ctx.points[idx].delivered);
+    });
+}
+
 // r[verify cz.craft.bout-cap+1]
 #[test]
 fn attention_bout_on_hard_seat_never_exceeds_max_bout() {

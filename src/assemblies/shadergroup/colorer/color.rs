@@ -877,4 +877,64 @@ mod tests {
         assert!(lit.len() <= 1,
             "remapped ridge block thickened into {:?}; want at most one column", lit);
     }
+
+    /// Thought-killed pins for color blend / neighborhood predicates / safe_sample.
+    /// Shadergroup colorer (charter note in issue-stack): pure helpers only.
+    #[test]
+    fn mutant_kill_colorer_blend_and_neighborhood() {
+        // Opaque top replaces bottom; alpha 0 keeps bottom; mid blends via >>8.
+        assert_eq!(
+            layer_colors((10, 20, 30), (200, 100, 50, 255)),
+            (
+                ((10u32 * 0 + 200u32 * 255) >> 8) as u8,
+                ((20u32 * 0 + 100u32 * 255) >> 8) as u8,
+                ((30u32 * 0 + 50u32 * 255) >> 8) as u8,
+            )
+        );
+        // Alpha 0: bottom weighted by 255, then >>8 (not identity — kills >>→<< / *→+).
+        let keep = layer_colors((10, 20, 30), (0, 0, 0, 0));
+        assert_eq!(
+            keep,
+            (
+                ((10u32 * 255) >> 8) as u8,
+                ((20u32 * 255) >> 8) as u8,
+                ((30u32 * 255) >> 8) as u8,
+            )
+        );
+        assert_ne!(keep, (10, 20, 30)); // exact identity would miss the >>8 path
+        let mid = layer_colors((0, 0, 0), (255, 0, 0, 128));
+        assert_ne!(mid, (0, 0, 0));
+        assert_ne!(mid.0, 255); // not full replace at alpha 128
+        assert!(mid.0 < 200);
+
+        let bright = modify_color((100, 100, 100), 1.0, 1.0);
+        assert!(bright.0 > 100);
+        let dark = modify_color((100, 100, 100), 0.0, 1.0);
+        assert!(dark.0 < 100);
+        // Clamp: cannot push past 0/255.
+        assert_eq!(modify_color((0, 0, 0), 0.0, 1.0), (0, 0, 0));
+        assert_eq!(modify_color((255, 255, 255), 1.0, 1.0), (255, 255, 255));
+
+        assert!(is_increased(Some(5), Some(3), None, None, None));
+        assert!(!is_increased(Some(5), Some(5), Some(6), Some(7), Some(8)));
+        assert!(is_decreased(Some(5), Some(7), None, None, None));
+        assert!(!is_decreased(Some(5), Some(5), Some(4), Some(3), Some(2)));
+        assert!(is_local_minimum(Some(1), Some(2), Some(3), Some(4), Some(5)));
+        assert!(!is_local_minimum(Some(5), Some(2), Some(3), Some(4), Some(1)));
+        // Missing neighbor → false (not || short-circuit true).
+        assert!(!is_local_minimum(Some(1), Some(2), Some(3), Some(4), None));
+
+        let buf = vec![1u8, 2, 3, 4];
+        assert_eq!(safe_sample(&buf, (0, 0), (2, 2)), Some(&1));
+        assert_eq!(safe_sample(&buf, (1, 0), (2, 2)), Some(&2));
+        assert_eq!(safe_sample(&buf, (0, 1), (2, 2)), Some(&3));
+        assert_eq!(safe_sample(&buf, (1, 1), (2, 2)), Some(&4));
+        assert_eq!(safe_sample(&buf, (-1, 0), (2, 2)), None);
+        assert_eq!(safe_sample(&buf, (2, 0), (2, 2)), None);
+
+        assert_eq!(get_loop_period(Some(&inside(0))), None);
+        assert_eq!(get_loop_period(Some(&inside(3))), Some(3));
+        assert_eq!(get_escape_time(Some(&outside(9, 0.0))), Some(9));
+        assert_eq!(get_escape_time(Some(&inside(1))), None);
+    }
 }

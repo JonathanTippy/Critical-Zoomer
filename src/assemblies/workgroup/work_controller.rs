@@ -211,3 +211,45 @@ fn should_send_replace(
     state.last_sampler_location = Some(obj.clone());
     true
 }
+
+#[cfg(test)]
+mod mutant_kill {
+    use super::*;
+    use crate::constants::TEST_SCREEN_RES;
+
+    fn frame(zoom: i32) -> (ObjectivePosAndZoom, (u32, u32)) {
+        (
+            ObjectivePosAndZoom {
+                pos: (
+                    IntExp::from(HOME_POSITION.0),
+                    IntExp::from(HOME_POSITION.1),
+                ),
+                zoom_pot: zoom,
+            },
+            TEST_SCREEN_RES,
+        )
+    }
+
+    /// Thought-killed pins for stencil-only replace gate (unchanged suppress, collapse fail-closed).
+    #[test]
+    fn mutant_kill_should_send_replace_gate() {
+        let mut state = WorkControllerState {
+            worker_res: TEST_SCREEN_RES,
+            last_sampler_location: None,
+        };
+        let f0 = frame(-2);
+        assert!(should_send_replace(&mut state, &f0));
+        // Identical stencil must not re-send (kill `!=`→`==` / `||`→`&&` flips).
+        assert!(!should_send_replace(&mut state, &f0));
+        let mut f1 = f0.clone();
+        f1.0.zoom_pot = -1;
+        assert!(should_send_replace(&mut state, &f1));
+        assert!(!should_send_replace(&mut state, &f1));
+
+        // Resolution change alone must re-admit (not location-only compare).
+        let mut fres = f1.clone();
+        fres.1 = (TEST_SCREEN_RES.0 + 2, TEST_SCREEN_RES.1);
+        assert!(should_send_replace(&mut state, &fres));
+        assert_eq!(state.worker_res, fres.1);
+    }
+}
