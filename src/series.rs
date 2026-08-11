@@ -193,6 +193,12 @@ mod mutant_kill {
             coeffs: vec![],
         };
         assert_eq!(empty.safe_skip(ComplexFloatExp::ZERO, 10), 0);
+        // len==1 also returns 0 (needs len >= 2 to enter the scan).
+        let one = SeriesApproximation {
+            order: 1,
+            coeffs: vec![vec![ComplexFloatExp::ZERO]],
+        };
+        assert_eq!(one.safe_skip(ComplexFloatExp::ZERO, 10), 0);
 
         let orbit = short_escape_orbit();
         let s = SeriesApproximation::from_orbit(&orbit, 4).expect("series");
@@ -211,6 +217,12 @@ mod mutant_kill {
         let n_over = s.safe_skip(dc, usize::MAX);
         assert!(n_over < s.coeffs.len());
         assert!(n_over >= 1);
+        // saturating_sub(1) on max_n: max_n=0 still yields best>=1 when scan runs.
+        assert_eq!(s.safe_skip(dc, 0), 1);
+        // Tiny δc should advance farther than a mid-sized δc (tail/dz thresholds).
+        let mid = ComplexFloatExp::new(FloatExp::from(1e-2), FloatExp::ZERO);
+        let n_mid = s.safe_skip(mid, 1000);
+        assert!(n >= n_mid, "tiny dc skip {n} should be ≥ mid {n_mid}");
     }
 
     #[test]

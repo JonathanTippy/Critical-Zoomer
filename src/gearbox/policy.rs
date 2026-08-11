@@ -116,4 +116,67 @@ mod tests {
             "full race reopens every 500ms"
         );
     }
+
+    /// Thought-killed pins for policy mutants (`>`, empty samples, relative→Pert-only,
+    /// absolute order Naive→GPU→Pert, tie keeps earlier).
+    #[test]
+    fn mutant_kill_policy_legal_and_best_pps() {
+        assert_eq!(view_gear_from_relative_admission(true), ComputeGear::F64);
+        assert_eq!(view_gear_from_relative_admission(false), ComputeGear::FloatExp);
+        assert_ne!(view_gear_from_relative_admission(true), ComputeGear::FloatExp);
+        assert_ne!(view_gear_from_relative_admission(false), ComputeGear::F64);
+
+        assert_eq!(legal_kernels(true, true), vec![KernelMode::Pert]);
+        assert_eq!(legal_kernels(true, false), vec![KernelMode::Pert]);
+        assert_ne!(legal_kernels(true, true), legal_kernels(false, true));
+        let abs_gpu = legal_kernels(false, true);
+        assert_eq!(
+            abs_gpu,
+            vec![KernelMode::Naive, KernelMode::NaiveGpu, KernelMode::Pert]
+        );
+        assert_eq!(abs_gpu[0], KernelMode::Naive);
+        assert_eq!(*abs_gpu.last().unwrap(), KernelMode::Pert);
+        assert!(!legal_kernels(false, false).contains(&KernelMode::NaiveGpu));
+
+        assert_eq!(best_pps_kernel(&[]), None);
+        assert_eq!(
+            best_pps_kernel(&[(KernelMode::Pert, 1.0)]),
+            Some(KernelMode::Pert)
+        );
+        // Strict `>`: equal PPS keeps the earlier legal-list order candidate.
+        assert_eq!(
+            best_pps_kernel(&[
+                (KernelMode::Naive, 1.0e6),
+                (KernelMode::NaiveGpu, 1.0e6),
+                (KernelMode::Pert, 1.0e6),
+            ]),
+            Some(KernelMode::Naive)
+        );
+        assert_eq!(
+            best_pps_kernel(&[
+                (KernelMode::Naive, 1.0e5),
+                (KernelMode::Pert, 9.0e5),
+                (KernelMode::NaiveGpu, 5.0e5),
+            ]),
+            Some(KernelMode::Pert)
+        );
+        // >→>= would still pick Pert here; >→< / swap would not.
+        assert_ne!(
+            best_pps_kernel(&[
+                (KernelMode::Naive, 1.0e5),
+                (KernelMode::Pert, 9.0e5),
+            ]),
+            Some(KernelMode::Naive)
+        );
+        assert_eq!(PPS_PROBE_SHIFTS_PER_CANDIDATE, 1);
+        assert_ne!(PPS_PROBE_SHIFTS_PER_CANDIDATE, 0);
+        assert_eq!(
+            PPS_REEVAL_INTERVAL,
+            std::time::Duration::from_millis(500)
+        );
+        assert_ne!(
+            PPS_REEVAL_INTERVAL,
+            std::time::Duration::from_millis(0)
+        );
+    }
 }

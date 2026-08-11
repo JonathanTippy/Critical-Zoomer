@@ -555,6 +555,15 @@ mod tests {
         assert!((x.to_f64() - 10.0).abs() < 1e-12, "got {}", x.to_f64());
         assert_ne!(x.to_f64(), 1.25 / 8.0);
         assert_ne!(x.to_f64(), 1.25 + 8.0);
+        // Timeout-class: mantissa * from_bits(biased<<52) vs + / >>.
+        let y = FloatExp::new(1.5, 4); // 24.0
+        assert_eq!(y.to_f64(), 24.0);
+        let biased = (4i64 + 1023) as u64;
+        assert_ne!(y.to_f64(), 1.5 + f64::from_bits(biased << 52));
+        assert_ne!(y.to_f64(), 1.5 * f64::from_bits(biased >> 52));
+        let tiny_neg = FloatExp::new(-1.0, (i32::MIN as i64) - 100);
+        assert_eq!(tiny_neg.to_f64(), -0.0);
+        assert!(tiny_neg.to_f64().is_sign_negative());
     }
 
     #[test]
