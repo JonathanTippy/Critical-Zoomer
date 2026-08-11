@@ -788,4 +788,51 @@ mod tests {
         assert!(!goto_line_is_valid("1+2imaginary"));
         assert!(goto_line_is_valid("1 2 -3")); // legacy triple
     }
+
+    /// Thought-killed pins: mag token/`2**`, word-boundary split, readout thresholds.
+    #[test]
+    fn mutant_kill_parse_mag_and_format_readout() {
+        assert_eq!(parse_mag_token("2^-2"), Some(-2));
+        assert_eq!(parse_mag_token("2^3"), Some(3));
+        assert_eq!(parse_mag_token("2**10"), Some(10));
+        assert_eq!(parse_mag_token("2**0"), Some(0));
+        assert!(parse_mag_token("2^").is_none());
+        assert!(parse_mag_token("3^2").is_none());
+        assert!(parse_mag_token("").is_none());
+        assert!(parse_mag_token("mag 2^1").is_none()); // needs stripped prefix
+        // Dropping 2** branch would reject `2**N`.
+        assert_ne!(parse_mag_token("2**5"), None);
+
+        let (body, pot) = split_mag_suffix("1+2i  mag 2^-2");
+        assert_eq!(pot, Some(-2));
+        assert!(body.contains('i'));
+        assert!(!body.to_lowercase().contains("mag"));
+        let (body2, pot2) = split_mag_suffix("-0.75 + 0.125i mag 2**4");
+        assert_eq!(pot2, Some(4));
+        assert!(body2.contains("0.75"));
+        // Word-boundary: "imaginary" must not strip as mag.
+        let (body3, pot3) = split_mag_suffix("1+2imaginary");
+        assert!(pot3.is_none());
+        assert_eq!(body3, "1+2imaginary");
+        assert!(split_mag_suffix("nimag 2^1").1.is_none());
+        assert_eq!(split_mag_suffix("mag 2^7").1, Some(7));
+
+        assert_eq!(format_intexp_readout(&IntExp::ZERO), "0");
+        assert_eq!(format_intexp_readout(&f64_to_intexp(1.5)), "1.5");
+        // Sci thresholds: |x|>=1e6 or |x|<1e-4.
+        let big = format_intexp_readout(&f64_to_intexp(1e6));
+        assert!(big.contains('e') || big.contains('E'), "got {big}");
+        let tiny = format_intexp_readout(&f64_to_intexp(1e-5));
+        assert!(tiny.contains('e') || tiny.contains('E'), "got {tiny}");
+        let mid = format_intexp_readout(&f64_to_intexp(0.001));
+        assert!(!mid.contains('e') && !mid.contains('E'), "got {mid}");
+        // Trim trailing zeros / trailing dot.
+        assert_eq!(format_intexp_readout(&f64_to_intexp(2.0)), "2");
+        assert_ne!(format_intexp_readout(&f64_to_intexp(2.0)), "2.000000000000");
+
+        let d = decimal_str_to_intexp(" -1.25 ").expect("parse");
+        assert!((f64::from(d) + 1.25).abs() < 1e-9);
+        assert!(decimal_str_to_intexp("not-a-number").is_none());
+        assert!(decimal_str_to_intexp("").is_none());
+    }
 }

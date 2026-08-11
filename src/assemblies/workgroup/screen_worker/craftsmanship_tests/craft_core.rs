@@ -1788,6 +1788,43 @@ fn mutant_kill_percent_completed_is_percent_scale() {
     });
 }
 
+/// Thought-killed pins: Stec LIFO/capacity and struggling_to_clear 2s gate.
+#[test]
+fn mutant_kill_stec_and_struggling_to_clear() {
+    // Capacity: push until full; len uses < not <=; pop is LIFO.
+    let mut s = Stec::with_capacity(3, 0u32);
+    assert_eq!(s.len, 0);
+    assert!(s.try_push(10));
+    assert!(s.try_push(20));
+    assert!(s.try_push(30));
+    assert!(!s.try_push(40), "full buffer must reject");
+    assert_eq!(s.len, 3);
+    assert_eq!(s.try_pop(), Some(30));
+    assert_eq!(s.try_pop(), Some(20));
+    assert_eq!(s.try_pop(), Some(10));
+    assert_eq!(s.try_pop(), None);
+    assert_eq!(s.len, 0);
+    // After pop, room reopens (len-=1 then index at len).
+    assert!(s.try_push(99));
+    assert_eq!(s.try_pop(), Some(99));
+
+    run_big_stack_size(|| {
+        let ctx = make_context(0);
+        // remaining==0 never struggles.
+        assert!(!ctx.struggling_to_clear_pub(0, 100.0));
+        // pps below 1.0 gate.
+        assert!(!ctx.struggling_to_clear_pub(100, 0.99));
+        assert!(!ctx.struggling_to_clear_pub(100, 0.0));
+        // Exactly 2.0s is not >, so not struggling.
+        assert!(!ctx.struggling_to_clear_pub(200, 100.0)); // 2.0s
+        assert!(ctx.struggling_to_clear_pub(201, 100.0)); // >2.0s
+        assert!(ctx.struggling_to_clear_pub(100, 1.0)); // 100s
+        // /→* or >→>= flips thresholds.
+        assert_ne!(ctx.struggling_to_clear_pub(200, 100.0), true);
+        assert_ne!(ctx.struggling_to_clear_pub(0, 1e9), true);
+    });
+}
+
 // r[verify cz.craft.pan-zoom-slot0+1]
 #[test]
 fn pan_scredge_lead_only_on_first_shift() {

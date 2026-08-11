@@ -227,6 +227,12 @@ impl<T: Mandelbrotable> WorkContext<T> {
         remaining > 0 && pps >= 1.0 && remaining as f64 / pps > PERT_PROMOTE_REMAINING_SECS
     }
 
+    /// Test seam for thought-kill pins on the clear-time gate.
+    #[cfg(test)]
+    pub(crate) fn struggling_to_clear_pub(&self, remaining: u64, pps: f64) -> bool {
+        self.struggling_to_clear(remaining, pps)
+    }
+
     /// Called once per workshift after the kernel runs.
     pub fn tick_pert_trial(&mut self) -> Option<&'static str> {
         if !self.reference_floor_active {
@@ -2151,5 +2157,44 @@ pub fn queue_incomplete_neighbors_of_edge<T:Sub<Output=T> + Add<Output=T> + Mul<
                 queue.push_front((n, difficulty));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod mutant_kill {
+    //! Thought-killed pins for private Mandelbrot step / proximity helpers.
+    use super::{iterate_complex, points_near};
+
+    #[test]
+    fn mutant_kill_iterate_complex_schoolbook() {
+        // z² + c: (0,0)+c = c; imag cross term is 2·zx·zy.
+        assert_eq!(iterate_complex((0.0, 0.0), (0.25, -0.5)), (0.25, -0.5));
+        let (zr, zi) = iterate_complex((1.0, 2.0), (0.0, 0.0));
+        assert!((zr - (1.0 - 4.0)).abs() < 1e-12); // 1²-2²
+        assert!((zi - 4.0).abs() < 1e-12); // 2·1·2
+        // Missing 2· or +→- on imag collapses.
+        assert_ne!(zi, 1.0 * 2.0);
+        assert_ne!(zr, 1.0 + 4.0); // + not −
+        let (zr2, zi2) = iterate_complex((0.5, -0.25), (0.1, 0.2));
+        assert!((zr2 - (0.25 - 0.0625 + 0.1)).abs() < 1e-12);
+        assert!((zi2 - (2.0 * 0.5 * -0.25 + 0.2)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn mutant_kill_points_near_inclusive_box() {
+        let z = (0.0, 0.0);
+        let e = 1.0;
+        assert!(points_near(z, (0.0, 0.0), e));
+        assert!(points_near(z, (1.0, 0.0), e)); // on edge inclusive
+        assert!(points_near(z, (-1.0, 0.0), e));
+        assert!(points_near(z, (0.0, 1.0), e));
+        assert!(points_near(z, (0.0, -1.0), e));
+        assert!(!points_near(z, (1.0 + 1e-9, 0.0), e));
+        assert!(!points_near(z, (0.0, -1.0 - 1e-9), e));
+        // Corner inside box.
+        assert!(points_near(z, (1.0, 1.0), e));
+        assert!(!points_near(z, (1.0, 1.0 + 1e-9), e));
+        // Strict < / > would reject the boundary.
+        assert_ne!(points_near(z, (1.0, 0.0), e), false);
     }
 }
