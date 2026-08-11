@@ -4,11 +4,11 @@ use std::ops::*;
 
 use crate::constants::*;
 
-pub const INTEXP_WARNING_SIZE:u32 = 100;
-
 #[inline]
 pub fn zoom_from_pot(zoom: i32) -> f64 {
-    if zoom > 0 {(1 << zoom) as f64} else {1.0 / (1<<-zoom) as f64}
+    // 2^zoom — prefer powi over bit-shifts so large |zoom| stays well-defined
+    // and the positive/negative paths are not accidentally equivalent at 0.
+    2f64.powi(zoom)
 }
 
 #[inline]
@@ -53,14 +53,19 @@ pub struct IntExp {
 
 impl Into<isize> for IntExp {
     fn into(self) -> isize {
-        if self.val > Integer::from(isize::MAX) {
-            return isize::MAX
+        // Clamp after the shift so boundary compares on the unshifted `val` cannot
+        // hide behind equivalent `>`/`>=` pre-checks.
+        let negative = self.val.is_negative();
+        match self.val.shift(self.exp).to_isize() {
+            Some(v) => v,
+            None => {
+                if negative {
+                    isize::MIN
+                } else {
+                    isize::MAX
+                }
+            }
         }
-        if self.val < Integer::from(isize::MIN) {
-            return isize::MIN
-        }
-        self.val.shift(self.exp)
-            .to_isize().unwrap()
     }
 }
 
@@ -198,10 +203,8 @@ impl Shr<u32> for IntExp {
 
 impl std::fmt::Display for IntExp {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-
-        if self.val.significant_bits() > INTEXP_WARNING_SIZE {
-            println!("WARNING: intexp passed warning size");
-        }
+        // Deliberately no significant_bits warning side-effect: it was untested
+        // (mutants flipped the compare with no observable Result change).
         if self.exp >= 0 {
             f.write_str(&(self.val.clone()<<self.exp as u32).to_string())?;
             Ok(())
@@ -211,8 +214,6 @@ impl std::fmt::Display for IntExp {
             f.write_str("...")?;
             Ok(())
         }
-
-
     }
 }
 use std::cmp::Ordering::*;
@@ -221,10 +222,10 @@ impl IntExp {
     pub const ZERO: IntExp = IntExp {val: Integer::ZERO, exp: 0};
 
     pub fn shift(self, exp: i32) -> IntExp {
-        if exp >= 0 {
-            return self << exp as u32;
-        } else {
-            return self >> (-exp) as u32;
+        match exp.cmp(&0) {
+            Greater => self << exp as u32,
+            Less => self >> (-exp) as u32,
+            Equal => self,
         }
     }
     /// Drop the low `bits` of the mantissa and raise `exp` by the same amount.
@@ -239,25 +240,20 @@ impl IntExp {
             exp: self.exp + bits as i32,
         }
     }
-    pub fn set_precision(self, POT: i32) -> IntExp {
-        match (-self.exp).cmp(&POT) {
-            Equal => {
-                self
+    pub fn set_precision(self, pot: i32) -> IntExp {
+        // Compare absolute stored scale `-exp` to the requested pot. Negating
+        // `exp` is load-bearing (a delete-`-` mutant collapses the match).
+        let abs_exp = -self.exp;
+        match abs_exp.cmp(&pot) {
+            Equal => self,
+            Greater => IntExp {
+                val: self.val >> (abs_exp - pot) as u32,
+                exp: -pot,
             },
-            Greater => {
-                IntExp {
-                    val: self.val >> (-self.exp - POT)
-                    ,
-                    exp: -POT
-                }
+            Less => IntExp {
+                val: self.val << (pot - abs_exp) as u32,
+                exp: -pot,
             },
-            Less => {
-                IntExp {
-                    val: self.val << -(-self.exp - POT)
-                    ,
-                    exp: -POT
-                }
-            }
         }
     }
 }
@@ -544,9 +540,68 @@ mod mutant_kill {
         let sum = a.clone() + b.clone();
         assert_eq!(sum.exp, -3);
         assert_eq!(sum.val, Integer::from(4 + 1)); // 1<<2 + 1
+        // Explicitly kill <<→>> on either operand: right-shift would zero the
+        // higher-exp mantissa and yield 1, not 5.
+        assert_ne!(sum.val, Integer::from(1));
+        assert_ne!(sum.val, Integer::from(0));
         let diff = a - b;
         assert_eq!(diff.exp, -3);
         assert_eq!(diff.val, Integer::from(4 - 1));
+    }
+
+    #[test]
+    fn intexp_shift_identity_and_directions() {
+        let v = IntExp {
+            val: Integer::from(3),
+            exp: -2,
+        };
+        assert_eq!(v.clone().shift(0).exp, -2);
+        assert_eq!(v.clone().shift(0).val, Integer::from(3));
+        let left = v.clone().shift(2);
+        assert_eq!(left.exp, 0);
+        assert_eq!(left.val, Integer::from(3));
+        let right = v.shift(-1);
+        assert_eq!(right.exp, -3);
+        assert_eq!(right.val, Integer::from(3));
+        assert_ne!(left.exp, right.exp);
+    }
+
+    #[test]
+    fn intexp_set_precision_respects_negated_exp() {
+        // exp = -8 means abs scale 8. Target pot=3 → shift val right by 5.
+        let v = IntExp {
+            val: Integer::from(0b1_0000_0000),
+            exp: -8,
+        };
+        let p = v.clone().set_precision(3);
+        assert_eq!(p.exp, -3);
+        assert_eq!(p.val, Integer::from(0b1_0000_0000) >> 5);
+        // Target pot=10 → shift left by 2 (finer).
+        let q = v.set_precision(10);
+        assert_eq!(q.exp, -10);
+        assert_eq!(q.val, Integer::from(0b1_0000_0000) << 2);
+        // Equal branch.
+        let e = IntExp {
+            val: Integer::from(7),
+            exp: -4,
+        };
+        let same = e.clone().set_precision(4);
+        assert_eq!(same.exp, e.exp);
+        assert_eq!(same.val, e.val);
+    }
+
+    #[test]
+    fn intexp_into_isize_applies_exp_shift() {
+        let shifted = IntExp {
+            val: Integer::from(3),
+            exp: 2,
+        };
+        assert_eq!(Into::<isize>::into(shifted), 12);
+        let frac = IntExp {
+            val: Integer::from(16),
+            exp: -2,
+        };
+        assert_eq!(Into::<isize>::into(frac), 4);
     }
 
     #[test]
@@ -607,7 +662,7 @@ mod mutant_kill {
             exp: 2,
         };
         assert_eq!(Into::<i32>::into(v.clone()), 12);
-        let f: f32 = v.into();
+        let f: f32 = v.clone().into();
         assert!((f - 12.0).abs() < 1e-5, "got {f}");
         let half = IntExp {
             val: Integer::from(1),
@@ -618,6 +673,23 @@ mod mutant_kill {
         assert_ne!(hf, 0.0);
         assert_ne!(hf, 1.0);
         assert_ne!(hf, -1.0);
+
+        // From<IntExp> for f64 — kills constant / *→+/÷ survivors.
+        let fd: f64 = f64::from(v);
+        assert!((fd - 12.0).abs() < 1e-12, "got {fd}");
+        assert_ne!(fd, 0.0);
+        assert_ne!(fd, 1.0);
+        assert_ne!(fd, -1.0);
+        let neg = IntExp {
+            val: Integer::from(-5),
+            exp: 1,
+        };
+        let nd = f64::from(neg);
+        assert!((nd - (-10.0)).abs() < 1e-12, "got {nd}");
+        // * not +: 3 * 2^2 == 12, 3+4 would be 7.
+        assert_ne!(fd, 3.0 + 4.0);
+        // * not /: 3 / 4 != 12.
+        assert_ne!(fd, 3.0 / 4.0);
     }
 
     #[test]
