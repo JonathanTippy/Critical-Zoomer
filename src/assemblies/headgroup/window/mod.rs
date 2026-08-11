@@ -112,6 +112,15 @@ pub struct WindowState {
     , pub last_color_label: &'static str
     , pub last_escape_label: &'static str
     , pub last_packages_dropped: u64
+    // Cached present pacing (avoid cloning Settings every frame).
+    , pub head_vsync_enabled: bool
+    , pub head_max_fps: f64
+    // Last auto_vsync_hz value fanned to content actors.
+    , pub last_fanned_auto_vsync_hz: f64
+    // Fan Settings only when UI/cadence actually changed.
+    , pub settings_fanout_needed: bool
+    // Cap live settings preview fan-out while the panel is open.
+    , pub settings_ui_fan_timer: Instant
 }
 
 /// Entry point for the window actor.
@@ -188,6 +197,11 @@ async fn internal_behavior<A: SteadyActor>(
         , last_color_label: "OG"
         , last_escape_label: "OG"
         , last_packages_dropped: 0
+        , head_vsync_enabled: Settings::DEFAULT.head_vsync_enabled
+        , head_max_fps: Settings::DEFAULT.head_max_fps
+        , last_fanned_auto_vsync_hz: Settings::DEFAULT.auto_vsync_hz
+        , settings_fanout_needed: true
+        , settings_ui_fan_timer: Instant::now()
     }).await;
 
     {
@@ -334,19 +348,16 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             );
 
 
-            // Present pacing: vsync (default) keeps continuous repaint; uncapped
-            // path paces to head_max_fps from settings.
-            {
-                let s = state
-                    .settings_window_context
-                    .try_lock()
-                    .map(|g| g.settings.clone())
-                    .unwrap_or(Settings::DEFAULT);
-                if s.head_vsync_enabled {
-                    ctx.request_repaint();
+            // Present pacing from cached settings (updated on fan-out).
+            if state.head_vsync_enabled {
+                ctx.request_repaint();
+            } else {
+                let hz = if state.head_max_fps.is_finite() && state.head_max_fps >= 1.0 {
+                    state.head_max_fps.min(1000.0)
                 } else {
-                    ctx.request_repaint_after(s.resolved_head_max_period());
-                }
+                    1.0
+                };
+                ctx.request_repaint_after(Duration::from_secs_f64(1.0 / hz));
             }
 
             let size = (state.size.x as usize, state.size.y as usize);
@@ -665,24 +676,61 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
                 if state.settings_window_open {
                     let result = settings(&ctx, state.settings_window_context.clone());
-                    state.settings_window_open = !result.will_close;
-                    if let Ok(mut ctx_settings) = state.settings_window_context.try_lock() {
-                        ctx_settings.settings = result.settings.clone();
+                    let closing = result.will_close;
+                    state.settings_window_open = !closing;
+                    let (head_vsync, head_max) = {
+                        let mut ctx_settings = state.settings_window_context.try_lock().ok();
+                        if let Some(ref mut ctx_settings) = ctx_settings {
+                            ctx_settings.settings = result.settings.clone();
+                            (
+                                ctx_settings.settings.head_vsync_enabled,
+                                ctx_settings.settings.head_max_fps,
+                            )
+                        } else {
+                            (state.head_vsync_enabled, state.head_max_fps)
+                        }
+                    };
+                    state.head_vsync_enabled = head_vsync;
+                    state.head_max_fps = head_max;
+                    // Do not fan every main frame while open — that halved FPS.
+                    // Preview at ≤10 Hz; always fan when the panel closes.
+                    if closing
+                        || state.settings_ui_fan_timer.elapsed()
+                            >= Duration::from_millis(100)
+                    {
+                        state.settings_fanout_needed = true;
+                        state.settings_ui_fan_timer = Instant::now();
                     }
                 }
-                // Feed measured present Hz into Automatic content refresh, then fan out.
+                // Throttle auto_vsync writes and only fan Settings when needed.
+                let mut snap_to_fan = None;
+                let mut mark_fanout = false;
                 if let Ok(mut ctx_settings) = state.settings_window_context.try_lock() {
                     if let Some((_, _, period, _)) = timinginfo {
                         let secs = period.as_secs_f64();
                         if secs > 0.0 {
                             let measured = 1.0 / secs;
                             if measured.is_finite() && measured >= 1.0 && measured <= 240.0 {
-                                ctx_settings.settings.auto_vsync_hz = measured;
+                                let prev = ctx_settings.settings.auto_vsync_hz;
+                                if (measured - prev).abs() >= 1.0 {
+                                    ctx_settings.settings.auto_vsync_hz = measured;
+                                    mark_fanout = true;
+                                }
                             }
                         }
                     }
-                    let snap = ctx_settings.settings.clone();
-                    drop(ctx_settings);
+                    if state.settings_fanout_needed || mark_fanout {
+                        snap_to_fan = Some(ctx_settings.settings.clone());
+                    }
+                }
+                if mark_fanout {
+                    state.settings_fanout_needed = true;
+                }
+                if let Some(snap) = snap_to_fan {
+                    state.head_vsync_enabled = snap.head_vsync_enabled;
+                    state.head_max_fps = snap.head_max_fps;
+                    state.last_fanned_auto_vsync_hz = snap.auto_vsync_hz;
+                    state.settings_fanout_needed = false;
                     for mut channel in settings_out {
                         actor.try_send(&mut channel, snap.clone());
                     }
