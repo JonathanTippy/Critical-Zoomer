@@ -1164,6 +1164,133 @@ fn mutant_kill_queue_neighbors_and_verified_period_zero() {
     });
 }
 
+/// Thought-killed pins: edge detection, in/edge queues, spiral geometry, admission.
+#[test]
+fn mutant_kill_edge_spiral_and_generator_admission() {
+    // square_ring_offset: ring 0 origin; ring 1 has exactly 8 seats; Chebyshev = r.
+    assert_eq!(square_ring_offset(0), (0, 0));
+    let mut ring1 = Vec::new();
+    for k in 1..=8u64 {
+        let (dx, dy) = square_ring_offset(k);
+        assert_eq!(dx.abs().max(dy.abs()), 1, "k={k}");
+        ring1.push((dx, dy));
+    }
+    ring1.sort();
+    ring1.dedup();
+    assert_eq!(ring1.len(), 8, "ring 1 must visit 8 distinct offsets");
+    // k=9 starts ring 2.
+    let (dx, dy) = square_ring_offset(9);
+    assert_eq!(dx.abs().max(dy.abs()), 2);
+
+    run_big_stack_size(|| {
+        let mut ctx = make_context(0);
+        let res = ctx.res;
+        let a = (1i32, 1i32);
+        let b = (2i32, 1i32);
+        let ia = index_from_pos(&a, res.0);
+        let ib = index_from_pos(&b, res.0);
+
+        // Escape vs repeat neighbor → edge.
+        ctx.points[ia].escapes = true;
+        ctx.points[ia].repeats = false;
+        ctx.points[ib].escapes = false;
+        ctx.points[ib].repeats = true;
+        ctx.points[ib].period = 2;
+        assert_eq!(point_is_edge(&a, res, &ctx.points), Some((a, b)));
+
+        // Same membership, period 0 unknown → no filament edge.
+        ctx.points[ia].escapes = false;
+        ctx.points[ia].repeats = true;
+        ctx.points[ia].period = 0;
+        ctx.points[ib].period = 3;
+        assert_eq!(point_is_edge(&a, res, &ctx.points), None);
+        // Distinct nonzero periods → edge.
+        ctx.points[ia].period = 2;
+        assert_eq!(point_is_edge(&a, res, &ctx.points), Some((a, b)));
+
+        // in-queue carries period (not iterations).
+        ctx.points[ia].iterations = 99;
+        ctx.points[ia].period = 5;
+        let mut qin = VecDeque::new();
+        queue_incomplete_neighbors_in(&a, res, &ctx.points, &mut qin);
+        assert!(!qin.is_empty());
+        assert!(qin.iter().all(|(_, d)| *d == 5));
+        assert!(qin.iter().all(|(_, d)| *d != 99));
+
+        // of_edge: difficulty from pos1 iterations; push_front ahead of existing.
+        ctx.points[ia].iterations = 33;
+        let mut qe = VecDeque::new();
+        qe.push_back(((0, 0), 777));
+        queue_incomplete_neighbors_of_edge(&a, &b, res, &ctx.points, &mut qe);
+        assert_eq!(qe.back().unwrap().1, 777);
+        assert!(qe.iter().any(|(_, d)| *d == 33));
+        // Bounds: no negatives from horizontal edge at left.
+        let left = (0i32, 1i32);
+        let right = (1i32, 1i32);
+        let mut ql = VecDeque::new();
+        queue_incomplete_neighbors_of_edge(&left, &right, res, &ctx.points, &mut ql);
+        assert!(ql.iter().all(|(p, _)| p.0 >= 0 && p.1 >= 0));
+
+        // view_center: +half width on re, −half height on im (not flipped).
+        let loc = (IntExp::from(0), IntExp::from(0));
+        let vc = view_center_compute(&loc, -2, res);
+        let pitch = IntExp::from(1).shift(((-2i32).saturating_add(crate::constants::PIXELS_PER_UNIT_POT)).saturating_neg());
+        let expect_re = IntExp::from(0) + pitch.clone() * IntExp::from((res.0 / 2) as i32);
+        let expect_im = IntExp::from(0) - pitch * IntExp::from((res.1 / 2) as i32);
+        assert_eq!(vc.0, expect_re);
+        assert_eq!(vc.1, expect_im);
+
+        // Absolute vs Relative admission plumbing + undelivered invalidate.
+        use crate::assemblies::workgroup::c_generator::GeneratorAdmission;
+        let gen = CGenerator::<FloatExp>::new(&loc, -2, res).unwrap();
+        let (_, space) = gen.origin_and_space();
+        ctx.generator_generation = 1;
+        ctx.points[ia].delivered = false;
+        ctx.points[ia].initialized = true;
+        ctx.points[ia].delta = Some(DeltaState {
+            delta_z: ComplexFloatExp::new(FloatExp::from(0.25), FloatExp::ZERO),
+            checkpoint: ComplexFloatExp::ZERO,
+            checkpoint_n: 0,
+            delta_c: ComplexFloatExp::ZERO,
+            c: ComplexFloatExp::ZERO,
+            dd: ComplexFloatExp::new(FloatExp::ONE, FloatExp::ZERO),
+            generation: 1,
+            gear: crate::delta_gear::ComputeGear::FloatExp,
+            scale: FloatExp::ONE,
+        });
+        let delivered = index_from_pos(&(0, 0), res.0);
+        ctx.points[delivered].delivered = true;
+        ctx.points[delivered].initialized = true;
+        apply_generator_admission(
+            &mut ctx,
+            GeneratorAdmission::Absolute(gen.clone()),
+            vc.clone(),
+            2,
+        );
+        assert!(!ctx.coords_are_relative);
+        assert_eq!(ctx.coord_anchor, vc);
+        assert_eq!(ctx.generator_generation, 2);
+        assert!(!ctx.points[ia].initialized);
+        assert!(ctx.points[ia].delta.is_none());
+        assert!(ctx.points[delivered].initialized, "delivered seats keep init");
+        let expect_eps = space.abs() * FloatExp::from(1.0 / 256.0);
+        assert_eq!(ctx.pitch_epsilon, expect_eps);
+
+        let anchor = (IntExp::from(3), IntExp::from(-4));
+        apply_generator_admission(
+            &mut ctx,
+            GeneratorAdmission::Relative {
+                generator: gen,
+                anchor: anchor.clone(),
+            },
+            vc,
+            2, // same generation → no wipe
+        );
+        assert!(ctx.coords_are_relative);
+        assert_eq!(ctx.coord_anchor, anchor);
+    });
+}
+
 // r[verify cz.craft.pan-zoom-slot0+1]
 #[test]
 fn pan_scredge_lead_only_on_first_shift() {

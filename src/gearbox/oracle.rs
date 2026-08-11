@@ -229,5 +229,35 @@ mod tests {
             OracleAnswer::Escapes { escape_time } => assert_eq!(escape_time, 11),
             other => panic!("expected Escapes with start offset, got {other:?}"),
         }
+
+        // max_iters=0 → Unfinished with start z unchanged (not Escapes/Repeats).
+        match iterate_oracle_bout(
+            c_from_f64((0.0, 0.0)),
+            c_from_f64((0.5, 0.25)),
+            four.clone(),
+            eps.clone(),
+            0,
+            3,
+        ) {
+            OracleAnswer::Unfinished { iterations, z } => {
+                assert_eq!(iterations, 3);
+                assert!((z.0.to_f64() - 0.5).abs() < 1e-12);
+                assert!((z.1.to_f64() - 0.25).abs() < 1e-12);
+            }
+            other => panic!("expected Unfinished@0 steps, got {other:?}"),
+        }
+
+        // conclude starts at z=c (not z=0).
+        let c = c_from_f64((0.1, 0.2));
+        let via_conclude = OracleKernel.conclude(c, four.clone(), eps.clone(), 1);
+        let via_bout = iterate_oracle_bout(c, c, four.clone(), eps.clone(), 1, 0);
+        assert_eq!(via_conclude, via_bout);
+        let from_zero = iterate_oracle_bout(c, c_from_f64((0.0, 0.0)), four.clone(), eps.clone(), 1, 0);
+        assert_ne!(via_conclude, from_zero);
+
+        // c_from_f64 is identity mapping (not swapped / zeroed).
+        let mapped = c_from_f64((1.25, -0.75));
+        assert!((mapped.0.to_f64() - 1.25).abs() < 1e-15);
+        assert!((mapped.1.to_f64() + 0.75).abs() < 1e-15);
     }
 }
