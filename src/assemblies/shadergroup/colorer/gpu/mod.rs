@@ -1,4 +1,5 @@
 //! Colorer-owned wgpu f32 path — honest port of `color.rs` with exact Color32 parity.
+//! Persistent buffers + dirty-skip (mechanical sympathy): no per-wake recreate/upload.
 //! Fallback to OG only when no usable device exists (never for missing f64).
 // r[impl cz.craft.gpu-color-parity+1]
 // r[impl cz.shade.layers-in-script-order+1]
@@ -9,15 +10,34 @@ use crate::settings::{ColoringInstruction, Normalizing, Settings, Shading};
 use bytemuck::{Pod, Zeroable};
 use egui::Color32;
 use std::sync::{Arc, Mutex, OnceLock};
-use wgpu::util::DeviceExt;
 
 const MAX_LAYERS: usize = 16;
 const SHADER: &str = include_str!("color.wgsl");
 
 /// Process-wide colorer GPU (one device). Avoids parallel `try_new` races with
-/// other wgpu users under libtest.
+/// other wgpu users under libtest. Shared with the GPU escaper via [`shared_device`].
 static SHARED_GPU: OnceLock<Option<Arc<GpuColorer>>> = OnceLock::new();
 static INIT_LOCK: Mutex<()> = Mutex::new(());
+
+/// Which GPU uploads are required this paint.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PaintDirty {
+    pub values: bool,
+    pub params: bool,
+}
+
+impl PaintDirty {
+    pub fn all() -> Self {
+        Self {
+            values: true,
+            params: true,
+        }
+    }
+
+    pub fn any(self) -> bool {
+        self.values || self.params
+    }
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -62,13 +82,25 @@ struct GpuFrame {
     _pad: u32,
 }
 
+struct ColorSession {
+    pixel_count: u32,
+    pixel_buf: wgpu::Buffer,
+    frame_buf: wgpu::Buffer,
+    layer_buf: wgpu::Buffer,
+    out_buf: wgpu::Buffer,
+    staging: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+    last_colors: Vec<Color32>,
+}
+
 pub struct GpuColorer {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+    pub(crate) device: wgpu::Device,
+    pub(crate) queue: wgpu::Queue,
     pipeline: wgpu::ComputePipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     /// Serialize paint (readback map_async is not re-entrant across threads).
     paint_lock: Mutex<()>,
+    session: Mutex<Option<ColorSession>>,
 }
 
 impl GpuColorer {
@@ -80,6 +112,11 @@ impl GpuColorer {
                 Self::try_new().map(Arc::new)
             })
             .clone()
+    }
+
+    /// Device/queue handles for other shade-path GPU users (escaper).
+    pub fn shared_device() -> Option<(wgpu::Device, wgpu::Queue)> {
+        Self::shared().map(|g| (g.device.clone(), g.queue.clone()))
     }
 
     pub fn try_new() -> Option<Self> {
@@ -194,47 +231,33 @@ impl GpuColorer {
             pipeline,
             bind_group_layout,
             paint_lock: Mutex::new(()),
+            session: Mutex::new(None),
         })
     }
 
-    /// Paint with the GPU path. Returns `None` only on buffer/map failure (caller falls back).
-    pub fn paint(
-        &self,
-        values: &ZoomerValuesScreen,
-        settings: &mut Settings,
-    ) -> Option<Vec<Color32>> {
-        let _paint = self.paint_lock.lock().unwrap_or_else(|e| e.into_inner());
-        let (pixels, layers, layer_count) = pack_frame(values, settings)?;
-        let n = pixels.len() as u32;
-        let frame = GpuFrame {
-            width: values.res.0,
-            height: values.res.1,
-            layer_count,
-            _pad: 0,
-        };
+    fn ensure_session(&self, pixel_count: u32) -> ColorSession {
+        let pixel_bytes = (pixel_count as u64) * std::mem::size_of::<GpuPixel>() as u64;
+        let out_size = (pixel_count as u64) * 4;
+        let layer_bytes = (MAX_LAYERS as u64) * std::mem::size_of::<GpuLayer>() as u64;
 
-        let pixel_buf = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("colorer_pixels"),
-                contents: bytemuck::cast_slice(&pixels),
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            });
-        let frame_buf = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("colorer_frame"),
-                contents: bytemuck::bytes_of(&frame),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
-        let layer_buf = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("colorer_layers"),
-                contents: bytemuck::cast_slice(&layers),
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            });
-        let out_size = (n as u64) * 4;
+        let pixel_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("colorer_pixels"),
+            size: pixel_bytes,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let frame_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("colorer_frame"),
+            size: std::mem::size_of::<GpuFrame>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let layer_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("colorer_layers"),
+            size: layer_bytes,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         let out_buf = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("colorer_out"),
             size: out_size,
@@ -247,7 +270,6 @@ impl GpuColorer {
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("colorer_bg"),
             layout: &self.bind_group_layout,
@@ -270,7 +292,79 @@ impl GpuColorer {
                 },
             ],
         });
+        ColorSession {
+            pixel_count,
+            pixel_buf,
+            frame_buf,
+            layer_buf,
+            out_buf,
+            staging,
+            bind_group,
+            last_colors: Vec::new(),
+        }
+    }
 
+    /// Paint with the GPU path. Returns `None` only on buffer/map failure (caller falls back).
+    /// When `dirty` is empty and a prior frame exists, returns the cached colors (no GPU work).
+    pub fn paint(
+        &self,
+        values: &ZoomerValuesScreen,
+        settings: &mut Settings,
+        dirty: PaintDirty,
+    ) -> Option<Vec<Color32>> {
+        let _paint = self.paint_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let mut session_guard = self.session.lock().unwrap_or_else(|e| e.into_inner());
+
+        let n = values.values.len() as u32;
+        if n == 0 {
+            return Some(Vec::new());
+        }
+
+        let need_realloc = match session_guard.as_ref() {
+            Some(s) => s.pixel_count != n,
+            None => true,
+        };
+        if need_realloc {
+            *session_guard = Some(self.ensure_session(n));
+        }
+
+        if !dirty.any() {
+            if let Some(s) = session_guard.as_ref() {
+                if !s.last_colors.is_empty() && s.last_colors.len() == n as usize {
+                    return Some(s.last_colors.clone());
+                }
+            }
+        }
+
+        // Resize forces a full upload even if caller marked clean.
+        let dirty = if need_realloc {
+            PaintDirty::all()
+        } else {
+            dirty
+        };
+
+        let (pixels, layers, layer_count) = pack_frame(values, settings, dirty.values)?;
+        let frame = GpuFrame {
+            width: values.res.0,
+            height: values.res.1,
+            layer_count,
+            _pad: 0,
+        };
+
+        let session = session_guard.as_mut()?;
+        if dirty.values {
+            self.queue
+                .write_buffer(&session.pixel_buf, 0, bytemuck::cast_slice(&pixels));
+        }
+        if dirty.params || dirty.values {
+            // Frame dims / layer_count ride with either change; cheap uniform write.
+            self.queue
+                .write_buffer(&session.frame_buf, 0, bytemuck::bytes_of(&frame));
+            self.queue
+                .write_buffer(&session.layer_buf, 0, bytemuck::cast_slice(&layers));
+        }
+
+        let out_size = (n as u64) * 4;
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -282,14 +376,14 @@ impl GpuColorer {
                 timestamp_writes: None,
             });
             pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
+            pass.set_bind_group(0, &session.bind_group, &[]);
             let groups = (n + 63) / 64;
             pass.dispatch_workgroups(groups, 1, 1);
         }
-        encoder.copy_buffer_to_buffer(&out_buf, 0, &staging, 0, out_size);
+        encoder.copy_buffer_to_buffer(&session.out_buf, 0, &session.staging, 0, out_size);
         self.queue.submit(Some(encoder.finish()));
 
-        let slice = staging.slice(..);
+        let slice = session.staging.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
@@ -306,7 +400,8 @@ impl GpuColorer {
             out.push(Color32::from_rgb(r, g, b));
         }
         drop(data);
-        staging.unmap();
+        session.staging.unmap();
+        session.last_colors = out.clone();
         Some(out)
     }
 }
@@ -314,41 +409,47 @@ impl GpuColorer {
 fn pack_frame(
     values: &ZoomerValuesScreen,
     settings: &mut Settings,
+    pack_pixels: bool,
 ) -> Option<(Vec<GpuPixel>, [GpuLayer; MAX_LAYERS], u32)> {
-    let mut pixels = Vec::with_capacity(values.values.len());
-    for v in &values.values {
-        pixels.push(match v {
-            ScreenValue::Outside {
-                big_time,
-                small_time,
-                smallness,
-                gradient_angle,
-            } => GpuPixel {
-                kind: 0,
-                big_time: *big_time,
-                small_time: *small_time,
-                loop_period: 0,
-                smallness: *smallness as f32,
-                gradient_angle: *gradient_angle,
-                _pad0: 0.0,
-                _pad1: 0.0,
-            },
-            ScreenValue::Inside {
-                small_time,
-                loop_period,
-                smallness,
-            } => GpuPixel {
-                kind: 1,
-                big_time: 0,
-                small_time: *small_time,
-                loop_period: *loop_period,
-                smallness: *smallness as f32,
-                gradient_angle: 0.0,
-                _pad0: 0.0,
-                _pad1: 0.0,
-            },
-        });
-    }
+    let pixels = if pack_pixels {
+        let mut pixels = Vec::with_capacity(values.values.len());
+        for v in &values.values {
+            pixels.push(match v {
+                ScreenValue::Outside {
+                    big_time,
+                    small_time,
+                    smallness,
+                    gradient_angle,
+                } => GpuPixel {
+                    kind: 0,
+                    big_time: *big_time,
+                    small_time: *small_time,
+                    loop_period: 0,
+                    smallness: *smallness as f32,
+                    gradient_angle: *gradient_angle,
+                    _pad0: 0.0,
+                    _pad1: 0.0,
+                },
+                ScreenValue::Inside {
+                    small_time,
+                    loop_period,
+                    smallness,
+                } => GpuPixel {
+                    kind: 1,
+                    big_time: 0,
+                    small_time: *small_time,
+                    loop_period: *loop_period,
+                    smallness: *smallness as f32,
+                    gradient_angle: 0.0,
+                    _pad0: 0.0,
+                    _pad1: 0.0,
+                },
+            });
+        }
+        pixels
+    } else {
+        Vec::new()
+    };
 
     let mut layers = [GpuLayer::zeroed(); MAX_LAYERS];
     let script = settings.coloring_script.as_mut()?;
@@ -559,17 +660,37 @@ fn encode_layer(instruction: &mut ColoringInstruction) -> Option<GpuLayer> {
     })
 }
 
+/// True when any coloring-script Animable will change numbers this wake.
+pub fn coloring_script_animated(settings: &Settings) -> bool {
+    let Some(script) = settings.coloring_script.as_ref() else {
+        return false;
+    };
+    script.iter().any(|instruction| match instruction {
+        ColoringInstruction::PaintEscapeTime {
+            shading_method, ..
+        }
+        | ColoringInstruction::PaintSmallTime {
+            shading_method, ..
+        }
+        | ColoringInstruction::PaintSmallness {
+            shading_method, ..
+        } => shading_method.period.animated || shading_method.phase.animated,
+        _ => false,
+    })
+}
+
 /// Public entry: prefer GPU when available; else OG. Returns (pixels, hud stamp).
 pub fn color_with_gear(
     values: &ZoomerValuesScreen,
     settings: &mut Settings,
     want_gpu: bool,
     gpu: &Option<Arc<GpuColorer>>,
+    dirty: PaintDirty,
 ) -> (Vec<Color32>, crate::assemblies::structs::ColorerHud) {
     use crate::assemblies::structs::ColorerHud;
     if want_gpu {
         if let Some(g) = gpu {
-            if let Some(out) = g.paint(values, settings) {
+            if let Some(out) = g.paint(values, settings, dirty) {
                 return (out, ColorerHud::Gpu);
             }
             let out = color_og(values, settings);
@@ -587,6 +708,7 @@ mod tests {
     use crate::assemblies::structs::ColorerHud;
     use crate::settings::{DEFAULT_COLORING_SCRIPT, Settings};
     use crate::utils::ObjectivePosAndZoom;
+    use std::time::Instant;
 
     fn tiny_screen() -> ZoomerValuesScreen {
         // 3×3: exterior ridge candidate + interior period step.
@@ -636,7 +758,7 @@ mod tests {
             let mut settings = Settings::DEFAULT;
             settings.coloring_script = Some(DEFAULT_COLORING_SCRIPT.to_vec());
             let screen = tiny_screen();
-            let (out, hud) = color_with_gear(&screen, &mut settings, true, &None);
+            let (out, hud) = color_with_gear(&screen, &mut settings, true, &None, PaintDirty::all());
             assert_eq!(hud, ColorerHud::GpuFallbackOg);
             assert_eq!(out.len(), 9);
             return;
@@ -646,7 +768,8 @@ mod tests {
         let mut settings_gpu = settings_og.clone();
         let screen = tiny_screen();
         let og = color_og(&screen, &mut settings_og);
-        let (gpu_out, hud) = color_with_gear(&screen, &mut settings_gpu, true, &Some(gpu));
+        let (gpu_out, hud) =
+            color_with_gear(&screen, &mut settings_gpu, true, &Some(gpu), PaintDirty::all());
         assert_eq!(hud, ColorerHud::Gpu);
         assert_eq!(
             gpu_out, og,
@@ -660,7 +783,7 @@ mod tests {
         settings.coloring_script = Some(DEFAULT_COLORING_SCRIPT.to_vec());
         let screen = tiny_screen();
         let gpu = GpuColorer::shared();
-        let (out, hud) = color_with_gear(&screen, &mut settings, false, &gpu);
+        let (out, hud) = color_with_gear(&screen, &mut settings, false, &gpu, PaintDirty::all());
         assert_eq!(hud, ColorerHud::Og);
         assert_eq!(out.len(), 9);
     }
@@ -676,7 +799,9 @@ mod tests {
             settings_og.coloring_script = Some(vec![instr.clone()]);
             let mut settings_gpu = settings_og.clone();
             let og = color_og(&screen, &mut settings_og);
-            let gpu_out = gpu.paint(&screen, &mut settings_gpu).expect("gpu paint");
+            let gpu_out = gpu
+                .paint(&screen, &mut settings_gpu, PaintDirty::all())
+                .expect("gpu paint");
             assert_eq!(
                 gpu_out, og,
                 "layer {:?} must match OG",
@@ -747,7 +872,120 @@ mod tests {
         let mut settings_og = settings.clone();
         let mut settings_gpu = settings.clone();
         let og = color_og(&screen, &mut settings_og);
-        let gpu_out = gpu.paint(&screen, &mut settings_gpu).expect("gpu");
+        let gpu_out = gpu
+            .paint(&screen, &mut settings_gpu, PaintDirty::all())
+            .expect("gpu");
         assert_eq!(gpu_out, og, "home escape_frame GPU must match OG Color32");
+    }
+
+    #[test]
+    fn gpu_cached_clean_paint_matches_prior() {
+        let Some(gpu) = GpuColorer::shared() else {
+            return;
+        };
+        let screen = tiny_screen();
+        let mut settings = Settings::DEFAULT;
+        settings.coloring_script = Some(DEFAULT_COLORING_SCRIPT.to_vec());
+        let first = gpu
+            .paint(&screen, &mut settings, PaintDirty::all())
+            .expect("first");
+        let cached = gpu
+            .paint(
+                &screen,
+                &mut settings,
+                PaintDirty {
+                    values: false,
+                    params: false,
+                },
+            )
+            .expect("cached");
+        assert_eq!(first, cached);
+    }
+
+    #[test]
+    fn gpu_params_only_repaint_matches_full() {
+        let Some(gpu) = GpuColorer::shared() else {
+            return;
+        };
+        let screen = tiny_screen();
+        let mut settings = Settings::DEFAULT;
+        settings.coloring_script = Some(DEFAULT_COLORING_SCRIPT.to_vec());
+        let _ = gpu
+            .paint(&screen, &mut settings, PaintDirty::all())
+            .expect("seed");
+        // Mutate a static layer param via re-encode path (params dirty only).
+        let params_only = gpu
+            .paint(
+                &screen,
+                &mut settings,
+                PaintDirty {
+                    values: false,
+                    params: true,
+                },
+            )
+            .expect("params");
+        let full = gpu
+            .paint(&screen, &mut settings, PaintDirty::all())
+            .expect("full");
+        assert_eq!(params_only, full);
+    }
+
+    /// Shade steady-state pin: under value-changing wake cadence (bailout-anim
+    /// style), persistent GPU paint must stay fast enough that a small channel
+    /// would not force unbounded coalesce drops (mechanical sympathy).
+    #[test]
+    fn steady_state_gpu_color_anim_keeps_up() {
+        let Some(gpu) = GpuColorer::shared() else {
+            return;
+        };
+        let mut screen = tiny_screen();
+        // Upscale to a real-ish frame so residency matters.
+        let res = (320u32, 180u32);
+        let n = (res.0 * res.1) as usize;
+        screen.res = res;
+        screen.values = (0..n)
+            .map(|_| ScreenValue::Outside {
+                big_time: 10,
+                small_time: 1,
+                smallness: 0.5,
+                gradient_angle: 0.0,
+            })
+            .collect();
+        let mut settings = Settings::DEFAULT;
+        settings.coloring_script = Some(DEFAULT_COLORING_SCRIPT.to_vec());
+
+        // Warm session.
+        let _ = gpu
+            .paint(&screen, &mut settings, PaintDirty::all())
+            .expect("warm");
+
+        const WAKES: u32 = 40;
+        let t0 = Instant::now();
+        for i in 0..WAKES {
+            // Bailout anim changes values every wake.
+            if let ScreenValue::Outside { big_time, .. } = &mut screen.values[0] {
+                *big_time = 10 + i;
+            }
+            let out = gpu
+                .paint(
+                    &screen,
+                    &mut settings,
+                    PaintDirty {
+                        values: true,
+                        params: false,
+                    },
+                )
+                .expect("anim paint");
+            assert_eq!(out.len(), n);
+        }
+        let elapsed = t0.elapsed();
+        // 8ms wake budget: 40 wakes → 320ms wall if each paint ≤ wake. Allow 2×
+        // slack for CI noise; still fails hard if we recreate/upload every time
+        // at this res.
+        assert!(
+            elapsed.as_millis() < 640,
+            "GPU anim paints too slow for shade drain ({:?} for {WAKES} wakes)",
+            elapsed
+        );
     }
 }

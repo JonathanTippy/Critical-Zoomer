@@ -26,6 +26,10 @@ pub struct ColorerState {
     pub packages_dropped: u64,
     /// Colorer-owned GPU path (None → OG only / GPU→OG fallback).
     pub gpu: Option<Arc<gpu::GpuColorer>>,
+    /// New values package ingested this wake (or first paint).
+    pub values_dirty: bool,
+    /// Settings / Animable params changed this wake (or first paint).
+    pub params_dirty: bool,
 }
 
 pub async fn run(
@@ -63,6 +67,8 @@ async fn internal_behavior<A: SteadyActor>(
         settings: Settings::DEFAULT,
         packages_dropped: 0,
         gpu: gpu::GpuColorer::shared(),
+        values_dirty: true,
+        params_dirty: true,
     }).await;
 
     // Lock all channels for exclusive access within this actor.
@@ -114,9 +120,16 @@ async fn internal_behavior<A: SteadyActor>(
                 Some(s) => {
                     let mut rng = rand::thread_rng();
                     state.settings = s;
+                    state.params_dirty = true;
                 }
                 None => {}
             }
+        }
+
+        // Animated coloring layers change numbers every wake — must dirty params
+        // so silent skip cannot freeze anim (latest-wins / mechanical sympathy).
+        if gpu::coloring_script_animated(&state.settings) {
+            state.params_dirty = true;
         }
 
         let avail = actor.avail_units(&mut values_in);
@@ -131,6 +144,7 @@ async fn internal_behavior<A: SteadyActor>(
                 Some(mut v) => {
                     v.hud.packages_dropped = state.packages_dropped;
                     state.values = Some(v);
+                    state.values_dirty = true;
                 }
                 None => {}
             }
@@ -143,30 +157,39 @@ async fn internal_behavior<A: SteadyActor>(
             Some(ColorerMode::Gpu)
         );
         let gpu = state.gpu.clone();
+        let dirty = gpu::PaintDirty {
+            values: state.values_dirty,
+            params: state.params_dirty,
+        };
         // Same path every wake (animated layers / bailout upstream): only numbers change.
+        // Static + unchanged: skip try_send so we do not flood the window channel.
         if let Some(v) = &mut state.values {
-            let (output, color_hud) =
-                gpu::color_with_gear(v, &mut settings, want_gpu, &gpu);
-            v.hud.packages_dropped = dropped;
-            v.hud.color = color_hud;
+            if dirty.any() {
+                let (output, color_hud) =
+                    gpu::color_with_gear(v, &mut settings, want_gpu, &gpu, dirty);
+                v.hud.packages_dropped = dropped;
+                v.hud.color = color_hud;
 
-            actor.try_send(
-                &mut screens_out,
-                View {
-                    data: output.clone(),
-                    bitmap: vec![0u8; output.len()],
-                    stencil: PointStencil {
-                        resolution: (v.res.0 as usize, v.res.1 as usize),
-                        location: (
-                            v.objective_location.clone().pos.0,
-                            IntExp::ZERO - v.objective_location.clone().pos.1,
-                            v.objective_location.clone().zoom_pot,
-                        ),
-                        serial_number: 0,
+                actor.try_send(
+                    &mut screens_out,
+                    View {
+                        data: output.clone(),
+                        bitmap: vec![0u8; output.len()],
+                        stencil: PointStencil {
+                            resolution: (v.res.0 as usize, v.res.1 as usize),
+                            location: (
+                                v.objective_location.clone().pos.0,
+                                IntExp::ZERO - v.objective_location.clone().pos.1,
+                                v.objective_location.clone().zoom_pot,
+                            ),
+                            serial_number: 0,
+                        },
+                        hud: v.hud,
                     },
-                    hud: v.hud,
-                },
-            );
+                );
+            }
+            state.values_dirty = false;
+            state.params_dirty = false;
         }
         state.settings = settings;
 

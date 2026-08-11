@@ -184,7 +184,13 @@ fn bench_color_gpu(c: &mut Criterion, name: &str, pixel_scale: f64) {
             for _ in 0..iters {
                 let mut s = settings.clone();
                 let t0 = Instant::now();
-                let out = gpu.paint(&screen, &mut s).expect("gpu paint");
+                let out = gpu
+                    .paint(
+                        &screen,
+                        &mut s,
+                        critical_zoomer::assemblies::shadergroup::colorer::gpu::PaintDirty::all(),
+                    )
+                    .expect("gpu paint");
                 black_box(out);
                 total += t0.elapsed();
             }
