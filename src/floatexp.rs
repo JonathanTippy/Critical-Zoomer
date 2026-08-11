@@ -501,6 +501,9 @@ mod tests {
         let d = FloatExp::new(1.0, 3);
         let aligned = c + d;
         assert!((aligned.to_f64() - (32.0 + 8.0)).abs() < 1e-9, "{}", aligned.to_f64());
+        // Both orderings (Greater-branch and recursive Less-branch).
+        let aligned_rev = d + c;
+        assert!((aligned_rev.to_f64() - aligned.to_f64()).abs() < 1e-9);
 
         let prod = a * b;
         assert!((prod.to_f64() - 1.125).abs() < 1e-12, "{}", prod.to_f64());
@@ -510,6 +513,9 @@ mod tests {
         let sq = FloatExp::from(1.5).square();
         assert!((sq.mantissa - 1.125).abs() < 1e-12);
         assert_eq!(sq.exponent, 1);
+        // *→+ / *→/ on mul.
+        assert_ne!((a * b).to_f64(), 1.5 + 0.75);
+        assert_ne!((a * b).to_f64(), 1.5 / 0.75);
 
         let neg = -a;
         assert_eq!(neg.mantissa, -1.5);
@@ -528,6 +534,27 @@ mod tests {
             FloatExp::from(1.0).partial_cmp(&FloatExp::from(1.0)),
             Some(Ordering::Equal)
         );
+
+        // Hot-path renormalize after add: 1.5+1.5 at same exp → mantissa 1.5, exp+1
+        // (* 0.5, not + 0.5 / *→/).
+        let twin = FloatExp::from(1.5) + FloatExp::from(1.5);
+        assert!((twin.mantissa - 1.5).abs() < 1e-12, "m={}", twin.mantissa);
+        assert_eq!(twin.exponent, 1);
+        assert_ne!(twin.mantissa, 3.0 + 0.5);
+        assert_ne!(twin.mantissa, 3.0 / 0.5);
+    }
+
+    /// Filter-friendly name for scoped `cargo mutants -- --lib mutant_kill`.
+    #[test]
+    fn mutant_kill_floatexp_add_mul_to_f64_complex() {
+        to_f64_rejects_constant_and_branch_mutants();
+        add_mul_eq_ord_kill_operator_mutants();
+        complex_ops_and_intexp_conversion();
+        // Extra *→/ pin on to_f64 normal path.
+        let x = FloatExp::new(1.25, 3);
+        assert!((x.to_f64() - 10.0).abs() < 1e-12, "got {}", x.to_f64());
+        assert_ne!(x.to_f64(), 1.25 / 8.0);
+        assert_ne!(x.to_f64(), 1.25 + 8.0);
     }
 
     #[test]
