@@ -121,8 +121,8 @@ the accepted honest medians above (no ≥20% regression).
 | escape_gpu_radius_only_1_0x | **~3.11 ms** | resident answers; radius uniform |
 | workgroup time_to_full_frame | **~300 ms** | within ~20% of ~270 ms accepted |
 
-Actors re-run these every ~8 ms wake while holding a package. Manual color/escape
-gears default to OG; enable GPU in settings. HUD stamps `color:` and `escape:`.
+Actors re-run these every ~8 ms wake while holding a package. Color gear defaults
+to **GPU** (2026-08-11); escape defaults OG. HUD stamps `color:` and `escape:`.
 Workgroup TTFP / “stops after GPU color” remain parked after this pass.
 
 ## Baseline

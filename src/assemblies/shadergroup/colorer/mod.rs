@@ -153,8 +153,8 @@ async fn internal_behavior<A: SteadyActor>(
         let mut settings = state.settings.clone();
         let dropped = state.packages_dropped;
         let want_gpu = matches!(
-            settings.manual_color_gear_override(),
-            Some(ColorerMode::Gpu)
+            settings.resolved_color_gear(),
+            ColorerMode::Gpu
         );
         let gpu = state.gpu.clone();
         let dirty = gpu::PaintDirty {

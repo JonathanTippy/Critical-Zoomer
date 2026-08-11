@@ -123,9 +123,10 @@ impl Settings {
         // Debug: force compute kernel; host type stays auto from depth.
         , manual_gear_enabled: false
         , manual_gear: crate::assemblies::structs::KernelMode::Naive
-        // Debug: force colorer path; default OG when disabled.
+        // Debug: force colorer path; default GPU when disabled.
         , manual_color_gear_enabled: false
-        , manual_color_gear: crate::assemblies::structs::ColorerMode::Og
+        , manual_color_gear: crate::assemblies::structs::ColorerMode::Gpu
+        // Debug: force escaper path; default OG when disabled.
         , manual_escape_gear_enabled: false
         , manual_escape_gear: crate::assemblies::structs::EscaperMode::Og
     };
@@ -139,7 +140,16 @@ impl Settings {
         }
     }
 
-    /// Resolved manual colorer (`None` = OG default).
+    /// Resolved colorer path. Default GPU; manual gear forces OG or GPU.
+    pub fn resolved_color_gear(&self) -> crate::assemblies::structs::ColorerMode {
+        if self.manual_color_gear_enabled {
+            self.manual_color_gear
+        } else {
+            crate::assemblies::structs::ColorerMode::Gpu
+        }
+    }
+
+    /// Resolved manual colorer when the override checkbox is on (`None` = use default).
     pub fn manual_color_gear_override(&self) -> Option<crate::assemblies::structs::ColorerMode> {
         if self.manual_color_gear_enabled {
             Some(self.manual_color_gear)
@@ -148,7 +158,16 @@ impl Settings {
         }
     }
 
-    /// Resolved manual escaper (`None` = OG default).
+    /// Resolved escaper path. Default OG; manual gear forces OG or GPU.
+    pub fn resolved_escape_gear(&self) -> crate::assemblies::structs::EscaperMode {
+        if self.manual_escape_gear_enabled {
+            self.manual_escape_gear
+        } else {
+            crate::assemblies::structs::EscaperMode::Og
+        }
+    }
+
+    /// Resolved manual escaper when the override checkbox is on (`None` = use default).
     pub fn manual_escape_gear_override(&self) -> Option<crate::assemblies::structs::EscaperMode> {
         if self.manual_escape_gear_enabled {
             Some(self.manual_escape_gear)
@@ -179,11 +198,12 @@ pub struct Settings {
     // Host stack / type remains automatic from depth admission.
     , pub manual_gear_enabled: bool
     , pub manual_gear: crate::assemblies::structs::KernelMode
-    // When true, `manual_color_gear` selects OG vs GPU colorer (debug).
-    // Automatic PPS/kernel gearbox must never pick GPU color.
+    // When true, `manual_color_gear` overrides the default GPU colorer.
+    // Automatic PPS/kernel gearbox must never pick GPU color for the worker —
+    // this is shade-path only.
     , pub manual_color_gear_enabled: bool
     , pub manual_color_gear: crate::assemblies::structs::ColorerMode
-    // When true, `manual_escape_gear` selects OG vs GPU escaper (debug).
+    // When true, `manual_escape_gear` overrides the default OG escaper.
     , pub manual_escape_gear_enabled: bool
     , pub manual_escape_gear: crate::assemblies::structs::EscaperMode
 }
@@ -729,13 +749,16 @@ mod mutant_kill {
         use crate::assemblies::structs::ColorerMode;
         let mut s = Settings::DEFAULT;
         assert!(s.manual_color_gear_override().is_none());
+        assert_eq!(s.resolved_color_gear(), ColorerMode::Gpu);
         s.manual_color_gear_enabled = true;
         s.manual_color_gear = ColorerMode::Gpu;
         assert_eq!(s.manual_color_gear_override(), Some(ColorerMode::Gpu));
         s.manual_color_gear = ColorerMode::Og;
         assert_eq!(s.manual_color_gear_override(), Some(ColorerMode::Og));
+        assert_eq!(s.resolved_color_gear(), ColorerMode::Og);
         s.manual_color_gear_enabled = false;
         assert!(s.manual_color_gear_override().is_none());
+        assert_eq!(s.resolved_color_gear(), ColorerMode::Gpu);
     }
 
     #[test]

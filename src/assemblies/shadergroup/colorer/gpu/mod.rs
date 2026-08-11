@@ -787,13 +787,21 @@ mod tests {
     }
 
     #[test]
-    fn default_gear_stays_og() {
+    fn default_gear_is_gpu() {
         let mut settings = Settings::DEFAULT;
         settings.coloring_script = Some(DEFAULT_COLORING_SCRIPT.to_vec());
         let screen = tiny_screen();
         let gpu = GpuColorer::shared();
-        let (out, hud) = color_with_gear(&screen, &mut settings, false, &gpu, PaintDirty::all());
-        assert_eq!(hud, ColorerHud::Og);
+        let want_gpu = matches!(
+            settings.resolved_color_gear(),
+            crate::assemblies::structs::ColorerMode::Gpu
+        );
+        let (out, hud) = color_with_gear(&screen, &mut settings, want_gpu, &gpu, PaintDirty::all());
+        if gpu.is_some() {
+            assert_eq!(hud, ColorerHud::Gpu);
+        } else {
+            assert_eq!(hud, ColorerHud::GpuFallbackOg);
+        }
         assert_eq!(out.len(), 9);
     }
 

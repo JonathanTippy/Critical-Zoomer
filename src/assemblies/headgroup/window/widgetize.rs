@@ -49,7 +49,7 @@ impl Settings {
                 );
             });
         });
-        ui.label("Default OG; GPU is opt-in (never auto).");
+        ui.label("Default GPU; manual forces OG or GPU (never auto from PPS gearbox).");
         ui.separator();
         ui.label("Debug — escaper (gear)");
         ui.checkbox(&mut self.manual_escape_gear_enabled, "Manual escape gear");
@@ -67,7 +67,7 @@ impl Settings {
                 );
             });
         });
-        ui.label("Default OG; GPU is opt-in (never auto).");
+        ui.label("Default OG; manual forces OG or GPU.");
         ui.separator();
 
         ui.label("order of coloring steps:");

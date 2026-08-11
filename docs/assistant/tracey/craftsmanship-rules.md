@@ -598,22 +598,22 @@ state; `ViewHud.packages_dropped`.
 
 r[cz.craft.gpu-color-parity+1]
 
-**Normative summary.** Manual color gear selects OG (CPU `color`) or GPU (f32
-wgpu port). Same inputs → exact `Color32` equality. GPU gear falls back to OG
-only when no usable device exists (`CZ_FORCE_CPU_COLOR=1` or init failure) —
-never for missing shader f64. Default remains OG; PPS gearbox must not auto-pick
-GPU color.
+**Normative summary.** Color gear selects OG (CPU `color`) or GPU (f32 wgpu
+port). Default is **GPU**; manual settings can force OG or GPU. Same inputs →
+exact `Color32` equality. GPU gear falls back to OG only when no usable device
+exists (`CZ_FORCE_CPU_COLOR=1` or init failure) — never for missing shader f64.
+PPS/kernel gearbox must not auto-pick shade GPU.
 
 **Code site.** `colorer/gpu/` + `color_with_gear` in the colorer actor;
-settings `manual_color_gear_*`.
+settings `resolved_color_gear` / `manual_color_gear_*`.
 
 **Acceptance criteria.**
 - [x] GPU output equals OG on synthetic + home escape_frame fixtures.
-- [x] Default path stays OG; unavailable GPU → `GPU→OG` HUD without panic.
+- [x] Default path is GPU; unavailable GPU → `GPU→OG` HUD without panic.
 
 **Test.** `gpu_matches_og_color32_default_script`,
 `gpu_matches_og_per_layer_scripts`, `gpu_matches_og_home_escape_frame`,
-`default_gear_stays_og` (colorer/gpu).
+`default_gear_is_gpu` (colorer/gpu).
 
 r[cz.craft.completion-cap-fits-screen+1]
 

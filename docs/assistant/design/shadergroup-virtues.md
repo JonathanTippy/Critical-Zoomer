@@ -25,11 +25,11 @@ this bar — do not thin the product to win the clock.
 
 Same idea as the screen-worker **manual gear** switch: settings expose
 
-- **OG** — CPU colorer (golden look; default)
-- **GPU** — honest f32 wgpu rewrite (`colorer/gpu/`)
+- **GPU** — honest f32 wgpu rewrite (`colorer/gpu/`) — **default** (2026-08-11)
+- **OG** — CPU colorer (golden look; compare/rollback)
 
 so the two can be compared and rolled back. The automatic PPS/kernel gearbox
-must **not** auto-pick GPU color. HUD stamps `color:OG|GPU|GPU→OG` (fallback
+must **not** auto-pick shade GPU. HUD stamps `color:OG|GPU|GPU→OG` (fallback
 only when no usable device). Exact `Color32` parity is pinned by
 `gpu_matches_og_*` tests.
 

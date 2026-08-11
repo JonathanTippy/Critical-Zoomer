@@ -269,8 +269,8 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
         // Same path every wake (including animated bailout): only numbers change.
         // Static + unchanged: skip try_send (mechanical sympathy / small channels).
         let want_gpu = matches!(
-            state.settings.manual_escape_gear_override(),
-            Some(EscaperMode::Gpu)
+            state.settings.resolved_escape_gear(),
+            EscaperMode::Gpu
         );
         let dirty = state.answers_dirty || radius_dirty;
         if let Some(v) = &state.values {

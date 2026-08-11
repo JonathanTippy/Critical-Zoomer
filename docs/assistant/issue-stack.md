@@ -59,7 +59,7 @@ Developer acceptance test failed on the tile machine. Most items were tile-era i
 
 **Charter note (2026-08-11 GPU colorer):** bucket-3 honest rewrite of
 shadergroup colorer (wgpu f32, feature parity, exact Color32 vs OG) + bucket-2
-HUD `color:` + settings manual color gear (default OG). Escaper stays CPU.
+HUD `color:` + settings color gear (**GPU default** 2026-08-11). Escaper stays OG default.
 No workgroup TTFP/update-rate work in this chunk.
 - **Out-filament highlighting absent where verification is difficult.** After period correctness fixes, cloudy false positives are gone, but difficult areas can remain period 0 (unknown); unknown periods correctly create no out-filaments, so highlighting is absent there. Do not fix by publishing guessed periods. The resolution is stronger verification/continuation so difficult interior points eventually get verified periods.
 
@@ -96,8 +96,10 @@ bucket 2 telemetry.
   swap — never block waiting. Headgroup today is uncapped
   (`VSYNC=false` + every-frame `request_repaint`) — fix toward this lock.
   Doc: `docs/assistant/design/pipeline-refresh-rates.md`.
-- **Color gear (OG ↔ GPU) — landed 2026-08-11** (manual settings + HUD `color:`).
-  Escape gear likewise (`escape:`). Auto gearbox must still never pick GPU shade.
+- **Color gear (OG ↔ GPU) — landed; GPU default 2026-08-11** (manual still
+  forces OG/GPU; HUD `color:`). Escape gear remains OG default (`escape:`).
+  Auto gearbox must still never pick GPU shade. Interview on cadence:
+  `interviews/2026-08-11-actor-layout-frame-pacing.md`.
 - **GPU port of the golden design** (`docs/assistant/design/design-target.md`, `docs/assistant/design/naive-gpu-design.md`): views not tiles, full remap of old work, v0.0.9 semantics on GPU. **First Naive GPU pass landed 2026-08-08** (wgpu island, F32+optional F64, wave workshift, sparse harvest into collector). Live wire-up verified: Xvfb HUD `mode:naive-gpu`, F64 on Vulkan when available; init off actor thread + backend fallback. **Iterate-heavy FLOP→IPS probe met 2026-08-08** (sparse fullstack ≥0.80 of compute/header-only after warmup; earlier ~12× was first-submit latency). **2026-08-09 live fixes:** HUD `gear:` now reports real GPU precision (`F32`/`F64`, not hardcoded F64); auto F32→F64 escalate when neighbors collapse; clear finish accumulators after harvest (was re-applying finals every wave → felt ~CPU); adaptive bouts for shallow vs iterate-heavy; **actor `iterations_delta` no longer subtracts prior-shift totals (HUD IPS was near-zero after shift 1)**; finish copy covers full WIP (home shallow floods). Steady-state IPS path tests: `steady_state_*` in craftsmanship_tests (`docs/assistant/testing.md`). **2026-08-09 home blotches:** F32 GPU period-detect could false-mark shallow exterior seats as interior (black speckles); host f64 confirms low-iter repeats before publish. **IPS/PPS tracking:** actor now emits WorkUpdate when `iterations_delta > 0` even with zero completions (iterate-heavy was dropping HUD IPS). HUD PPS = collector `points_delta` → `RateCounter`. **PPS bar (quality grind):** hard floor ≥1× CPU (`steady_state_home_pps_gpu_vs_cpu_ratio`); aspiration still ~160×. Do not “fix” by skipping queues, CPU mop, or soft floors. Pins: `steady_state_naive_gpu_home_neighbor_queues_grow`, `…_fills_without_cpu_mop`, `…_no_dummy_holes`. Continuous + deep-cusp green. Still must not re-break `workgroup-virtues.md`.
 - **Certified `Boundary` completion state.** Dyadic pixel centers can only hit algebraically certifiable boundary parameters: exact parabolic points via rational cycle/multiplier checks, and Misiurewicz points via exact preperiodic repetition. Add a third completion state and separate coloring; do not impose an app effort cap. Explicitly deferred from the perturbation-core round, not forgotten.
 - **Lookahead/hoard across mags**: v0.0.9 remaps one screen only. The tile era's thin-tower lookahead failed by fragmenting the truth store; any future lookahead must extend the remap discipline, not replace it (virtues §3, §11).
