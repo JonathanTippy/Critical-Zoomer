@@ -4,10 +4,10 @@
 - **Status:** in progress
 - **Prior session:** [2026-08-11-series-approximation-contract.md](2026-08-11-series-approximation-contract.md)
 
-**Summary:** Product-judgment interview. SA out of scope. GPU bar locked (exact
-parity + ~160× ±20%; don’t unwire yet). Oracle = manual/test, doubling-until-stable
-+ twin period. Fullscreen: worker silent until exit; **delete Stec**, publish
-completions direct to collector channel; same feel required.
+**Summary:** Product-judgment interview. SA out of scope. GPU bar locked; Oracle
+manual/test. Fullscreen/high-res: ~1 FPS feel past ~1.5× default pixels; headgroup
+120 FPS healthy; animated-bailout points at shadergroup; banding/incomplete +
+incorrect seats. Audit in progress — display-path cost + drop-on-behind suspects.
 
 ---
 
@@ -313,3 +313,85 @@ downstream bug to find?
 
 **21.** Ready to outline a debug ladder for “silent on fullscreen” (instrument
 which actor stops first), or more judgment first?
+
+### Developer
+
+Oh, also, I just tested full screen again, and this time, it just kind of seems
+to get sluggish and kind of behind. And then when the work is coming in, it's
+just slow. The frame rate of the actual output from the work group is feeling
+like around 1 FPS. And the other thing is that there's these bands of incomplete
+points and what looks like incorrect points that are coming through, which
+could be like channel overwhelm or something else. So the other thing is that
+when I test whether this is a work group issue or a head group issue or a shaded
+group issue, the head group is running at 120 FPS. It's perfectly healthy, very
+good. The shaded group, when I animate the bailout, it goes about 1 FPS. So that
+could be where the issue is. It could simply just be too slow. But then there's
+also that banding issue where some work seems to be dropped. So honestly, I want
+an audit into what's going on. And I just want to keep investigating and
+discussing until we have a clear direction to go. and the line there is that at
+about 1.5x default res number of pixels things start to go pear shaped
+
+(Screenshots attached: jagged incomplete bands, vertical seams, black blocky
+regions, phantom-smooth Mandelbrot patches cut by tiling/banding.)
+
+### Assistant
+
+**Audit sketch (discussion only — no redesign yet)**
+
+**Your measurements that land**
+- Headgroup ~120 FPS → window/UI not the bottleneck.
+- Shadergroup ~1 FPS when animating bailout → matches “display path too slow.”
+- Pear-shaped past **~1.5× default pixel count** (default `854×480` ≈ 410k →
+  threshold ≈ **615k pixels**). Issue stack already suspected 1080p display-path
+  lag (escaper full-frame + colorer multi-pass + clones); your 1.5× line is a
+  sharper cliff than “only at 1080p.”
+- Visuals: incomplete bands + incorrect-looking seats + black blocks +
+  phantom-smooth patches — collected wisdom: *regular unfinished bands are a
+  scheduling/channel symptom, not math*.
+
+**What the code is doing (shadergroup)**
+
+1. **Escaper re-walks the entire frame every ~8ms wake** whenever it holds a
+   package — not only on new work. Per pixel: neighbor scans + optional extra
+   bailout iterations; also `settings.clone()` **per pixel**. At ≥1.5× default
+   pixels that alone can collapse to ~1 Hz class under animated bailout (wisdom
+   target was **60 Hz at 1080p worst case** — clearly missed).
+
+2. **Colorer likewise recolors the full frame whenever it holds values**, with
+   multiple full-image layer passes + `output.clone()` on send.
+
+3. **Both drain-to-newest by *dropping* intermediate full-frame packages** when
+   `avail_units > 1`. That is input-coalesce style applied to the *display*
+   path. Steady-state said display must not drop unique published snapshots —
+   here intermediates are discarded when the shade path falls behind. That can
+   look like “work dropped / banding” even when the worker is fine: you only
+   ever paint the latest incomplete grid, and slowly.
+
+4. **Workgroup side still in play for bands:** Stec `BufferFull` → undeliver;
+   small completion channel (50); high completion rate at large res can leave
+   geometric unfinished regions. Headgroup healthy doesn’t clear worker→collector
+   congestion — it only clears UI.
+
+**Two failure modes that can co-exist**
+- **A. Shade path too slow (proven-ish by bailout animation @ 1 FPS):** O(pixels)
+  every pulse → backlog → drop intermediates → ~1 FPS painted truth.
+- **B. Publish/completeness integrity:** undelivered / Dummy / wrong seats showing
+  as bands and “incorrect” points — may be worker backpressure, remap, or GPU
+  quality; not yet isolated.
+
+Deleting Stec helps **B’s queue-up theory** but does **not** fix **A**. If A
+dominates, Stec deletion alone won’t restore fullscreen feel.
+
+**Proposed investigation order (still discuss, then step debug)**
+1. Confirm cliff: measure escaper+colorer wall time vs pixel count at 1.0× / 1.5× /
+   2× default (bailout anim on/off).
+2. Confirm drop behavior: log dropped package count when behind at 1.5×.
+3. Only then decide: shade-path cost cut vs completion-path (Stec→channel) vs
+   both.
+
+**22.** Does the “two failure modes” split match what you’re seeing — slow paint
+even when work exists (A) *plus* wrong/incomplete bands (B)?
+
+**23.** For direction: prefer next step to be **timed audit of escaper/colorer vs
+res**, or **headed isolation** (force DirectKernel, no GPU; bailout anim off) to
+see if bands remain?
