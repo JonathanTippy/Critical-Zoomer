@@ -1,5 +1,7 @@
 # Generated files
 /target/
+# Alternate CARGO_TARGET_DIR trees (isolated agent/test builds)
+/target-*/
 /logs/
 mutants.out/
 # Ide stuff
