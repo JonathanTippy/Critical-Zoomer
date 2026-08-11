@@ -2,7 +2,7 @@
 // (docs/assistant/tracey/craftsmanship-rules.md) to the v0.0.9 workgroup code.
 // Each test names the rule it verifies.
 //
-// Seam note: WorkContext's completion buffer is a heap Vec-backed Stec
+// Seam note: WorkContext's completion buffer is a growable Vec drained LIFO to the collector channel
 // (capacity 100000). Tests that build one still use run_big for headroom.
 
 use std::time::Instant;

@@ -71,7 +71,7 @@ fn home_context_floatexp() -> WorkContext<FloatExp> {
 
 fn drain_f64(ctx: &mut WorkContext<f64>) -> usize {
     let mut n = 0;
-    while ctx.completed_points.try_pop().is_some() {
+    while ctx.completed_points.pop().is_some() {
         n += 1;
     }
     n
@@ -79,7 +79,7 @@ fn drain_f64(ctx: &mut WorkContext<f64>) -> usize {
 
 fn drain_fe(ctx: &mut WorkContext<FloatExp>) -> usize {
     let mut n = 0;
-    while ctx.completed_points.try_pop().is_some() {
+    while ctx.completed_points.pop().is_some() {
         n += 1;
     }
     n

@@ -4,9 +4,9 @@
 - **Status:** in progress
 - **Prior session:** [2026-08-11-series-approximation-contract.md](2026-08-11-series-approximation-contract.md)
 
-**Summary:** Diagnosis locked. Banding Stec-grow fix landed. Colorer: honest
-rewrite + future OG↔GPU color gear (manual). Assembly SoC + study v0.0.9
-enshrined.
+**Summary:** Diagnosis locked. Banding: Stec deleted → growable Vec → channel
+(+ undeliver on failed send); headed retest pending. Colorer: honest rewrite +
+future OG↔GPU color gear (manual). Assembly SoC + study v0.0.9 enshrined.
 
 ---
 
@@ -452,11 +452,14 @@ Banding first — investigating workgroup completion buffer on resolution grow.
 
 ### Assistant (banding fix)
 
-Root cause: on Replace enlarge, `from_stencil` reused the prior `Stec` without
-growing it. Default→1.5×/fullscreen kept a too-small completion cap → mid-shift
-`BufferFull` → unfinished bands. Fix: grow Stec to ≥ new pixel count; pin
-`enlarge_replace_grows_completion_buffer_to_screen`. Headed verify still wanted.
-Colorer parity bar recorded in `shadergroup-virtues.md`; no colorer rewrite yet.
+Root cause history: Replace enlarge kept a smaller prior Stec → mid-shift
+`BufferFull` (grow-cap alone did not clear headed bands). **2026-08-11:** `Stec`
+deleted; growable per-shift `Vec` drained LIFO into the collector channel;
+failed `try_send` → `undeliver_failed_batch`. Pins:
+`failed_channel_send_undelivers_batch`,
+`enlarge_replace_completion_vec_accepts_full_screen`. Headed verify after
+resize/fullscreen still required. Colorer parity bar recorded in
+`shadergroup-virtues.md`; no colorer rewrite yet.
 
 ### Developer
 

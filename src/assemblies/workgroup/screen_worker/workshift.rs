@@ -22,42 +22,9 @@ pub enum Step {Scredge, In, Out, Edge, Attention}
 
 pub trait Floaty: Sub<Output=Self> + Add<Output=Self> + Mul<Output=Self> + Into<f64> + PartialOrd + Finite + Gt + Abs + From<f32> + Into<f64> + Copy {}
 
-#[derive(Clone, Debug)]
-pub struct Stec<T: Copy> {
-    pub stuff: Vec<T>
-    , pub len: usize
-}
-
-impl<T: Copy> Stec<T> {
-    pub fn with_capacity(cap: usize, fill: T) -> Self {
-        let mut stuff = Vec::with_capacity(cap);
-        stuff.resize(cap, fill);
-        Self { stuff, len: 0 }
-    }
-
-    pub fn try_push(&mut self, thing:T) -> bool {
-        if self.len < self.stuff.len() {
-            self.stuff[self.len] = thing;
-            self.len+=1;
-            true
-        } else {
-            false
-        }
-    }
-    pub fn try_pop(&mut self) -> Option<T> {
-        if self.len > 0 {
-            self.len-=1;
-            Some(self.stuff[self.len])
-        } else {
-            None
-        }
-    }
-}
-
-
-/// A completion staged for the buffer. `Provisional` answers (period-0 scredge
-/// guesses) publish data but must never mark a seat delivered; only a `Final`
-/// answer may. The type makes "guess blocks truth" unrepresentable.
+/// A completion staged for the per-shift Vec. `Provisional` answers (period-0
+/// scredge guesses) publish data but must never mark a seat delivered; only a
+/// `Final` answer may. The type makes "guess blocks truth" unrepresentable.
 // r[impl cz.craft.provisional-not-delivered+1]
 #[derive(Clone, Copy, Debug)]
 pub enum Delivery<T> {
@@ -65,23 +32,21 @@ pub enum Delivery<T> {
     Final(T),
 }
 
-/// Result of attempting to stage a delivery. `#[must_use]` so backpressure
-/// (buffer full) cannot be silently dropped.
+/// Staging always succeeds into a growable Vec. Channel-full undeliver is handled
+/// at `try_send` in the worker actor (`undeliver_failed_batch`).
 // r[impl cz.craft.undeliver-on-full+1]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[must_use = "BufferFull must be handled: the seat must stay undelivered and the shift break"]
+#[must_use = "PushOutcome must be observed"]
 pub enum PushOutcome {
     Published,
-    BufferFull,
 }
 
 impl<T: Mandelbrotable> WorkContext<T> {
-    /// Atomically stage a delivery into the completion buffer and update the
-    /// seat's `delivered` flag. The two can never disagree:
-    /// - `Final` + room -> delivered = true, Published
-    /// - `Final` + full -> delivered = false, BufferFull (backpressure re-queue)
-    /// - `Provisional` + room -> delivered unchanged, Published
-    /// - `Provisional` + full -> delivered unchanged, BufferFull
+    /// Atomically stage a delivery into the per-shift completion Vec and update
+    /// the seat's `delivered` flag. The two can never disagree:
+    /// - `Final` -> delivered = true, Published
+    /// - `Provisional` -> delivered unchanged, Published
+    /// Channel-full undeliver happens after `try_send` fails (worker actor).
     // r[impl cz.craft.provisional-not-delivered+1]
     // r[impl cz.craft.undeliver-on-full+1]
     pub fn push_delivery(&mut self, delivery: Delivery<CompletedPoint<T>>, index: usize) -> PushOutcome {
@@ -89,22 +54,14 @@ impl<T: Mandelbrotable> WorkContext<T> {
             Delivery::Provisional(p) => (p, false),
             Delivery::Final(p) => (p, true),
         };
-        if self.completed_points.try_push((point, index)) {
-            if is_final {
-                self.points[index].delivered = true;
-            }
-            PushOutcome::Published
-        } else {
-            if is_final {
-                self.points[index].delivered = false;
-            }
-            PushOutcome::BufferFull
+        self.completed_points.push((point, index));
+        if is_final {
+            self.points[index].delivered = true;
         }
+        PushOutcome::Published
     }
 }
 
-
-use std::collections::*;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Motion {
     /// Zoom level changed: lead with attention (direct navigation).
@@ -138,7 +95,7 @@ pub(crate) fn classify_motion(
 #[derive(Clone, Debug)]
 pub struct WorkContext<T: Mandelbrotable> {
     pub points: Vec<Point<T>>
-    , pub completed_points: Stec<(CompletedPoint<T>, usize)>
+    , pub completed_points: Vec<(CompletedPoint<T>, usize)>
     , pub last_update: usize
     , pub index: usize
     , pub random_index: usize
@@ -912,14 +869,10 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
                 mut completed_points,
                 ..
             } = old;
-            completed_points.len = 0;
-            // Grow the completion buffer with the screen. Reusing a smaller
-            // Stec after enlarge (fullscreen / ~1.5× pixels) BufferFull-throttles
-            // mid-shift and leaves unfinished bands (`r[cz.craft.completion-cap-fits-screen+1]`).
-            let need = new_len.max(100_000);
-            if completed_points.stuff.len() < need {
-                completed_points =
-                    Stec::with_capacity(need, (CompletedPoint::Dummy {}, 0));
+            completed_points.clear();
+            // Growable staging: ensure capacity for a full-screen flood this view.
+            if completed_points.capacity() < new_len {
+                completed_points = Vec::with_capacity(new_len);
             }
             (points, random_map, old_res, completed_points)
         }
@@ -927,9 +880,7 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
             Vec::new(),
             Vec::new(),
             (0, 0),
-            // Cap at least the screen so a shallow GPU flood is not BufferFull-throttled
-            // mid-shift (old fixed 100k capped home fill well below one frame).
-            Stec::with_capacity(new_len.max(100_000), (CompletedPoint::Dummy {}, 0)),
+            Vec::with_capacity(new_len),
         ),
     };
 
@@ -1673,10 +1624,7 @@ where
 
             // r[impl cz.craft.provisional-not-delivered+1]
             // r[impl cz.craft.undeliver-on-full+1]
-            match context.push_delivery(Delivery::Final(completed_point), index) {
-                PushOutcome::Published => {}
-                PushOutcome::BufferFull => { break; }
-            }
+            let _ = context.push_delivery(Delivery::Final(completed_point), index);
 
 
             context.total_points_today += 1;
@@ -1704,10 +1652,8 @@ where
                         smallness: context.points[index].smallness_squared,
                         small_time: context.points[index].small_time,
                     };
-                    match context.push_delivery(Delivery::Provisional(provisional), index) {
-                        PushOutcome::Published => { continue; }
-                        PushOutcome::BufferFull => { break; }
-                    }
+                    let _ = context.push_delivery(Delivery::Provisional(provisional), index);
+                    continue;
                 }
                 _ => {}
             }

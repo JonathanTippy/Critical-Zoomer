@@ -173,5 +173,5 @@ control-plane ownership. They are forbidden:
    an allowed seal. Home must close on the naive GPU path with live queue
    discovery (`r[cz.craft.gpu-host-queue-discovery+1]`).
 
-Allowed (not mop): `BufferFull` → undeliver + `publish_finished_undelivered`;
+Allowed (not mop): channel-full `try_send` → `undeliver_failed_batch`;
 F32→F64 escalate or no-shader-F64 CPU fallback for that shift only.

@@ -661,7 +661,7 @@ fn f64_gear_home_fills_without_per_seat_gear_scan() {
         while !direct_ctx.points.iter().all(|p| p.delivered) {
             check_test_budget();
             workshift_with_kernel(0, 0, 0, 0, &mut direct_ctx, &DirectKernel);
-            while direct_ctx.completed_points.try_pop().is_some() {}
+            direct_ctx.completed_points.clear();
             direct_shifts += 1;
         }
 
@@ -671,7 +671,7 @@ fn f64_gear_home_fills_without_per_seat_gear_scan() {
         while !ctx.points.iter().all(|p| p.delivered) {
             check_test_budget();
             workshift(0, 0, 0, 0, &mut ctx, None);
-            while ctx.completed_points.try_pop().is_some() {}
+            ctx.completed_points.clear();
             shifts += 1;
         }
         if cfg!(debug_assertions) {
@@ -727,7 +727,7 @@ fn seahorse_pot_19_f64_promotes_scaled_f64_and_delivers() {
         while ctx.points.iter().filter(|p| p.delivered).count() < 100 {
             check_test_budget();
             workshift(16_000_000, 2, 4, 150, &mut ctx, None);
-            while ctx.completed_points.try_pop().is_some() {}
+            ctx.completed_points.clear();
             shifts += 1;
         }
     });

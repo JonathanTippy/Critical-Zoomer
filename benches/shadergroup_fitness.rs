@@ -55,7 +55,7 @@ fn fill_package(res: (u32, u32)) -> ResultsPackage<f64> {
         let mut ctx = from_stencil(home_frame(res), None).expect("home");
         while !ctx.points.iter().all(|p| p.delivered) {
             workshift_with_kernel(0, 0, 0, 0, &mut ctx, &DirectKernel);
-            while ctx.completed_points.try_pop().is_some() {}
+            while ctx.completed_points.pop().is_some() {}
         }
         let mut results = Vec::with_capacity(ctx.points.len());
         for p in &ctx.points {

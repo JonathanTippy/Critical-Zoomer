@@ -86,7 +86,7 @@ fn make_context(workshifts: u32) -> WorkContext<FloatExp> {
     let center = ((res.0 / 2) as i32, (res.1 / 2) as i32);
     WorkContext {
         points,
-        completed_points: Stec::with_capacity(100000, (CompletedPoint::Dummy {}, 0)),
+        completed_points: Vec::with_capacity(100_000),
         last_update: 0,
         index: 0,
         random_index: 0,
@@ -167,7 +167,7 @@ fn direct_kernel_preserves_scheduler_results() {
     let mut b = a.clone();
     workshift_with_kernel(0, 0, 0, 0, &mut a, &DirectKernel);
     workshift_with_kernel(0, 0, 0, 0, &mut b, &DirectKernel);
-    assert_eq!(a.completed_points.len, b.completed_points.len);
+    assert_eq!(a.completed_points.len(), b.completed_points.len());
     assert_eq!(a.points[2].iterations, b.points[2].iterations);
     assert_eq!(a.points[2].escapes, b.points[2].escapes);
     assert_eq!(a.points[2].repeats, b.points[2].repeats);
@@ -397,12 +397,12 @@ fn completion_drain_is_lifo() {
     run_big_stack_size(|| {
         let mut ctx = make_context(0);
         for i in 0..50usize {
-            assert!(ctx.completed_points.try_push((CompletedPoint::Dummy {}, i)));
+            ctx.completed_points.push((CompletedPoint::Dummy {}, i));
         }
         let drained = work_update(&mut ctx);
         let order: Vec<usize> = drained.iter().map(|(_, i)| *i).collect();
         assert_eq!(order, (0..50).rev().collect::<Vec<_>>(), "freshest work must publish first");
-        assert_eq!(ctx.completed_points.len, 0);
+        assert_eq!(ctx.completed_points.len(), 0);
     });
 }
 
@@ -459,8 +459,8 @@ fn scredge_first_only_on_shift_zero() {
         ctx.scredge_poses.push_back((3, 1));
         ctx.edge_queue.push_back(((2, 0), 0));
         shift(&mut ctx);
-        assert!(ctx.completed_points.len > 0);
-        assert_eq!(ctx.completed_points.stuff[0].1, index_from_pos(&(3, 1), ctx.res.0),
+        assert!(ctx.completed_points.len() > 0);
+        assert_eq!(ctx.completed_points[0].1, index_from_pos(&(3, 1), ctx.res.0),
             "shift 0 fallthrough must prove the motion edge first");
     });
     run_big_stack_size(|| {
@@ -469,8 +469,8 @@ fn scredge_first_only_on_shift_zero() {
         ctx.scredge_poses.push_back((3, 1));
         ctx.edge_queue.push_back(((2, 0), 0));
         shift(&mut ctx);
-        assert!(ctx.completed_points.len > 0);
-        assert_eq!(ctx.completed_points.stuff[0].1, index_from_pos(&(2, 0), ctx.res.0),
+        assert!(ctx.completed_points.len() > 0);
+        assert_eq!(ctx.completed_points[0].1, index_from_pos(&(2, 0), ctx.res.0),
             "after shift 0 scredge is demoted behind edge");
     });
 }
@@ -551,11 +551,11 @@ fn provisional_answer_never_marks_delivered() {
         let mut ctx = make_context(0);
         ctx.scredge_poses.push_back((3, 1));
         shift(&mut ctx);
-        assert!(ctx.completed_points.len > 0, "scredge publishes provisional answers");
+        assert!(ctx.completed_points.len() > 0, "scredge publishes provisional answers");
         let index = index_from_pos(&(3, 1), ctx.res.0);
         assert!(!ctx.points[index].delivered,
             "a guess must never block the truth");
-        let periods = ctx.completed_points.stuff[..ctx.completed_points.len]
+        let periods = ctx.completed_points
             .iter()
             .filter_map(|(answer, answer_index)| {
                 (*answer_index == index).then_some(match answer {
@@ -570,28 +570,34 @@ fn provisional_answer_never_marks_delivered() {
     });
 }
 
-// verifies r[cz.craft.undeliver-on-full+1]
+// verifies r[cz.craft.undeliver-on-full+1] — channel-send failure, not Stec cap
 #[test]
-fn full_buffer_undelivers_and_stops() {
+fn failed_channel_send_undelivers_batch() {
     run_big_stack_size(|| {
-        let mut ctx = make_context(1); // % 5 == 1: edge first
-        while ctx.completed_points.try_push((CompletedPoint::Dummy {}, 0)) {}
-        assert_eq!(ctx.completed_points.len, 100000);
-        ctx.edge_queue.push_back(((2, 0), 0));
-        shift(&mut ctx);
-        assert_eq!(ctx.completed_points.len, 100000, "nothing is lost");
-        assert!(!ctx.points[index_from_pos(&(2, 0), ctx.res.0)].delivered,
-            "backpressure degrades to re-queue: the point is un-delivered for a later shift");
-        // Drain one slot and confirm the re-queued seat completes later.
-        // The first completion flooded out_queue with (2,0)'s neighbors; use a
-        // fresh edge-first slot and clear out_queue so (2,0) is the lead again.
-        ctx.completed_points.len -= 1;
-        ctx.out_queue.clear();
-        ctx.workshifts = 1; // edge-first slot
-        ctx.edge_queue.push_back(((2, 0), 0));
-        shift(&mut ctx);
-        assert!(ctx.points[index_from_pos(&(2, 0), ctx.res.0)].delivered,
-            "the affected seat completes once the buffer has room");
+        let mut ctx = make_context(1);
+        let idx = index_from_pos(&(2, 0), ctx.res.0);
+        ctx.points[idx].delivered = true;
+        ctx.points[idx].escapes = true;
+        let batch = vec![(
+            CompletedPoint::Escapes {
+                escape_time: 1,
+                escape_location: (FloatExp::ZERO, FloatExp::ZERO),
+                escape_derivative: (FloatExp::ONE, FloatExp::ZERO),
+                start_location: (FloatExp::ZERO, FloatExp::ZERO),
+                smallness: FloatExp::ZERO,
+                small_time: 0,
+            },
+            idx,
+        )];
+        super::undeliver_failed_batch(&mut ctx, &batch);
+        assert!(
+            !ctx.points[idx].delivered,
+            "failed send must rewind delivered"
+        );
+        assert!(
+            ctx.out_queue.iter().any(|(p, _)| *p == (2, 0)),
+            "failed send must re-queue the finished seat"
+        );
     });
 }
 
@@ -738,7 +744,7 @@ fn replace_reuses_points_capacity_and_resets_initialized() {
 
 // r[verify cz.craft.completion-cap-fits-screen+1]
 #[test]
-fn enlarge_replace_grows_completion_buffer_to_screen() {
+fn enlarge_replace_completion_vec_accepts_full_screen() {
     run_big_stack_size(|| {
         let small = (
             ObjectivePosAndZoom {
@@ -747,41 +753,26 @@ fn enlarge_replace_grows_completion_buffer_to_screen() {
             },
             (320u32, 240u32),
         );
-        let large = (
-            small.0.clone(),
-            (640u32, 480u32), // 4× pixels
-        );
-        let small_n = (small.1 .0 * small.1 .1) as usize;
+        let large = (small.0.clone(), (640u32, 480u32));
         let large_n = (large.1 .0 * large.1 .1) as usize;
-        assert!(large_n > small_n);
 
         let prior = from_stencil::<f64>(small.clone(), None).expect("small");
-        assert!(
-            prior.completed_points.stuff.len() >= small_n,
-            "fresh shell must fit its screen"
-        );
-        let prior_cap = prior.completed_points.stuff.len();
-
         let next = from_stencil::<f64>(large, Some((prior, small.0))).expect("enlarged");
         assert!(
-            next.completed_points.stuff.len() >= large_n,
-            "enlarged Replace must grow Stec to new screen (was {prior_cap}, need ≥{large_n}, got {})",
-            next.completed_points.stuff.len()
+            next.completed_points.capacity() >= large_n,
+            "enlarged Replace must reserve room for the new screen"
         );
 
-        // One-shift flood must not BufferFull before the screen is full of publishes.
         let mut ctx = next;
-        let mut pushed = 0usize;
         for i in 0..large_n {
-            match ctx.push_delivery(Delivery::Final(CompletedPoint::Dummy {}), i) {
-                PushOutcome::Published => pushed += 1,
-                PushOutcome::BufferFull => break,
-            }
+            let _ = ctx.push_delivery(Delivery::Final(CompletedPoint::Dummy {}), i);
         }
         assert_eq!(
-            pushed, large_n,
-            "completion cap must accept one Final per seat after enlarge"
+            ctx.completed_points.len(),
+            large_n,
+            "growable completion Vec must accept one Final per seat"
         );
+        assert!(ctx.points.iter().all(|p| p.delivered));
     });
 }
 
@@ -860,7 +851,7 @@ fn attention_bout_works_seat_to_completion() {
         shift(&mut ctx);
         let index = index_from_pos(&(2, 0), ctx.res.0);
         assert!(ctx.points[index].delivered, "attention bout must finish its seat");
-        assert!(ctx.completed_points.stuff[..ctx.completed_points.len]
+        assert!(ctx.completed_points
             .iter()
             .any(|(_, i)| *i == index), "completed attention seat is published");
     });
@@ -983,15 +974,13 @@ fn mutant_kill_push_delivery_provisional_not_final() {
         assert_eq!(out2, PushOutcome::Published);
         assert!(ctx.points[idx].delivered, "final must mark delivered");
 
-        // BufferFull path: Final leaves delivered=false.
-        while ctx.completed_points.try_push((CompletedPoint::Dummy {}, 0)) {}
-        ctx.points[idx].delivered = true;
-        let blocked = ctx.push_delivery(
-            Delivery::Final(CompletedPoint::Dummy {}),
-            idx,
+        // Channel-fail path: undeliver_failed_batch rewinds Finals.
+        let batch = work_update(&mut ctx);
+        super::undeliver_failed_batch(&mut ctx, &batch);
+        assert!(
+            !ctx.points[idx].delivered,
+            "failed send must leave Final undelivered"
         );
-        assert_eq!(blocked, PushOutcome::BufferFull);
-        assert!(!ctx.points[idx].delivered);
     });
 }
 
@@ -1839,38 +1828,28 @@ fn mutant_kill_percent_completed_is_percent_scale() {
     });
 }
 
-/// Thought-killed pins: Stec LIFO/capacity and struggling_to_clear 2s gate.
+/// Thought-killed pins: LIFO completion drain and struggling_to_clear 2s gate.
 #[test]
-fn mutant_kill_stec_and_struggling_to_clear() {
-    // Capacity: push until full; len uses < not <=; pop is LIFO.
-    let mut s = Stec::with_capacity(3, 0u32);
-    assert_eq!(s.len, 0);
-    assert!(s.try_push(10));
-    assert!(s.try_push(20));
-    assert!(s.try_push(30));
-    assert!(!s.try_push(40), "full buffer must reject");
-    assert_eq!(s.len, 3);
-    assert_eq!(s.try_pop(), Some(30));
-    assert_eq!(s.try_pop(), Some(20));
-    assert_eq!(s.try_pop(), Some(10));
-    assert_eq!(s.try_pop(), None);
-    assert_eq!(s.len, 0);
-    // After pop, room reopens (len-=1 then index at len).
-    assert!(s.try_push(99));
-    assert_eq!(s.try_pop(), Some(99));
+fn mutant_kill_completion_lifo_and_struggling_to_clear() {
+    // Per-shift Vec drained LIFO (newest first) — same order Stec pop had.
+    run_big_stack_size(|| {
+        let mut ctx = make_context(0);
+        ctx.completed_points.push((CompletedPoint::Dummy {}, 1));
+        ctx.completed_points.push((CompletedPoint::Dummy {}, 2));
+        ctx.completed_points.push((CompletedPoint::Dummy {}, 3));
+        let drained = work_update(&mut ctx);
+        assert_eq!(drained.iter().map(|(_, i)| *i).collect::<Vec<_>>(), vec![3, 2, 1]);
+        assert!(ctx.completed_points.is_empty());
+    });
 
     run_big_stack_size(|| {
         let ctx = make_context(0);
-        // remaining==0 never struggles.
         assert!(!ctx.struggling_to_clear_pub(0, 100.0));
-        // pps below 1.0 gate.
         assert!(!ctx.struggling_to_clear_pub(100, 0.99));
         assert!(!ctx.struggling_to_clear_pub(100, 0.0));
-        // Exactly 2.0s is not >, so not struggling.
         assert!(!ctx.struggling_to_clear_pub(200, 100.0)); // 2.0s
         assert!(ctx.struggling_to_clear_pub(201, 100.0)); // >2.0s
         assert!(ctx.struggling_to_clear_pub(100, 1.0)); // 100s
-        // /→* or >→>= flips thresholds.
         assert_ne!(ctx.struggling_to_clear_pub(200, 100.0), true);
         assert_ne!(ctx.struggling_to_clear_pub(0, 1e9), true);
     });

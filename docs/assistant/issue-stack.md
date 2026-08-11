@@ -49,11 +49,11 @@ Developer acceptance test failed on the tile machine. Most items were tile-era i
   Past ~1.5× `DEFAULT_WINDOW_RES` pixel count the app goes pear-shaped:
   (A) **shadergroup too slow** — colorer problem child (`shadergroup_fitness`);
   any colorer rewrite must be honest parity + tests (`shadergroup-virtues.md`).
-  (B) **workgroup unfinished bands** — root cause: `from_stencil` reuse kept a
-  **smaller prior Stec** after enlarge → mid-shift `BufferFull`. Fix: grow
-  completion cap to ≥ new pixel count (`r[cz.craft.completion-cap-fits-screen+1]`,
-  pin `enlarge_replace_grows_completion_buffer_to_screen`). Stec→direct-to-channel
-  still a later design lean. Headed verify bands after resize/fullscreen.
+  (B) **workgroup unfinished bands** — Stec fixed-cap staging deleted (2026-08-11):
+  growable per-shift `Vec` → collector channel; failed `try_send` undelivers the
+  batch (`undeliver_failed_batch`). Pins: `failed_channel_send_undelivers_batch`,
+  `enlarge_replace_completion_vec_accepts_full_screen`. **Headed re-test** after
+  resize/fullscreen still required (prior Stec-grow-only fix was insufficient).
 - **Out-filament highlighting absent where verification is difficult.** After period correctness fixes, cloudy false positives are gone, but difficult areas can remain period 0 (unknown); unknown periods correctly create no out-filaments, so highlighting is absent there. Do not fix by publishing guessed periods. The resolution is stronger verification/continuation so difficult interior points eventually get verified periods.
 
 **Charter note (2026-08-11 interview):** shadergroup/headgroup HUD — extract
@@ -109,10 +109,13 @@ Tile-era code worth porting, in suggested order. Delete each entry when ported.
 Not bugs; provisional mechanisms that shipped because they beat nothing. None is load-bearing.
 
 - **Delete token accounting** in the screen worker (`workshift.rs` / `screen_worker/mod.rs`): the budget check in the shift loop is commented out, wall-clock is the only law; the token fields and `spent_tokens_today` recomputation are dead code.
-- **`Stec` → `Vec`** for the completion buffer: storage is now a heap `Vec` with a fixed capacity (still 100k, still LIFO pop-from-end). The old inline array form is gone because worker-side shell install could not put two ~8 MB arrays on a default stack. Remaining cleanup: drop the fixed ceiling if a growable policy is preferred.
+- **`Stec` removed (2026-08-11).** Completion staging is a growable per-shift
+  `Vec` drained LIFO into the collector channel. Channel-full →
+  `undeliver_failed_batch` (no silent drop). Fixed-cap Stec / double-queue
+  staging deleted per interview.
 - **Delivered-aware attention sampling**: done as the attention square-ring spiral (`cz.craft.attention-spiral+1`).
 - **Incremental WorkContext construction**: done as stencil-only Replace + lazy `ensure_started` (see `cz.craft.stencil-only-replace+2`). Chunked amortization beyond first-start laziness remains optional if install-time shell work ever shows up in play.
-- **Completion staging buffer vs channel**: possibly redundant (batching + LIFO order are its only distinct contributions); keep only if demonstrably earning it.
+- **Completion staging vs channel**: staging Vec is only for per-shift batching + LIFO; backpressure is the channel.
 
 ## Done (recent)
 

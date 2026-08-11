@@ -122,16 +122,17 @@ z-products for arbitrary z; smallness/small_time collected in the same call.
 
 r[cz.craft.lifo-drain+1]
 
-**Normative summary.** The completion buffer drains newest-first (pop from end), so during a
+**Normative summary.** The per-shift completion Vec drains newest-first (pop from end), so during a
 pivot the freshest work publishes first.
 
-**Code site.** `src/assemblies/workgroup/screen_worker/mod.rs` — `work_update` drains via
-`try_pop` on the `Stec`.
+**Code site.** `src/assemblies/workgroup/screen_worker/mod.rs` — `work_update` pops the
+growable `completed_points` Vec.
 
 **Acceptance criteria.**
 - [ ] Property: drain order is exactly reverse push order.
 
-**Test.** `completion_drain_is_lifo` (craftsmanship_tests.rs).
+**Test.** `completion_drain_is_lifo` / `mutant_kill_completion_lifo_and_struggling_to_clear`
+(craftsmanship_tests.rs).
 
 r[cz.craft.edge-push-front+1]
 
@@ -304,21 +305,21 @@ of scredge work on a slow seat: provisional answers exist, `delivered` is still 
 
 r[cz.craft.undeliver-on-full+1]
 
-**Normative summary.** When the completion buffer is full, the seat is marked undelivered and
-the shift breaks: backpressure degrades to re-queue, never to a dropped answer.
+**Normative summary.** Completions stage into a growable per-shift Vec (no fixed
+ceiling). When `try_send` of the `WorkUpdate` to the collector fails (channel
+full / blocked), `undeliver_failed_batch` clears `delivered` on Finals in that
+batch and re-queues them — never a silently dropped answer. Senders never block.
 
-**Code site.** `workshift.rs` — `WorkContext::push_delivery` (the only method that touches
-`delivered`), returning `#[must_use] PushOutcome`; the `BufferFull` arm breaks the shift.
+**Code site.** `workshift.rs` — `push_delivery`; `screen_worker/mod.rs` —
+`undeliver_failed_batch` on `SendOutcome::{Blocked,Timeout,Closed}`.
 
 **Acceptance criteria.**
-- [ ] Full-buffer simulation: no completed point is lost; affected seats complete on a later
-  shift.
-- [ ] The buffer slot and `delivered` flag are updated atomically — now type-enforced:
-  `push_delivery` owns both, and `#[must_use]` on `PushOutcome` makes dropped backpressure a
-  compile error.
+- [ ] Failed send: Finals in the batch are undelivered and re-queued; later
+  shifts can republish.
+- [ ] `push_delivery` still owns buffer slot + `delivered` atomically for stage.
 
-**Test.** `full_buffer_undelivers_and_stops` (craftsmanship_tests.rs) — buffer pinned at
-100000, completing seat flips back to undelivered, nothing lost.
+**Test.** `failed_channel_send_undelivers_batch`,
+`mutant_kill_push_delivery_provisional_not_final` (craftsmanship_tests.rs).
 
 r[cz.craft.clamped-remap-smear+1]
 
@@ -541,8 +542,8 @@ queue discovery as CPU (`queue_incomplete_neighbors`,
 fill is only a cold-start / empty-queue fallback. **Forbidden:** skipping queue
 updates for PPS (including “bulk flood” shortcuts); treating linear undelivered
 scan as the steady fill authority; any ≥N% CPU mop / residual phase / seeded
-fake `out_queue` to hide Dummy holes. BufferFull orphan republish
-(`publish_finished_undelivered`) remains undeliver-on-full honesty, not a mop.
+fake `out_queue` to hide Dummy holes. Channel-full undeliver
+(`undeliver_failed_batch`) remains undeliver-on-full honesty, not a mop.
 Precision escalate to CPU when shader F64 is unavailable for a collapsed F32
 view is allowed for that shift only.
 
@@ -597,18 +598,16 @@ state; `ViewHud.packages_dropped`.
 
 r[cz.craft.completion-cap-fits-screen+1]
 
-**Normative summary.** The completion staging buffer (`Stec`) capacity is at
-least the live screen pixel count after every shell install — including
-Replace that reuses a prior context. Growing the window/fullscreen must grow
-the buffer; keeping a smaller prior cap causes mid-shift `BufferFull` and
-unfinished banding.
+**Normative summary.** Per-shift completion staging is a growable `Vec` (Stec
+removed). On Replace enlarge, capacity is at least the new pixel count so a
+full-screen flood never needs a fixed ceiling. Channel backpressure is the only
+publish throttle (`undeliver-on-full` at send).
 
 **Code site.** `workshift.rs` — `from_stencil` (fresh and reuse arms).
 
 **Acceptance criteria.**
-- [ ] Fresh shell: `completed_points.stuff.len() >= res.0 * res.1`.
 - [ ] Enlarge via `from_stencil(..., Some(previous))`: capacity ≥ new pixel count;
-  one Final per seat can publish without `BufferFull`.
+  one Final per seat can stage.
 
-**Test.** `enlarge_replace_grows_completion_buffer_to_screen`
+**Test.** `enlarge_replace_completion_vec_accepts_full_screen`
 (craftsmanship_tests).

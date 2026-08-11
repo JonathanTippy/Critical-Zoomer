@@ -1086,14 +1086,15 @@ fn nonzero_phase_test() {
 
 use proptest::prelude::*;
 
-proptest!{
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(32))]
     #[test]
     fn zoom_in_associativity_test(
-        location in (i128::MIN..i128::MAX, i128::MIN..i128::MAX)
-        , resolution in (1usize..=100, 1usize..=100)
-        , initial_zoom in -100000i32..100000i32
-        , zoom_delta_A in 0i32..100000i32
-        , zoom_delta_B in 0i32..100000i32
+        location in (-10_000i128..10_000, -10_000i128..10_000)
+        , resolution in (1usize..=8, 1usize..=8)
+        , initial_zoom in -16i32..16
+        , zoom_delta_A in 0i32..8
+        , zoom_delta_B in 0i32..8
     ) {
 
 

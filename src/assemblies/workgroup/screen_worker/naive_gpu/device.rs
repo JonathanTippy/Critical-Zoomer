@@ -47,7 +47,8 @@ pub struct NaiveGpuContext {
     /// Unfinished seat indices carried across workshifts (on-device resume).
     pub(crate) carry_indices: std::cell::RefCell<Vec<usize>>,
     pub(crate) carry_n: std::cell::Cell<u32>,
-    /// Prior shift hit Stec BufferFull after apply_finish — republish orphans first.
+    /// Prior shift left finished-but-undelivered seats (channel-send fail) —
+    /// republish orphans first.
     pub(crate) orphan_publish: std::cell::Cell<bool>,
 }
 

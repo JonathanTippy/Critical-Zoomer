@@ -6,7 +6,7 @@ use crate::assemblies::workgroup::reference_worker::{
     select_reference_request, PublishedReference, ReferenceRequest,
 };
 use crate::delta_gear::ComputeGear;
-use crate::utils::ObjectivePosAndZoom;
+use crate::utils::{ObjectivePosAndZoom, pos_from_index};
 //use crate::actor::work_collector::*;
 use crate::assemblies::workgroup::work_controller::*;
 use crate::assemblies::workgroup::screen_worker::workshift::*;
@@ -281,11 +281,24 @@ async fn internal_behavior<A: SteadyActor>(
                             let old_zoom = live.frame_info.0.clone();
                             let iters = live.context.total_iterations_today;
                             let U = work_update(&mut live.context);
-                            if U.len() > 0 {
-                                actor.try_send(
-                                    &mut updates_out,
-                                    telemetry_update(None, U, Some(&mut live.context), iters as u64),
+                            if !U.is_empty() {
+                                let update = telemetry_update(
+                                    None,
+                                    U,
+                                    Some(&mut live.context),
+                                    iters as u64,
                                 );
+                                match actor.try_send(&mut updates_out, update) {
+                                    SendOutcome::Success => {}
+                                    SendOutcome::Blocked(u)
+                                    | SendOutcome::Timeout(u)
+                                    | SendOutcome::Closed(u) => {
+                                        undeliver_failed_batch(
+                                            &mut live.context,
+                                            &u.completed_points,
+                                        );
+                                    }
+                                }
                             }
                             Some((live.context, old_zoom))
                         }
@@ -356,10 +369,17 @@ async fn internal_behavior<A: SteadyActor>(
                 if !c.is_empty() || iters_delta > 0 {
                     // r[impl cz.craft.emergent-cadence+1]
                     // r[impl cz.depth.gear-hud+2]
-                    actor.try_send(
-                        &mut updates_out,
-                        telemetry_update(None, c, Some(&mut live.context), iters_delta),
-                    );
+                    // r[impl cz.craft.undeliver-on-full+1]
+                    let update =
+                        telemetry_update(None, c, Some(&mut live.context), iters_delta);
+                    match actor.try_send(&mut updates_out, update) {
+                        SendOutcome::Success => {}
+                        SendOutcome::Blocked(u)
+                        | SendOutcome::Timeout(u)
+                        | SendOutcome::Closed(u) => {
+                            undeliver_failed_batch(&mut live.context, &u.completed_points);
+                        }
+                    }
                 }
             }
         }
@@ -476,12 +496,43 @@ pub fn classify_reference_status<T: Mandelbrotable>(
 }
 
 // r[impl cz.craft.lifo-drain+1]
-fn work_update<T: Mandelbrotable>(ctx: &mut WorkContext<T>) -> Vec<(CompletedPoint<T>, usize)> {
-    let mut returned = vec!();
-    for _ in 0..ctx.completed_points.len {
-        returned.push(ctx.completed_points.try_pop().unwrap())
+/// Drain per-shift completions LIFO (newest first) for the collector channel.
+pub(crate) fn work_update<T: Mandelbrotable>(
+    ctx: &mut WorkContext<T>,
+) -> Vec<(CompletedPoint<T>, usize)> {
+    let mut returned = Vec::with_capacity(ctx.completed_points.len());
+    while let Some(x) = ctx.completed_points.pop() {
+        returned.push(x);
     }
     returned
+}
+
+/// Channel-full / failed send: seats must not stay "delivered" without a
+/// published snapshot. Clear `delivered` and re-queue finished seats.
+// r[impl cz.craft.undeliver-on-full+1]
+pub(crate) fn undeliver_failed_batch<T: Mandelbrotable>(
+    ctx: &mut WorkContext<T>,
+    batch: &[(CompletedPoint<T>, usize)],
+) {
+    for (answer, index) in batch {
+        if *index >= ctx.points.len() {
+            continue;
+        }
+        // Provisionals never set delivered; finals must be rewound.
+        if ctx.points[*index].delivered {
+            ctx.points[*index].delivered = false;
+            let pos = pos_from_index(*index, ctx.res.0);
+            match answer {
+                CompletedPoint::Repeats { .. } => {
+                    ctx.in_queue.push_front((pos, 0));
+                }
+                CompletedPoint::Escapes { .. } => {
+                    ctx.out_queue.push_front((pos, 0));
+                }
+                CompletedPoint::Dummy {} => {}
+            }
+        }
+    }
 }
 
 #[inline]
@@ -537,12 +588,12 @@ mod mutant_kill {
 
     #[test]
     fn mutant_kill_relative_location_from_index_mod_div() {
-        assert_eq!(relative_location_from_index((40, 71), 0), (0, 0));
-        assert_eq!(relative_location_from_index((40, 71), 39), (39, 0));
-        assert_eq!(relative_location_from_index((40, 71), 40), (0, 1));
-        assert_eq!(relative_location_from_index((40, 71), 41), (1, 1));
-        assert_ne!(relative_location_from_index((40, 71), 41), (0, 41));
-        assert_ne!(relative_location_from_index((40, 71), 41), (41, 0));
+        assert_eq!(relative_location_from_index(TEST_SCREEN_RES, 0), (0, 0));
+        assert_eq!(relative_location_from_index(TEST_SCREEN_RES, TEST_SCREEN_RES.0 as usize - 1), ((TEST_SCREEN_RES.0 - 1) as i32, 0));
+        assert_eq!(relative_location_from_index(TEST_SCREEN_RES, TEST_SCREEN_RES.0 as usize), (0, 1));
+        assert_eq!(relative_location_from_index(TEST_SCREEN_RES, TEST_SCREEN_RES.0 as usize + 1), (1, 1));
+        assert_ne!(relative_location_from_index(TEST_SCREEN_RES, TEST_SCREEN_RES.0 as usize + 1), (0, (TEST_SCREEN_RES.0 as i32) + 1));
+        assert_ne!(relative_location_from_index(TEST_SCREEN_RES, TEST_SCREEN_RES.0 as usize + 1), ((TEST_SCREEN_RES.0 as i32) + 1, 0));
     }
 
     #[test]

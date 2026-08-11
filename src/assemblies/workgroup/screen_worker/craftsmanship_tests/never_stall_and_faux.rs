@@ -15,7 +15,7 @@ fn seat_iter_sum(ctx: &WorkContext<FloatExp>) -> u64 {
 fn shift_made_progress(ctx: &WorkContext<FloatExp>, before_sum: u64, before_completed: usize) -> bool {
     ctx.total_iterations_today > 0
         || seat_iter_sum(ctx) != before_sum
-        || ctx.completed_points.len > before_completed
+        || ctx.completed_points.len() > before_completed
         || ctx.total_points_today > 0
 }
 
@@ -49,7 +49,7 @@ fn unfinished_synthetic_workshift_never_stalls() {
                 break;
             }
             let before = seat_iter_sum(&ctx);
-            let before_done = ctx.completed_points.len;
+            let before_done = ctx.completed_points.len();
             perturb_workshift(0, 0, 0, 0, &mut ctx);
             if shift_made_progress(&ctx, before, before_done) {
                 zero_streak = 0;
@@ -95,7 +95,7 @@ fn unfinished_home_workshift_never_stalls() {
         while frame_unfinished(&ctx) {
             check_test_budget();
             let before = seat_iter_sum(&ctx);
-            let before_done = ctx.completed_points.len;
+            let before_done = ctx.completed_points.len();
             perturb_workshift(0, 0, 0, 0, &mut ctx);
             if shift_made_progress(&ctx, before, before_done) {
                 zero_streak = 0;
@@ -152,7 +152,7 @@ fn reference_install_mid_fill_keeps_shift_progress() {
                 installed = true;
             }
             let before = seat_iter_sum(&ctx);
-            let before_done = ctx.completed_points.len;
+            let before_done = ctx.completed_points.len();
             perturb_workshift(0, 0, 0, 0, &mut ctx);
             if shift_made_progress(&ctx, before, before_done) {
                 zero_streak = 0;
@@ -627,7 +627,7 @@ fn deep_view_gear_floor_stays_scaled_after_fill() {
         while !ctx.points.iter().all(|p| p.delivered) {
             check_test_budget();
             workshift(16_000_000, 2, 4, 150, &mut ctx, None);
-            while ctx.completed_points.try_pop().is_some() {}
+            ctx.completed_points.clear();
         }
         assert!(
             ctx.points.iter().filter(|p| p.delivered).count() > res.0 as usize,
@@ -636,7 +636,7 @@ fn deep_view_gear_floor_stays_scaled_after_fill() {
         // Extra idle shifts used to snap HUD back to F64 via refresh_active_gear.
         for _ in 0..5 {
             workshift(16_000_000, 2, 4, 150, &mut ctx, None);
-            while ctx.completed_points.try_pop().is_some() {}
+            ctx.completed_points.clear();
         }
         assert_ne!(
             ctx.active_gear,
@@ -705,7 +705,7 @@ fn pin_exterior_not_marked_in_at_zoom_52() {
         {
             check_test_budget();
             workshift(16_000_000, 2, 4, 150, &mut ctx, None);
-            while ctx.completed_points.try_pop().is_some() {}
+            ctx.completed_points.clear();
         }
         let mut escapes = 0usize;
         let mut repeats = 0usize;
@@ -825,7 +825,7 @@ fn pin_not_blocky_delta_c_at_zoom_49() {
         {
             check_test_budget();
             workshift(16_000_000, 2, 4, 150, &mut ctx, None);
-            while ctx.completed_points.try_pop().is_some() {}
+            ctx.completed_points.clear();
         }
         let mut membership = std::collections::HashSet::new();
         let mut escape_z_bits = std::collections::HashSet::new();

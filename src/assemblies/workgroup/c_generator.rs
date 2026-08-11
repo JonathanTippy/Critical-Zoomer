@@ -274,7 +274,7 @@ mod tests {
         for _ in 0..10_000 {
             let _ = admit_generator::<f64>(&loc, 12, res, None, &view_center);
         }
-        assert!(start.elapsed() < std::time::Duration::from_millis(500));
+        assert!(start.elapsed() < std::time::Duration::from_millis(100));
     }
 
     #[test]

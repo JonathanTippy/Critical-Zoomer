@@ -3,7 +3,8 @@
 
 pub const DEFAULT_WINDOW_RES:(u32, u32) = (854, 480);
 /// Standard lib-test screen size. Live app keeps `DEFAULT_WINDOW_RES`.
-pub const TEST_SCREEN_RES: (u32, u32) = (40, 71);
+/// Kept small so craftsmanship fills finish in ≪1s wall (~100ms quiet machine).
+pub const TEST_SCREEN_RES: (u32, u32) = (16, 17);
 pub const HOME_POSITION:(i32, i32, i32) = (-2, -2, -2);
 pub const MOVE_SPEED_PPS: i32 = 200;
 pub const MOVE_SPEED_IN_SCREENS: f32 = 0.42;
@@ -24,8 +25,9 @@ mod mutant_kill {
         assert_ne!(HOME_POSITION.2, 2);
         assert!(HOME_POSITION.0 < 0 && HOME_POSITION.1 < 0 && HOME_POSITION.2 < 0);
         assert_eq!(PIXELS_PER_UNIT_POT, 9);
-        assert_eq!(TEST_SCREEN_RES, (40, 71));
+        assert_eq!(TEST_SCREEN_RES, (16, 17));
         assert_ne!(TEST_SCREEN_RES, DEFAULT_WINDOW_RES);
+        assert_eq!(TEST_SCREEN_RES.1 % 2, 1); // odd height for real-axis craft pins
         assert!(MOVE_SPEED_PPS > 0);
         assert!(SCROLL_SPEED > 0.0);
         // Pan/scroll rates — delete / *→/ / sign flips change feel and break inputs.

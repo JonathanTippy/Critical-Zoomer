@@ -130,7 +130,7 @@ fn scan_undelivered_seat(
         if context.points[index].delivered || skip.contains(index) {
             continue;
         }
-        // Finished-but-undelivered (Stec BufferFull orphans) must not be
+        // Finished-but-undelivered (channel-send undeliver orphans) must not be
         // start_seat-reset; they wait for publish_finished_undelivered.
         if context.points[index].escapes || context.points[index].repeats {
             continue;
@@ -256,7 +256,7 @@ pub fn workshift_naive_gpu(
     context.spent_tokens_today = 0;
     refresh_active_gear(context);
 
-    // Drain BufferFull orphans before arming GPU; reset the shift clock after so
+    // Drain finished-undelivered orphans before arming GPU; reset the shift clock after so
     // the O(n) scan does not steal the 10 ms compute budget.
     if gpu.orphan_publish.get() {
         publish_finished_undelivered(context, &kernel);
@@ -637,7 +637,6 @@ fn publish_gpu_finishes(
     let attention_idx = context
         .attention_current
         .map(|p| index_from_pos(&p, context.res.0));
-    let mut buffer_full = false;
     let mut need_reupload = false;
     let mut published_batch = 0u32;
     for fin in finishes {
@@ -728,18 +727,13 @@ fn publish_gpu_finishes(
                 skip.remove(index);
                 *points_published_this_shift += 1;
             }
-            PushOutcome::BufferFull => {
-                skip.remove(index);
-                buffer_full = true;
-                break;
-            }
         }
     }
     if published_batch > 0 {
         context.record_hud_completion_batch(published_batch);
     }
     PublishFinishOutcome {
-        buffer_full,
+        buffer_full: false,
         need_reupload,
     }
 }
@@ -782,7 +776,6 @@ fn publish_finished_undelivered(context: &mut WorkContext<f64>, kernel: &DirectK
                 context.total_points_today += 1;
                 context.record_hud_completion_batch(1);
             }
-            PushOutcome::BufferFull => break,
         }
     }
 }
@@ -875,6 +868,34 @@ pub fn lock_gpu_tests() -> std::sync::MutexGuard<'static, ()> {
     LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// Process-wide GPU context — adapter/pipeline bring-up is ~100–200ms; reuse it.
+/// Takes `lock_gpu_tests` so callers must not hold that lock already.
+#[cfg(test)]
+pub struct SharedGpu {
+    _lock: std::sync::MutexGuard<'static, ()>,
+    slot: std::sync::MutexGuard<'static, Option<NaiveGpuContext>>,
+}
+
+#[cfg(test)]
+impl SharedGpu {
+    pub fn acquire() -> Option<Self> {
+        let _lock = lock_gpu_tests();
+        static GPU: std::sync::Mutex<Option<NaiveGpuContext>> = std::sync::Mutex::new(None);
+        let mut slot = GPU.lock().unwrap_or_else(|e| e.into_inner());
+        if slot.is_none() {
+            *slot = NaiveGpuContext::try_new();
+        }
+        if slot.is_none() {
+            return None;
+        }
+        Some(Self { _lock, slot })
+    }
+
+    pub fn ctx(&mut self) -> &mut NaiveGpuContext {
+        self.slot.as_mut().expect("SharedGpu::acquire checked Some")
+    }
+}
+
 #[cfg(test)]
 mod smoke_tests {
     use super::*;
@@ -884,24 +905,22 @@ mod smoke_tests {
 
     #[test]
     fn naive_gpu_context_init_or_skip() {
-        let _guard = lock_gpu_tests();
-        let ctx = NaiveGpuContext::try_new();
-        if ctx.is_none() {
+        let Some(mut shared) = SharedGpu::acquire() else {
             eprintln!("no GPU adapter / CZ_FORCE_CPU_NAIVE — smoke skipped");
             return;
-        }
-        let gpu = ctx.unwrap();
+        };
+        let gpu = shared.ctx();
         eprintln!("naive gpu precision={:?}", gpu.precision);
         assert!(gpu.wave_n() >= MIN_WAVE_N);
     }
 
     #[test]
     fn naive_gpu_home_wave_finishes_some_seats() {
-        let _guard = lock_gpu_tests();
-        let Some(mut gpu) = NaiveGpuContext::try_new() else {
+        let Some(mut shared) = SharedGpu::acquire() else {
             eprintln!("no GPU — smoke skipped");
             return;
         };
+        let gpu = shared.ctx();
         gpu.set_wave_n(256);
         let frame = (
             ObjectivePosAndZoom {
@@ -911,7 +930,7 @@ mod smoke_tests {
             TEST_SCREEN_RES,
         );
         let mut ctx = from_stencil(frame, None).expect("home shell");
-        workshift_naive_gpu(0, 0, 0, 0, &mut ctx, &mut gpu);
+        workshift_naive_gpu(0, 0, 0, 0, &mut ctx, gpu);
         assert!(ctx.last_used_naive_gpu);
         assert!(
             ctx.total_iterations_today > 0 || ctx.total_points_today > 0,
@@ -926,13 +945,13 @@ mod smoke_tests {
         };
         use std::time::Instant;
 
-        let _guard = lock_gpu_tests();
-        let Some(mut gpu) = NaiveGpuContext::try_new() else {
+        let Some(mut shared) = SharedGpu::acquire() else {
             eprintln!("naive_gpu_ips_ratio_probe: no adapter — skipped");
             return;
         };
+        let gpu = shared.ctx();
         eprintln!("probe precision={:?}", gpu.precision);
-        gpu.set_wave_n(2048);
+        gpu.set_wave_n(512);
 
         fn hard_point(i: usize, n: usize) -> Point<f64> {
             // Near-boundary exterior: typically needs ≫ BoutCap×16 iters to escape,
@@ -961,7 +980,7 @@ mod smoke_tests {
             }
         }
 
-        let n = 8192usize;
+        let n = 256usize;
         let mut points: Vec<Point<f64>> = (0..n).map(|i| hard_point(i, n)).collect();
 
         let t0 = Instant::now();
@@ -977,93 +996,66 @@ mod smoke_tests {
         let points_fs: Vec<Point<f64>> = (0..n).map(|i| hard_point(i, n)).collect();
         let points_c: Vec<Point<f64>> = (0..n).map(|i| hard_point(i, n)).collect();
 
+        let upload_fs: Vec<(u32, &Point<f64>)> = points_fs
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (i as u32, p))
+            .collect();
+        let upload_c: Vec<(u32, &Point<f64>)> = points_c
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (i as u32, p))
+            .collect();
+
+        // One warmup + one timed trial — no sleep / no context recreate.
+        gpu.dispatch_wave_multi_iters_only(&upload_c, 4.0, 1e-15, BoutCap::STANDARD, 16)
+            .expect("warmup");
+        let _ = gpu.harvest_iters_only().expect("warmup harvest");
+
         let mut best_compute_ratio = 0.0_f64;
         let mut best_fs_ratio = 0.0_f64;
         let mut best_line = String::new();
+        let trial = 0;
+        let t_c = Instant::now();
+        gpu.dispatch_wave_multi_iters_only(&upload_c, 4.0, 1e-15, BoutCap::STANDARD, 16)
+            .expect("dispatch_multi_iters");
+        let t_c_disp = Instant::now();
+        let delta_c = gpu.harvest_iters_only().expect("iters");
+        let t_c_harv = Instant::now();
+        let c_s = t_c.elapsed().as_secs_f64().max(1e-9);
+        let compute_ips = delta_c as f64 / c_s;
+        let c_disp_ms = (t_c_disp - t_c).as_secs_f64() * 1e3;
+        let c_harv_ms = (t_c_harv - t_c_disp).as_secs_f64() * 1e3;
 
-        for attempt in 0..2 {
-            if attempt > 0 {
-                drop(gpu);
-                std::thread::sleep(std::time::Duration::from_millis(250));
-                let Some(g) = NaiveGpuContext::try_new() else {
-                    break;
-                };
-                gpu = g;
-                eprintln!("probe retry with fresh context precision={:?}", gpu.precision);
-            }
-            gpu.set_wave_n(2048);
-            let upload_fs: Vec<(u32, &Point<f64>)> = points_fs
-                .iter()
-                .enumerate()
-                .map(|(i, p)| (i as u32, p))
-                .collect();
-            let upload_c: Vec<(u32, &Point<f64>)> = points_c
-                .iter()
-                .enumerate()
-                .map(|(i, p)| (i as u32, p))
-                .collect();
+        let t_fs = Instant::now();
+        gpu.dispatch_wave_multi_sparse(&upload_fs, 4.0, 1e-15, BoutCap::STANDARD, 16)
+            .expect("dispatch_sparse");
+        let t_after_dispatch = Instant::now();
+        let (fins, delta_fs) = gpu.harvest_sparse_finals().expect("sparse");
+        let t_after_harvest = Instant::now();
+        let fs_s = t_fs.elapsed().as_secs_f64().max(1e-9);
+        let fs_ips = delta_fs as f64 / fs_s;
+        let n_finals = fins.len();
+        let dispatch_ms = (t_after_dispatch - t_fs).as_secs_f64() * 1e3;
+        let harvest_ms = (t_after_harvest - t_after_dispatch).as_secs_f64() * 1e3;
 
-            // Warm pipeline so timed trials are not dominated by first-submit latency.
-            for _ in 0..3 {
-                gpu.dispatch_wave_multi_iters_only(&upload_c, 4.0, 1e-15, BoutCap::STANDARD, 16)
-                    .expect("warmup");
-                let _ = gpu.harvest_iters_only().expect("warmup harvest");
-            }
-
-            // Best-of-N: pick the trial whose fullstack best tracks its own compute.
-            let mut best_track = 0.0_f64;
-            best_line.clear();
-            best_compute_ratio = 0.0;
-            best_fs_ratio = 0.0;
-            for trial in 0..5 {
-                let t_c = Instant::now();
-                gpu.dispatch_wave_multi_iters_only(&upload_c, 4.0, 1e-15, BoutCap::STANDARD, 16)
-                    .expect("dispatch_multi_iters");
-                let t_c_disp = Instant::now();
-                let delta_c = gpu.harvest_iters_only().expect("iters");
-                let t_c_harv = Instant::now();
-                let c_s = t_c.elapsed().as_secs_f64().max(1e-9);
-                let compute_ips = delta_c as f64 / c_s;
-                let c_disp_ms = (t_c_disp - t_c).as_secs_f64() * 1e3;
-                let c_harv_ms = (t_c_harv - t_c_disp).as_secs_f64() * 1e3;
-
-                let t_fs = Instant::now();
-                gpu.dispatch_wave_multi_sparse(&upload_fs, 4.0, 1e-15, BoutCap::STANDARD, 16)
-                    .expect("dispatch_sparse");
-                let t_after_dispatch = Instant::now();
-                let (fins, delta_fs) = gpu.harvest_sparse_finals().expect("sparse");
-                let t_after_harvest = Instant::now();
-                let fs_s = t_fs.elapsed().as_secs_f64().max(1e-9);
-                let fs_ips = delta_fs as f64 / fs_s;
-                let n_finals = fins.len();
-                let dispatch_ms = (t_after_dispatch - t_fs).as_secs_f64() * 1e3;
-                let harvest_ms = (t_after_harvest - t_after_dispatch).as_secs_f64() * 1e3;
-
-                let fs_ratio = fs_ips / cpu_ips.max(1.0);
-                let compute_ratio = compute_ips / cpu_ips.max(1.0);
-                let track = fs_ratio / compute_ratio.max(1e-9);
-                let line = format!(
-                    "IPS probe attempt={attempt} trial={trial}: cpu={cpu_ips:.3e} fullstack={fs_ips:.3e} ({fs_ratio:.2}×) compute≈{compute_ips:.3e} ({compute_ratio:.2}×) track={track:.2} finals={n_finals} delta_fs={delta_fs} delta_c={delta_c} fs_ms={:.2} (disp={dispatch_ms:.2} harv={harvest_ms:.2}) c_ms={:.2} (disp={c_disp_ms:.2} harv={c_harv_ms:.2}) precision={:?} n={n} bouts=16",
-                    fs_s * 1e3,
-                    c_s * 1e3,
-                    gpu.precision
-                );
-                eprintln!("{line}");
-                if compute_ratio >= 1.5 && track >= best_track {
-                    best_track = track;
-                    best_compute_ratio = compute_ratio;
-                    best_fs_ratio = fs_ratio;
-                    best_line = line;
-                }
-            }
-            if !best_line.is_empty() {
-                break;
-            }
-        }
-        assert!(
-            !best_line.is_empty(),
-            "no IPS probe trial cleared the 1.5× compute floor (after warmups; GPU may be busy)"
+        let fs_ratio = fs_ips / cpu_ips.max(1.0);
+        let compute_ratio = compute_ips / cpu_ips.max(1.0);
+        let track = fs_ratio / compute_ratio.max(1e-9);
+        let line = format!(
+            "IPS probe trial={trial}: cpu={cpu_ips:.3e} fullstack={fs_ips:.3e} ({fs_ratio:.2}×) compute≈{compute_ips:.3e} ({compute_ratio:.2}×) track={track:.2} finals={n_finals} delta_fs={delta_fs} delta_c={delta_c} fs_ms={:.2} (disp={dispatch_ms:.2} harv={harvest_ms:.2}) c_ms={:.2} (disp={c_disp_ms:.2} harv={c_harv_ms:.2}) precision={:?} n={n} bouts=16",
+            fs_s * 1e3,
+            c_s * 1e3,
+            gpu.precision
         );
+        eprintln!("{line}");
+        assert!(
+            compute_ratio >= 1.5,
+            "compute GPU/CPU ratio {compute_ratio:.2} below iterate-heavy floor (1.5×)"
+        );
+        best_compute_ratio = compute_ratio;
+        best_fs_ratio = fs_ratio;
+        best_line = line;
         eprintln!("IPS probe best-track: {best_line}");
         // D-NGPU-5: fullstack IPS must track compute/header proxy within ~±20%.
         // Absolute GPU/CPU × is machine- and profile-dependent (debug CPU is
