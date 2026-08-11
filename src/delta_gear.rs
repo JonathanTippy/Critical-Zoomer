@@ -500,11 +500,31 @@ mod tests {
         complex_helpers_kill_arithmetic_mutants();
         scaled_f64_step_matches_algebra_on_unit_scale();
         gear_for_delta_requires_both_admitted_for_f64();
+        aggregate_covers_all_single_and_mixed_paths();
+        f64_admission_and_useful_floors();
         let (dz, _, gear) = f64_step((0.5, 0.0), (0.1, 0.0), (0.01, 0.0), (1.0, 0.0), false);
         // 2*0.5*0.1 + 0.01 + 0.01 = 0.12
         assert!((dz.0 - 0.12).abs() < 1e-12, "got {}", dz.0);
         assert_eq!(gear, ComputeGear::F64);
         assert_ne!(dz.0, 0.5 * 0.1 + 0.01); // missing 2· and dz²
+
+        // hud_label must stay distinct non-empty tags (not "").
+        assert!(hud_labels_are_distinct());
+        for g in [
+            ComputeGear::F32,
+            ComputeGear::F64,
+            ComputeGear::ScaledF64,
+            ComputeGear::FloatExp,
+            ComputeGear::Mixed,
+        ] {
+            assert!(!g.hud_label().is_empty());
+            assert_ne!(g.hud_label(), "");
+        }
+        // cnorm_sq / cscale *→/ pins
+        assert_eq!(cnorm_sq((3.0, 4.0)), 25.0);
+        assert_ne!(cnorm_sq((3.0, 4.0)), 3.0 / 3.0 + 4.0 / 4.0);
+        assert_eq!(cscale((2.0, -1.0), 3.0), (6.0, -3.0));
+        assert_ne!(cscale((2.0, -1.0), 3.0), (2.0 / 3.0, -1.0 / 3.0));
     }
 
     #[test]

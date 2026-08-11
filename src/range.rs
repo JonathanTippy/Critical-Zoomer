@@ -573,6 +573,37 @@ fn mutant_kill_range_square_middle_ne_mul() {
     assert!(prod.lower_bound <= -10.0 + 1e-9, "got {:?}", prod);
     assert!(prod.upper_bound >= 15.0 - 1e-9, "got {:?}", prod);
     assert_ne!(prod.lower_bound, -2.0 + 4.0); // not + of lowers
+
+    // can_eq needs && (overlap on both sides); || would treat disjoint as equal.
+    let left = Range::<f64, false> {
+        lower_bound: 0.0,
+        upper_bound: 1.0,
+    };
+    let right = Range::<f64, false> {
+        lower_bound: 2.0,
+        upper_bound: 3.0,
+    };
+    assert!(!left.can_eq(right));
+    assert!(left.must_ne(right));
+    // can_lt: lower < other.upper — [0,1] vs point 0 is false; vs 0.5 is true.
+    assert!(!left.can_lt(Range::<f64, false>::new(0.0)));
+    assert!(left.can_lt(Range::<f64, false>::new(0.5)));
+    // must_lt: upper < other.lower — [0,1] must_lt [2,3]
+    assert!(left.must_lt(right));
+    assert!(!left.must_lt(Range::<f64, false> {
+        lower_bound: 0.5,
+        upper_bound: 2.0,
+    }));
+    // can_gt / must_gt mirrors
+    assert!(right.can_gt(left));
+    assert!(right.must_gt(left));
+    assert!(!left.must_gt(right));
+    // must_eq requires all three ==; overlapping intervals are not must_eq
+    assert!(!left.must_eq(Range::<f64, false> {
+        lower_bound: 0.5,
+        upper_bound: 0.5,
+    }));
+    assert!(Range::<f64, false>::new(5.0).can_eq(Range::<f64, false>::new(5.0)));
 }
 
 #[test]

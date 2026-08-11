@@ -424,6 +424,8 @@ mod tests {
         iterate_mandelbrot_step_is_z2_plus_c();
         get_wraps_periodic_indices_not_linear();
         observe_cycle_detects_period_two_at_minus_one();
+        zero_orbit_floor_and_bits_clamp();
+        extend_stops_when_period_or_escaped_and_counts_steps();
 
         // intexp_to_float: positive exp left-shifts, negative right-shifts.
         let hi = intexp_to_float(&IntExp { val: rug::Integer::from(3), exp: 2 }, 64);
@@ -432,6 +434,9 @@ mod tests {
         assert_eq!(lo, Float::with_val(64, 2));
         assert_ne!(hi, Float::with_val(64, 3 >> 2)); // <<=→>>=
         assert_ne!(lo, Float::with_val(64, 8 << 2)); // >>=→<<=
+        // exp==0 keeps mantissa (kill >=→< flipping the branch).
+        let z = intexp_to_float(&IntExp { val: rug::Integer::from(7), exp: 0 }, 64);
+        assert_eq!(z, Float::with_val(64, 7));
 
         // extend_inner counters: open orbit advances exactly N steps (not +=→-=/*=).
         let mut open =
@@ -440,6 +445,17 @@ mod tests {
         let n = open.extend_for(7, Duration::from_secs(1));
         assert_eq!(n, 7);
         assert_eq!(open.iterates.len(), before + 7);
+
+        // start() clamps precision to ≥53 (max mutant → wrong tiny precision).
+        let tiny_prec = ReferenceOrbit::start(&(IntExp::ZERO, IntExp::ZERO), 1);
+        assert!(tiny_prec.precision_bits >= 53);
+
+        // bits_for_zoom: zoom+ppu+32 with floor 53 (not replace→1 / drop saturating_add).
+        assert_eq!(bits_for_zoom(0, 8), 53);
+        assert_eq!(bits_for_zoom(20, 8), 60); // 20+8+32
+        assert_ne!(bits_for_zoom(20, 8), 1);
+        assert_ne!(bits_for_zoom(20, 8), 28); // missing +32
+        assert_ne!(bits_for_zoom(20, 8), 20); // missing both adds
     }
 
     #[test]
