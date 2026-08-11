@@ -1,5 +1,5 @@
 //! Colorer-owned wgpu f32 path — honest port of `color.rs` with exact Color32 parity.
-//! Persistent buffers + dirty-skip (mechanical sympathy): no per-wake recreate/upload.
+//! Persistent buffers + realloc-on-resize; each paint refreshes from current inputs.
 //! Fallback to OG only when no usable device exists (never for missing f64).
 // r[impl cz.craft.gpu-color-parity+1]
 // r[impl cz.shade.layers-in-script-order+1]
@@ -24,26 +24,6 @@ static SHADE_OPS: Mutex<()> = Mutex::new(());
 /// Shared critical section for all shade GPU submit+map work.
 pub fn shade_ops() -> &'static Mutex<()> {
     &SHADE_OPS
-}
-
-/// Which GPU uploads are required this paint.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct PaintDirty {
-    pub values: bool,
-    pub params: bool,
-}
-
-impl PaintDirty {
-    pub fn all() -> Self {
-        Self {
-            values: true,
-            params: true,
-        }
-    }
-
-    pub fn any(self) -> bool {
-        self.values || self.params
-    }
 }
 
 #[repr(C)]
@@ -313,12 +293,11 @@ impl GpuColorer {
     }
 
     /// Paint with the GPU path. Returns `None` only on buffer/map failure (caller falls back).
-    /// When `dirty` is empty and a prior frame exists, returns the cached colors (no GPU work).
+    /// Always refreshes pixel + layer uploads from current inputs (persistent buffers).
     pub fn paint(
         &self,
         values: &ZoomerValuesScreen,
         settings: &mut Settings,
-        dirty: PaintDirty,
     ) -> Option<Vec<Color32>> {
         let _ops = shade_ops().lock().unwrap_or_else(|e| e.into_inner());
         let _paint = self.paint_lock.lock().unwrap_or_else(|e| e.into_inner());
@@ -337,22 +316,7 @@ impl GpuColorer {
             *session_guard = Some(self.ensure_session(n));
         }
 
-        if !dirty.any() {
-            if let Some(s) = session_guard.as_ref() {
-                if !s.last_colors.is_empty() && s.last_colors.len() == n as usize {
-                    return Some(s.last_colors.clone());
-                }
-            }
-        }
-
-        // Resize forces a full upload even if caller marked clean.
-        let dirty = if need_realloc {
-            PaintDirty::all()
-        } else {
-            dirty
-        };
-
-        let (pixels, layers, layer_count) = pack_frame(values, settings, dirty.values)?;
+        let (pixels, layers, layer_count) = pack_frame(values, settings)?;
         let frame = GpuFrame {
             width: values.res.0,
             height: values.res.1,
@@ -361,17 +325,12 @@ impl GpuColorer {
         };
 
         let session = session_guard.as_mut()?;
-        if dirty.values {
-            self.queue
-                .write_buffer(&session.pixel_buf, 0, bytemuck::cast_slice(&pixels));
-        }
-        if dirty.params || dirty.values {
-            // Frame dims / layer_count ride with either change; cheap uniform write.
-            self.queue
-                .write_buffer(&session.frame_buf, 0, bytemuck::bytes_of(&frame));
-            self.queue
-                .write_buffer(&session.layer_buf, 0, bytemuck::cast_slice(&layers));
-        }
+        self.queue
+            .write_buffer(&session.pixel_buf, 0, bytemuck::cast_slice(&pixels));
+        self.queue
+            .write_buffer(&session.frame_buf, 0, bytemuck::bytes_of(&frame));
+        self.queue
+            .write_buffer(&session.layer_buf, 0, bytemuck::cast_slice(&layers));
 
         let out_size = (n as u64) * 4;
         let mut encoder = self
@@ -418,47 +377,41 @@ impl GpuColorer {
 fn pack_frame(
     values: &ZoomerValuesScreen,
     settings: &mut Settings,
-    pack_pixels: bool,
 ) -> Option<(Vec<GpuPixel>, [GpuLayer; MAX_LAYERS], u32)> {
-    let pixels = if pack_pixels {
-        let mut pixels = Vec::with_capacity(values.values.len());
-        for v in &values.values {
-            pixels.push(match v {
-                ScreenValue::Outside {
-                    big_time,
-                    small_time,
-                    smallness,
-                    gradient_angle,
-                } => GpuPixel {
-                    kind: 0,
-                    big_time: *big_time,
-                    small_time: *small_time,
-                    loop_period: 0,
-                    smallness: *smallness as f32,
-                    gradient_angle: *gradient_angle,
-                    _pad0: 0.0,
-                    _pad1: 0.0,
-                },
-                ScreenValue::Inside {
-                    small_time,
-                    loop_period,
-                    smallness,
-                } => GpuPixel {
-                    kind: 1,
-                    big_time: 0,
-                    small_time: *small_time,
-                    loop_period: *loop_period,
-                    smallness: *smallness as f32,
-                    gradient_angle: 0.0,
-                    _pad0: 0.0,
-                    _pad1: 0.0,
-                },
-            });
-        }
-        pixels
-    } else {
-        Vec::new()
-    };
+    let mut pixels = Vec::with_capacity(values.values.len());
+    for v in &values.values {
+        pixels.push(match v {
+            ScreenValue::Outside {
+                big_time,
+                small_time,
+                smallness,
+                gradient_angle,
+            } => GpuPixel {
+                kind: 0,
+                big_time: *big_time,
+                small_time: *small_time,
+                loop_period: 0,
+                smallness: *smallness as f32,
+                gradient_angle: *gradient_angle,
+                _pad0: 0.0,
+                _pad1: 0.0,
+            },
+            ScreenValue::Inside {
+                small_time,
+                loop_period,
+                smallness,
+            } => GpuPixel {
+                kind: 1,
+                big_time: 0,
+                small_time: *small_time,
+                loop_period: *loop_period,
+                smallness: *smallness as f32,
+                gradient_angle: 0.0,
+                _pad0: 0.0,
+                _pad1: 0.0,
+            },
+        });
+    }
 
     let mut layers = [GpuLayer::zeroed(); MAX_LAYERS];
     let script = settings.coloring_script.as_mut()?;
@@ -694,12 +647,11 @@ pub fn color_with_gear(
     settings: &mut Settings,
     want_gpu: bool,
     gpu: &Option<Arc<GpuColorer>>,
-    dirty: PaintDirty,
 ) -> (Vec<Color32>, crate::assemblies::structs::ColorerHud) {
     use crate::assemblies::structs::ColorerHud;
     if want_gpu {
         if let Some(g) = gpu {
-            if let Some(out) = g.paint(values, settings, dirty) {
+            if let Some(out) = g.paint(values, settings) {
                 return (out, ColorerHud::Gpu);
             }
             let out = color_og(values, settings);
@@ -767,7 +719,7 @@ mod tests {
             let mut settings = Settings::DEFAULT;
             settings.coloring_script = Some(DEFAULT_COLORING_SCRIPT.to_vec());
             let screen = tiny_screen();
-            let (out, hud) = color_with_gear(&screen, &mut settings, true, &None, PaintDirty::all());
+            let (out, hud) = color_with_gear(&screen, &mut settings, true, &None);
             assert_eq!(hud, ColorerHud::GpuFallbackOg);
             assert_eq!(out.len(), 9);
             return;
@@ -778,7 +730,7 @@ mod tests {
         let screen = tiny_screen();
         let og = color_og(&screen, &mut settings_og);
         let (gpu_out, hud) =
-            color_with_gear(&screen, &mut settings_gpu, true, &Some(gpu), PaintDirty::all());
+            color_with_gear(&screen, &mut settings_gpu, true, &Some(gpu));
         assert_eq!(hud, ColorerHud::Gpu);
         assert_eq!(
             gpu_out, og,
@@ -796,7 +748,7 @@ mod tests {
             settings.resolved_color_gear(),
             crate::assemblies::structs::ColorerMode::Gpu
         );
-        let (out, hud) = color_with_gear(&screen, &mut settings, want_gpu, &gpu, PaintDirty::all());
+        let (out, hud) = color_with_gear(&screen, &mut settings, want_gpu, &gpu);
         if gpu.is_some() {
             assert_eq!(hud, ColorerHud::Gpu);
         } else {
@@ -817,7 +769,7 @@ mod tests {
             let mut settings_gpu = settings_og.clone();
             let og = color_og(&screen, &mut settings_og);
             let gpu_out = gpu
-                .paint(&screen, &mut settings_gpu, PaintDirty::all())
+                .paint(&screen, &mut settings_gpu)
                 .expect("gpu paint");
             assert_eq!(
                 gpu_out, og,
@@ -890,61 +842,22 @@ mod tests {
         let mut settings_gpu = settings.clone();
         let og = color_og(&screen, &mut settings_og);
         let gpu_out = gpu
-            .paint(&screen, &mut settings_gpu, PaintDirty::all())
+            .paint(&screen, &mut settings_gpu)
             .expect("gpu");
         assert_eq!(gpu_out, og, "home escape_frame GPU must match OG Color32");
     }
 
     #[test]
-    fn gpu_cached_clean_paint_matches_prior() {
+    fn gpu_repeated_paint_is_stable() {
         let Some(gpu) = GpuColorer::shared() else {
             return;
         };
         let screen = tiny_screen();
         let mut settings = Settings::DEFAULT;
         settings.coloring_script = Some(DEFAULT_COLORING_SCRIPT.to_vec());
-        let first = gpu
-            .paint(&screen, &mut settings, PaintDirty::all())
-            .expect("first");
-        let cached = gpu
-            .paint(
-                &screen,
-                &mut settings,
-                PaintDirty {
-                    values: false,
-                    params: false,
-                },
-            )
-            .expect("cached");
-        assert_eq!(first, cached);
-    }
-
-    #[test]
-    fn gpu_params_only_repaint_matches_full() {
-        let Some(gpu) = GpuColorer::shared() else {
-            return;
-        };
-        let screen = tiny_screen();
-        let mut settings = Settings::DEFAULT;
-        settings.coloring_script = Some(DEFAULT_COLORING_SCRIPT.to_vec());
-        let _ = gpu
-            .paint(&screen, &mut settings, PaintDirty::all())
-            .expect("seed");
-        // Mutate a static layer param via re-encode path (params dirty only).
-        let params_only = gpu
-            .paint(
-                &screen,
-                &mut settings,
-                PaintDirty {
-                    values: false,
-                    params: true,
-                },
-            )
-            .expect("params");
-        let full = gpu
-            .paint(&screen, &mut settings, PaintDirty::all())
-            .expect("full");
-        assert_eq!(params_only, full);
+        let first = gpu.paint(&screen, &mut settings).expect("first");
+        let second = gpu.paint(&screen, &mut settings).expect("second");
+        assert_eq!(first, second);
     }
 
     /// Shade steady-state pin: under value-changing wake cadence (bailout-anim
@@ -973,7 +886,7 @@ mod tests {
 
         // Warm session.
         let _ = gpu
-            .paint(&screen, &mut settings, PaintDirty::all())
+            .paint(&screen, &mut settings)
             .expect("warm");
 
         const WAKES: u32 = 40;
@@ -984,14 +897,7 @@ mod tests {
                 *big_time = 10 + i;
             }
             let out = gpu
-                .paint(
-                    &screen,
-                    &mut settings,
-                    PaintDirty {
-                        values: true,
-                        params: false,
-                    },
-                )
+                .paint(&screen, &mut settings)
                 .expect("anim paint");
             assert_eq!(out.len(), n);
         }

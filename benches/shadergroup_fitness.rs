@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use criterion::*;
 
-use critical_zoomer::assemblies::shadergroup::colorer::gpu::{GpuColorer, PaintDirty};
+use critical_zoomer::assemblies::shadergroup::colorer::gpu::GpuColorer;
 use critical_zoomer::assemblies::shadergroup::colorer::color::color;
 use critical_zoomer::assemblies::shadergroup::escaper::{escape_frame, ZoomerValuesScreen};
 use critical_zoomer::assemblies::workgroup::screen_worker::workshift::*;
@@ -184,9 +184,7 @@ fn bench_color_gpu(c: &mut Criterion, name: &str, pixel_scale: f64) {
             for _ in 0..iters {
                 let mut s = settings.clone();
                 let t0 = Instant::now();
-                let out = gpu
-                    .paint(&screen, &mut s, PaintDirty::all())
-                    .expect("gpu paint");
+                let out = gpu.paint(&screen, &mut s).expect("gpu paint");
                 black_box(out);
                 total += t0.elapsed();
             }
@@ -212,7 +210,7 @@ fn bench_color_gpu_params_only(c: &mut Criterion, name: &str, pixel_scale: f64) 
     // Warm resident buffers with a full upload.
     {
         let mut s = settings.clone();
-        let _ = gpu.paint(&screen, &mut s, PaintDirty::all());
+        let _ = gpu.paint(&screen, &mut s);
     }
 
     c.bench_function(name, |b| {
@@ -221,16 +219,9 @@ fn bench_color_gpu_params_only(c: &mut Criterion, name: &str, pixel_scale: f64) 
             for _ in 0..iters {
                 let mut s = settings.clone();
                 let t0 = Instant::now();
-                let out = gpu
-                    .paint(
-                        &screen,
-                        &mut s,
-                        PaintDirty {
-                            values: false,
-                            params: true,
-                        },
-                    )
-                    .expect("gpu params-only");
+                // Full refresh each paint (PaintDirty removed); still exercises
+                // persistent session after warm.
+                let out = gpu.paint(&screen, &mut s).expect("gpu paint");
                 black_box(out);
                 total += t0.elapsed();
             }

@@ -58,7 +58,7 @@ pub struct EscaperState<T> {
     /// falls behind (`r[cz.craft.shade-coalesce-drop-count+1]`).
     pub packages_dropped: u64,
     pub gpu: Option<Arc<gpu::GpuEscaper>>,
-    /// New answers package → re-upload resident GPU buffer.
+    /// Private: new answers package → re-upload resident GPU buffer (not actor send skip).
     pub answers_dirty: bool,
 }
 
@@ -151,7 +151,7 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
 
     // Lock all channels for exclusive access within this actor.
 
-    let max_sleep = Duration::from_millis(8);
+    let mut content_period = state.settings.resolved_content_period();
 
 
 
@@ -163,7 +163,7 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
         // Wait for all required conditions:
         // - A periodic timer
         await_for_any!(//#!#//
-            actor.wait_periodic(max_sleep),
+            actor.wait_periodic(content_period),
             actor.wait_avail(&mut values_in, 1),
             actor.wait_avail(&mut settings_in, 1),
         );
@@ -178,7 +178,8 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
                     let mut rng = rand::thread_rng();
                     let _ = rng;
                     state.settings = s;
-                    // Bailout / max_extra may have changed — re-escape.
+                    content_period = state.settings.resolved_content_period();
+                    // Bailout / max_extra may have changed — re-upload answers.
                     state.answers_dirty = true;
                 }
                 None => {}
@@ -190,7 +191,6 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
         if radius.is_infinite() || radius < 2.0 {
             panic!("invalid radius");
         }
-        let radius_dirty = state.settings.bailout_radius.animated;
 
         let avail = actor.avail_units(&mut values_in);
         if avail > 0 {
@@ -266,39 +266,36 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
             }
         }
 
-        // Same path every wake (including animated bailout): only numbers change.
-        // Static + unchanged: skip try_send (mechanical sympathy / small channels).
+        // Cadence: every wake with resident values, always escape + try_send.
+        // `answers_dirty` only gates private GPU answer upload (not actor send).
         let want_gpu = matches!(
             state.settings.resolved_escape_gear(),
             EscaperMode::Gpu
         );
-        let dirty = state.answers_dirty || radius_dirty;
-        if dirty {
-            if let Some(v) = &state.values {
-                let upload = state.answers_dirty;
-                let (mut screen, escape_hud) = gpu::escape_with_gear(
-                    v,
-                    radius as f32,
-                    &state.settings,
-                    want_gpu,
-                    &state.gpu,
-                    upload,
-                );
-                screen.hud.packages_dropped = state.packages_dropped;
-                screen.hud.escape = escape_hud;
-                if !actor.is_full(&mut screens_out) {
-                    screen.hud.escape_emitted_at = Some(std::time::Instant::now());
-                    match actor.try_send(&mut screens_out, screen) {
-                        SendOutcome::Success => {
-                            state.answers_dirty = false;
-                            if let Some(v) = &mut state.values {
-                                v.hud.clear_emission_stamps();
-                            }
+        if let Some(v) = &state.values {
+            let upload = state.answers_dirty;
+            let (mut screen, escape_hud) = gpu::escape_with_gear(
+                v,
+                radius as f32,
+                &state.settings,
+                want_gpu,
+                &state.gpu,
+                upload,
+            );
+            screen.hud.packages_dropped = state.packages_dropped;
+            screen.hud.escape = escape_hud;
+            if !actor.is_full(&mut screens_out) {
+                screen.hud.escape_emitted_at = Some(std::time::Instant::now());
+                match actor.try_send(&mut screens_out, screen) {
+                    SendOutcome::Success => {
+                        state.answers_dirty = false;
+                        if let Some(v) = &mut state.values {
+                            v.hud.clear_emission_stamps();
                         }
-                        SendOutcome::Blocked(_)
-                        | SendOutcome::Timeout(_)
-                        | SendOutcome::Closed(_) => {}
                     }
+                    SendOutcome::Blocked(_)
+                    | SendOutcome::Timeout(_)
+                    | SendOutcome::Closed(_) => {}
                 }
             }
         }

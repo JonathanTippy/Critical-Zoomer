@@ -129,6 +129,13 @@ impl Settings {
         // Debug: force escaper path; default OG when disabled.
         , manual_escape_gear_enabled: false
         , manual_escape_gear: crate::assemblies::structs::EscaperMode::Og
+        // Content-tier refresh (collector → shade). Automatic uses head-reported vsync Hz.
+        , content_refresh_automatic: true
+        , content_refresh_hz: 60.0
+        , auto_vsync_hz: 60.0
+        // Head present: vsync on by default; when off, cap with head_max_fps.
+        , head_vsync_enabled: true
+        , head_max_fps: 120.0
     };
 
     /// Resolved manual gear for the screen worker (`None` = automatic policy).
@@ -175,6 +182,39 @@ impl Settings {
             None
         }
     }
+
+    /// Content refresh Hz for collector/escaper/colorer timers (clamped 1–240).
+    pub fn resolved_content_hz(&self) -> f64 {
+        let hz = if self.content_refresh_automatic {
+            self.auto_vsync_hz
+        } else {
+            self.content_refresh_hz
+        };
+        if !hz.is_finite() || hz < 1.0 {
+            1.0
+        } else if hz > 240.0 {
+            240.0
+        } else {
+            hz
+        }
+    }
+
+    /// Content-tier wake period from [`Self::resolved_content_hz`].
+    pub fn resolved_content_period(&self) -> std::time::Duration {
+        std::time::Duration::from_secs_f64(1.0 / self.resolved_content_hz())
+    }
+
+    /// Head uncapped present period when vsync is disabled.
+    pub fn resolved_head_max_period(&self) -> std::time::Duration {
+        let hz = if !self.head_max_fps.is_finite() || self.head_max_fps < 1.0 {
+            1.0
+        } else if self.head_max_fps > 1000.0 {
+            1000.0
+        } else {
+            self.head_max_fps
+        };
+        std::time::Duration::from_secs_f64(1.0 / hz)
+    }
 }
 
 pub const DEFAULT_SETTINGS_WINDOW_CONTEXT:SettingsWindowContext = SettingsWindowContext{
@@ -206,6 +246,13 @@ pub struct Settings {
     // When true, `manual_escape_gear` overrides the default OG escaper.
     , pub manual_escape_gear_enabled: bool
     , pub manual_escape_gear: crate::assemblies::structs::EscaperMode
+    // When true, content actors use `auto_vsync_hz`; else `content_refresh_hz`.
+    , pub content_refresh_automatic: bool
+    , pub content_refresh_hz: f64
+    // Head-measured / bootstrap vsync Hz for Automatic content refresh.
+    , pub auto_vsync_hz: f64
+    , pub head_vsync_enabled: bool
+    , pub head_max_fps: f64
 }
 
 
@@ -773,6 +820,32 @@ mod mutant_kill {
         assert_eq!(s.manual_escape_gear_override(), Some(EscaperMode::Og));
         s.manual_escape_gear_enabled = false;
         assert!(s.manual_escape_gear_override().is_none());
+    }
+
+    #[test]
+    fn mutant_kill_content_refresh_period_auto_manual_clamp() {
+        let mut s = Settings::DEFAULT;
+        assert!(s.content_refresh_automatic);
+        assert!((s.resolved_content_hz() - 60.0).abs() < 1e-9);
+        s.auto_vsync_hz = 120.0;
+        assert!((s.resolved_content_hz() - 120.0).abs() < 1e-9);
+        s.content_refresh_automatic = false;
+        s.content_refresh_hz = 30.0;
+        assert!((s.resolved_content_hz() - 30.0).abs() < 1e-9);
+        assert_eq!(
+            s.resolved_content_period(),
+            Duration::from_secs_f64(1.0 / 30.0)
+        );
+        s.content_refresh_hz = 0.5;
+        assert!((s.resolved_content_hz() - 1.0).abs() < 1e-9);
+        s.content_refresh_hz = 999.0;
+        assert!((s.resolved_content_hz() - 240.0).abs() < 1e-9);
+        s.head_vsync_enabled = false;
+        s.head_max_fps = 60.0;
+        assert_eq!(
+            s.resolved_head_max_period(),
+            Duration::from_secs_f64(1.0 / 60.0)
+        );
     }
 
     #[test]
