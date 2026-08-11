@@ -101,6 +101,10 @@ pub struct WindowState {
     // r[impl cz.depth.gear-hud+2]
     , pub pps_counter: RateCounter
     , pub ips_counter: RateCounter
+    , pub publisher_fps_counter: RateCounter
+    , pub escape_fps_counter: RateCounter
+    , pub color_fps_counter: RateCounter
+    , pub controller_fps_counter: RateCounter
     , pub last_gear_label: &'static str
     , pub last_stack_label: &'static str
     , pub last_mode_label: &'static str
@@ -173,6 +177,10 @@ async fn internal_behavior<A: SteadyActor>(
         , startup_goto_applied: false
         , pps_counter: RateCounter::default()
         , ips_counter: RateCounter::default()
+        , publisher_fps_counter: RateCounter::default()
+        , escape_fps_counter: RateCounter::default()
+        , color_fps_counter: RateCounter::default()
+        , controller_fps_counter: RateCounter::default()
         , last_gear_label: "F64"
         , last_stack_label: "f64"
         , last_mode_label: "naive"
@@ -338,6 +346,10 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     let now = Instant::now();
                     state.pps_counter.record(s.hud.points_delta, now);
                     state.ips_counter.record(s.hud.iterations_delta, now);
+                    state.publisher_fps_counter.record(s.hud.publisher_frames_delta, now);
+                    state.escape_fps_counter.record(s.hud.escape_frames_delta, now);
+                    state.color_fps_counter.record(s.hud.color_frames_delta, now);
+                    state.controller_fps_counter.record(s.hud.controller_frames_delta, now);
                     state.last_gear_label = s.hud.gear.hud_label();
                     state.last_stack_label = s.hud.stack.hud_label();
                     state.last_mode_label = s.hud.mode.hud_label();
@@ -447,7 +459,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 ui.put(
                     egui::Rect::from_min_size(
                         egui::pos2(10.0, 10.0),
-                        egui::vec2(560.0, 72.0)
+                        egui::vec2(720.0, 72.0)
                     ),
                     |ui: &mut egui::Ui| {
                         // Set transparent background
@@ -472,10 +484,18 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                         let now = Instant::now();
                                         let pps = state.pps_counter.rate(now);
                                         let ips = state.ips_counter.rate(now);
+                                        let pub_fps = state.publisher_fps_counter.rate(now);
+                                        let esc_fps = state.escape_fps_counter.rate(now);
+                                        let col_fps = state.color_fps_counter.rate(now);
+                                        let ctrl_fps = state.controller_fps_counter.rate(now);
                                         // r[impl cz.depth.gear-hud+2]
                                         response += format!(
-                                            "fps:{:.0}  stack:{}  mode:{}  ref:{}  gear:{}\npps:{:.0}  ips:{:.0}  drop:{}  color:{}  escape:{}  1s:{:.1}",
+                                            "fps:{:.0}  pub:{:.0}  esc:{:.0}  col:{:.0}  ctrl:{:.0}  stack:{}  mode:{}  ref:{}  gear:{}\npps:{:.0}  ips:{:.0}  drop:{}  color:{}  escape:{}  1s:{:.1}",
                                             r.0.0 as f64 / 1000000000.0,
+                                            pub_fps,
+                                            esc_fps,
+                                            col_fps,
+                                            ctrl_fps,
                                             state.last_stack_label,
                                             state.last_mode_label,
                                             state.last_ref_label,

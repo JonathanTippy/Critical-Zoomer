@@ -169,6 +169,7 @@ async fn internal_behavior<A: SteadyActor>(
                     gpu::color_with_gear(v, &mut settings, want_gpu, &gpu, dirty);
                 v.hud.packages_dropped = dropped;
                 v.hud.color = color_hud;
+                v.hud.color_frames_delta = 1;
 
                 actor.try_send(
                     &mut screens_out,

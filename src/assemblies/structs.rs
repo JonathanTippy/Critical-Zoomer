@@ -29,6 +29,11 @@ pub struct ViewHud {
     pub color: ColorerHud,
     /// Escaper path actually used for this view.
     pub escape: EscaperHud,
+    /// Stage frame pulses for HUD RateCounters (usually 0 or 1 per message).
+    pub publisher_frames_delta: u64,
+    pub escape_frames_delta: u64,
+    pub color_frames_delta: u64,
+    pub controller_frames_delta: u64,
 }
 
 /// Manual colorer implementation (settings gear; default OG).

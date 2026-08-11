@@ -30,6 +30,8 @@ pub struct WorkUpdate<T> {
     pub reference_status: crate::assemblies::structs::ReferenceStatus,
     /// Iterations performed since the previous update.
     pub iterations_delta: u64,
+    /// Controller wake pulses since the previous WorkUpdate (HUD `ctrl:`).
+    pub controller_frames_delta: u64,
 }
 
 pub struct WorkerState<T: Mandelbrotable> {
@@ -434,6 +436,7 @@ where
         kernel_mode,
         reference_status,
         iterations_delta,
+        controller_frames_delta: crate::assemblies::workgroup::work_controller::take_controller_frames_delta(),
     }
 }
 

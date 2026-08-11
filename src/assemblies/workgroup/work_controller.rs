@@ -1,4 +1,5 @@
 use steady_state::*;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::assemblies::headgroup::window::sampling::*;
 use crate::assemblies::structs::*;
@@ -7,6 +8,13 @@ use crate::assemblies::workgroup::screen_worker::*;
 use crate::assemblies::workgroup::screen_worker::workshift::*;
 use crate::constants::*;
 use crate::utils::*;
+
+/// Wakes of the work controller since last drain into a `WorkUpdate`.
+pub static CONTROLLER_WAKE_COUNT: AtomicU64 = AtomicU64::new(0);
+
+pub fn take_controller_frames_delta() -> u64 {
+    CONTROLLER_WAKE_COUNT.swap(0, Ordering::Relaxed)
+}
 
 pub enum WorkerCommand {
     Replace { frame_info: (ObjectivePosAndZoom, (u32, u32)) },
@@ -66,6 +74,7 @@ async fn internal_behavior<A: SteadyActor>(
             actor.wait_periodic(max_sleep),
             actor.wait_avail(&mut from_sampler, 1),
         );
+        CONTROLLER_WAKE_COUNT.fetch_add(1, Ordering::Relaxed);
 
         if actor.avail_units(&mut from_sampler) > 0 {
             // r[impl cz.craft.drain-to-newest+1]

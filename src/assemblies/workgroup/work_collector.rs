@@ -107,6 +107,7 @@ async fn internal_behavior<A: SteadyActor>(
                         iterations_delta: U.iterations_delta,
                         packages_dropped: 0,
                         color: crate::assemblies::structs::ColorerHud::Og,
+                        controller_frames_delta: U.controller_frames_delta,
                         ..Default::default()
                     };
                 } else {
@@ -132,6 +133,8 @@ async fn internal_behavior<A: SteadyActor>(
                         iterations_delta: U.iterations_delta,
                         packages_dropped: 0,
                         color: crate::assemblies::structs::ColorerHud::Og,
+                        controller_frames_delta: U.controller_frames_delta,
+                        publisher_frames_delta: 1,
                         ..Default::default()
                     };
                     actor.try_send(&mut values_out,
@@ -198,6 +201,8 @@ async fn internal_behavior<A: SteadyActor>(
                             iterations_delta: U.iterations_delta,
                             packages_dropped: 0,
                             color: crate::assemblies::structs::ColorerHud::Og,
+                            controller_frames_delta: U.controller_frames_delta,
+                            publisher_frames_delta: 1,
                             ..Default::default()
                         }
                     }

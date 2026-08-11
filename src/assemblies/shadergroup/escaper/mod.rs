@@ -286,6 +286,7 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
                 );
                 screen.hud.packages_dropped = state.packages_dropped;
                 screen.hud.escape = escape_hud;
+                screen.hud.escape_frames_delta = 1;
                 actor.try_send(&mut screens_out, screen);
                 state.answers_dirty = false;
             }
