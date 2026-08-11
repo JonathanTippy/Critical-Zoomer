@@ -604,6 +604,47 @@ fn mutant_kill_range_square_middle_ne_mul() {
         upper_bound: 0.5,
     }));
     assert!(Range::<f64, false>::new(5.0).can_eq(Range::<f64, false>::new(5.0)));
+
+    // Add/sub interval arithmetic (not swapped endpoints / * mutants).
+    let x = Range::<f64, false> {
+        lower_bound: 1.0,
+        upper_bound: 2.0,
+    };
+    let y = Range::<f64, false> {
+        lower_bound: 3.0,
+        upper_bound: 5.0,
+    };
+    let sum = x + y;
+    assert!(sum.lower_bound <= 4.0 + 1e-9, "got {:?}", sum);
+    assert!(sum.upper_bound >= 7.0 - 1e-9, "got {:?}", sum);
+    assert_ne!(sum.lower_bound, 1.0 * 3.0);
+    let diff = y - x; // [3-2, 5-1] → [1,4] with outward next_down/up
+    assert!(diff.lower_bound <= 1.0 + 1e-9, "got {:?}", diff);
+    assert!(diff.upper_bound >= 4.0 - 1e-9, "got {:?}", diff);
+    assert_ne!(diff.lower_bound, 3.0 - 1.0); // wrong endpoint pairing would be 2
+
+    // Square through zero must include 0 in the hull.
+    let straddle = Range::<f64, false> {
+        lower_bound: -2.0,
+        upper_bound: 3.0,
+    }
+    .square();
+    assert!(straddle.lower_bound <= 0.0 + 1e-12, "got {:?}", straddle);
+    assert!(straddle.upper_bound >= 9.0 - 1e-9, "got {:?}", straddle);
+    // Negative-only square: both ends positive after square; lower is smaller square.
+    let neg = Range::<f64, false> {
+        lower_bound: -4.0,
+        upper_bound: -1.0,
+    }
+    .square();
+    assert!(neg.lower_bound <= 1.0 + 1e-9, "got {:?}", neg);
+    assert!(neg.upper_bound >= 16.0 - 1e-9, "got {:?}", neg);
+    assert!(neg.lower_bound > 0.0 - 1e-9);
+
+    // Scalar mul uses both bounds (not lower*scalar twice).
+    let scaled = x * -2.0;
+    assert!(scaled.lower_bound <= -4.0 + 1e-9, "got {:?}", scaled);
+    assert!(scaled.upper_bound >= -2.0 - 1e-9, "got {:?}", scaled);
 }
 
 #[test]

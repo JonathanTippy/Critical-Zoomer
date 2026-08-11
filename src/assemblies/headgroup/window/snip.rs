@@ -100,5 +100,21 @@ mod tests {
         assert!(!lines[3].contains("4 5 6"));
 
         assert_eq!(snip_request_path().contains("snip") || std::env::var("CZ_SNIPREQ").is_ok(), true);
+
+        // 1×1 layout + saturating size check identity.
+        let path1 = dir.join("one.ppm");
+        write_ppm(&path1, (1, 1), &[Color32::from_rgb(11, 22, 33)]).unwrap();
+        let t1 = std::fs::read_to_string(&path1).unwrap();
+        assert!(t1.starts_with("P3\n1 1\n255\n"));
+        assert!(t1.contains("11 22 33"));
+        assert!(!t1.contains("22 11 33")); // channel order R G B
+        // Default request path mentions snip when env unset.
+        let prev = std::env::var("CZ_SNIPREQ").ok();
+        std::env::remove_var("CZ_SNIPREQ");
+        assert!(snip_request_path().contains("snip"));
+        match prev {
+            Some(v) => std::env::set_var("CZ_SNIPREQ", v),
+            None => {}
+        }
     }
 }

@@ -1652,6 +1652,59 @@ fn mutant_kill_dispatch_pps_and_stale_invalidate() {
     });
 }
 
+/// Thought-killed pins: f64 stencil admit, placeholder defaults, HUD PPS window.
+#[test]
+fn mutant_kill_stencil_admit_and_hud_pps() {
+    let homeish = (IntExp::from(-2), IntExp::from(1));
+    assert!(f64_stencil_admits(&homeish, -2, TEST_SCREEN_RES));
+    // Deep pots still admit via relative-to-center fallback (not absolute-only).
+    assert!(f64_stencil_admits(&homeish, 80, TEST_SCREEN_RES));
+    // Degenerate 0-width would not make a grid — use tiny but valid res.
+    assert!(f64_stencil_admits(&homeish, -2, (2, 2)));
+
+    let ph = placeholder_point::<f64>();
+    assert!(!ph.delivered);
+    assert!(!ph.initialized);
+    assert!(!ph.escapes);
+    assert!(!ph.repeats);
+    assert_eq!(ph.iterations, 0);
+    assert_eq!(ph.period, 0);
+    assert!(ph.delta.is_none());
+    assert_eq!(ph.dc, (1.0, 0.0));
+
+    run_big_stack_size(|| {
+        let mut ctx = make_context(0);
+        ctx.hud_points_window = 0;
+        ctx.hud_window_started = Instant::now();
+        ctx.record_hud_completion_batch(10);
+        assert_eq!(ctx.hud_points_window, 10);
+        ctx.record_hud_completion_batch(5);
+        assert_eq!(ctx.hud_points_window, 15);
+        let pps = ctx.hud_pps_estimate();
+        assert!(pps > 0.0);
+        // screen_point_count is width*height (not +).
+        assert_eq!(
+            ctx.screen_point_count(),
+            (TEST_SCREEN_RES.0 as u64) * (TEST_SCREEN_RES.1 as u64)
+        );
+        assert_ne!(
+            ctx.screen_point_count(),
+            (TEST_SCREEN_RES.0 as u64) + (TEST_SCREEN_RES.1 as u64)
+        );
+        // floor_policy without ref → no_ref.
+        ctx.latest_reference = None;
+        ctx.reference_floor_active = false;
+        ctx.pert_trial_cooldown = 0;
+        assert_eq!(ctx.floor_policy_label(), "no_ref");
+        ctx.pert_trial_cooldown = 3;
+        assert_eq!(ctx.floor_policy_label(), "cooldown");
+        ctx.pert_trial_cooldown = 0;
+        ctx.reference_floor_active = true;
+        assert_eq!(ctx.floor_policy_label(), "trial_active");
+        assert!(ctx.perturbation_kernel_required());
+    });
+}
+
 // r[verify cz.craft.pan-zoom-slot0+1]
 #[test]
 fn pan_scredge_lead_only_on_first_shift() {
