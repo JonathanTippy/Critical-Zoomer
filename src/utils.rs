@@ -127,22 +127,29 @@ impl Ord for IntExp {
 impl Add for IntExp {
     type Output = Self;
     fn add(self, other:Self) -> Self {
-
-        //let smallest_negative_exp = min(min(0, self.exp), other.exp);
-
-        let smallest_exp = min(self.exp, other.exp);
-
-        let self_shift = self.exp - smallest_exp;
-
-        let other_shift = other.exp - smallest_exp;
-
-        assert!(self_shift >= 0 && other_shift >= 0);
-
-        let sum = (self.val << self_shift as u32) + (other.val << other_shift as u32);
-
-        Self {
-            val: sum
-            , exp: smallest_exp
+        // Only the higher-exp mantissa is shifted — never `<< 0` (which is
+        // observationally identical to `>> 0` and hid a cargo-mutants survivor).
+        match self.exp.cmp(&other.exp) {
+            Equal => Self {
+                val: self.val + other.val,
+                exp: self.exp,
+            },
+            Greater => {
+                let s = (self.exp - other.exp) as u32;
+                debug_assert!(s > 0);
+                Self {
+                    val: (self.val << s) + other.val,
+                    exp: other.exp,
+                }
+            },
+            Less => {
+                let s = (other.exp - self.exp) as u32;
+                debug_assert!(s > 0);
+                Self {
+                    val: self.val + (other.val << s),
+                    exp: self.exp,
+                }
+            },
         }
     }
 }
@@ -150,20 +157,27 @@ impl Add for IntExp {
 impl Sub for IntExp {
     type Output = Self;
     fn sub(self, other:Self) -> Self {
-
-        let smallest_exp = min(self.exp, other.exp);
-
-        let self_shift = self.exp - smallest_exp;
-
-        let other_shift = other.exp - smallest_exp;
-
-        assert!(self_shift >= 0 && other_shift >= 0);
-
-        let sum = (self.val << self_shift as u32) - (other.val << other_shift as u32);
-
-        Self {
-            val: sum
-            , exp: smallest_exp
+        match self.exp.cmp(&other.exp) {
+            Equal => Self {
+                val: self.val - other.val,
+                exp: self.exp,
+            },
+            Greater => {
+                let s = (self.exp - other.exp) as u32;
+                debug_assert!(s > 0);
+                Self {
+                    val: (self.val << s) - other.val,
+                    exp: other.exp,
+                }
+            },
+            Less => {
+                let s = (other.exp - self.exp) as u32;
+                debug_assert!(s > 0);
+                Self {
+                    val: self.val - (other.val << s),
+                    exp: self.exp,
+                }
+            },
         }
     }
 }
@@ -337,22 +351,8 @@ pub fn index_from_pos_safe(pos:&(i32, i32), res:(u32, u32)) -> Option<usize> {
 }
 
 pub fn pos_from_index(i: usize, wid:u32) -> (i32, i32) {
-    (i as i32 % wid as i32, i as i32/wid as i32)
+    (i as i32 % wid as i32, i as i32 / wid as i32)
 }
-
-const fn init (i:usize) -> u8 { i as u8 }
-
-const ALL_U8S: [u8; 256] = {
-    let mut returned = [0;256];
-    let mut i = 0;
-    while i < 256 {
-        returned[i] = i as u8;
-        i+=1
-    }
-    returned
-};
-
-
 
 impl Default for ObjectivePosAndZoom {
     fn default() -> Self {
@@ -540,13 +540,28 @@ mod mutant_kill {
         let sum = a.clone() + b.clone();
         assert_eq!(sum.exp, -3);
         assert_eq!(sum.val, Integer::from(4 + 1)); // 1<<2 + 1
-        // Explicitly kill <<→>> on either operand: right-shift would zero the
-        // higher-exp mantissa and yield 1, not 5.
+        // Explicitly kill <<→>> on the nonzero shift path.
         assert_ne!(sum.val, Integer::from(1));
         assert_ne!(sum.val, Integer::from(0));
+        // Both orderings (Greater and Less branches).
+        let sum_rev = b.clone() + a.clone();
+        assert_eq!(sum_rev.val, sum.val);
+        assert_eq!(sum_rev.exp, sum.exp);
+        let same_exp = IntExp::from(3) + IntExp::from(5);
+        assert_eq!(same_exp.val, Integer::from(8));
+        assert_eq!(same_exp.exp, 0);
         let diff = a - b;
         assert_eq!(diff.exp, -3);
         assert_eq!(diff.val, Integer::from(4 - 1));
+        let diff_rev = IntExp {
+            val: Integer::from(1),
+            exp: -3,
+        } - IntExp {
+            val: Integer::from(1),
+            exp: -1,
+        };
+        assert_eq!(diff_rev.exp, -3);
+        assert_eq!(diff_rev.val, Integer::from(1 - 4));
     }
 
     #[test]
@@ -749,6 +764,28 @@ mod mutant_kill {
         assert_ne!(index_from_pos(&(1, 2), wid), 1);
         assert_eq!(index_from_pos(&(1, 2), wid), 1 + 2 * 64);
         assert_ne!(index_from_pos(&(3, 4), wid), index_from_pos(&(3, 4), wid) + 1);
+        // Explicit /→% kill: row must be quotient, not another remainder.
+        assert_eq!(pos_from_index(25, 10), (5, 2));
+        assert_ne!(pos_from_index(25, 10).1, 25 % 10);
+        assert_ne!(pos_from_index(25, 10), (5, 5));
+    }
+
+    #[test]
+    fn objective_pos_and_zoom_from_triplet_not_default() {
+        let o = ObjectivePosAndZoom::from((3, -4, 7));
+        assert_eq!(Into::<i32>::into(o.pos.0.clone()), 3);
+        assert_eq!(Into::<i32>::into(o.pos.1.clone()), -4);
+        assert_eq!(o.zoom_pot, 7);
+        let home = ObjectivePosAndZoom::default();
+        assert_ne!(o.zoom_pot, home.zoom_pot);
+        assert_ne!(
+            Into::<i32>::into(o.pos.0.clone()),
+            Into::<i32>::into(home.pos.0.clone())
+        );
+        // Default must track HOME_POSITION, not an empty/zero struct.
+        assert_eq!(home.zoom_pot, HOME_POSITION.2);
+        assert_eq!(Into::<i32>::into(home.pos.0.clone()), HOME_POSITION.0);
+        assert_eq!(Into::<i32>::into(home.pos.1.clone()), HOME_POSITION.1);
     }
 
     proptest! {
