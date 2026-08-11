@@ -894,6 +894,19 @@ fn bout_cap_clamps_above_max() {
     assert_eq!(BoutCap::STANDARD.get(), MAX_BOUT);
 }
 
+/// Filter-friendly thought-kill for `BoutCap` clamp (`>` not `>=` / constant).
+#[test]
+fn mutant_kill_bout_cap_clamp() {
+    bout_cap_clamps_above_max();
+    // Exactly MAX_BOUT must pass through (kill `>=` → clamp MAX_BOUT+? wrong).
+    assert_eq!(BoutCap::new(MAX_BOUT).get(), 1000);
+    assert_ne!(BoutCap::new(999).get(), 1000);
+    assert_eq!(BoutCap::new(999).get(), 999);
+    assert_ne!(BoutCap::new(u32::MAX).get(), u32::MAX);
+    assert_ne!(BoutCap::new(0).get(), 1);
+    assert_eq!(MAX_BOUT, 1000);
+}
+
 // r[verify cz.craft.bout-cap+1]
 #[test]
 fn attention_bout_on_hard_seat_never_exceeds_max_bout() {

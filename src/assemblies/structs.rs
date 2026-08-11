@@ -148,3 +148,62 @@ pub enum MandelbrotResult {
         period: u64
     }
 }
+
+#[cfg(test)]
+mod mutant_kill {
+    use super::*;
+
+    /// Thought-killed pins for HUD labels / ref NA / bitmap flag bits.
+    #[test]
+    fn mutant_kill_structs_hud_and_flags() {
+        assert_eq!(HostStack::F64.hud_label(), "f64");
+        assert_eq!(HostStack::FloatExp.hud_label(), "FE");
+        assert_ne!(HostStack::F64.hud_label(), HostStack::FloatExp.hud_label());
+        assert_ne!(HostStack::F64.hud_label(), "");
+
+        assert_eq!(KernelMode::Naive.hud_label(), "naive");
+        assert_eq!(KernelMode::NaiveGpu.hud_label(), "naive-gpu");
+        assert_eq!(KernelMode::Pert.hud_label(), "pert");
+        assert_eq!(KernelMode::Naive.manual_gear_label(), "Naive");
+        assert_eq!(KernelMode::NaiveGpu.manual_gear_label(), "Naive GPU");
+        assert_eq!(KernelMode::Pert.manual_gear_label(), "Perturbation");
+        assert_ne!(KernelMode::Naive.hud_label(), KernelMode::Pert.hud_label());
+
+        assert_eq!(ReferenceStatus::Wip.hud_label(), "wip");
+        assert_eq!(ReferenceStatus::Complete.hud_label(), "complete");
+
+        let naive = ViewHud {
+            mode: KernelMode::Naive,
+            reference: ReferenceStatus::Complete,
+            ..Default::default()
+        };
+        assert_eq!(naive.ref_hud_label(), "NA");
+        let gpu = ViewHud {
+            mode: KernelMode::NaiveGpu,
+            reference: ReferenceStatus::Wip,
+            ..Default::default()
+        };
+        assert_eq!(gpu.ref_hud_label(), "NA");
+        let pert = ViewHud {
+            mode: KernelMode::Pert,
+            reference: ReferenceStatus::Complete,
+            ..Default::default()
+        };
+        assert_eq!(pert.ref_hud_label(), "complete");
+        let pert_wip = ViewHud {
+            mode: KernelMode::Pert,
+            reference: ReferenceStatus::Wip,
+            ..Default::default()
+        };
+        assert_eq!(pert_wip.ref_hud_label(), "wip");
+        // ||→&& on Naive|NaiveGpu would leave NaiveGpu showing "wip".
+        assert_ne!(gpu.ref_hud_label(), "wip");
+
+        assert_eq!(EXACT, 0b1000_0000);
+        assert_eq!(PROX, 0b0100_0000);
+        assert_eq!(DONE, 0b0010_0000);
+        assert_ne!(EXACT, PROX);
+        assert_ne!(EXACT | PROX, DONE);
+        assert_eq!(EXACT | PROX | DONE, 0b1110_0000);
+    }
+}

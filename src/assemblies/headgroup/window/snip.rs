@@ -69,4 +69,36 @@ mod tests {
         assert!(text.starts_with("P3\n2 2\n255\n"));
         assert!(text.contains("10 20 30"));
     }
+
+    /// Thought-killed pins for PPM layout (`row * w + col`, dimensions, P3 header).
+    #[test]
+    fn mutant_kill_snip_ppm_layout() {
+        let dir = std::env::temp_dir().join("cz_snip_mk");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("mk.ppm");
+        // Distinct pixels so row-major indexing mutants fail.
+        let pixels = vec![
+            Color32::from_rgb(1, 0, 0),
+            Color32::from_rgb(0, 2, 0),
+            Color32::from_rgb(0, 0, 3),
+            Color32::from_rgb(4, 5, 6),
+            Color32::from_rgb(7, 8, 9),
+            Color32::from_rgb(10, 11, 12),
+        ];
+        write_ppm(&path, (3, 2), &pixels).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.starts_with("P3\n3 2\n255\n"));
+        assert_ne!(text.starts_with("P3\n2 3\n255\n"), true); // w/h swap
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 5); // header 3 + 2 rows
+        assert!(lines[3].contains("1 0 0"));
+        assert!(lines[3].contains("0 2 0"));
+        assert!(lines[3].contains("0 0 3"));
+        assert!(lines[4].starts_with("4 5 6"));
+        assert!(lines[4].contains("10 11 12"));
+        // row*w+col vs row+w*col / row+w+col: second row first pixel is index 3.
+        assert!(!lines[3].contains("4 5 6"));
+
+        assert_eq!(snip_request_path().contains("snip") || std::env::var("CZ_SNIPREQ").is_ok(), true);
+    }
 }
