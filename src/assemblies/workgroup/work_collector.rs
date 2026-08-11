@@ -367,3 +367,90 @@ fn sample_value<T: Clone>(
             ].clone();
     color
 }
+
+#[cfg(test)]
+mod mutant_kill {
+    use super::*;
+
+    /// Thought-killed pins for shared remap: identity + pan offset sampling.
+    #[test]
+    fn mutant_kill_sample_old_values_identity_and_offset() {
+        let res = (2u32, 2u32);
+        let loc = ObjectivePosAndZoom {
+            pos: (IntExp::ZERO, IntExp::ZERO),
+            zoom_pot: -2,
+        };
+        let results = vec![
+            CompletedPoint::Escapes {
+                escape_time: 1,
+                escape_location: (0.0f64, 0.0),
+                escape_derivative: (1.0, 0.0),
+                start_location: (0.0, 0.0),
+                smallness: 0.0,
+                small_time: 0,
+            },
+            CompletedPoint::Escapes {
+                escape_time: 2,
+                escape_location: (0.0, 0.0),
+                escape_derivative: (1.0, 0.0),
+                start_location: (0.0, 0.0),
+                smallness: 0.0,
+                small_time: 0,
+            },
+            CompletedPoint::Escapes {
+                escape_time: 3,
+                escape_location: (0.0, 0.0),
+                escape_derivative: (1.0, 0.0),
+                start_location: (0.0, 0.0),
+                smallness: 0.0,
+                small_time: 0,
+            },
+            CompletedPoint::Escapes {
+                escape_time: 4,
+                escape_location: (0.0, 0.0),
+                escape_derivative: (1.0, 0.0),
+                start_location: (0.0, 0.0),
+                smallness: 0.0,
+                small_time: 0,
+            },
+        ];
+        let pkg = ResultsPackage {
+            results,
+            screen_res: res,
+            location: loc.clone(),
+            hud: Default::default(),
+        };
+        let same = sample_old_values(&pkg, loc.clone(), res);
+        for (i, r) in same.results.iter().enumerate() {
+            match r {
+                CompletedPoint::Escapes { escape_time, .. } => {
+                    assert_eq!(*escape_time, (i as u32) + 1)
+                }
+                other => panic!("kind changed: {other:?}"),
+            }
+        }
+        // relative_zoom = new - old; swapped would invert zoom direction.
+        assert_eq!(same.location.zoom_pot, loc.zoom_pot);
+        assert_eq!(same.screen_res, res);
+
+        // Direct sample_value: seat/row order must stay row-major via helpers.
+        let v = sample_value(
+            &pkg.results,
+            res,
+            4,
+            1,
+            0,
+            (0, 0),
+            0,
+        );
+        match v {
+            CompletedPoint::Escapes { escape_time, .. } => assert_eq!(escape_time, 3),
+            other => panic!("{other:?}"),
+        }
+        let v01 = sample_value(&pkg.results, res, 4, 0, 1, (0, 0), 0);
+        match v01 {
+            CompletedPoint::Escapes { escape_time, .. } => assert_eq!(escape_time, 2),
+            other => panic!("{other:?}"),
+        }
+    }
+}

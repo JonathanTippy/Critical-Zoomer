@@ -1007,6 +1007,43 @@ fn from_stencil_classifies_zoom_pan_neither() {
     });
 }
 
+/// Thought-killed pins for `classify_motion` (zoom≻pan, || on pos axes, Neither).
+#[test]
+fn mutant_kill_classify_motion() {
+    let base = ObjectivePosAndZoom {
+        pos: (IntExp::from(-2), IntExp::from(2)),
+        zoom_pot: -2,
+    };
+    assert_eq!(classify_motion(None, &base), Motion::Neither);
+    assert_eq!(classify_motion(Some(&base), &base), Motion::Neither);
+
+    let zoomed = ObjectivePosAndZoom {
+        pos: base.pos.clone(),
+        zoom_pot: 0,
+    };
+    assert_eq!(classify_motion(Some(&base), &zoomed), Motion::Zoomed);
+
+    let panned = ObjectivePosAndZoom {
+        pos: (IntExp::from(-1), IntExp::from(2)),
+        zoom_pot: -2,
+    };
+    assert_eq!(classify_motion(Some(&base), &panned), Motion::Panned);
+
+    let panned_im = ObjectivePosAndZoom {
+        pos: (IntExp::from(-2), IntExp::from(3)),
+        zoom_pot: -2,
+    };
+    assert_eq!(classify_motion(Some(&base), &panned_im), Motion::Panned);
+
+    // Both changed → Zoomed (not Panned): zoom check is first.
+    let both = ObjectivePosAndZoom {
+        pos: (IntExp::from(0), IntExp::from(0)),
+        zoom_pot: 3,
+    };
+    assert_eq!(classify_motion(Some(&base), &both), Motion::Zoomed);
+    assert_ne!(classify_motion(Some(&base), &both), Motion::Panned);
+}
+
 // r[verify cz.craft.pan-zoom-slot0+1]
 #[test]
 fn pan_scredge_lead_only_on_first_shift() {

@@ -115,6 +115,26 @@ pub enum Motion {
     Neither,
 }
 
+/// Zoom wins over pan when both change; no previous → Neither.
+// r[impl cz.craft.pan-zoom-slot0+1]
+pub(crate) fn classify_motion(
+    previous: Option<&ObjectivePosAndZoom>,
+    obj: &ObjectivePosAndZoom,
+) -> Motion {
+    match previous {
+        None => Motion::Neither,
+        Some(old) => {
+            if obj.zoom_pot != old.zoom_pot {
+                Motion::Zoomed
+            } else if obj.pos.0 != old.pos.0 || obj.pos.1 != old.pos.1 {
+                Motion::Panned
+            } else {
+                Motion::Neither
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct WorkContext<T: Mandelbrotable> {
     pub points: Vec<Point<T>>
@@ -870,18 +890,7 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
 
     // r[impl cz.craft.pan-zoom-slot0+1]
     // Zoom takes precedence over pan when both change; neither defaults to attention.
-    let motion = match previous.as_ref() {
-        None => Motion::Neither,
-        Some((_, old)) => {
-            if obj.zoom_pot != old.zoom_pot {
-                Motion::Zoomed
-            } else if obj.pos.0 != old.pos.0 || obj.pos.1 != old.pos.1 {
-                Motion::Panned
-            } else {
-                Motion::Neither
-            }
-        }
-    };
+    let motion = classify_motion(previous.as_ref().map(|(_, old)| old), &obj);
 
     let new_len = (res.0 * res.1) as usize;
     let (mut points, mut random_map, old_res, mut completed_points) = match previous {
