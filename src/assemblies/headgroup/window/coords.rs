@@ -737,5 +737,55 @@ mod tests {
         assert!(line.contains('i'));
         assert_ne!(format_intexp_readout(&IntExp::ZERO), "nan");
         assert_eq!(format_intexp_readout(&IntExp::ZERO), "0");
+
+        // Negative imag uses leading '-' (not "+ -…i").
+        let neg_im = format_location_readout(&cre, &f64_to_intexp(-0.5), 3);
+        assert!(neg_im.contains('-'));
+        assert!(!neg_im.contains("+ -"));
+        assert!(neg_im.contains("mag 2^3"));
+
+        // parse_complex: comma pair, a+bi, bare i, reject real-only.
+        let (re, im) = parse_complex("1.5,-2.25").expect("comma pair");
+        assert!((f64::from(re) - 1.5).abs() < 1e-9);
+        assert!((f64::from(im) + 2.25).abs() < 1e-9);
+        let (re, im) = parse_complex("0.75+1.25i").expect("a+bi");
+        assert!((f64::from(re) - 0.75).abs() < 1e-9);
+        assert!((f64::from(im) - 1.25).abs() < 1e-9);
+        let (re, im) = parse_complex("i").expect("bare i");
+        assert_eq!(re, IntExp::ZERO);
+        assert_eq!(im, IntExp::from(1));
+        let (re, im) = parse_complex("-i").expect("-i");
+        assert_eq!(re, IntExp::ZERO);
+        assert_eq!(im, IntExp::from(-1));
+        assert!(parse_complex("1.5").is_none());
+        assert!(parse_complex("").is_none());
+        assert!(parse_complex("   ").is_none());
+
+        // Goto: SetZoom before SetPos; home; mag suffix; invalid without pot.
+        let cmds = commands_from_goto_line("-0.75 + 0.125i  mag 2^-2").expect("hud goto");
+        assert_eq!(cmds.len(), 2);
+        match &cmds[0] {
+            ZoomerCommand::SetZoom { pot } => assert_eq!(*pot, -2),
+            _ => panic!("first must be SetZoom"),
+        }
+        match &cmds[1] {
+            ZoomerCommand::SetPos { real, imag } => {
+                assert!((f64::from(real.clone()) + 0.75).abs() < 1e-9);
+                assert!((f64::from(imag.clone()) - 0.125).abs() < 1e-9);
+            }
+            _ => panic!("second must be SetPos"),
+        }
+        assert!(goto_line_is_valid("home"));
+        let home = commands_from_goto_line("HOME").expect("home");
+        assert!(matches!(home[0], ZoomerCommand::MoveTo { .. }));
+        assert!(matches!(home[1], ZoomerCommand::SetZoom { .. }));
+        assert!(!goto_line_is_valid(""));
+        assert!(
+            !goto_line_is_valid("1+2i"),
+            "complex without mag must not be a valid goto"
+        );
+        // "mag" inside "imaginary" must not count as a magnification suffix.
+        assert!(!goto_line_is_valid("1+2imaginary"));
+        assert!(goto_line_is_valid("1 2 -3")); // legacy triple
     }
 }

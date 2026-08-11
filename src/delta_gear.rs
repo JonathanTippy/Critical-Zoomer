@@ -525,6 +525,32 @@ mod tests {
         assert_ne!(cnorm_sq((3.0, 4.0)), 3.0 / 3.0 + 4.0 / 4.0);
         assert_eq!(cscale((2.0, -1.0), 3.0), (6.0, -3.0));
         assert_ne!(cscale((2.0, -1.0), 3.0), (2.0 / 3.0, -1.0 / 3.0));
+
+        // view_gear_from_generators: relative+wide → F64; fail-closed → FloatExp.
+        assert_eq!(view_gear_from_generators::<f64>(true), ComputeGear::F64);
+        assert_eq!(view_gear_from_generators::<f64>(false), ComputeGear::FloatExp);
+        assert_ne!(view_gear_from_generators::<f64>(false), ComputeGear::F64);
+        // FloatExp::max_value().to_f64() is +∞ (>1e200), so relative_ok still picks F64.
+        assert_eq!(
+            view_gear_from_generators::<FloatExp>(true),
+            ComputeGear::F64
+        );
+        assert_eq!(
+            view_gear_from_generators::<FloatExp>(false),
+            ComputeGear::FloatExp
+        );
+
+        // f64_delta_admitted: max(|re|,|im|) gates; zero short-circuit; && bounds.
+        assert!(f64_delta_admitted(0.0, 0.0));
+        assert!(f64_delta_admitted(1.0, -1e-200));
+        assert!(!f64_delta_admitted(0.0, 1e-301));
+        assert!(!f64_delta_admitted(1e301, 0.0));
+        assert!(f64_delta_admitted(1e-300, 0.0)); // floor inclusive
+        assert!(f64_delta_admitted(1e300, 0.0)); // ceil inclusive
+        // Both components underflow → reject (max of tiny stays tiny).
+        assert!(!f64_delta_admitted(1e-301, 1e-302));
+        // One huge axis rejects even if the other is fine.
+        assert!(!f64_delta_admitted(1.0, 1e301));
     }
 
     #[test]
