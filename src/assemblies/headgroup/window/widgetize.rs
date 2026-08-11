@@ -1,7 +1,7 @@
 use eframe::emath::Rect;
 use egui::{color_picker, Ui};
 use egui_dnd::dnd;
-use crate::assemblies::structs::KernelMode;
+use crate::assemblies::structs::{ColorerMode, KernelMode};
 use crate::settings::*;
 impl Settings {
     pub fn widgetize(&mut self, ui:&mut Ui) {
@@ -32,6 +32,24 @@ impl Settings {
             });
         });
         ui.label("Host type stays auto from depth.");
+        ui.separator();
+        ui.label("Debug — colorer (gear)");
+        ui.checkbox(&mut self.manual_color_gear_enabled, "Manual color gear");
+        ui.add_enabled_ui(self.manual_color_gear_enabled, |ui| {
+            ui.horizontal(|ui| {
+                ui.radio_value(
+                    &mut self.manual_color_gear,
+                    ColorerMode::Og,
+                    ColorerMode::Og.manual_gear_label(),
+                );
+                ui.radio_value(
+                    &mut self.manual_color_gear,
+                    ColorerMode::Gpu,
+                    ColorerMode::Gpu.manual_gear_label(),
+                );
+            });
+        });
+        ui.label("Default OG; GPU is opt-in (never auto).");
         ui.separator();
 
         ui.label("order of coloring steps:");

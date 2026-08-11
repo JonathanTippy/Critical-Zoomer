@@ -24,12 +24,12 @@ all listed in docs — **study that code** before rewriting. New work must live
 up to that quality; interviews and virtues docs capture what can be stated,
 but the old implementation remains the richest source of tweaks.
 
-## Color gear (when GPU color exists)
+## Color gear
 
 Mirror the screen-worker **manual gear** pattern: a settings switch between
 
-- **OG colorer** — today’s CPU `color` path (default / golden look)
-- **GPU colorer** — future honest rewrite with feature parity + tests
+- **OG colorer** — CPU `color` path (default / golden look)
+- **GPU colorer** — f32 wgpu honest rewrite with feature parity + exact Color32 tests
 
 Automatic gearbox must not silently replace OG with GPU. Manual select for
-compare/rollback. See `shadergroup-virtues.md` parity bar.
+compare/rollback.

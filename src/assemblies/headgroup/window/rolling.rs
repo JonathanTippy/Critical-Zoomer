@@ -178,6 +178,7 @@ mod tests {
             points_delta: 3,
             iterations_delta: 1000,
             packages_dropped: 0,
+            ..Default::default()
         };
         assert_eq!(hud.stack.hud_label(), "f64");
         assert_eq!(hud.mode.hud_label(), "pert");

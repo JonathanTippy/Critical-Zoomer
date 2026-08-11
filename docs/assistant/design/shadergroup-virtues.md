@@ -21,16 +21,17 @@ Prior GPU shade attempts that dropped features or changed the look are rejected
 as a pattern. Prefer measuring (`shadergroup_fitness`) and then rewriting under
 this bar — do not thin the product to win the clock.
 
-## Color gear switch (when GPU color exists)
+## Color gear switch
 
 Same idea as the screen-worker **manual gear** switch: settings expose
 
-- **OG** — current CPU colorer (golden look; default)
-- **GPU** — future honest rewrite
+- **OG** — CPU colorer (golden look; default)
+- **GPU** — honest f32 wgpu rewrite (`colorer/gpu/`)
 
 so the two can be compared and rolled back. The automatic PPS/kernel gearbox
-must **not** auto-pick GPU color. Until GPU color exists, this is a design
-lock only (`assembly-boundaries.md`).
+must **not** auto-pick GPU color. HUD stamps `color:OG|GPU|GPU→OG` (fallback
+only when no usable device). Exact `Color32` parity is pinned by
+`gpu_matches_og_*` tests.
 
 ## Single path
 

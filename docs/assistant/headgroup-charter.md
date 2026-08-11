@@ -24,8 +24,9 @@ violation until justified or reverted.
 | `headgroup/window/transforms.rs` | +12 command-only apply | **Yes** — goto / tests (no pixel path) |
 | `shadergroup/colorer/color.rs` | +319 filament / period edges | **Bucket 3** — shade rules; headed verify required |
 | `shadergroup/escaper.rs` | escape-continues / ring; **2026-08-11:** `escape_frame` + drop count | Tied to shade; keep with shade rules |
-| `shadergroup/colorer/` | **2026-08-11:** drop count + Criterion path | Bucket 3 — shade audit |
-| `headgroup/window/mod.rs` | HUD `drop:` | **Yes** — HUD telemetry |
+| `shadergroup/colorer/` | **2026-08-11:** drop count + Criterion; **GPU f32 colorer + manual color gear** | Bucket 3 — shade + bucket 2 `color:` HUD |
+| `headgroup/window/mod.rs` | HUD `drop:` + `color:` | **Yes** — HUD telemetry |
+| `headgroup/window/widgetize.rs` | Manual color gear radios | Bucket 3 settings for shade gear |
 
 ## Enforcement
 

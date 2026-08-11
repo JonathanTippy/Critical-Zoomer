@@ -97,8 +97,20 @@ the accepted honest medians above (no ≥20% regression).
 | color_1_5x | **~83.8 ms** | ~12 | alone already ≪ 60 Hz wisdom |
 | color_2_0x | **~101 ms** | ~10 | |
 
+**GPU colorer (2026-08-11, f32 wgpu, exact Color32 parity vs OG):**
+
+| metric | median | notes |
+|---|---|---|
+| color_1_0x (OG, post f32 shade) | **~43.5 ms** | improved vs prior f64 shade path |
+| color_1_5x (OG) | **~64.4 ms** | |
+| color_2_0x (OG) | **~72.8 ms** | |
+| color_gpu_1_0x | **~18.6 ms** | ~2.3× faster than OG at 1× |
+| color_gpu_1_5x | **~30.7 ms** | |
+| color_gpu_2_0x | **~40.5 ms** | still above 60 Hz sole-wake; better cliff |
+
 Actors re-run these every ~8 ms wake while holding a package, so colorer alone
-cannot keep up past the cliff; HUD `drop:` will climb when behind.
+cannot keep up past the cliff; HUD `drop:` will climb when behind. Manual
+color gear defaults to OG; enable GPU in settings to use the wgpu path.
 
 ## Baseline
 

@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use criterion::*;
 
 use critical_zoomer::assemblies::shadergroup::colorer::color::color;
+use critical_zoomer::assemblies::shadergroup::colorer::gpu::GpuColorer;
 use critical_zoomer::assemblies::shadergroup::escaper::{escape_frame, ZoomerValuesScreen};
 use critical_zoomer::assemblies::workgroup::screen_worker::workshift::*;
 use critical_zoomer::assemblies::workgroup::work_collector::ResultsPackage;
@@ -162,6 +163,36 @@ fn bench_color(c: &mut Criterion, name: &str, pixel_scale: f64) {
     });
 }
 
+fn bench_color_gpu(c: &mut Criterion, name: &str, pixel_scale: f64) {
+    let Some(gpu) = GpuColorer::shared() else {
+        eprintln!("shadergroup color GPU {name}: skipped (no device)");
+        return;
+    };
+    let pkg = package_cache(pixel_scale);
+    let settings = settings_default();
+    let radius = settings.bailout_radius.clone().determine() as f32;
+    let screen: ZoomerValuesScreen = escape_frame(pkg, radius, &settings);
+    let pixels = screen.values.len();
+    eprintln!(
+        "shadergroup color GPU {name}: res={:?} pixels={pixels} (~{pixel_scale}× default)",
+        screen.res
+    );
+
+    c.bench_function(name, |b| {
+        b.iter_custom(|iters| {
+            let mut total = Duration::ZERO;
+            for _ in 0..iters {
+                let mut s = settings.clone();
+                let t0 = Instant::now();
+                let out = gpu.paint(&screen, &mut s).expect("gpu paint");
+                black_box(out);
+                total += t0.elapsed();
+            }
+            total
+        })
+    });
+}
+
 fn shadergroup_escape(c: &mut Criterion) {
     let mut group = c.benchmark_group("shadergroup_escape");
     group.sample_size(20);
@@ -178,5 +209,11 @@ fn shadergroup_color(c: &mut Criterion) {
     bench_color(c, "color_2_0x_default_pixels", 2.0);
 }
 
-criterion_group!(benches, shadergroup_escape, shadergroup_color);
+fn shadergroup_color_gpu(c: &mut Criterion) {
+    bench_color_gpu(c, "color_gpu_1_0x_default_pixels", 1.0);
+    bench_color_gpu(c, "color_gpu_1_5x_default_pixels", 1.5);
+    bench_color_gpu(c, "color_gpu_2_0x_default_pixels", 2.0);
+}
+
+criterion_group!(benches, shadergroup_escape, shadergroup_color, shadergroup_color_gpu);
 criterion_main!(benches);

@@ -105,6 +105,7 @@ pub struct WindowState {
     , pub last_stack_label: &'static str
     , pub last_mode_label: &'static str
     , pub last_ref_label: &'static str
+    , pub last_color_label: &'static str
     , pub last_packages_dropped: u64
 }
 
@@ -175,6 +176,7 @@ async fn internal_behavior<A: SteadyActor>(
         , last_stack_label: "f64"
         , last_mode_label: "naive"
         , last_ref_label: "NA"
+        , last_color_label: "OG"
         , last_packages_dropped: 0
     }).await;
 
@@ -338,6 +340,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     state.last_stack_label = s.hud.stack.hud_label();
                     state.last_mode_label = s.hud.mode.hud_label();
                     state.last_ref_label = s.hud.ref_hud_label();
+                    state.last_color_label = s.hud.color.hud_label();
                     state.last_packages_dropped = s.hud.packages_dropped;
                     update_sampling_context(&mut state.sampling_context, s);
 
@@ -468,7 +471,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                         let ips = state.ips_counter.rate(now);
                                         // r[impl cz.depth.gear-hud+2]
                                         response += format!(
-                                            "fps:{:.0}  stack:{}  mode:{}  ref:{}  gear:{}\npps:{:.0}  ips:{:.0}  drop:{}  1s:{:.1}",
+                                            "fps:{:.0}  stack:{}  mode:{}  ref:{}  gear:{}\npps:{:.0}  ips:{:.0}  drop:{}  color:{}  1s:{:.1}",
                                             r.0.0 as f64 / 1000000000.0,
                                             state.last_stack_label,
                                             state.last_mode_label,
@@ -477,6 +480,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                             pps,
                                             ips,
                                             state.last_packages_dropped,
+                                            state.last_color_label,
                                             1.0 / r.1.0.as_secs_f64()
                                         ).as_str();
 

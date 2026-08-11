@@ -63,5 +63,8 @@ r[cz.shade.layers-in-script-order+1]
 **Normative summary.** Layered coloring paints in script list order.
 
 **Acceptance criteria.**
-- [ ] Verifies layer order on the restored colorer, including agreement between the GPU display
+- [x] Verifies layer order on the restored colorer, including agreement between the GPU display
   path and a CPU oracle on the same answers.
+
+**Test.** `gpu_matches_og_color32_default_script`, `gpu_matches_og_per_layer_scripts`,
+`gpu_matches_og_home_escape_frame` (colorer/gpu).

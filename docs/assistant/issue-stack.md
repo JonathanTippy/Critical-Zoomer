@@ -45,15 +45,22 @@ Developer acceptance test failed on the tile machine. Most items were tile-era i
 
 ## Known issues (open)
 
-- **Resolution / ~1.5× default pixels — two failures (2026-08-11 interview).**
-  Past ~1.5× `DEFAULT_WINDOW_RES` pixel count the app goes pear-shaped:
-  (A) **shadergroup too slow** — colorer problem child (`shadergroup_fitness`);
-  any colorer rewrite must be honest parity + tests (`shadergroup-virtues.md`).
-  (B) **workgroup unfinished bands** — Stec fixed-cap staging deleted (2026-08-11):
-  growable per-shift `Vec` → collector channel; failed `try_send` undelivers the
-  batch (`undeliver_failed_batch`). Pins: `failed_channel_send_undelivers_batch`,
-  `enlarge_replace_completion_vec_accepts_full_screen`. **Headed re-test** after
-  resize/fullscreen still required (prior Stec-grow-only fix was insufficient).
+- **Resolution / ~1.5× default pixels — revealed issues (2026-08-11).**
+  Past ~1.5× `DEFAULT_WINDOW_RES` / at 1080p:
+  (A) **shadergroup too slow** — colorer problem child (`shadergroup_fitness`).
+  **Landed (2026-08-11):** manual OG↔GPU color gear + honest f32 wgpu colorer
+  with exact `Color32` parity (`gpu_matches_og_*`). Headed: enable Manual color
+  gear → GPU to measure fullscreen feel; OG remains default.
+  (B) **workgroup unfinished bands** — Stec deleted; growable Vec → channel +
+  `undeliver_failed_batch`. Headed: bands appear fixed (2026-08-11 retest).
+  (C) **Parked (revealed after banding):** time-to-first-work and work-update
+  post rate degrade past ~1.5× / 1080p — revisit after GPU colorer makes the
+  shade path fast enough to expose them cleanly.
+
+**Charter note (2026-08-11 GPU colorer):** bucket-3 honest rewrite of
+shadergroup colorer (wgpu f32, feature parity, exact Color32 vs OG) + bucket-2
+HUD `color:` + settings manual color gear (default OG). Escaper stays CPU.
+No workgroup TTFP/update-rate work in this chunk.
 - **Out-filament highlighting absent where verification is difficult.** After period correctness fixes, cloudy false positives are gone, but difficult areas can remain period 0 (unknown); unknown periods correctly create no out-filaments, so highlighting is absent there. Do not fix by publishing guessed periods. The resolution is stronger verification/continuation so difficult interior points eventually get verified periods.
 
 **Charter note (2026-08-11 interview):** shadergroup/headgroup HUD — extract

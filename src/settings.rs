@@ -123,12 +123,24 @@ impl Settings {
         // Debug: force compute kernel; host type stays auto from depth.
         , manual_gear_enabled: false
         , manual_gear: crate::assemblies::structs::KernelMode::Naive
+        // Debug: force colorer path; default OG when disabled.
+        , manual_color_gear_enabled: false
+        , manual_color_gear: crate::assemblies::structs::ColorerMode::Og
     };
 
     /// Resolved manual gear for the screen worker (`None` = automatic policy).
     pub fn manual_gear_override(&self) -> Option<crate::assemblies::structs::KernelMode> {
         if self.manual_gear_enabled {
             Some(self.manual_gear)
+        } else {
+            None
+        }
+    }
+
+    /// Resolved manual colorer (`None` = OG default).
+    pub fn manual_color_gear_override(&self) -> Option<crate::assemblies::structs::ColorerMode> {
+        if self.manual_color_gear_enabled {
+            Some(self.manual_color_gear)
         } else {
             None
         }
@@ -156,6 +168,10 @@ pub struct Settings {
     // Host stack / type remains automatic from depth admission.
     , pub manual_gear_enabled: bool
     , pub manual_gear: crate::assemblies::structs::KernelMode
+    // When true, `manual_color_gear` selects OG vs GPU colorer (debug).
+    // Automatic PPS/kernel gearbox must never pick GPU color.
+    , pub manual_color_gear_enabled: bool
+    , pub manual_color_gear: crate::assemblies::structs::ColorerMode
 }
 
 
@@ -228,6 +244,17 @@ impl Normalizing {
                 (1.0/input).ln()
             }
             Normalizing::Reciprocal{..} => {1.0/input}
+        }
+    }
+
+    /// f32 twin of `normalize` — shared OG/GPU shade math for exact Color32 parity.
+    pub fn normalize_f32(&self, input: f32) -> f32 {
+        match self {
+            Normalizing::None { .. } => input,
+            Normalizing::LnLn { .. } => input.ln().ln(),
+            Normalizing::Ln { .. } => input.ln(),
+            Normalizing::RecipLn { .. } => (1.0 / input).ln(),
+            Normalizing::Reciprocal { .. } => 1.0 / input,
         }
     }
 
@@ -681,6 +708,20 @@ mod mutant_kill {
         assert_eq!(s.manual_gear_override(), Some(KernelMode::Naive));
         s.manual_gear_enabled = false;
         assert!(s.manual_gear_override().is_none());
+    }
+
+    #[test]
+    fn mutant_kill_manual_color_gear_override_enabled_gate() {
+        use crate::assemblies::structs::ColorerMode;
+        let mut s = Settings::DEFAULT;
+        assert!(s.manual_color_gear_override().is_none());
+        s.manual_color_gear_enabled = true;
+        s.manual_color_gear = ColorerMode::Gpu;
+        assert_eq!(s.manual_color_gear_override(), Some(ColorerMode::Gpu));
+        s.manual_color_gear = ColorerMode::Og;
+        assert_eq!(s.manual_color_gear_override(), Some(ColorerMode::Og));
+        s.manual_color_gear_enabled = false;
+        assert!(s.manual_color_gear_override().is_none());
     }
 
     #[test]

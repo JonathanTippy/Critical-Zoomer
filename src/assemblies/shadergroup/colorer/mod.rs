@@ -12,9 +12,11 @@ use crate::settings::*;
 
 use crate::assemblies::shadergroup::colorer::color::*;
 pub mod color;
+pub mod gpu;
 
 use crate::assemblies::structs::*;
 use egui::Color32;
+use std::sync::Arc;
 
 pub struct ColorerState {
     pub values: Option<ZoomerValuesScreen>,
@@ -22,6 +24,8 @@ pub struct ColorerState {
     pub settings: Settings,
     /// Full-frame packages discarded by drain-to-newest when behind.
     pub packages_dropped: u64,
+    /// Colorer-owned GPU path (None → OG only / GPU→OG fallback).
+    pub gpu: Option<Arc<gpu::GpuColorer>>,
 }
 
 pub async fn run(
@@ -58,6 +62,7 @@ async fn internal_behavior<A: SteadyActor>(
         start: Instant::now(),
         settings: Settings::DEFAULT,
         packages_dropped: 0,
+        gpu: gpu::GpuColorer::shared(),
     }).await;
 
     // Lock all channels for exclusive access within this actor.
@@ -133,10 +138,17 @@ async fn internal_behavior<A: SteadyActor>(
 
         let mut settings = state.settings.clone();
         let dropped = state.packages_dropped;
+        let want_gpu = matches!(
+            settings.manual_color_gear_override(),
+            Some(ColorerMode::Gpu)
+        );
+        let gpu = state.gpu.clone();
         // Same path every wake (animated layers / bailout upstream): only numbers change.
         if let Some(v) = &mut state.values {
-            let output = color(v, &mut settings);
+            let (output, color_hud) =
+                gpu::color_with_gear(v, &mut settings, want_gpu, &gpu);
             v.hud.packages_dropped = dropped;
+            v.hud.color = color_hud;
 
             actor.try_send(
                 &mut screens_out,

@@ -4,9 +4,9 @@
 - **Status:** in progress
 - **Prior session:** [2026-08-11-series-approximation-contract.md](2026-08-11-series-approximation-contract.md)
 
-**Summary:** Diagnosis locked. Banding: Stec deleted → growable Vec → channel
-(+ undeliver on failed send); headed retest pending. Colorer: honest rewrite +
-future OG↔GPU color gear (manual). Assembly SoC + study v0.0.9 enshrined.
+**Summary:** Diagnosis locked. Banding fixed (Stec→channel). GPU colorer +
+manual OG↔GPU color gear landed (f32, exact Color32 parity). Parked: TTFP /
+work-update rate at ≥1.5×. Colorer honest rewrite bar met for this chunk.
 
 ---
 

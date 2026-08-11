@@ -1,8 +1,7 @@
 use crate::settings::*;
 use crate::assemblies::shadergroup::escaper::*;
 use crate::utils::*;
-use std::f64::consts::*;
-use std::time::*;
+use std::f64::consts::{FRAC_PI_2, PI};
 
 use egui::Color32;
 pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32> {
@@ -14,29 +13,15 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                 ColoringInstruction::PaintEscapeTime{
                     opacity, color, range, ref mut shading_method, normalizing_method, ..
                 } => {
-                    let start = Instant::now();
                     // `ref mut` so Animable::determine can latch start (Copy would drop it).
-                    let period = shading_method.period.determine();
-                    let period_recip = 1.0/period;
-                    let phase = shading_method.phase.determine();
-
+                    // f32 shade path — shared with GPU colorer for exact Color32 parity.
+                    let period = shading_method.period.determine() as f32;
+                    let period_recip = 1.0 / period;
+                    let phase = shading_method.phase.determine() as f32;
                     let range = *range as f64 / 255.0;
+                    let norm = *normalizing_method;
+                    let shade_kind = shading_method.shading;
 
-                    let shade =
-                        match shading_method.shading {
-                            Shading::Modular{..} => {
-                                |phase:&f64, period:&f64, period_recip:&f64, n:&f64| -> f64 {
-                                    ((n+phase) % period)*period_recip
-                                }
-                            }
-                            Shading::Sinus{..} => {
-                                |phase:&f64, period:&f64, period_recip:&f64, n:&f64| -> f64 {
-                                    (1.0-((n+phase)*TAU*period_recip).cos())*0.5
-                                }
-                            }
-                        };
-
-                    use std::cmp::*;
                     for x in 0..res.0 {
                         for y in 0..res.1 {
                             let pos = (x as i32, y as i32);
@@ -45,17 +30,9 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                             let color = match value {
                                 ScreenValue::Inside{..} => {continue;}
                                 ScreenValue::Outside{big_time: escape_time, ..} => {
-                                    let escape_time = *escape_time as f64;
-                                    let escape_time = normalizing_method.normalize(&escape_time);
-                                    let brightness = match shading_method.shading {
-                                        Shading::Modular{..} => {
-                                            ((escape_time+phase) % period)*period_recip
-                                        }
-                                        Shading::Sinus{..} => {
-                                            (1.0-((escape_time+phase)*TAU*period_recip).cos())*0.5
-                                        }
-                                    };
-                                    let color = modify_color(*color, brightness, range);
+                                    let n = norm.normalize_f32(*escape_time as f32);
+                                    let brightness = shade_brightness_f32(shade_kind, phase, period, period_recip, n);
+                                    let color = modify_color(*color, brightness as f64, range);
                                     (color.0,color.1,color.2,*opacity)
                                 }
                             };
@@ -63,33 +40,17 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
 
                         }
                     }
-                    //println!("painted escape time in {:6}", start.elapsed().as_secs_f64())
                 }
                 ColoringInstruction::PaintSmallTime{
                     inside_opacity, outside_opacity, color, range, ref mut shading_method, normalizing_method, ..
                 } => {
-                    let start = Instant::now();
-                    let period = shading_method.period.determine();
-                    let period_recip = 1.0/period;
-                    let phase = shading_method.phase.determine();
-
+                    let period = shading_method.period.determine() as f32;
+                    let period_recip = 1.0 / period;
+                    let phase = shading_method.phase.determine() as f32;
                     let range = *range as f64 / 255.0;
+                    let norm = *normalizing_method;
+                    let shade_kind = shading_method.shading;
 
-                    let shade =
-                        match shading_method.shading {
-                            Shading::Modular{..} => {
-                                |phase:&f64, period:&f64, period_recip:&f64, n:&f64| -> f64 {
-                                    ((n+phase) % period)*period_recip
-                                }
-                            }
-                            Shading::Sinus{..} => {
-                                |phase:&f64, period:&f64, period_recip:&f64, n:&f64| -> f64 {
-                                    (1.0-((n+phase)*TAU*period_recip).cos())*0.5
-                                }
-                            }
-                        };
-
-                    use std::cmp::*;
                     for x in 0..res.0 {
                         for y in 0..res.1 {
                             let pos = (x as i32, y as i32);
@@ -105,42 +66,25 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                             };
 
                             let color = {
-                                let smalltime = *smalltime as f64;
-                                let smalltime = normalizing_method.normalize(&smalltime);
-                                let brightness = shade(&phase, &period, &period_recip, &smalltime);
-                                let color = modify_color(*color, brightness, range);
+                                let n = norm.normalize_f32(*smalltime as f32);
+                                let brightness = shade_brightness_f32(shade_kind, phase, period, period_recip, n);
+                                let color = modify_color(*color, brightness as f64, range);
                                 (color.0,color.1,color.2,**opacity)
                             };
                             returned[index]=layer_colors(returned[index], color)
                         }
                     }
-                    //println!("painted small time in {:6}", start.elapsed().as_secs_f64())
                 }
                 ColoringInstruction::PaintSmallness{
                     inside_opacity, outside_opacity, color, range, ref mut shading_method, normalizing_method, ..
                 } => {
-                    let start = Instant::now();
-                    let period = shading_method.period.determine();
-                    let period_recip = 1.0/period;
-                    let phase = shading_method.phase.determine();
-
+                    let period = shading_method.period.determine() as f32;
+                    let period_recip = 1.0 / period;
+                    let phase = shading_method.phase.determine() as f32;
                     let range = *range as f64 / 255.0;
+                    let norm = *normalizing_method;
+                    let shade_kind = shading_method.shading;
 
-                    let shade =
-                        match shading_method.shading {
-                            Shading::Modular{..} => {
-                                |phase:&f64, period:&f64, period_recip:&f64, n:&f64| -> f64 {
-                                    ((n+phase) % period)*period_recip
-                                }
-                            }
-                            Shading::Sinus{..} => {
-                                |phase:&f64, period:&f64, period_recip:&f64, n:&f64| -> f64 {
-                                    (1.0-((n+phase)*TAU*period_recip).cos())*0.5
-                                }
-                            }
-                        };
-
-                    use std::cmp::*;
                     for x in 0..res.0 {
                         for y in 0..res.1 {
                             let pos = (x as i32, y as i32);
@@ -156,21 +100,18 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                             };
 
                             let color = {
-                                let smallness = *smallness as f64;
-                                let smallness = normalizing_method.normalize(&smallness);
-                                let brightness = shade(&phase, &period, &period_recip, &smallness);
-                                let color = modify_color(*color, brightness, range);
+                                let n = norm.normalize_f32(*smallness as f32);
+                                let brightness = shade_brightness_f32(shade_kind, phase, period, period_recip, n);
+                                let color = modify_color(*color, brightness as f64, range);
                                 (color.0,color.1,color.2,**opacity)
                             };
                             returned[index]=layer_colors(returned[index], color)
                         }
                     }
-                    //println!("painted smallness in {:6}", start.elapsed().as_secs_f64())
                 }
                 ColoringInstruction::HighlightInFilaments{
                     opacity, color, ..
                 } => {
-                    let start = Instant::now();
                     use std::cmp::*;
                     for x in 0..res.0 {
                         for y in 0..res.1 {
@@ -194,12 +135,10 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                             }
                         }
                     }
-                    //println!("highlighted in filaments in {:6}", start.elapsed().as_secs_f64())
                 }
                 ColoringInstruction::HighlightOutFilaments{
                     opacity, color, ..
                 } => {
-                    let start = Instant::now();
                     use std::cmp::*;
                     for x in 0..res.0 {
                         for y in 0..res.1 {
@@ -223,12 +162,10 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                             }
                         }
                     }
-                    //println!("highlighted out filaments in {:6}", start.elapsed().as_secs_f64())
                 }
                 ColoringInstruction::HighlightNodes{
                     inside_opacity, outside_opacity, color, thickness, ..
                 } => {
-                    let start = Instant::now();
                     use std::cmp::*;
                     for x in 0..res.0 {
                         for y in 0..res.1 {
@@ -256,12 +193,10 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                             }
                         }
                     }
-                    //println!("highlighted nodes in {:6}", start.elapsed().as_secs_f64())
                 }
                 ColoringInstruction::HighlightSmallTimeEdges{
                     inside_opacity, outside_opacity, color, ..
                 } => {
-                    let start = Instant::now();
                     use std::cmp::*;
                     for x in 0..res.0 {
                         for y in 0..res.1 {
@@ -289,7 +224,6 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                             }
                         }
                     }
-                    //println!("highlighted node tree in {:6}", start.elapsed().as_secs_f64())
                 }
             }
         }
@@ -301,6 +235,21 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
         )
     }
     returned_color32
+}
+
+/// Shared OG/GPU shade brightness (f32). Matches WGSL `shade_brightness`.
+pub fn shade_brightness_f32(
+    shading: Shading,
+    phase: f32,
+    period: f32,
+    period_recip: f32,
+    n: f32,
+) -> f32 {
+    const TAU_F32: f32 = std::f32::consts::TAU;
+    match shading {
+        Shading::Modular { .. } => ((n + phase) % period) * period_recip,
+        Shading::Sinus { .. } => (1.0 - ((n + phase) * TAU_F32 * period_recip).cos()) * 0.5,
+    }
 }
 
 pub fn layer_colors (bottom: (u8, u8, u8), top:(u8, u8, u8, u8)) -> (u8, u8, u8) {
@@ -339,16 +288,17 @@ pub fn is_in_filament(values: &ZoomerValuesScreen, pos: (i32, i32)) -> bool {
 
     // Each remapped sample describes a locally linear field at its source.
     // Project that field to the center screen pixel before looking for a peak.
-    let sample = |sample_pos: (i32, i32)| -> Option<(f64, f64, f32)> {
+    // f32 projection matches the GPU colorer (exact Color32 parity).
+    let sample = |sample_pos: (i32, i32)| -> Option<(f32, f32, f32)> {
         match safe_sample(&values.values, sample_pos, values.res)? {
             ScreenValue::Outside { big_time, gradient_angle, .. } => {
                 let offset = (
-                    (pos.0 - sample_pos.0) as f64,
-                    (pos.1 - sample_pos.1) as f64,
+                    (pos.0 - sample_pos.0) as f32,
+                    (pos.1 - sample_pos.1) as f32,
                 );
-                let projection = offset.0 * (*gradient_angle as f64).cos()
-                    + offset.1 * (*gradient_angle as f64).sin();
-                Some((*big_time as f64, *big_time as f64 + projection, *gradient_angle))
+                let ang = *gradient_angle;
+                let projection = offset.0 * ang.cos() + offset.1 * ang.sin();
+                Some((*big_time as f32, *big_time as f32 + projection, ang))
             }
             ScreenValue::Inside { .. } => None,
         }
@@ -621,6 +571,7 @@ mod tests {
     use super::*;
     use crate::assemblies::shadergroup::escaper::{ScreenValue, ZoomerValuesScreen};
     use crate::utils::ObjectivePosAndZoom;
+    use std::f64::consts::{FRAC_PI_2, PI};
 
     fn inside(period: u32) -> ScreenValue {
         ScreenValue::Inside { small_time: 0, loop_period: period, smallness: 0.0 }

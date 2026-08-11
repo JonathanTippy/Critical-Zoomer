@@ -25,6 +25,45 @@ pub struct ViewHud {
     pub iterations_delta: u64,
     /// Cumulative full-frame packages dropped by escaper/colorer drain-to-newest.
     pub packages_dropped: u64,
+    /// Colorer path actually used for this view (OG / GPU / GPU fell back to OG).
+    pub color: ColorerHud,
+}
+
+/// Manual colorer implementation (settings gear; default OG).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ColorerMode {
+    #[default]
+    Og,
+    Gpu,
+}
+
+impl ColorerMode {
+    pub fn manual_gear_label(self) -> &'static str {
+        match self {
+            ColorerMode::Og => "OG",
+            ColorerMode::Gpu => "GPU",
+        }
+    }
+}
+
+/// What the colorer stamped on the last painted frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ColorerHud {
+    #[default]
+    Og,
+    Gpu,
+    /// Manual GPU selected but device unavailable — painted with OG.
+    GpuFallbackOg,
+}
+
+impl ColorerHud {
+    pub fn hud_label(self) -> &'static str {
+        match self {
+            ColorerHud::Og => "OG",
+            ColorerHud::Gpu => "GPU",
+            ColorerHud::GpuFallbackOg => "GPU→OG",
+        }
+    }
 }
 
 /// Host numeric stack for the view shell (`f64` vs FloatExp).
