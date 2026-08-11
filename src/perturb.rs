@@ -279,6 +279,13 @@ mod tests {
         let tight = ComplexFloatExp::new(FloatExp::from(1.0 + 0.5), FloatExp::ZERO);
         assert!(!near(a, tight, 0.1)); // |δ|²=0.25 > 0.01
         assert!(near(a, tight, 1.0)); // 0.25 <= 1.0
+        // Boundary: |δ|² == ε² must still be near (<= not < / >).
+        let origin = ComplexFloatExp::ZERO;
+        let edge = ComplexFloatExp::new(FloatExp::from(0.1), FloatExp::ZERO);
+        assert!(near(origin, edge, 0.1)); // 0.01 <= 0.01
+        assert!(!near(origin, edge, 0.09));
+        // *→+: ε+ε=0.2 would falsely accept |δ|²=0.25; keep the 0.5-gap case.
+        assert!(!near(a, tight, 0.1));
     }
 
     #[test]
@@ -307,6 +314,11 @@ mod tests {
             iterate_pixel(&zero_orbit, far, 1.0e-15, 8),
             PerturbedOutcome::Escapes { n: 1 }
         );
+        // |z|=2 exactly after one step from δc=2: |z|²=4 is NOT >4, so must not
+        // Escapes at n=1 via a >= mutant (continues / unfinished / later escape).
+        let on_circle = ComplexFloatExp::new(FloatExp::from(2.0), FloatExp::ZERO);
+        let on = iterate_pixel(&zero_orbit, on_circle, 1.0e-15, 2);
+        assert_ne!(on, PerturbedOutcome::Escapes { n: 1 });
 
         // Interior-ish small δc on period-2 reference → Repeats or Unfinished,
         // never a wrong Escapes from *→+ on the recurrence alone.
@@ -322,6 +334,17 @@ mod tests {
             ),
             "got {out:?}"
         );
+
+        // Zero-orbit algebra: after first step dz=δc; second step uses
+        // δz' = δz² + δc (Z=0). Escape timing pins 2·Z·δz / + mutants.
+        let mild = ComplexFloatExp::new(FloatExp::from(0.5), FloatExp::ZERO);
+        match iterate_pixel(&zero_orbit, mild, 1.0e-15, 16) {
+            PerturbedOutcome::Escapes { n } => {
+                // Mandelbrot c=0.5 escapes in a few iterations from 0.
+                assert!(n >= 2 && n <= 8, "n={n}");
+            }
+            other => panic!("expected Escapes for c=0.5 on zero orbit, got {other:?}"),
+        }
     }
 
     #[test]
@@ -353,5 +376,12 @@ mod tests {
             !matches!(clean, PerturbedOutcome::Glitch),
             "zero-orbit mid δc should not Pauldelbrot-glitch: {clean:?}"
         );
+    }
+
+    #[test]
+    fn mutant_kill_perturb_near_iterate_glitch() {
+        near_uses_squared_epsilon_leq();
+        iterate_pixel_delta_recurrence_and_escape_strict();
+        iterate_pixel_glitch_when_reconstructed_cancels();
     }
 }
