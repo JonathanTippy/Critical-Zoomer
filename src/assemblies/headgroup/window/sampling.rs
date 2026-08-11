@@ -410,5 +410,20 @@ mod mutant_kill {
         assert_eq!(t1, (4, 8));
         assert_ne!(t1, (8, 16)); // must apply zoom
         assert_ne!(t1, (12, 24)); // must subtract m before shift
+        // zoom=-1 → left shift (×2), not right.
+        let t_neg = transform_relative_location_i32((10, 20), (2, 4), -1);
+        assert_eq!(t_neg, (16, 32));
+        assert_ne!(t_neg, (4, 8));
+        assert_ne!(t_neg, (8, 16));
+        // optional refuses OOB even when clamp index would be valid.
+        assert_eq!(optional_index_from_relative_location((3, 2), res, 12), Some(11));
+        assert_eq!(
+            index_from_relative_location((3, 2), res, 12),
+            optional_index_from_relative_location((3, 2), res, 12).unwrap()
+        );
+        // Truncated data_length does not affect optional (res-only bounds).
+        assert_eq!(optional_index_from_relative_location((3, 2), res, 1), Some(11));
+        assert_eq!(optional_index_from_relative_location((4, 0), res, 1), None);
+        assert_eq!(optional_index_from_relative_location((-1, 1), res, 100), None);
     }
 }

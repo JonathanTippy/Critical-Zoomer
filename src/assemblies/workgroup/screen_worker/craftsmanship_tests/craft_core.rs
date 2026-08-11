@@ -1120,6 +1120,15 @@ fn mutant_kill_queue_neighbors_and_verified_period_zero() {
     assert_eq!(verified_period((0.0, 0.0), 1), Some(1));
     assert_eq!(verified_period((-1.0, 0.0), 2), Some(2));
     assert_ne!(verified_period((-1.0, 0.0), 1), Some(1));
+    // Candidate multiple of true period reduces to minimal (4 → 2 at c=-1).
+    assert_eq!(verified_period((-1.0, 0.0), 4), Some(2));
+    // Exterior / non-attracting: no verified period.
+    assert_eq!(verified_period((2.0, 0.0), 1), None);
+    assert_eq!(verified_period((2.0, 0.0), 3), None);
+    // period_partials for period-2 bulb includes 1 then 2.
+    let (p_m1, _) = period_partials((-1.0, 0.0), 8);
+    assert!(p_m1.contains(&1));
+    assert!(p_m1.contains(&2));
 
     run_big_stack_size(|| {
         let mut ctx = make_context(0);

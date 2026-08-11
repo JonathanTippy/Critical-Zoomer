@@ -936,5 +936,23 @@ mod tests {
         assert_eq!(get_loop_period(Some(&inside(3))), Some(3));
         assert_eq!(get_escape_time(Some(&outside(9, 0.0))), Some(9));
         assert_eq!(get_escape_time(Some(&inside(1))), None);
+
+        // is_changed / slope_sign_changed: != and peak-on-axis (not flat).
+        assert!(is_changed(Some(5), Some(6), None, None, None));
+        assert!(!is_changed(Some(5), Some(5), Some(5), Some(5), Some(5)));
+        assert!(!is_changed(Some(5), None, None, None, None));
+        assert!(slope_sign_changed(Some(5), Some(3), Some(3), None, None)); // up/down both < → peak
+        assert!(!slope_sign_changed(Some(5), Some(6), Some(7), None, None)); // monotone
+        assert!(!slope_sign_changed(Some(5), Some(3), None, None, None)); // needs both axis ends
+        // Horizontal peak: left/right both below.
+        assert!(slope_sign_changed(Some(5), None, None, Some(2), Some(2)));
+        // is_increased/decreased on left/right axes (not only up).
+        assert!(is_increased(Some(5), None, None, Some(3), None));
+        assert!(is_decreased(Some(5), None, None, None, Some(8)));
+        assert_eq!(get_small_time(Some(&outside(1, 0.25))), Some(0));
+        assert_eq!(get_small_time(Some(&inside(1))), Some(0));
+        assert_eq!(get_smallness(Some(&inside(1))), Some(0.0));
+        assert_eq!(get_smallness(None), None);
+        assert_eq!(get_escape_time(None), None);
     }
 }
