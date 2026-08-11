@@ -348,3 +348,47 @@ impl SeatKernel<FloatExp> for FloatExpPerturbationKernel {
 
 /// Depth-test alias matching inventory expectations.
 pub type PerturbationKernel = FloatExpPerturbationKernel;
+
+#[cfg(test)]
+mod mutant_kill {
+    use super::near_complex;
+    use crate::floatexp::{ComplexFloatExp, FloatExp};
+
+    #[test]
+    fn mutant_kill_near_complex_floatexp_box() {
+        let z = ComplexFloatExp::new(FloatExp::from(0.0), FloatExp::from(0.0));
+        let eps = FloatExp::from(1e-3);
+        assert!(near_complex(z, z, eps));
+        assert!(near_complex(
+            ComplexFloatExp::new(FloatExp::from(1e-3), FloatExp::ZERO),
+            z,
+            eps
+        ));
+        assert!(near_complex(
+            ComplexFloatExp::new(FloatExp::ZERO, FloatExp::from(-1e-3)),
+            z,
+            eps
+        ));
+        assert!(!near_complex(
+            ComplexFloatExp::new(FloatExp::from(1e-3 + 1e-12), FloatExp::ZERO),
+            z,
+            eps
+        ));
+        assert!(!near_complex(
+            ComplexFloatExp::new(FloatExp::from(2.0), FloatExp::ZERO),
+            z,
+            eps
+        ));
+        // Corner both axes on bound.
+        assert!(near_complex(
+            ComplexFloatExp::new(FloatExp::from(1e-3), FloatExp::from(1e-3)),
+            z,
+            eps
+        ));
+        assert!(!near_complex(
+            ComplexFloatExp::new(FloatExp::from(1e-3), FloatExp::from(1e-3 + 1e-12)),
+            z,
+            eps
+        ));
+    }
+}

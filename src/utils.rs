@@ -714,6 +714,22 @@ mod mutant_kill {
         assert_ne!(fd, 3.0 / 4.0);
     }
 
+    /// Thought-killed pin: `From<usize>` uses exp:1 (vs `From<i32>` exp:0).
+    #[test]
+    fn mutant_kill_intexp_from_usize_exp_one() {
+        let u = IntExp::from(3usize);
+        assert_eq!(u.exp, 1);
+        assert_eq!(u.val, Integer::from(3));
+        assert!((f64::from(u.clone()) - 6.0).abs() < 1e-12); // 3 * 2^1
+        let i = IntExp::from(3i32);
+        assert_eq!(i.exp, 0);
+        assert!((f64::from(i) - 3.0).abs() < 1e-12);
+        assert_ne!(IntExp::from(3usize), IntExp::from(3i32));
+        // exp:1→0 mutant would collapse to i32 scale.
+        assert_ne!(f64::from(IntExp::from(5usize)), 5.0);
+        assert!((f64::from(IntExp::from(5usize)) - 10.0).abs() < 1e-12);
+    }
+
     #[test]
     fn shiftable_integer_and_f64() {
         let i = Integer::from(24).shift(2);

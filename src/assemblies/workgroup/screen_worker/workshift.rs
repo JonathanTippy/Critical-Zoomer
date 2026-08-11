@@ -2259,4 +2259,27 @@ mod mutant_kill {
         update_loop_check_points(&mut p);
         assert_eq!(p.loop_detection_point, ((1.0, 2.0), 8));
     }
+
+    #[test]
+    fn mutant_kill_square_ring_offset_side_walk() {
+        use super::square_ring_offset;
+        assert_eq!(square_ring_offset(0), (0, 0));
+        // Ring 1 starts at k=1: right side walks up from (1,-1+1)=(1,0).
+        assert_eq!(square_ring_offset(1), (1, 0));
+        assert_eq!(square_ring_offset(2), (1, 1));
+        // After side=2: top side.
+        assert_eq!(square_ring_offset(3), (0, 1));
+        assert_eq!(square_ring_offset(4), (-1, 1));
+        // Left side.
+        assert_eq!(square_ring_offset(5), (-1, 0));
+        assert_eq!(square_ring_offset(6), (-1, -1));
+        // Bottom side.
+        assert_eq!(square_ring_offset(7), (0, -1));
+        assert_eq!(square_ring_offset(8), (1, -1));
+        // Permuting sides would still be Chebyshev-1; pin exact order.
+        assert_ne!(square_ring_offset(1), (0, 1));
+        assert_ne!(square_ring_offset(1), (-1, 0));
+        // Ring 2 corner-ish: k=9 is start of ring 2 (start=(3)^2=9).
+        assert_eq!(square_ring_offset(9), (2, -1));
+    }
 }

@@ -1039,3 +1039,57 @@ impl SeatKernel<f64> for PerturbationKernel {
         out
     }
 }
+
+#[cfg(test)]
+mod mutant_kill {
+    use super::{fe_pair, near_fe};
+    use crate::floatexp::{ComplexFloatExp, FloatExp};
+
+    #[test]
+    fn mutant_kill_near_fe_inclusive_epsilon_box() {
+        let z = ComplexFloatExp::new(FloatExp::from(0.0), FloatExp::from(0.0));
+        let eps = 1e-3;
+        assert!(near_fe(z, z, eps));
+        assert!(near_fe(
+            ComplexFloatExp::new(FloatExp::from(1e-3), FloatExp::ZERO),
+            z,
+            eps
+        ));
+        assert!(near_fe(
+            ComplexFloatExp::new(FloatExp::ZERO, FloatExp::from(-1e-3)),
+            z,
+            eps
+        ));
+        assert!(!near_fe(
+            ComplexFloatExp::new(FloatExp::from(1e-3 + 1e-12), FloatExp::ZERO),
+            z,
+            eps
+        ));
+        assert!(!near_fe(
+            ComplexFloatExp::new(FloatExp::from(1e-3), FloatExp::from(1e-3 + 1e-12)),
+            z,
+            eps
+        ));
+        // abs drop / || instead of && would accept off-axis far points.
+        assert!(!near_fe(
+            ComplexFloatExp::new(FloatExp::from(2.0), FloatExp::from(0.0)),
+            z,
+            eps
+        ));
+        assert_ne!(
+            near_fe(
+                ComplexFloatExp::new(FloatExp::from(1e-3), FloatExp::ZERO),
+                z,
+                eps
+            ),
+            false
+        );
+    }
+
+    #[test]
+    fn mutant_kill_fe_pair_to_f64() {
+        let z = ComplexFloatExp::new(FloatExp::from(1.25), FloatExp::from(-0.5));
+        assert_eq!(fe_pair(z), (1.25, -0.5));
+        assert_ne!(fe_pair(z), (-0.5, 1.25));
+    }
+}
