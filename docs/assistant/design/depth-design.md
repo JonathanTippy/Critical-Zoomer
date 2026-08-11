@@ -255,8 +255,8 @@ for membership pins (`pin_exterior_not_marked_in_at_zoom_52`,
 `pin_not_blocky_delta_c_at_zoom_49`). Audit: even before that yank, the sketch
 failed the performance bar — linear `safe_skip` with full re-evaluate per n,
 heap `Vec<Vec<_>>` coeffs, FloatExp-heavy probe from the f64 path, skip cost
-unbounded relative to seat init. Dormant `src/series.rs` is that sketch; the
-rewrite must not revive it unchanged.
+unbounded relative to seat init. That sketch was replaced 2026-08-11 by the
+fused / O(log N) production path in `src/series.rs`.
 
 ### Acceptance for re-enable
 

@@ -67,6 +67,10 @@ Honest medians after `iter_custom` (2026-08-09 tick 9, sample-size 10/30):
 Pin: `home_workshift_full_frame_within_20pct_of_direct_kernel`,
 `home_workshift_first_publish_within_20pct_of_direct_kernel`.
 
+**Series approximation live (2026-08-11, `--quick`):** first_publish ~12.2 ms;
+full_frame ~279 ms; with_reference ~281 ms; direct_oracle ~284 ms — within ~5% of
+the accepted honest medians above (no ≥20% regression).
+
 ## Baseline
 
 | metric | value | date | commit | machine |
