@@ -4,6 +4,23 @@ Status: **enshrined from 2026-08-11 interview** — keep these when changing
 escaper / colorer. Charter: `docs/assistant/headgroup-charter.md` bucket 3
 (explicit shade/display work).
 
+## Colorer parity (binding — 2026-08-11 interview)
+
+The colorer was written over a long grind and is **exactly how it should look**.
+Performance upgrades (including aggressive rewrite or GPU) are allowed only as
+an **honest rewrite**:
+
+- **Feature parity** with the live CPU colorer — no cutting layers, settings, or
+  behaviors.
+- **Same results** for the same inputs (settings + escaper values) — no “close
+  enough” visual substitutes.
+- **No simplifications** dressed up as ports.
+- **Every behavior guarded by tests** before/with the rewrite.
+
+Prior GPU shade attempts that dropped features or changed the look are rejected
+as a pattern. Prefer measuring (`shadergroup_fitness`) and then rewriting under
+this bar — do not thin the product to win the clock.
+
 ## Single path
 
 There is **one** shade pipeline body:

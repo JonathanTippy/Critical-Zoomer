@@ -47,14 +47,13 @@ Developer acceptance test failed on the tile machine. Most items were tile-era i
 
 - **Resolution / ~1.5× default pixels — two failures (2026-08-11 interview).**
   Past ~1.5× `DEFAULT_WINDOW_RES` pixel count the app goes pear-shaped:
-  (A) **shadergroup too slow** — headgroup stays ~120 FPS; animated-bailout
-  isolation shows shade path ~1 FPS; same single path for static/animated
-  (`shadergroup-virtues.md`). Criterion: `shadergroup_fitness` (escaper vs
-  colorer at 1.0×/1.5×/2.0×). HUD `drop:` counts drain-to-newest package drops.
-  (B) **workgroup drops/leaves unfinished work as bands** — remains when bailout
-  anim is off; not a shade artifact. Stec→direct-to-channel still a design lean.
-  Prior “resolution changes / fullscreen silent” and “1080p display lag” notes
-  fold into this split; profile shade benches before redesigning Stec alone.
+  (A) **shadergroup too slow** — colorer problem child (`shadergroup_fitness`);
+  any colorer rewrite must be honest parity + tests (`shadergroup-virtues.md`).
+  (B) **workgroup unfinished bands** — root cause: `from_stencil` reuse kept a
+  **smaller prior Stec** after enlarge → mid-shift `BufferFull`. Fix: grow
+  completion cap to ≥ new pixel count (`r[cz.craft.completion-cap-fits-screen+1]`,
+  pin `enlarge_replace_grows_completion_buffer_to_screen`). Stec→direct-to-channel
+  still a later design lean. Headed verify bands after resize/fullscreen.
 - **Out-filament highlighting absent where verification is difficult.** After period correctness fixes, cloudy false positives are gone, but difficult areas can remain period 0 (unknown); unknown periods correctly create no out-filaments, so highlighting is absent there. Do not fix by publishing guessed periods. The resolution is stronger verification/continuation so difficult interior points eventually get verified periods.
 
 **Charter note (2026-08-11 interview):** shadergroup/headgroup HUD — extract

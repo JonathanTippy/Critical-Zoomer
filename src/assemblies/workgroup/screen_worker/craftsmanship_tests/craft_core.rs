@@ -1,5 +1,7 @@
 /// Hard wall budget for every craftsmanship test. Shift caps are banned; if the
 /// code under test is wrong a fill may never finish — this is the only halt.
+/// Quiet-machine fills should finish in ~100ms so Minecraft-load still clears
+/// this 1s ceiling with headroom.
 const TEST_WALL_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
 
 thread_local! {
@@ -731,6 +733,55 @@ fn replace_reuses_points_capacity_and_resets_initialized() {
             TEST_SCREEN_RES.0 as usize * TEST_SCREEN_RES.1 as usize
         );
         assert_eq!(ctx2.motion, Motion::Zoomed);
+    });
+}
+
+// r[verify cz.craft.completion-cap-fits-screen+1]
+#[test]
+fn enlarge_replace_grows_completion_buffer_to_screen() {
+    run_big_stack_size(|| {
+        let small = (
+            ObjectivePosAndZoom {
+                pos: (IntExp::from(-2), IntExp::from(2)),
+                zoom_pot: -2,
+            },
+            (320u32, 240u32),
+        );
+        let large = (
+            small.0.clone(),
+            (640u32, 480u32), // 4× pixels
+        );
+        let small_n = (small.1 .0 * small.1 .1) as usize;
+        let large_n = (large.1 .0 * large.1 .1) as usize;
+        assert!(large_n > small_n);
+
+        let prior = from_stencil::<f64>(small.clone(), None).expect("small");
+        assert!(
+            prior.completed_points.stuff.len() >= small_n,
+            "fresh shell must fit its screen"
+        );
+        let prior_cap = prior.completed_points.stuff.len();
+
+        let next = from_stencil::<f64>(large, Some((prior, small.0))).expect("enlarged");
+        assert!(
+            next.completed_points.stuff.len() >= large_n,
+            "enlarged Replace must grow Stec to new screen (was {prior_cap}, need ≥{large_n}, got {})",
+            next.completed_points.stuff.len()
+        );
+
+        // One-shift flood must not BufferFull before the screen is full of publishes.
+        let mut ctx = next;
+        let mut pushed = 0usize;
+        for i in 0..large_n {
+            match ctx.push_delivery(Delivery::Final(CompletedPoint::Dummy {}), i) {
+                PushOutcome::Published => pushed += 1,
+                PushOutcome::BufferFull => break,
+            }
+        }
+        assert_eq!(
+            pushed, large_n,
+            "completion cap must accept one Final per seat after enlarge"
+        );
     });
 }
 

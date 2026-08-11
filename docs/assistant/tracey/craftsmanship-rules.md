@@ -594,3 +594,21 @@ state; `ViewHud.packages_dropped`.
 - [ ] HUD exposes cumulative drops for headed audit.
 
 **Test.** `coalesce_drop_count_keeps_newest_only` (escaper.rs).
+
+r[cz.craft.completion-cap-fits-screen+1]
+
+**Normative summary.** The completion staging buffer (`Stec`) capacity is at
+least the live screen pixel count after every shell install — including
+Replace that reuses a prior context. Growing the window/fullscreen must grow
+the buffer; keeping a smaller prior cap causes mid-shift `BufferFull` and
+unfinished banding.
+
+**Code site.** `workshift.rs` — `from_stencil` (fresh and reuse arms).
+
+**Acceptance criteria.**
+- [ ] Fresh shell: `completed_points.stuff.len() >= res.0 * res.1`.
+- [ ] Enlarge via `from_stencil(..., Some(previous))`: capacity ≥ new pixel count;
+  one Final per seat can publish without `BufferFull`.
+
+**Test.** `enlarge_replace_grows_completion_buffer_to_screen`
+(craftsmanship_tests).

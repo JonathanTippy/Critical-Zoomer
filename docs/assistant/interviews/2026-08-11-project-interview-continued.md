@@ -4,9 +4,9 @@
 - **Status:** in progress
 - **Prior session:** [2026-08-11-series-approximation-contract.md](2026-08-11-series-approximation-contract.md)
 
-**Summary:** Diagnosis locked: headgroup OK; shadergroup too slow (colorer
-problem child per Criterion); workgroup bands/drops. Single-path shade virtue
-enshrined. Benches + drop HUD landed.
+**Summary:** Diagnosis locked. Colorer upgrades require honest rewrite + full
+parity/tests (no simplifications). Banding first — Stec capacity not grown on
+resize is prime suspect.
 
 ---
 
@@ -426,3 +426,34 @@ Implemented (this turn):
 
 Next discussion: colorer cost cut vs also Stec/workgroup banding — still two
 tracks.
+
+### Developer
+
+Let's go after the banding issue first. When it comes to the coloring, I've asked
+for GPU modifications before. What I really didn't like is that they seemed to
+cut down what it does, and the settings didn't look exactly the same, and it
+didn't do exactly the same results. And so I care a lot about the color because
+I wrote it over the course of about a year, like everything else, and it is
+exactly how it should be. So if it is to be upgraded for better performance, it
+must have feature parity, and everything it does must be guarded by tests. So
+that's not to say that I'm against an aggressive rewrite, I think often that's
+good, but when that happens, there needs to be no regressions allowed, and no
+simplifications allowed. It has to be an honest rewrite if that's going to
+happen.
+
+### Assistant
+
+Colorer: parked behind banding. Any future upgrade (incl. aggressive rewrite /
+GPU) requires **feature parity**, **bit-same results vs today’s colorer**, **no
+simplifications**, and **tests guarding every behavior**. Prior GPU shade cuts
+that dropped features or changed looks are rejected.
+
+Banding first — investigating workgroup completion buffer on resolution grow.
+
+### Assistant (banding fix)
+
+Root cause: on Replace enlarge, `from_stencil` reused the prior `Stec` without
+growing it. Default→1.5×/fullscreen kept a too-small completion cap → mid-shift
+`BufferFull` → unfinished bands. Fix: grow Stec to ≥ new pixel count; pin
+`enlarge_replace_grows_completion_buffer_to_screen`. Headed verify still wanted.
+Colorer parity bar recorded in `shadergroup-virtues.md`; no colorer rewrite yet.

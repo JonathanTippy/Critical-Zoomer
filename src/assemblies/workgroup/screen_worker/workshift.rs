@@ -913,6 +913,14 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
                 ..
             } = old;
             completed_points.len = 0;
+            // Grow the completion buffer with the screen. Reusing a smaller
+            // Stec after enlarge (fullscreen / ~1.5× pixels) BufferFull-throttles
+            // mid-shift and leaves unfinished bands (`r[cz.craft.completion-cap-fits-screen+1]`).
+            let need = new_len.max(100_000);
+            if completed_points.stuff.len() < need {
+                completed_points =
+                    Stec::with_capacity(need, (CompletedPoint::Dummy {}, 0));
+            }
             (points, random_map, old_res, completed_points)
         }
         None => (
