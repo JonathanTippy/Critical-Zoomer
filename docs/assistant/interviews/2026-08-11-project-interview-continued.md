@@ -5,9 +5,9 @@
 - **Prior session:** [2026-08-11-series-approximation-contract.md](2026-08-11-series-approximation-contract.md)
 
 **Summary:** Product-judgment interview. SA out of scope. GPU bar locked (exact
-answer parity + ~160× ±20%, no soft ladder; don’t unwire yet). Oracle =
-manual/test, doubling-until-stable + twin period. Topic switched to fullscreen /
-Stec.
+parity + ~160× ±20%; don’t unwire yet). Oracle = manual/test, doubling-until-stable
++ twin period. Fullscreen: worker silent until exit; **delete Stec**, publish
+completions direct to collector channel; same feel required.
 
 ---
 
@@ -185,3 +185,55 @@ to the view”?
 ---
 
 Answer any; we’ll stay on fullscreen until you say otherwise.
+
+### Developer
+
+So currently when I switch to full screen, the worker just stops outputting
+anything until I switch back and then it works again. That's basically what
+happens. I don't really like the stack thing because it requires a large stack
+and didn't seem to actually yield huge improvements. But yeah, it feels
+redundant to have a buffer and then a channel. Yes, same feel is necessary. And
+yes, I think we should delete this deck and join directly to the collector
+channel because that would ensure that we don't get nasty queue ups and getting
+behind.
+
+### Assistant
+
+Locked for fullscreen / completion path:
+
+- **Symptom:** enter fullscreen → worker stops outputting; leave fullscreen →
+  outputs again.
+- **Feel:** same never-stall / tick honesty as windowed — required, not optional.
+- **Design lean:** **delete `Stec`**, publish completions **directly into the
+  collector channel** (no intermediate fixed-cap stack). Reason: Stec needed a
+  large preallocated stack for little gain, and buffer+channel is redundant and
+  lets the worker get ahead of the display path.
+
+(Note in tree today: `completed_points` is a ~100k-cap `Stec`; worker→collector
+channel is capacity **50** messages. `BufferFull` on Stec already forces undeliver
++ shift break. Your lean replaces that local queue with channel backpressure.)
+
+Follow-ups to pin the contract before any redesign:
+
+**16. Backpressure when the channel is full**  
+If the collector is behind: should the workshift **break early** (same spirit as
+today’s `BufferFull` — seats stay undelivered, never-stall), or **block/wait** on
+send? (Blocking would risk the hang you’re trying to avoid.)
+
+**17. Batching**  
+Direct-to-channel: one `WorkUpdate` per workshift (drain whatever finished this
+shift), or smaller/more frequent sends? Any preference?
+
+**18. The stop-on-fullscreen clue**  
+When it freezes: does HUD still tick (IPS/mode change) with **zero completions**,
+or does the whole worker look dead? And does leaving fullscreen “fix” only
+because a new resize/Replace restarts work — or do buffered answers suddenly flush?
+
+**19. Scope of “delete Stec”**  
+Just the completion `Stec`, or are you also suspicious of other fixed buffers in
+that path?
+
+---
+
+Especially 16 and 18 — those decide whether this is a backpressure redesign or
+also a resize/pivot bug.
