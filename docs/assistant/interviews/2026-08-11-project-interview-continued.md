@@ -237,3 +237,79 @@ that path?
 
 Especially 16 and 18 — those decide whether this is a backpressure redesign or
 also a resize/pivot bug.
+
+### Developer
+
+So for the channel of full behavior, I'd like you to look into the steady state
+lessons, but whichever one doesn't result in things getting behind, and you
+wouldn't expect breaking early to result in that, but I can see how if it's
+doing work and then trying to send it, and it just continues doing work but not
+sending it, then there would be a lot of work that might simply get missed and
+not sent would actually be the issue. So it wouldn't be behind in a way. If it
+blocks on set, that one sounds more scary, but it may be right. And the problem
+is that we're thinking about a scenario which really should never happen, and if
+it is happening, then that is the issue. But it is worth handling it gracefully.
+For batching, I want to lean very heavily on what we've found already works. So
+aim to change as little as possible. So the fruising clue, you're not being very
+clear there, but I can see your question, and it is possible that it's some
+other part of the work group rather than the screen worker. That will just need
+to be tested and profiled. So yeah, just read the steady state lessons, and then
+we'll talk about this a bit more, and then probably we'll want to debug this one
+step at a time.
+
+### Assistant
+
+**Steady-state lessons that bear on channel-full (read, not redesigned):**
+
+1. **Architecture:** there is no light vs heavy load — only load. **Channel
+   backpressure is a sign of incorrect code**, not normal stress
+   (`docs/authoritative/architecture.md`).
+
+2. **Small channels (10–50)** are a *promise* to consume toward the tip, not a
+   resource knob. Growing them makes a landfill for stale frames
+   (`workgroup-virtues` §2; `r[cz.craft.small-channels+1]`). Acceptance: senders
+   **never block** on stale-consumer buildup; coalescing/drain handles overflow.
+   Visible banding from completion-channel backpressure was a known product bug
+   — fixed by draining, not bigger buffers.
+
+3. **Neither drop nor get behind** on the display side: every unique published
+   snapshot must be ingested (`r[cz.play.latest-wins+1]`). Inputs coalesce to
+   newest; outputs must not vanish.
+
+4. **Undeliver-on-full** (`r[cz.craft.undeliver-on-full+1]`): when the completion
+   buffer can’t take the answer, seat stays **undelivered**, shift **breaks** —
+   backpressure → re-queue, **never a dropped answer**. Your “do work then fail
+   to send while continuing” fear is exactly the forbidden pattern: delivered
+   (or discarded) without a successful publish. The golden handle is atomic
+   push + undeliver if full.
+
+5. **Virtues §12** already calls out Stec + the completion staging buffer as
+   provisional: second queue in front of the `WorkUpdate` channel; keep only if
+   batching/LIFO earn it. Your delete-Stec lean matches that honest 10%.
+
+6. **Emergent cadence:** every non-empty shift sends; no artificial throttle
+   (`r[cz.craft.emergent-cadence+1]`). Batching change ≈ keep per-shift send as
+   today.
+
+**Synthesis for Q16 (channel full):**  
+Steady-state says channel-full **shouldn’t be a steady regime** — if it is, the
+downstream actor is too slow / not draining (the real bug). Graceful handle that
+matches existing law: **try_send; on full, undeliver affected seats and break the
+shift** (same as today’s BufferFull) — do **not** mark delivered then keep
+iterating, and do **not** block (blocking fights small-channels + never-stall /
+constipation lessons). Blocking is the scarier option and contradicts
+“senders never block.”
+
+**Batching:** change as little as possible — keep one emergent send per
+non-empty shift after deleting Stec.
+
+**Fullscreen freeze:** open that it may be collector / escaper / colorer /
+resize path, not only screen worker — diagnose step by step with tests +
+profile before redesigning backpressure.
+
+**20.** Does that reading match your steady-state intent — graceful =
+undeliver-and-break on failed try_send, and treat persistent channel-full as a
+downstream bug to find?
+
+**21.** Ready to outline a debug ladder for “silent on fullscreen” (instrument
+which actor stops first), or more judgment first?
