@@ -1181,4 +1181,45 @@ mod mutant_kill {
         assert_eq!(p.real_squared, 99.0);
         assert_eq!(p.loop_detection_point, ((7.0, 8.0), 11));
     }
+
+    #[test]
+    fn mutant_kill_seat_skip_bitword_ops() {
+        let mut skip = SeatSkip::new(130); // spans 3 words (0..64, 64..128, 128..)
+        assert_eq!(skip.bits.len(), 3);
+        assert!(!skip.contains(0));
+        assert!(!skip.contains(63));
+        assert!(!skip.contains(64));
+        assert!(!skip.contains(129));
+
+        skip.insert(0);
+        skip.insert(63);
+        skip.insert(64);
+        skip.insert(129);
+        assert!(skip.contains(0));
+        assert!(skip.contains(63));
+        assert!(skip.contains(64));
+        assert!(skip.contains(129));
+        assert!(!skip.contains(1));
+        assert!(!skip.contains(65));
+        // /64 vs %64 mix-up: bit 64 must not live in word 0.
+        assert_ne!(skip.bits[0] & (1u64 << 0), 0);
+        assert_eq!(skip.bits[0] & (1u64 << (64 % 64)), skip.bits[0] & 1); // bit0 only from insert(0)
+        assert_ne!(skip.bits[1] & 1, 0); // index 64 → word1 bit0
+        assert_ne!(skip.bits[2] & (1u64 << (129 % 64)), 0);
+
+        skip.remove(64);
+        assert!(!skip.contains(64));
+        assert!(skip.contains(63));
+        assert!(skip.contains(129));
+        skip.remove(0);
+        assert!(!skip.contains(0));
+        // Out of range is a no-op (no panic).
+        skip.insert(10_000);
+        skip.remove(10_000);
+        assert!(!skip.contains(10_000));
+        // OR→AND on insert would clear other bits in the word.
+        skip.insert(1);
+        skip.insert(2);
+        assert!(skip.contains(1) && skip.contains(2));
+    }
 }

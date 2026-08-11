@@ -1198,3 +1198,97 @@ proptest!{
 
 // mapping is exact when one mapped exact pixel is identified,
 // and the larger pixel step off of that pixel yields pixels still represented in the smaller pixel view.
+
+#[cfg(test)]
+mod mutant_kill {
+    //! Thought-killed pins for stencil indexing and segment/int predicates.
+    use super::*;
+    use crate::assemblies::structs::PointStencil;
+
+    fn stencil_40x71() -> PointStencil {
+        PointStencil {
+            location: (IntExp::ZERO, IntExp::ZERO, -2),
+            resolution: (40, 71),
+            serial_number: 0,
+        }
+    }
+
+    #[test]
+    fn mutant_kill_stencil_index_seat_row_clamp() {
+        let s = stencil_40x71();
+        assert_eq!(s.index((0, 0)), 0);
+        assert_eq!(s.index((39, 0)), 39);
+        assert_eq!(s.index((0, 1)), 40);
+        assert_eq!(s.index((1, 1)), 41);
+        assert_eq!(s.index((39, 70)), 40 * 70 + 39);
+        // *→+ on row*width would collapse.
+        assert_ne!(s.index((1, 1)), 1 + 40 + 1);
+        assert_ne!(s.index((1, 1)), 1 + 1);
+
+        assert_eq!(s.seat_and_row(0), (0, 0));
+        assert_eq!(s.seat_and_row(39), (39, 0));
+        assert_eq!(s.seat_and_row(40), (0, 1));
+        assert_eq!(s.seat_and_row(41), (1, 1));
+        // %→/ or /→% swap axes.
+        assert_ne!(s.seat_and_row(41), (0, 41));
+        assert_ne!(s.seat_and_row(41), (41, 0));
+        assert_eq!(s.seat_and_row(s.index((7, 3))), (7, 3));
+
+        assert_eq!(s.clamp_seat_and_row((-5, 100)), (0, 70));
+        assert_eq!(s.clamp_seat_and_row((100, -5)), (39, 0));
+        assert_eq!(s.clamp_seat_and_row((20, 30)), (20, 30));
+        // Exclusive upper would be res not res-1.
+        assert_ne!(s.clamp_seat_and_row((999, 999)), (40, 71));
+        assert_eq!(s.clamp_seat_and_row((999, 999)), (39, 70));
+    }
+
+    #[test]
+    fn mutant_kill_line_segment_overlap_subset_and_integer() {
+        let a = (IntExp::from(0), IntExp::from(5));
+        let b = (IntExp::from(3), IntExp::from(8));
+        let c = (IntExp::from(10), IntExp::from(12));
+        assert!(line_segments_overlap(a.clone(), b.clone()));
+        assert!(line_segments_overlap(b.clone(), a.clone()));
+        assert!(!line_segments_overlap(a.clone(), c.clone()));
+        // Touching at exclusive right edge of a vs left of c-like: [0,5) vs [5,8).
+        let touch = (IntExp::from(5), IntExp::from(8));
+        assert!(
+            !line_segments_overlap(a.clone(), touch.clone()),
+            "half-open: a.1==b.0 must not count as overlap via a.1>b.0"
+        );
+        // Subset: a inside b.
+        let inner = (IntExp::from(4), IntExp::from(6));
+        let outer = (IntExp::from(3), IntExp::from(8));
+        assert!(line_segment_a_is_subset_of_b(inner.clone(), outer.clone()));
+        assert!(!line_segment_a_is_subset_of_b(outer.clone(), inner.clone()));
+        assert!(!line_segment_a_is_subset_of_b(a.clone(), c.clone()));
+        // Overlap but not subset must fail subset.
+        assert!(!line_segment_a_is_subset_of_b(a.clone(), b.clone()));
+
+        assert!(int_exp_is_integer(&IntExp::from(7)));
+        assert!(int_exp_is_integer(&IntExp { val: Integer::from(4), exp: 2 }));
+        // 3 * 2^-1 is not integer.
+        let halfish = IntExp {
+            val: Integer::from(3),
+            exp: -1,
+        };
+        assert!(!int_exp_is_integer(&halfish));
+        // 4 * 2^-2 == 1 is integer.
+        let quart = IntExp {
+            val: Integer::from(4),
+            exp: -2,
+        };
+        assert!(int_exp_is_integer(&quart));
+        // Wrong << direction / %≠0 would flip.
+        assert_ne!(int_exp_is_integer(&halfish), true);
+
+        assert_eq!(int_exp_floor_to_isize(IntExp::from(5)), 5);
+        assert_eq!(
+            int_exp_floor_to_isize(IntExp {
+                val: Integer::from(5),
+                exp: -1,
+            }),
+            2
+        ); // floor(2.5)
+    }
+}
