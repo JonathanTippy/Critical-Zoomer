@@ -1222,4 +1222,88 @@ mod mutant_kill {
         skip.insert(2);
         assert!(skip.contains(1) && skip.contains(2));
     }
+
+    #[test]
+    fn mutant_kill_f32_collapses_and_scan_undelivered() {
+        use crate::assemblies::workgroup::screen_worker::workshift::from_stencil;
+        use crate::constants::{HOME_POSITION, TEST_SCREEN_RES};
+        use crate::utils::{IntExp, ObjectivePosAndZoom};
+
+        let home = ObjectivePosAndZoom {
+            pos: (
+                IntExp::from(HOME_POSITION.0),
+                IntExp::ZERO - IntExp::from(HOME_POSITION.1),
+            ),
+            zoom_pot: -2,
+        };
+        let mut ctx = from_stencil((home.clone(), TEST_SCREEN_RES), None).expect("home");
+        // Shallow home pitch: neighboring seats stay distinct in f32.
+        assert!(!f32_collapses_neighbors(&ctx));
+        // Degenerate width early-out.
+        let tiny = from_stencil(
+            (
+                home.clone(),
+                (1, 8),
+            ),
+            None,
+        );
+        if let Some(t) = tiny {
+            assert!(!f32_collapses_neighbors(&t));
+        }
+
+        // Deep pot: generator pitch can collapse under f32 (precision wall).
+        let deep = ObjectivePosAndZoom {
+            pos: home.pos.clone(),
+            zoom_pot: 60,
+        };
+        if let Some(dctx) = from_stencil((deep, TEST_SCREEN_RES), None) {
+            // At extreme zoom absolute may fail admit; relative shell still ok.
+            let collapsed = f32_collapses_neighbors(&dctx);
+            // Either collapses or seats are identical in f64 (early false) —
+            // pin that the check is conjunction of both components as f32.
+            if collapsed {
+                let w = dctx.res.0;
+                let h = dctx.res.1;
+                let x = w / 2;
+                let y = h / 2;
+                let x1 = (x + 1).min(w - 1);
+                let a = c_for_seat_f64(&dctx, dctx.c_generator.get_c((x, y)));
+                let b = c_for_seat_f64(&dctx, dctx.c_generator.get_c((x1, y)));
+                assert!((a.0 as f32) == (b.0 as f32) && (a.1 as f32) == (b.1 as f32));
+                assert_ne!(a.0 == b.0 && a.1 == b.1, true); // f64 still distinct
+            }
+        }
+
+        // Scan skips delivered / skip-mask / finished-orphan seats.
+        let n = ctx.points.len();
+        ctx.random_index = 0;
+        let mut skip = SeatSkip::new(n);
+        let first = scan_undelivered_seat(&mut ctx, &skip).expect("open seat");
+        let first_idx = index_from_pos(&first.0, ctx.res.0);
+        assert_eq!(first.1, Step::Out);
+        skip.insert(first_idx);
+        let second = scan_undelivered_seat(&mut ctx, &skip).expect("another");
+        assert_ne!(index_from_pos(&second.0, ctx.res.0), first_idx);
+        ctx.points[index_from_pos(&second.0, ctx.res.0)].delivered = true;
+        // Mark all remaining delivered except one escaped orphan.
+        for p in &mut ctx.points {
+            p.delivered = true;
+            p.escapes = false;
+            p.repeats = false;
+        }
+        let orphan = (first_idx + 3) % n;
+        ctx.points[orphan].delivered = false;
+        ctx.points[orphan].escapes = true;
+        skip = SeatSkip::new(n);
+        assert!(
+            scan_undelivered_seat(&mut ctx, &skip).is_none(),
+            "escaped undelivered must wait for publish, not scan-start"
+        );
+        ctx.points[orphan].escapes = false;
+        ctx.points[orphan].repeats = true;
+        assert!(scan_undelivered_seat(&mut ctx, &skip).is_none());
+        ctx.points[orphan].repeats = false;
+        let got = scan_undelivered_seat(&mut ctx, &skip).expect("WIP seat");
+        assert_eq!(index_from_pos(&got.0, ctx.res.0), orphan);
+    }
 }

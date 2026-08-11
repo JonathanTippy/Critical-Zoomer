@@ -1291,4 +1291,66 @@ mod mutant_kill {
             2
         ); // floor(2.5)
     }
+
+    #[test]
+    fn mutant_kill_stencil_space_corners_bottom_right_precision() {
+        let s = stencil_40x71(); // pot -2, res 40×71, UL at 0
+        let space = s.space();
+        let expect_space = IntExp::from(1).shift(-((-2) + PIXELS_PER_UNIT_POT));
+        assert_eq!(space, expect_space);
+        assert_eq!(space.exp, -7); // -(−2+9)
+        // Dropping PIXELS_PER_UNIT_POT → wrong pitch.
+        assert_ne!(space, IntExp::from(1).shift(2));
+
+        let br = s.bottom_right_point();
+        // resolution is usize → From<usize> uses exp:1 (not i32's exp:0).
+        let re_off = space.clone() * IntExp::from(39usize);
+        let im_off = space.clone() * IntExp::from(70usize);
+        assert_eq!(br.0, IntExp::ZERO + re_off.clone());
+        assert_eq!(br.1, IntExp::ZERO - im_off.clone());
+        assert!(f64::from(br.1.clone()) < 0.0);
+        // i32 From (exp 0) would under-scale by 2×.
+        assert_ne!(br.0, IntExp::ZERO + space.clone() * IntExp::from(39i32));
+        // imag + instead of −.
+        assert_ne!(br.1, IntExp::ZERO + im_off.clone());
+        // res vs res-1.
+        assert_ne!(br.0, IntExp::ZERO + space.clone() * IntExp::from(40usize));
+
+        let (tl, br_corner) = s.corners();
+        assert_eq!(tl, (IntExp::ZERO, IntExp::ZERO));
+        // corners uses full resolution (exclusive edge), unlike bottom_right.
+        assert_eq!(
+            br_corner.0,
+            IntExp::ZERO + space.clone() * IntExp::from(40usize)
+        );
+        assert_eq!(
+            br_corner.1,
+            IntExp::ZERO - space.clone() * IntExp::from(71usize)
+        );
+        assert_ne!(br_corner.0, br.0);
+        assert_ne!(br_corner.1, br.1);
+
+        let raw = PointStencil {
+            location: (
+                IntExp {
+                    val: Integer::from(3),
+                    exp: 0,
+                },
+                IntExp {
+                    val: Integer::from(5),
+                    exp: 0,
+                },
+                -2,
+            ),
+            resolution: (40, 71),
+            serial_number: 1,
+        };
+        let fixed = raw.correct_precision();
+        let want_exp = -((-2) + PIXELS_PER_UNIT_POT);
+        assert_eq!(fixed.location.0.exp, want_exp);
+        assert_eq!(fixed.location.1.exp, want_exp);
+        assert_eq!(fixed.location.2, -2);
+        assert_ne!(fixed.location.0.exp, 0);
+        assert_ne!(fixed.location.0.exp, -((-2))); // missing PIXELS_PER_UNIT_POT
+    }
 }

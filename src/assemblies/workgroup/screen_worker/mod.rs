@@ -525,3 +525,18 @@ pub fn relative_location_from_index(data_res: (u32, u32), index: usize) -> (i32,
         , index as i32 / (data_res.0) as i32
         )
 }
+
+#[cfg(test)]
+mod mutant_kill {
+    use super::relative_location_from_index;
+
+    #[test]
+    fn mutant_kill_relative_location_from_index_mod_div() {
+        assert_eq!(relative_location_from_index((40, 71), 0), (0, 0));
+        assert_eq!(relative_location_from_index((40, 71), 39), (39, 0));
+        assert_eq!(relative_location_from_index((40, 71), 40), (0, 1));
+        assert_eq!(relative_location_from_index((40, 71), 41), (1, 1));
+        assert_ne!(relative_location_from_index((40, 71), 41), (0, 41));
+        assert_ne!(relative_location_from_index((40, 71), 41), (41, 0));
+    }
+}
