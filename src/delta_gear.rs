@@ -478,6 +478,33 @@ mod tests {
         let expect = cadd(w2, (0.1, -0.2));
         assert!((w1.0 - expect.0).abs() < 1e-12);
         assert!((w1.1 - expect.1).abs() < 1e-12);
+
+        // Non-zero ref: w' = 2·Z·w + S·w² + d — kills *→+/÷ on the 2-scale path.
+        let z = (0.3, -0.1);
+        let w = (0.2, 0.05);
+        let d = (0.01, -0.02);
+        let (wn, sn, gn) = scaled_f64_step(z, w, d, FloatExp::ONE, false);
+        assert_eq!(gn, ComputeGear::ScaledF64);
+        assert_eq!(sn, FloatExp::ONE);
+        let two_zw = cscale(cmul(z, w), 2.0);
+        let expect_n = cadd(cadd(two_zw, cmul(w, w)), d);
+        assert!((wn.0 - expect_n.0).abs() < 1e-12, "got {} want {}", wn.0, expect_n.0);
+        assert!((wn.1 - expect_n.1).abs() < 1e-12);
+        assert_ne!(wn, two_zw); // must include w² + d, not just 2Zw
+        assert_ne!(wn, cadd(two_zw, d)); // must include S·w²
+    }
+
+    /// Filter-friendly name for scoped `cargo mutants -- --lib mutant_kill`.
+    #[test]
+    fn mutant_kill_scaled_f64_and_helpers() {
+        complex_helpers_kill_arithmetic_mutants();
+        scaled_f64_step_matches_algebra_on_unit_scale();
+        gear_for_delta_requires_both_admitted_for_f64();
+        let (dz, _, gear) = f64_step((0.5, 0.0), (0.1, 0.0), (0.01, 0.0), (1.0, 0.0), false);
+        // 2*0.5*0.1 + 0.01 + 0.01 = 0.12
+        assert!((dz.0 - 0.12).abs() < 1e-12, "got {}", dz.0);
+        assert_eq!(gear, ComputeGear::F64);
+        assert_ne!(dz.0, 0.5 * 0.1 + 0.01); // missing 2· and dz²
     }
 
     #[test]
