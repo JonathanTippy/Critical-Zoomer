@@ -716,6 +716,9 @@ fn steady_state_naive_gpu_deep_cusp_never_stalls() {
         assert_eq!(nav.location.zoom_pot, 15);
 
         let mut ctx = from_stencil::<f64>((nav.location.clone(), res), None).expect("deep cusp");
+        // Force GPU: PPS 1-shift probe race otherwise interleaves Naive/Pert and can
+        // flatline a shift without meaning the GPU path stalled.
+        ctx.manual_gear = Some(crate::assemblies::structs::KernelMode::NaiveGpu);
         refresh_test_budget();
         let center = ((res.0 / 2) as i32, (res.1 / 2) as i32);
         let center_idx = index_from_pos(&center, res.0);
