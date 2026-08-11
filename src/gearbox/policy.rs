@@ -21,11 +21,12 @@ pub fn view_gear_from_relative_admission(relative_ok: bool) -> ComputeGear {
     }
 }
 
-/// Shifts spent sampling each legal kernel (one workgroup tick ≈ 5×10ms = 50ms).
-pub const PPS_PROBE_SHIFTS_PER_CANDIDATE: u8 = 5;
+/// Shifts spent sampling each legal kernel (~10ms). Short so probe flashes stay
+/// less noticeable while still measuring completed-points PPS.
+pub const PPS_PROBE_SHIFTS_PER_CANDIDATE: u8 = 1;
 
 /// Re-run the full PPS race this often — Naive GPU especially slows as fill progresses.
-/// Long enough that a 3-candidate race (~150ms of trials) is a minority of the lock window.
+/// Long enough that a 3-candidate race (~30ms of trials) is a small slice of the lock window.
 pub const PPS_REEVAL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// Legal production kernels for this view (honesty first, then PPS race).
@@ -107,8 +108,8 @@ mod tests {
     }
 
     #[test]
-    fn pps_probe_cadence_is_one_tick_every_half_second() {
-        assert_eq!(PPS_PROBE_SHIFTS_PER_CANDIDATE, 5, "one tick = 5 workshifts");
+    fn pps_probe_cadence_is_one_shift_every_half_second() {
+        assert_eq!(PPS_PROBE_SHIFTS_PER_CANDIDATE, 1, "one workshift per trial");
         assert_eq!(
             PPS_REEVAL_INTERVAL,
             std::time::Duration::from_millis(500),

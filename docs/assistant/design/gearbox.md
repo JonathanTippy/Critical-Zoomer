@@ -22,11 +22,11 @@ do I step this seat?”; queues, remap, and publish stay craftsmanship.
 ## PPS kernel selection (`r[cz.perf.pps-selected-kernel+1]`)
 
 Do **not** assume Naive GPU is fastest. On each absolute view, sample legal
-kernels (Naive CPU, Naive GPU if present, Perturbation) for **one tick each**
-(5 workshifts ≈ 50ms), then **lock** the highest measured completed-points-per-second
-winner. **Re-evaluate every ~500ms** (`PPS_REEVAL_INTERVAL`) so a gear that slows
-mid-fill (especially Naive GPU) can lose the lock without spending most of the
-window cycling. Relative (dishonest-naive) views hard-lock Perturbation with no race.
+kernels (Naive CPU, Naive GPU if present, Perturbation) for **one workshift each**
+(~10ms), then **lock** the highest measured completed-points-per-second winner.
+**Re-evaluate every ~500ms** (`PPS_REEVAL_INTERVAL`) so a gear that slows mid-fill
+(especially Naive GPU) can lose the lock without spending most of the window
+cycling. Relative (dishonest-naive) views hard-lock Perturbation with no race.
 
 Manual gear (settings) overrides the race. Host numeric type remains automatic
 from depth admission.

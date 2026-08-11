@@ -360,7 +360,7 @@ impl<T: Mandelbrotable> WorkContext<T> {
     }
 
     /// Start or continue the PPS race; lock when every legal candidate is sampled.
-    /// Each candidate runs one tick (`PPS_PROBE_SHIFTS_PER_CANDIDATE`); the race
+    /// Each candidate runs one workshift (`PPS_PROBE_SHIFTS_PER_CANDIDATE`); the race
     /// re-opens every `PPS_REEVAL_INTERVAL` so slowing gears (Naive GPU) can lose.
     // r[impl cz.perf.pps-selected-kernel+1]
     pub fn ensure_pps_probe(&mut self, gpu_available: bool) {

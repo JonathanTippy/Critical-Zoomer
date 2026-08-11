@@ -262,7 +262,7 @@ fn pps_probe_reevaluates_after_interval() {
         );
         assert_eq!(
             ctx.pps_probe_shifts_left, PPS_PROBE_SHIFTS_PER_CANDIDATE,
-            "each trial is one tick (5 shifts / ~50ms)"
+            "each trial is one workshift (~10ms)"
         );
         // Fresh lock must not reopen before the interval.
         ctx.pps_locked_kernel = Some(KernelMode::Naive);
