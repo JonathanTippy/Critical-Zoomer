@@ -54,8 +54,6 @@ pub fn rolling_frame_calc(
     let rolling_frame_info_10s = &mut rolling_frame_info.0;
     let rolling_frame_info_1s = &mut rolling_frame_info.1;
     let rolling_frame_info_100ms = &mut rolling_frame_info.2;
-    let window_start = rolling_frame_info.3;
-
 
     match timinginfo {
         Some(t) => {
@@ -66,12 +64,14 @@ pub fn rolling_frame_calc(
         None => {}
     }
 
+    // Fail closed if the HUD never latched a window start (was unwrap-panic).
+    let Some(window_start) = rolling_frame_info.3 else {
+        return (None, None, None);
+    };
 
-
-    let can_calculate_10s = window_start.unwrap().elapsed() > Duration::from_secs(10);
-    let can_calculate_1s = window_start.unwrap().elapsed() > Duration::from_secs(1);
-    let can_calculate_100ms = window_start.unwrap().elapsed() > Duration::from_millis(100);
-
+    let can_calculate_10s = window_start.elapsed() > Duration::from_secs(10);
+    let can_calculate_1s = window_start.elapsed() > Duration::from_secs(1);
+    let can_calculate_100ms = window_start.elapsed() > Duration::from_millis(100);
 
     loop {
         let length = rolling_frame_info_10s.len();
@@ -115,77 +115,40 @@ pub fn rolling_frame_calc(
         }
     }
 
-    return (
-        if can_calculate_10s {
-            let length = rolling_frame_info_10s.len() as u128;
-
-            let total: (u64, Duration, Duration) =  (
-                rolling_frame_info_10s.into_iter().map(|f| { f.1 }).sum()
-                , rolling_frame_info_10s.into_iter().map(|f| { f.2 }).sum()
-                , rolling_frame_info_10s.into_iter().map(|f| { f.3 }).sum()
-            );
-
-            let average: (u64, Duration, Duration) = (
-                total.0 / length as u64
-                , Duration::from_nanos((total.1.as_nanos() / length) as u64)
-                , Duration::from_nanos((total.2.as_nanos() / length) as u64)
-            );
-
-            let mut worst = (Duration::from_millis(0), Duration::from_millis(0));
-            rolling_frame_info_10s
-            .into_iter()
-            .map(|f| {if f.2 > worst.0 {worst = (f.2, f.3);}})
-            .max().unwrap();
-
-            Some( ( average, worst ) )
-        } else {None},
-        if can_calculate_1s {
-            let length = rolling_frame_info_1s.len() as u128;
-
-            let total: (u64, Duration, Duration) =  (
-                rolling_frame_info_1s.into_iter().map(|f| { f.1 }).sum()
-                , rolling_frame_info_1s.into_iter().map(|f| { f.2 }).sum()
-                , rolling_frame_info_1s.into_iter().map(|f| { f.3 }).sum()
-            );
-
-            let average: (u64, Duration, Duration) = (
-                total.0 / length as u64
-                , Duration::from_nanos((total.1.as_nanos() / length) as u64)
-                , Duration::from_nanos((total.2.as_nanos() / length) as u64)
-            );
-
-            let mut worst = (Duration::from_millis(0), Duration::from_millis(0));
-            rolling_frame_info_1s
-            .into_iter()
-            .map(|f| {if f.2 > worst.0 {worst = (f.2, f.3);}})
-            .max().unwrap();
-
-            Some( ( average, worst ) )
-        } else {None},
-        if can_calculate_100ms {
-            let length = rolling_frame_info_100ms.len() as u128;
-
-            let total: (u64, Duration, Duration) =  (
-                rolling_frame_info_100ms.into_iter().map(|f| { f.1 }).sum()
-                , rolling_frame_info_100ms.into_iter().map(|f| { f.2 }).sum()
-                , rolling_frame_info_100ms.into_iter().map(|f| { f.3 }).sum()
-            );
-
-            let average: (u64, Duration, Duration) = (
-                total.0 / length as u64
-                , Duration::from_nanos((total.1.as_nanos() / length) as u64)
-                , Duration::from_nanos((total.2.as_nanos() / length) as u64)
-            );
-
-            let mut worst = (Duration::from_millis(0), Duration::from_millis(0));
-            rolling_frame_info_100ms
-            .into_iter()
-            .map(|f| {if f.2 > worst.0 {worst = (f.2, f.3);}})
-            .max().unwrap();
-
-            Some( ( average, worst ) )
-        } else {None},
+    (
+        if can_calculate_10s { window_stats(rolling_frame_info_10s) } else { None },
+        if can_calculate_1s { window_stats(rolling_frame_info_1s) } else { None },
+        if can_calculate_100ms { window_stats(rolling_frame_info_100ms) } else { None },
     )
+}
+
+/// Average + worst over a non-empty window. Empty → None (avoid ÷0).
+fn window_stats(
+    q: &VecDeque<(Instant, u64, Duration, Duration)>,
+) -> Option<((u64, Duration, Duration), (Duration, Duration))> {
+    let length = q.len();
+    if length == 0 {
+        return None;
+    }
+    let length_u = length as u64;
+    let length_n = length as u128;
+    let total: (u64, Duration, Duration) = (
+        q.iter().map(|f| f.1).sum(),
+        q.iter().map(|f| f.2).sum(),
+        q.iter().map(|f| f.3).sum(),
+    );
+    let average = (
+        total.0 / length_u,
+        Duration::from_nanos((total.1.as_nanos() / length_n) as u64),
+        Duration::from_nanos((total.2.as_nanos() / length_n) as u64),
+    );
+    let mut worst = (Duration::ZERO, Duration::ZERO);
+    for f in q.iter() {
+        if f.2 > worst.0 {
+            worst = (f.2, f.3);
+        }
+    }
+    Some((average, worst))
 }
 
 #[cfg(test)]
@@ -250,5 +213,73 @@ mod tests {
         c2.record(3, t1);
         let t_edge = t1 + Duration::from_secs(1);
         assert!((c2.rate(t_edge) - 3.0).abs() < 1e-9);
+    }
+
+    type Rolling = (
+        VecDeque<(Instant, u64, Duration, Duration)>,
+        VecDeque<(Instant, u64, Duration, Duration)>,
+        VecDeque<(Instant, u64, Duration, Duration)>,
+        Option<Instant>,
+    );
+
+    fn empty_rolling(start: Option<Instant>) -> Rolling {
+        (VecDeque::new(), VecDeque::new(), VecDeque::new(), start)
+    }
+
+    #[test]
+    fn mutant_kill_rolling_frame_gates_push_avg_worst() {
+        // Missing window_start must fail closed (was unwrap panic).
+        let mut none_start = empty_rolling(None);
+        let r = rolling_frame_calc(&mut none_start, None);
+        assert!(r.0.is_none() && r.1.is_none() && r.2.is_none());
+
+        // Gates closed: elapsed < 100ms → all None.
+        let mut early = empty_rolling(Some(Instant::now() - Duration::from_millis(50)));
+        let r = rolling_frame_calc(&mut early, None);
+        assert!(r.0.is_none() && r.1.is_none() && r.2.is_none());
+
+        // 100ms open, 1s/10s closed; empty queues → None (÷0 fail-closed).
+        let mut only_100 = empty_rolling(Some(Instant::now() - Duration::from_millis(150)));
+        let r = rolling_frame_calc(&mut only_100, None);
+        assert!(r.0.is_none() && r.1.is_none() && r.2.is_none());
+
+        // Tri-queue push: one sample lands in all three deques.
+        let now = Instant::now();
+        let sample = (now, 10u64, Duration::from_millis(4), Duration::from_millis(1));
+        let mut pushed = empty_rolling(Some(now - Duration::from_millis(150)));
+        let r = rolling_frame_calc(&mut pushed, Some(sample));
+        assert_eq!(pushed.0.len(), 1);
+        assert_eq!(pushed.1.len(), 1);
+        assert_eq!(pushed.2.len(), 1);
+        // Only 100ms arm reports; avg count 10, worst d2=4ms.
+        assert!(r.0.is_none() && r.1.is_none());
+        let (avg, worst) = r.2.expect("100ms arm");
+        assert_eq!(avg.0, 10);
+        assert_eq!(avg.1, Duration::from_millis(4));
+        assert_eq!(worst, (Duration::from_millis(4), Duration::from_millis(1)));
+
+        // 1s gate: average / not last-only; worst is max of field .2.
+        let t = Instant::now();
+        let a = (t, 10u64, Duration::from_millis(4), Duration::from_millis(1));
+        let b = (t, 20u64, Duration::from_millis(8), Duration::from_millis(3));
+        let mut one_s = empty_rolling(Some(t - Duration::from_millis(1100)));
+        one_s.1.push_front(a);
+        one_s.1.push_front(b);
+        one_s.2.push_front(a);
+        one_s.2.push_front(b);
+        let r = rolling_frame_calc(&mut one_s, None);
+        let (avg, worst) = r.1.expect("1s arm");
+        assert_eq!(avg.0, 15); // (10+20)/2, not 20 last-only, not 10*20
+        assert_eq!(avg.1, Duration::from_millis(6));
+        assert_eq!(worst, (Duration::from_millis(8), Duration::from_millis(3)));
+        assert_ne!(worst.0, Duration::from_millis(4)); // not min
+
+        // Prune keeps at least one stale sample (len>1 gate).
+        let old = Instant::now() - Duration::from_secs(11);
+        let mut prune = empty_rolling(Some(Instant::now() - Duration::from_secs(11)));
+        prune.0.push_front((old, 1, Duration::from_millis(1), Duration::ZERO));
+        let _ = rolling_frame_calc(&mut prune, None);
+        assert_eq!(prune.0.len(), 1);
+        assert!(rolling_frame_calc(&mut prune, None).0.is_some());
     }
 }
