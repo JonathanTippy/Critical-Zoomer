@@ -106,13 +106,24 @@ the accepted honest medians above (no ≥20% regression).
 | color_1_0x (OG, post f32 shade) | **~43.5 ms** | improved vs prior f64 shade path |
 | color_1_5x (OG) | **~64.4 ms** | |
 | color_2_0x (OG) | **~72.8 ms** | |
-| color_gpu_1_0x | **~18.6 ms** | ~2.3× faster than OG at 1× |
-| color_gpu_1_5x | **~30.7 ms** | |
-| color_gpu_2_0x | **~40.5 ms** | still above 60 Hz sole-wake; better cliff |
+| color_gpu_1_0x (pre-residency) | **~18.6 ms** | historical; recreate+upload every wake |
+| color_gpu_1_5x (pre-residency) | **~30.7 ms** | |
+| color_gpu_2_0x (pre-residency) | **~40.5 ms** | |
 
-Actors re-run these every ~8 ms wake while holding a package, so colorer alone
-cannot keep up past the cliff; HUD `drop:` will climb when behind. Manual
-color gear defaults to OG; enable GPU in settings to use the wgpu path.
+**Shade unjam (2026-08-11, persistent buffers + GPU escaper, `--quick`):**
+
+| metric | median | notes |
+|---|---|---|
+| color_gpu_1_0x (resident) | **~5.18 ms** | ~3.6× vs pre-residency GPU |
+| color_gpu_1_5x | **~7.94 ms** | |
+| color_gpu_2_0x | **~11.2 ms** | |
+| color_gpu_params_only_1_0x | **~0.80 ms** | no pixel re-upload |
+| escape_gpu_radius_only_1_0x | **~3.11 ms** | resident answers; radius uniform |
+| workgroup time_to_full_frame | **~300 ms** | within ~20% of ~270 ms accepted |
+
+Actors re-run these every ~8 ms wake while holding a package. Manual color/escape
+gears default to OG; enable GPU in settings. HUD stamps `color:` and `escape:`.
+Workgroup TTFP / “stops after GPU color” remain parked after this pass.
 
 ## Baseline
 
