@@ -1532,6 +1532,117 @@ fn mutant_kill_pitch_loop_spiral_and_bout() {
     });
 }
 
+/// Thought-killed pins: dispatch priority, PPS probe lock, stale delivery invalidate.
+#[test]
+fn mutant_kill_dispatch_pps_and_stale_invalidate() {
+    use crate::assemblies::structs::KernelMode;
+
+    run_big_stack_size(|| {
+        let mut ctx = make_context(0);
+        // Default absolute → Naive.
+        assert_eq!(ctx.dispatch_kernel(true), KernelMode::Naive);
+        // Probe queue head wins over Naive.
+        ctx.pps_probe_queue = vec![KernelMode::NaiveGpu, KernelMode::Pert];
+        assert_eq!(ctx.dispatch_kernel(true), KernelMode::NaiveGpu);
+        // Locked overrides probe queue.
+        ctx.pps_locked_kernel = Some(KernelMode::Pert);
+        assert_eq!(ctx.dispatch_kernel(true), KernelMode::Pert);
+        // Soft trial floor → Pert even with locked cleared.
+        ctx.pps_locked_kernel = None;
+        ctx.pps_probe_queue.clear();
+        ctx.reference_floor_active = true;
+        assert_eq!(ctx.dispatch_kernel(false), KernelMode::Pert);
+        // Relative shell always Pert (beats NaiveGpu probe).
+        ctx.reference_floor_active = false;
+        ctx.coords_are_relative = true;
+        ctx.pps_probe_queue = vec![KernelMode::NaiveGpu];
+        assert_eq!(ctx.dispatch_kernel(true), KernelMode::Pert);
+        // Manual beats everything.
+        ctx.manual_gear = Some(KernelMode::Naive);
+        assert_eq!(ctx.dispatch_kernel(true), KernelMode::Naive);
+        ctx.manual_gear = None;
+
+        // Relative ensure_pps_probe forces Pert lock and clears race queue.
+        ctx.coords_are_relative = true;
+        ctx.pps_locked_kernel = None;
+        ctx.pps_probe_queue = vec![KernelMode::Naive];
+        ctx.ensure_pps_probe(true);
+        assert_eq!(ctx.pps_locked_kernel, Some(KernelMode::Pert));
+        assert!(ctx.pps_probe_queue.is_empty());
+        // Manual skips probe setup.
+        ctx.coords_are_relative = false;
+        ctx.manual_gear = Some(KernelMode::Naive);
+        ctx.pps_locked_kernel = None;
+        ctx.pps_probe_queue.clear();
+        ctx.ensure_pps_probe(true);
+        assert!(ctx.pps_locked_kernel.is_none());
+        assert!(ctx.pps_probe_queue.is_empty());
+        ctx.manual_gear = None;
+        // Absolute cold start fills legal queue.
+        ctx.ensure_pps_probe(true);
+        assert!(!ctx.pps_probe_queue.is_empty());
+        assert_eq!(
+            ctx.pps_probe_shifts_left,
+            crate::gearbox::PPS_PROBE_SHIFTS_PER_CANDIDATE
+        );
+
+        // tick_pert_trial: inactive → None; countdown expire ends trial.
+        assert_eq!(ctx.tick_pert_trial(), None);
+        ctx.reference_floor_active = true;
+        ctx.pert_trial_shifts_left = 1;
+        assert_eq!(ctx.tick_pert_trial(), Some("trial_expired"));
+        assert!(!ctx.reference_floor_active);
+        assert_eq!(ctx.pert_trial_shifts_left, 0);
+
+        // invalidate_stale_deliveries: matching generation kept; mismatch / None wiped.
+        let i_keep = index_from_pos(&(0, 0), ctx.res.0);
+        let i_stale = index_from_pos(&(1, 0), ctx.res.0);
+        let i_none = index_from_pos(&(2, 0), ctx.res.0);
+        for i in [i_keep, i_stale, i_none] {
+            ctx.points[i].delivered = true;
+            ctx.points[i].initialized = true;
+        }
+        ctx.points[i_keep].delta = Some(DeltaState {
+            delta_z: ComplexFloatExp::ZERO,
+            checkpoint: ComplexFloatExp::ZERO,
+            checkpoint_n: 0,
+            delta_c: ComplexFloatExp::ZERO,
+            c: ComplexFloatExp::ZERO,
+            dd: ComplexFloatExp::new(FloatExp::ONE, FloatExp::ZERO),
+            generation: 7,
+            gear: crate::delta_gear::ComputeGear::FloatExp,
+            scale: FloatExp::ONE,
+        });
+        ctx.points[i_stale].delta = Some(DeltaState {
+            delta_z: ComplexFloatExp::ZERO,
+            checkpoint: ComplexFloatExp::ZERO,
+            checkpoint_n: 0,
+            delta_c: ComplexFloatExp::ZERO,
+            c: ComplexFloatExp::ZERO,
+            dd: ComplexFloatExp::new(FloatExp::ONE, FloatExp::ZERO),
+            generation: 3,
+            gear: crate::delta_gear::ComputeGear::FloatExp,
+            scale: FloatExp::ONE,
+        });
+        ctx.points[i_none].delta = None;
+        invalidate_stale_deliveries(&mut ctx, 7);
+        assert!(ctx.points[i_keep].delivered);
+        assert!(ctx.points[i_keep].initialized);
+        assert!(ctx.points[i_keep].delta.is_some());
+        assert!(!ctx.points[i_stale].delivered);
+        assert!(!ctx.points[i_stale].initialized);
+        assert!(ctx.points[i_stale].delta.is_none());
+        assert!(!ctx.points[i_none].delivered);
+        assert!(ctx.points[i_none].delta.is_none());
+        // Undelivered seats are not touched.
+        let i_open = index_from_pos(&(3, 0), ctx.res.0);
+        ctx.points[i_open].delivered = false;
+        ctx.points[i_open].initialized = true;
+        invalidate_stale_deliveries(&mut ctx, 99);
+        assert!(ctx.points[i_open].initialized);
+    });
+}
+
 // r[verify cz.craft.pan-zoom-slot0+1]
 #[test]
 fn pan_scredge_lead_only_on_first_shift() {

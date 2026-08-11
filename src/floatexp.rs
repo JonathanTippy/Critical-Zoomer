@@ -564,6 +564,22 @@ mod tests {
         let tiny_neg = FloatExp::new(-1.0, (i32::MIN as i64) - 100);
         assert_eq!(tiny_neg.to_f64(), -0.0);
         assert!(tiny_neg.to_f64().is_sign_negative());
+
+        // new() normalizes into [1,2); abs/square preserve value.
+        let wide = FloatExp::new(6.0, 0);
+        assert!((wide.mantissa - 1.5).abs() < 1e-15);
+        assert_eq!(wide.exponent, 2);
+        assert!((wide.to_f64() - 6.0).abs() < 1e-12);
+        let neg = FloatExp::new(-3.0, 1);
+        assert!(neg.mantissa < 0.0);
+        assert!((neg.abs().to_f64() - 6.0).abs() < 1e-12);
+        let sq = FloatExp::from(3.0).square();
+        assert!((sq.to_f64() - 9.0).abs() < 1e-12);
+        assert_ne!(sq.to_f64(), 6.0); // *→+
+        assert_eq!(FloatExp::new(0.0, 99), FloatExp::ZERO);
+        assert!(FloatExp::from(2.0) > FloatExp::from(1.0));
+        assert!(FloatExp::from(-2.0) < FloatExp::from(-1.0));
+        assert!(FloatExp::ZERO < FloatExp::ONE);
     }
 
     #[test]
