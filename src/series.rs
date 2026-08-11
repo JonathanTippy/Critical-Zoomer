@@ -150,6 +150,16 @@ mod mutant_kill {
             // *→+ on 2 Z a would not match.
             let wrong = z1 * a1 + two + ComplexFloatExp::new(FloatExp::ONE, FloatExp::ZERO);
             assert_ne!(s.coeffs[2][0], wrong);
+            // +→- / +→* on the trailing +1.
+            let wrong_sub = z1 * a1 * two - ComplexFloatExp::new(FloatExp::ONE, FloatExp::ZERO);
+            let wrong_mul = z1 * a1 * two * ComplexFloatExp::new(FloatExp::ONE, FloatExp::ZERO);
+            assert_ne!(s.coeffs[2][0], wrong_sub);
+            assert_ne!(s.coeffs[2][0], wrong_mul);
+            // a2' = 2 Z a2 + a1² (a2 was 0 → just a1²).
+            let expect_a2 = a1 * a1;
+            assert_eq!(s.coeffs[2][1], expect_a2);
+            assert_ne!(s.coeffs[2][1], a1 + a1); // *→+
+            assert_ne!(s.coeffs[2][1], a1 - a1); // *→- style collapse
         }
     }
 
@@ -167,6 +177,13 @@ mod mutant_kill {
         let v2 = s.evaluate(1, ComplexFloatExp::new(FloatExp::from(2e-3), FloatExp::ZERO))
             .unwrap();
         assert!(v2.re.to_f64().abs() > v.re.to_f64().abs());
+        // *→+ on a_k·pow would inflate badly for order≥2 rows with nonzero a2.
+        if s.coeffs.len() > 2 {
+            let v3 = s.evaluate(2, dc).expect("eval2");
+            // Must not equal a1+dc (missing powers / wrong ops).
+            assert_ne!(v3, s.coeffs[2][0] + dc);
+            assert_ne!(v3, s.coeffs[2][0] * dc + s.coeffs[2][0]); // bogus + not power
+        }
     }
 
     #[test]
@@ -188,5 +205,19 @@ mod mutant_kill {
         let huge = ComplexFloatExp::new(FloatExp::from(1e3), FloatExp::ZERO);
         let n_huge = s.safe_skip(huge, 1000);
         assert!(n_huge <= n);
+        // max_n clamp: cannot exceed coeffs.len()-1; >→>= / < flips still bounded.
+        let n_cap = s.safe_skip(dc, 1);
+        assert_eq!(n_cap, 1);
+        let n_over = s.safe_skip(dc, usize::MAX);
+        assert!(n_over < s.coeffs.len());
+        assert!(n_over >= 1);
+    }
+
+    #[test]
+    fn mutant_kill_series_from_orbit_evaluate_safe_skip() {
+        from_orbit_rejects_too_short_and_clamps_order();
+        from_orbit_seeds_a1_and_recurs_2z_a_plus_1();
+        evaluate_is_power_series_not_constant_none();
+        safe_skip_not_constant_and_respects_bounds();
     }
 }
