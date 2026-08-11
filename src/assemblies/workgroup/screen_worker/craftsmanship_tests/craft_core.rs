@@ -1044,6 +1044,74 @@ fn mutant_kill_classify_motion() {
     assert_ne!(classify_motion(Some(&base), &both), Motion::Panned);
 }
 
+fn bare_point_f64(z: (f64, f64), c: (f64, f64)) -> Point<f64> {
+    Point {
+        delta_c: c,
+        c,
+        z,
+        dc: (1.0, 0.0),
+        real_squared: z.0 * z.0,
+        imag_squared: z.1 * z.1,
+        real_imag: z.0 * z.1,
+        iterations: 0,
+        loop_detection_point: ((0.0, 0.0), 0),
+        escapes: false,
+        repeats: false,
+        delivered: false,
+        initialized: true,
+        period: 0,
+        smallness_squared: 100.0,
+        small_time: 0,
+        delta: None,
+        direct_only: false,
+        bound_zero_generation: 0,
+    }
+}
+
+/// Thought-killed pins for naive step / bailout `>` / cached products / period partials.
+#[test]
+fn mutant_kill_bailout_iterate_period_partials() {
+    // Bailout is |z|² > r² (not >=).
+    let on = bare_point_f64((2.0, 0.0), (0.0, 0.0));
+    assert!(!bailout_point(&on, 4.0));
+    let out = bare_point_f64((2.1, 0.0), (0.0, 0.0));
+    assert!(bailout_point(&out, 4.0));
+    assert_ne!(bailout_point(&on, 4.0), true);
+
+    // iterate_with_c: z' = z²+c and dc' = 2 z dc + 1.
+    let mut p = bare_point_f64((0.5, 0.0), (0.1, 0.0));
+    update_point_results(&mut p);
+    let c = p.c;
+    iterate_with_c(&mut p, c);
+    // z' = 0.25 + 0.1 = 0.35; dc' = 2*0.5*1 + 1 = 2
+    assert!((p.z.0 - 0.35).abs() < 1e-12, "z.re={}", p.z.0);
+    assert!((p.dc.0 - 2.0).abs() < 1e-12, "dc.re={}", p.dc.0);
+    assert_eq!(p.iterations, 1);
+    assert_ne!(p.z.0, 0.5 + 0.5 + 0.1); // *→+ on z²
+    assert_ne!(p.dc.0, 0.5 * 1.0 + 1.0); // missing 2·
+
+    // update_point_results: products * not +; smallness records min rad.
+    let mut q = bare_point_f64((3.0, 4.0), (0.0, 0.0));
+    q.smallness_squared = 100.0;
+    q.iterations = 7;
+    update_point_results(&mut q);
+    assert!((q.real_squared - 9.0).abs() < 1e-12);
+    assert!((q.imag_squared - 16.0).abs() < 1e-12);
+    assert!((q.real_imag - 12.0).abs() < 1e-12);
+    assert!((q.smallness_squared - 25.0).abs() < 1e-12);
+    assert_eq!(q.small_time, 7);
+    assert_ne!(q.real_squared, 3.0 + 3.0);
+
+    // period_partials: ascending records; c=0 records n=1 then stays.
+    let (partials, _) = period_partials((0.0, 0.0), 8);
+    assert_eq!(partials.first().copied(), Some(1));
+    assert!(partials.windows(2).all(|w| w[0] < w[1]));
+    // Exterior c=2: still gets records before escape growth.
+    let (p2, _) = period_partials((2.0, 0.0), 4);
+    assert!(!p2.is_empty());
+    assert_eq!(p2[0], 1);
+}
+
 // r[verify cz.craft.pan-zoom-slot0+1]
 #[test]
 fn pan_scredge_lead_only_on_first_shift() {

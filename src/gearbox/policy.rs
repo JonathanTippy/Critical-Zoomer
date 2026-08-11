@@ -126,6 +126,13 @@ mod tests {
         assert_ne!(view_gear_from_relative_admission(true), ComputeGear::FloatExp);
         assert_ne!(view_gear_from_relative_admission(false), ComputeGear::F64);
 
+        // Thin wrapper must forward gear labels (not "", "xyzzy").
+        assert_eq!(hud_label(ComputeGear::F64), "F64");
+        assert_eq!(hud_label(ComputeGear::ScaledF64), "S-F64");
+        assert_eq!(hud_label(ComputeGear::FloatExp), "FE");
+        assert_ne!(hud_label(ComputeGear::F64), "");
+        assert_ne!(hud_label(ComputeGear::F64), "xyzzy");
+
         assert_eq!(legal_kernels(true, true), vec![KernelMode::Pert]);
         assert_eq!(legal_kernels(true, false), vec![KernelMode::Pert]);
         assert_ne!(legal_kernels(true, true), legal_kernels(false, true));
