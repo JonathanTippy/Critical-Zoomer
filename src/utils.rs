@@ -626,6 +626,13 @@ mod mutant_kill {
             exp: 2,
         };
         assert_eq!(format!("{whole}"), "20");
+        // exp==0 must take the integer branch (>= 0, not > 0).
+        let zero_exp = IntExp {
+            val: Integer::from(5),
+            exp: 0,
+        };
+        assert_eq!(format!("{zero_exp}"), "5");
+        assert!(!format!("{zero_exp}").contains('.'));
         let frac = IntExp {
             val: Integer::from(7),
             exp: -1,

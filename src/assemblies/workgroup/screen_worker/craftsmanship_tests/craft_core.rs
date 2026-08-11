@@ -1291,6 +1291,135 @@ fn mutant_kill_edge_spiral_and_generator_admission() {
     });
 }
 
+/// Thought-killed pins: gear HUD ranks, absolute/relative C, completion branches, attention reset.
+#[test]
+fn mutant_kill_gear_coords_and_completion() {
+    use crate::delta_gear::ComputeGear;
+
+    // absolute_c: anchor + relative (not − / axis swap).
+    let anchor = (IntExp::from(2), IntExp::from(-3));
+    let rel = (FloatExp::from(0.5), FloatExp::from(0.25));
+    let abs = absolute_c(rel, &anchor);
+    assert!((abs.0.to_f64() - 2.5).abs() < 1e-12);
+    assert!((abs.1.to_f64() - (-2.75)).abs() < 1e-12);
+    assert_ne!(abs.0.to_f64(), 2.0 - 0.5);
+    assert_ne!(abs.1.to_f64(), -3.0 - 0.25);
+
+    // f64 host path + legacy alias.
+    let c64 = c_from_delta_c_f64((0.5, -0.25), &anchor);
+    assert!((c64.0 - 2.5).abs() < 1e-9);
+    assert!((c64.1 - (-3.25)).abs() < 1e-9);
+    assert_eq!(abs_c_f64((0.5, -0.25), &anchor), c64);
+    let cf = c_floatexp_from_delta_c((0.5, -0.25), &anchor);
+    assert!((cf.re.to_f64() - 2.5).abs() < 1e-9);
+    assert!((cf.im.to_f64() - (-3.25)).abs() < 1e-9);
+
+    run_big_stack_size(|| {
+        let mut ctx = make_context(0);
+        ctx.view_gear = ComputeGear::ScaledF64;
+        refresh_active_gear(&mut ctx);
+        assert_eq!(ctx.active_gear, ComputeGear::ScaledF64);
+        // Never demote below view_gear.
+        note_seat_gear(&mut ctx, ComputeGear::F64);
+        assert_eq!(ctx.active_gear, ComputeGear::ScaledF64);
+        // Mixed seat notes are ignored.
+        note_seat_gear(&mut ctx, ComputeGear::Mixed);
+        assert_eq!(ctx.active_gear, ComputeGear::ScaledF64);
+        // Matching view gear is a no-op (keeps active).
+        note_seat_gear(&mut ctx, ComputeGear::ScaledF64);
+        assert_eq!(ctx.active_gear, ComputeGear::ScaledF64);
+        // Promote then conflict → Mixed.
+        ctx.view_gear = ComputeGear::F64;
+        refresh_active_gear(&mut ctx);
+        note_seat_gear(&mut ctx, ComputeGear::ScaledF64);
+        assert_eq!(ctx.active_gear, ComputeGear::ScaledF64);
+        note_seat_gear(&mut ctx, ComputeGear::FloatExp);
+        assert_eq!(ctx.active_gear, ComputeGear::Mixed);
+
+        // set_attention resets spiral only when the anchor changes.
+        ctx.attention_anchor = (0, 0);
+        ctx.attention_index = 99;
+        ctx.attention_current = Some((0, 0));
+        set_attention(&mut ctx, Some((1, 1)));
+        assert_eq!(ctx.attention, Some((1, 1)));
+        assert_eq!(ctx.attention_anchor, (1, 1));
+        assert_eq!(ctx.attention_index, 0);
+        assert!(ctx.attention_current.is_none());
+        ctx.attention_index = 5;
+        set_attention(&mut ctx, Some((1, 1)));
+        assert_eq!(ctx.attention_index, 5, "same anchor must not reset spiral");
+        set_attention(&mut ctx, None);
+        assert_eq!(ctx.attention, None);
+        assert_eq!(
+            ctx.attention_anchor,
+            ((ctx.res.0 / 2) as i32, (ctx.res.1 / 2) as i32)
+        );
+
+        // Escapes completion uses iterations + start c (not z-as-start).
+        let mut esc = make_point(ESC);
+        esc.escapes = true;
+        esc.repeats = false;
+        esc.iterations = 7;
+        esc.z = (FloatExp::from(10.0), FloatExp::from(0.0));
+        esc.dc = (FloatExp::ONE, FloatExp::ZERO);
+        match direct_completion(&mut esc) {
+            CompletedPoint::Escapes {
+                escape_time,
+                escape_location,
+                start_location,
+                ..
+            } => {
+                assert_eq!(escape_time, 7);
+                assert!((escape_location.0.to_f64() - 10.0).abs() < 1e-12);
+                assert_eq!(start_location.0, esc.c.0);
+                assert_eq!(start_location.1, esc.c.1);
+            }
+            other => panic!("expected Escapes, got {other:?}"),
+        }
+        // Override c for with_c path.
+        let alt = (FloatExp::from(9.0), FloatExp::from(8.0));
+        match direct_completion_with_c(&mut esc, alt) {
+            CompletedPoint::Escapes { start_location, .. } => {
+                assert_eq!(start_location.0, alt.0);
+                assert_eq!(start_location.1, alt.1);
+            }
+            other => panic!("expected Escapes with override c, got {other:?}"),
+        }
+
+        // Repeats → verified period (c=0 → period 1).
+        let mut rep = make_point((0.0, 0.0));
+        rep.repeats = true;
+        rep.escapes = false;
+        rep.iterations = 32;
+        match direct_completion(&mut rep) {
+            CompletedPoint::Repeats { period, .. } => {
+                assert_eq!(period, 1);
+                assert_eq!(rep.period, 1);
+            }
+            other => panic!("expected Repeats, got {other:?}"),
+        }
+
+        // Relative vs absolute seat C.
+        let frame = (
+            ObjectivePosAndZoom {
+                pos: (IntExp::from(-2), IntExp::from(2)),
+                zoom_pot: -2,
+            },
+            TEST_SCREEN_RES,
+        );
+        let mut f64_ctx = from_stencil::<f64>(frame, None).expect("stencil");
+        f64_ctx.coords_are_relative = false;
+        assert_eq!(c_for_seat_f64(&f64_ctx, (1.25, -0.5)), (1.25, -0.5));
+        f64_ctx.coords_are_relative = true;
+        f64_ctx.coord_anchor = (IntExp::from(10), IntExp::from(20));
+        let seat = c_for_seat_f64(&f64_ctx, (0.5, -0.25));
+        let expect = c_from_delta_c_f64((0.5, -0.25), &f64_ctx.coord_anchor);
+        assert!((seat.0 - expect.0).abs() < 1e-9);
+        assert!((seat.1 - expect.1).abs() < 1e-9);
+        assert_ne!(seat, (0.5, -0.25));
+    });
+}
+
 // r[verify cz.craft.pan-zoom-slot0+1]
 #[test]
 fn pan_scredge_lead_only_on_first_shift() {
