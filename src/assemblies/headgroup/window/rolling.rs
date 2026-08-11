@@ -227,4 +227,28 @@ mod tests {
         assert!((pps.rate(now) - 3.0).abs() < 1e-9);
         assert!((ips.rate(now) - 1000.0).abs() < 1e-9);
     }
+
+    /// Thought-killed pins for HUD RateCounter (zero skip, 1s prune window).
+    #[test]
+    fn mutant_kill_rate_counter_window() {
+        let mut c = RateCounter::default();
+        let t0 = Instant::now();
+        c.record(0, t0);
+        assert_eq!(c.rate(t0), 0.0);
+        c.record(5, t0);
+        c.record(7, t0);
+        assert!((c.rate(t0) - 12.0).abs() < 1e-9);
+        assert_ne!(c.rate(t0), 5.0); // must sum, not last-only
+        // Events older than 1s must drop (Duration::from_secs(1) threshold).
+        let t_old = t0 + Duration::from_millis(1001);
+        c.record(1, t_old);
+        assert!((c.rate(t_old) - 1.0).abs() < 1e-9);
+        assert_ne!(c.rate(t_old), 13.0);
+        // Exactly at 1s boundary: keep (prune uses > 1s, not >=).
+        let mut c2 = RateCounter::default();
+        let t1 = Instant::now();
+        c2.record(3, t1);
+        let t_edge = t1 + Duration::from_secs(1);
+        assert!((c2.rate(t_edge) - 3.0).abs() < 1e-9);
+    }
 }

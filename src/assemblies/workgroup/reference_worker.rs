@@ -426,4 +426,45 @@ mod tests {
             crate::reference::bits_for_zoom(1500, PIXELS_PER_UNIT_POT)
         );
     }
+
+    /// Thought-killed pins for coverage rectangle `&&` and generation increment.
+    #[test]
+    fn mutant_kill_reference_coverage_and_generation() {
+        let f = frame();
+        let center = objective_c(&f, f.1.0 / 2, f.1.1 / 2);
+        assert!(reference_c_covers_frame(&center, &f));
+        // Far outside: any || mutant on the four bounds would still reject some
+        // axes, but a point past both lo/hi must fail all four && clauses.
+        let far = (
+            center.0.clone() + IntExp::from(1_000_000),
+            center.1.clone() + IntExp::from(1_000_000),
+        );
+        assert!(!reference_c_covers_frame(&far, &f));
+        let outside_re = (
+            center.0.clone() + IntExp::from(1_000_000),
+            center.1.clone(),
+        );
+        assert!(!reference_c_covers_frame(&outside_re, &f));
+
+        let mut state = ReferenceWorkerState::new();
+        state.replace(request(-1));
+        let first = loop {
+            if let Some(p) = state.work_for(Duration::from_millis(50)) {
+                break p;
+            }
+        };
+        assert_eq!(first.generation, 1);
+        state.replace(request(-2));
+        let second = loop {
+            if let Some(p) = state.work_for(Duration::from_millis(50)) {
+                break p;
+            }
+        };
+        assert_eq!(second.generation, 2);
+        assert_ne!(second.generation, first.generation);
+        // Corner objective uses +seat / −row pitch (not flipped).
+        let a = objective_c(&f, 0, 0);
+        let b = objective_c(&f, f.1.0 - 1, 0);
+        assert!(a.0 < b.0 || a.0 == b.0);
+    }
 }

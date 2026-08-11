@@ -159,4 +159,75 @@ mod tests {
             }
         }
     }
+
+    /// Thought-killed pins for Oracle bout arithmetic / bailout / loop-detect.
+    #[test]
+    fn mutant_kill_oracle_iterate_bout() {
+        let four = FloatExp::from(4.0);
+        let eps = FloatExp::from(1e-30);
+
+        // Far exterior escapes at n=1 (z0=c, |c|²>4).
+        match iterate_oracle_bout(
+            c_from_f64((3.0, 0.0)),
+            c_from_f64((3.0, 0.0)),
+            four.clone(),
+            eps.clone(),
+            8,
+            0,
+        ) {
+            OracleAnswer::Escapes { escape_time } => assert_eq!(escape_time, 1),
+            other => panic!("expected Escapes@1, got {other:?}"),
+        }
+        // Bailout is mag_sq > r² (not >=): start at 0 with c=2 → after 1 step z=2, |z|²=4.
+        let on = iterate_oracle_bout(
+            c_from_f64((2.0, 0.0)),
+            c_from_f64((0.0, 0.0)),
+            four.clone(),
+            eps.clone(),
+            1,
+            0,
+        );
+        assert_ne!(on, OracleAnswer::Escapes { escape_time: 1 });
+        match &on {
+            OracleAnswer::Unfinished { iterations, z } => {
+                assert_eq!(*iterations, 1);
+                assert!((z.0.to_f64() - 2.0).abs() < 1e-12);
+            }
+            other => panic!("expected Unfinished on |z|²=4, got {other:?}"),
+        }
+        // Imag recurrence uses 2·z0·z1 (not + / /).
+        let c = c_from_f64((0.1, 0.2));
+        let z0 = c;
+        let ans = iterate_oracle_bout(c, z0, four.clone(), eps.clone(), 1, 0);
+        // After one step from z=c: z' = c²+c. (0.1+0.2i)²+(0.1+0.2i) = 0.07+0.24i
+        match ans {
+            OracleAnswer::Unfinished { iterations, z } => {
+                assert_eq!(iterations, 1);
+                assert!((z.0.to_f64() - 0.07).abs() < 1e-12, "re={}", z.0.to_f64());
+                assert!((z.1.to_f64() - 0.24).abs() < 1e-12, "im={}", z.1.to_f64());
+                assert_ne!(z.1.to_f64(), 0.1 + 0.2 + 0.2); // *→+ on 2·
+                assert_ne!(z.0.to_f64(), 0.1 + 0.1 - (0.2 + 0.2) + 0.1); // *→+ on squares
+            }
+            other => panic!("expected Unfinished after 1 step, got {other:?}"),
+        }
+
+        // Interior 0+0i repeats; requires iterations > 2 (not >=2 at first coincidence).
+        match OracleKernel.conclude(c_from_f64((0.0, 0.0)), four, FloatExp::from(1e-20), 64) {
+            OracleAnswer::Repeats { iterations } => assert!(iterations > 2),
+            other => panic!("expected Repeats, got {other:?}"),
+        }
+
+        // saturating_add on iterations / start_iterations plumbing.
+        match iterate_oracle_bout(
+            c_from_f64((3.0, 0.0)),
+            c_from_f64((3.0, 0.0)),
+            FloatExp::from(4.0),
+            FloatExp::from(1e-30),
+            4,
+            10,
+        ) {
+            OracleAnswer::Escapes { escape_time } => assert_eq!(escape_time, 11),
+            other => panic!("expected Escapes with start offset, got {other:?}"),
+        }
+    }
 }
