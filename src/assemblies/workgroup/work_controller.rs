@@ -252,4 +252,37 @@ mod mutant_kill {
         assert!(should_send_replace(&mut state, &fres));
         assert_eq!(state.worker_res, fres.1);
     }
+
+    /// Screen→plane: +seat → +real, +row → −imag, zoom_pot polarity, init zoom.
+    #[test]
+    fn mutant_kill_get_points_axes_and_zoom_pot() {
+        let loc = (IntExp::from(-2), IntExp::from(1));
+        let pts = get_points::<f64>((4, 3), loc.clone(), 0);
+        let i = |seat: u32, row: u32| (row * 4 + seat) as usize;
+
+        // +seat increases real; same row keeps imag.
+        assert!(pts[i(1, 0)].c.0 > pts[i(0, 0)].c.0);
+        assert_eq!(pts[i(1, 0)].c.1, pts[i(0, 0)].c.1);
+
+        // +row decreases imag (screen y-down → plane +imag up); same seat keeps real.
+        assert!(pts[i(0, 1)].c.1 < pts[i(0, 0)].c.1);
+        assert_eq!(pts[i(0, 1)].c.0, pts[i(0, 0)].c.0);
+
+        // At zoom 0, pitch = 1/PIXELS_PER_UNIT (zoom_factor = 1).
+        let space = 1.0 / (PIXELS_PER_UNIT as f64);
+        assert!((pts[i(1, 0)].c.0 - pts[i(0, 0)].c.0 - space).abs() < 1e-12);
+        assert!((pts[i(0, 0)].c.1 - pts[i(0, 1)].c.1 - space).abs() < 1e-12);
+
+        // zoom>0 shrinks pitch (>>); zoom<0 expands (<<).
+        let wide = get_points::<f64>((2, 1), loc.clone(), -2);
+        let deep = get_points::<f64>((2, 1), loc, 2);
+        let pitch = |p: &[Point<f64>]| (p[1].c.0 - p[0].c.0).abs();
+        assert!(pitch(&wide) > pitch(&deep));
+        assert!((pitch(&wide) / pitch(&deep) - 16.0).abs() < 1e-9); // 2^2 / 2^-2 = 16
+
+        assert_eq!(WORKER_INIT_ZOOM_POT, -2);
+        assert_eq!(WORKER_INIT_ZOOM, 0.25);
+        assert_ne!(WORKER_INIT_ZOOM, 4.0);
+        assert_ne!(WORKER_INIT_ZOOM, -0.25);
+    }
 }
