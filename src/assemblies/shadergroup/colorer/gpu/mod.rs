@@ -18,6 +18,13 @@ const SHADER: &str = include_str!("color.wgsl");
 /// other wgpu users under libtest. Shared with the GPU escaper via [`shared_device`].
 static SHARED_GPU: OnceLock<Option<Arc<GpuColorer>>> = OnceLock::new();
 static INIT_LOCK: Mutex<()> = Mutex::new(());
+/// Serialize shade-path GPU ops (colorer + escaper) including readback.
+static SHADE_OPS: Mutex<()> = Mutex::new(());
+
+/// Shared critical section for all shade GPU submit+map work.
+pub fn shade_ops() -> &'static Mutex<()> {
+    &SHADE_OPS
+}
 
 /// Which GPU uploads are required this paint.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -99,6 +106,7 @@ pub struct GpuColorer {
     pipeline: wgpu::ComputePipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     /// Serialize paint (readback map_async is not re-entrant across threads).
+    /// Prefer [`shade_ops`] so escaper and colorer do not interleave map_async.
     paint_lock: Mutex<()>,
     session: Mutex<Option<ColorSession>>,
 }
@@ -312,6 +320,7 @@ impl GpuColorer {
         settings: &mut Settings,
         dirty: PaintDirty,
     ) -> Option<Vec<Color32>> {
+        let _ops = shade_ops().lock().unwrap_or_else(|e| e.into_inner());
         let _paint = self.paint_lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut session_guard = self.session.lock().unwrap_or_else(|e| e.into_inner());
 

@@ -1,7 +1,7 @@
 use eframe::emath::Rect;
 use egui::{color_picker, Ui};
 use egui_dnd::dnd;
-use crate::assemblies::structs::{ColorerMode, KernelMode};
+use crate::assemblies::structs::{ColorerMode, EscaperMode, KernelMode};
 use crate::settings::*;
 impl Settings {
     pub fn widgetize(&mut self, ui:&mut Ui) {
@@ -46,6 +46,24 @@ impl Settings {
                     &mut self.manual_color_gear,
                     ColorerMode::Gpu,
                     ColorerMode::Gpu.manual_gear_label(),
+                );
+            });
+        });
+        ui.label("Default OG; GPU is opt-in (never auto).");
+        ui.separator();
+        ui.label("Debug — escaper (gear)");
+        ui.checkbox(&mut self.manual_escape_gear_enabled, "Manual escape gear");
+        ui.add_enabled_ui(self.manual_escape_gear_enabled, |ui| {
+            ui.horizontal(|ui| {
+                ui.radio_value(
+                    &mut self.manual_escape_gear,
+                    EscaperMode::Og,
+                    EscaperMode::Og.manual_gear_label(),
+                );
+                ui.radio_value(
+                    &mut self.manual_escape_gear,
+                    EscaperMode::Gpu,
+                    EscaperMode::Gpu.manual_gear_label(),
                 );
             });
         });

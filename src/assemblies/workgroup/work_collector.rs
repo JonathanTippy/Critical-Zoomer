@@ -107,6 +107,7 @@ async fn internal_behavior<A: SteadyActor>(
                         iterations_delta: U.iterations_delta,
                         packages_dropped: 0,
                         color: crate::assemblies::structs::ColorerHud::Og,
+                        ..Default::default()
                     };
                 } else {
                     //let j = U.completed_points;
@@ -131,6 +132,7 @@ async fn internal_behavior<A: SteadyActor>(
                         iterations_delta: U.iterations_delta,
                         packages_dropped: 0,
                         color: crate::assemblies::structs::ColorerHud::Og,
+                        ..Default::default()
                     };
                     actor.try_send(&mut values_out,
                                    View{
@@ -196,6 +198,7 @@ async fn internal_behavior<A: SteadyActor>(
                             iterations_delta: U.iterations_delta,
                             packages_dropped: 0,
                             color: crate::assemblies::structs::ColorerHud::Og,
+                            ..Default::default()
                         }
                     }
                 );

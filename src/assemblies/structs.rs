@@ -27,6 +27,8 @@ pub struct ViewHud {
     pub packages_dropped: u64,
     /// Colorer path actually used for this view (OG / GPU / GPU fell back to OG).
     pub color: ColorerHud,
+    /// Escaper path actually used for this view.
+    pub escape: EscaperHud,
 }
 
 /// Manual colorer implementation (settings gear; default OG).
@@ -42,6 +44,23 @@ impl ColorerMode {
         match self {
             ColorerMode::Og => "OG",
             ColorerMode::Gpu => "GPU",
+        }
+    }
+}
+
+/// Manual escaper implementation (settings gear; default OG).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum EscaperMode {
+    #[default]
+    Og,
+    Gpu,
+}
+
+impl EscaperMode {
+    pub fn manual_gear_label(self) -> &'static str {
+        match self {
+            EscaperMode::Og => "OG",
+            EscaperMode::Gpu => "GPU",
         }
     }
 }
@@ -62,6 +81,25 @@ impl ColorerHud {
             ColorerHud::Og => "OG",
             ColorerHud::Gpu => "GPU",
             ColorerHud::GpuFallbackOg => "GPU→OG",
+        }
+    }
+}
+
+/// What the escaper stamped on the last values frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum EscaperHud {
+    #[default]
+    Og,
+    Gpu,
+    GpuFallbackOg,
+}
+
+impl EscaperHud {
+    pub fn hud_label(self) -> &'static str {
+        match self {
+            EscaperHud::Og => "OG",
+            EscaperHud::Gpu => "GPU",
+            EscaperHud::GpuFallbackOg => "GPU→OG",
         }
     }
 }

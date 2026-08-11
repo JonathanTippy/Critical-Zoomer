@@ -33,6 +33,22 @@ must **not** auto-pick GPU color. HUD stamps `color:OG|GPU|GPU→OG` (fallback
 only when no usable device). Exact `Color32` parity is pinned by
 `gpu_matches_og_*` tests.
 
+GPU colorer keeps **persistent buffers** and skips uploads when values/params
+are clean (mechanical sympathy). Animated layers / new packages mark dirty
+every wake so silent skip cannot freeze anim.
+
+## Escape gear switch
+
+Same pattern for the bailout tail:
+
+- **OG** — CPU `escape_frame` (default)
+- **GPU** — f32 continue R=2→radius only (`escaper/gpu/`); interiors pass-through
+
+Manual only; never auto. HUD stamps `escape:OG|GPU|GPU→OG`. Resident answer
+buffer; radius is a uniform on anim ticks. Shares the colorer wgpu device under
+a short shade-ops lock. Oracle: GPU matches an f32 CPU twin; `big_time` matches
+OG under the same `bailout_max_additional_iterations`.
+
 ## Single path
 
 There is **one** shade pipeline body:

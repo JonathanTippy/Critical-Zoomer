@@ -12,8 +12,8 @@ use std::time::{Duration, Instant};
 
 use criterion::*;
 
+use critical_zoomer::assemblies::shadergroup::colorer::gpu::{GpuColorer, PaintDirty};
 use critical_zoomer::assemblies::shadergroup::colorer::color::color;
-use critical_zoomer::assemblies::shadergroup::colorer::gpu::GpuColorer;
 use critical_zoomer::assemblies::shadergroup::escaper::{escape_frame, ZoomerValuesScreen};
 use critical_zoomer::assemblies::workgroup::screen_worker::workshift::*;
 use critical_zoomer::assemblies::workgroup::work_collector::ResultsPackage;
@@ -185,13 +185,87 @@ fn bench_color_gpu(c: &mut Criterion, name: &str, pixel_scale: f64) {
                 let mut s = settings.clone();
                 let t0 = Instant::now();
                 let out = gpu
+                    .paint(&screen, &mut s, PaintDirty::all())
+                    .expect("gpu paint");
+                black_box(out);
+                total += t0.elapsed();
+            }
+            total
+        })
+    });
+}
+
+fn bench_color_gpu_params_only(c: &mut Criterion, name: &str, pixel_scale: f64) {
+    let Some(gpu) = GpuColorer::shared() else {
+        eprintln!("shadergroup color GPU params-only {name}: skipped (no device)");
+        return;
+    };
+    let pkg = package_cache(pixel_scale);
+    let settings = settings_default();
+    let radius = settings.bailout_radius.clone().determine() as f32;
+    let screen: ZoomerValuesScreen = escape_frame(pkg, radius, &settings);
+    let pixels = screen.values.len();
+    eprintln!(
+        "shadergroup color GPU params-only {name}: res={:?} pixels={pixels} (~{pixel_scale}× default)",
+        screen.res
+    );
+    // Warm resident buffers with a full upload.
+    {
+        let mut s = settings.clone();
+        let _ = gpu.paint(&screen, &mut s, PaintDirty::all());
+    }
+
+    c.bench_function(name, |b| {
+        b.iter_custom(|iters| {
+            let mut total = Duration::ZERO;
+            for _ in 0..iters {
+                let mut s = settings.clone();
+                let t0 = Instant::now();
+                let out = gpu
                     .paint(
                         &screen,
                         &mut s,
-                        critical_zoomer::assemblies::shadergroup::colorer::gpu::PaintDirty::all(),
+                        PaintDirty {
+                            values: false,
+                            params: true,
+                        },
                     )
-                    .expect("gpu paint");
+                    .expect("gpu params-only");
                 black_box(out);
+                total += t0.elapsed();
+            }
+            total
+        })
+    });
+}
+
+fn bench_escape_gpu(c: &mut Criterion, name: &str, pixel_scale: f64) {
+    use critical_zoomer::assemblies::shadergroup::escaper::gpu::GpuEscaper;
+    let Some(gpu) = GpuEscaper::shared() else {
+        eprintln!("shadergroup escape GPU {name}: skipped (no device)");
+        return;
+    };
+    let pkg = package_cache(pixel_scale);
+    let settings = settings_default();
+    let radius = settings.bailout_radius.clone().determine() as f32;
+    let pixels = pkg.results.len();
+    eprintln!(
+        "shadergroup escape GPU {name}: res={:?} pixels={pixels} (~{pixel_scale}× default)",
+        pkg.screen_res
+    );
+    let _ = gpu.escape_frame(pkg, radius, &settings, true);
+
+    c.bench_function(name, |b| {
+        b.iter_custom(|iters| {
+            let mut total = Duration::ZERO;
+            for i in 0..iters {
+                // Alternate radius so params-only path stays honest under anim.
+                let r = if i % 2 == 0 { radius } else { radius * 2.0 };
+                let t0 = Instant::now();
+                let screen = gpu
+                    .escape_frame(pkg, r, &settings, false)
+                    .expect("gpu escape");
+                black_box(screen);
                 total += t0.elapsed();
             }
             total
@@ -207,6 +281,7 @@ fn shadergroup_escape(c: &mut Criterion) {
     bench_escape(c, "escape_1_0x_default_pixels", 1.0);
     bench_escape(c, "escape_1_5x_default_pixels", 1.5);
     bench_escape(c, "escape_2_0x_default_pixels", 2.0);
+    bench_escape_gpu(c, "escape_gpu_radius_only_1_0x_default_pixels", 1.0);
 }
 
 fn shadergroup_color(c: &mut Criterion) {
@@ -219,6 +294,7 @@ fn shadergroup_color_gpu(c: &mut Criterion) {
     bench_color_gpu(c, "color_gpu_1_0x_default_pixels", 1.0);
     bench_color_gpu(c, "color_gpu_1_5x_default_pixels", 1.5);
     bench_color_gpu(c, "color_gpu_2_0x_default_pixels", 2.0);
+    bench_color_gpu_params_only(c, "color_gpu_params_only_1_0x_default_pixels", 1.0);
 }
 
 criterion_group!(benches, shadergroup_escape, shadergroup_color, shadergroup_color_gpu);

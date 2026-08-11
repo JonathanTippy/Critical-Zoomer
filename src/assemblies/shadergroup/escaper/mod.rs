@@ -11,6 +11,9 @@ use crate::assemblies::workgroup::screen_worker::workshift::*;
 use crate::settings::*;
 
 use crate::assemblies::structs::*;
+use std::sync::Arc;
+
+pub mod gpu;
 
 pub const BAILOUT_MAX_ITERATIONS:usize = 100;
 
@@ -54,6 +57,9 @@ pub struct EscaperState<T> {
     /// Full-frame packages discarded by drain-to-newest when the shade path
     /// falls behind (`r[cz.craft.shade-coalesce-drop-count+1]`).
     pub packages_dropped: u64,
+    pub gpu: Option<Arc<gpu::GpuEscaper>>,
+    /// New answers package → re-upload resident GPU buffer.
+    pub answers_dirty: bool,
 }
 
 /// How many queued inputs to drop when keeping only the newest.
@@ -139,6 +145,8 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
         values: None,
         settings: Settings::DEFAULT,
         packages_dropped: 0,
+        gpu: gpu::GpuEscaper::shared(),
+        answers_dirty: true,
     }).await;
 
     // Lock all channels for exclusive access within this actor.
@@ -160,10 +168,6 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
             actor.wait_avail(&mut settings_in, 1),
         );
 
-        // Mutate in place so animated bailout can latch `Animable::start`.
-        let mut radius = state.settings.bailout_radius.determine();
-        if radius.is_infinite() || radius<2.0 {panic!("invalid radius");radius=2.0};
-
         if actor.avail_units(&mut settings_in) > 0 {
             while actor.avail_units(&mut settings_in) > 1 {
                 let stuff = actor.try_take(&mut settings_in).expect("internal error");
@@ -172,11 +176,21 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
             match actor.try_take(&mut settings_in) {
                 Some(s) => {
                     let mut rng = rand::thread_rng();
+                    let _ = rng;
                     state.settings = s;
+                    // Bailout / max_extra may have changed — re-escape.
+                    state.answers_dirty = true;
                 }
                 None => {}
             }
         }
+
+        // Mutate in place so animated bailout can latch `Animable::start`.
+        let mut radius = state.settings.bailout_radius.determine();
+        if radius.is_infinite() || radius < 2.0 {
+            panic!("invalid radius");
+        }
+        let radius_dirty = state.settings.bailout_radius.animated;
 
         let avail = actor.avail_units(&mut values_in);
         if avail > 0 {
@@ -246,16 +260,35 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
                         },
                         hud,
                     });
+                    state.answers_dirty = true;
                 }
                 None => {}
             }
         }
 
         // Same path every wake (including animated bailout): only numbers change.
+        // Static + unchanged: skip try_send (mechanical sympathy / small channels).
+        let want_gpu = matches!(
+            state.settings.manual_escape_gear_override(),
+            Some(EscaperMode::Gpu)
+        );
+        let dirty = state.answers_dirty || radius_dirty;
         if let Some(v) = &state.values {
-            let mut screen = escape_frame(v, radius as f32, &state.settings);
-            screen.hud.packages_dropped = state.packages_dropped;
-            actor.try_send(&mut screens_out, screen);
+            if dirty {
+                let upload = state.answers_dirty;
+                let (mut screen, escape_hud) = gpu::escape_with_gear(
+                    v,
+                    radius as f32,
+                    &state.settings,
+                    want_gpu,
+                    &state.gpu,
+                    upload,
+                );
+                screen.hud.packages_dropped = state.packages_dropped;
+                screen.hud.escape = escape_hud;
+                actor.try_send(&mut screens_out, screen);
+                state.answers_dirty = false;
+            }
         }
     }
 

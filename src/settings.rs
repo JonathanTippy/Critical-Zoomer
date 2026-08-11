@@ -126,6 +126,8 @@ impl Settings {
         // Debug: force colorer path; default OG when disabled.
         , manual_color_gear_enabled: false
         , manual_color_gear: crate::assemblies::structs::ColorerMode::Og
+        , manual_escape_gear_enabled: false
+        , manual_escape_gear: crate::assemblies::structs::EscaperMode::Og
     };
 
     /// Resolved manual gear for the screen worker (`None` = automatic policy).
@@ -141,6 +143,15 @@ impl Settings {
     pub fn manual_color_gear_override(&self) -> Option<crate::assemblies::structs::ColorerMode> {
         if self.manual_color_gear_enabled {
             Some(self.manual_color_gear)
+        } else {
+            None
+        }
+    }
+
+    /// Resolved manual escaper (`None` = OG default).
+    pub fn manual_escape_gear_override(&self) -> Option<crate::assemblies::structs::EscaperMode> {
+        if self.manual_escape_gear_enabled {
+            Some(self.manual_escape_gear)
         } else {
             None
         }
@@ -172,6 +183,9 @@ pub struct Settings {
     // Automatic PPS/kernel gearbox must never pick GPU color.
     , pub manual_color_gear_enabled: bool
     , pub manual_color_gear: crate::assemblies::structs::ColorerMode
+    // When true, `manual_escape_gear` selects OG vs GPU escaper (debug).
+    , pub manual_escape_gear_enabled: bool
+    , pub manual_escape_gear: crate::assemblies::structs::EscaperMode
 }
 
 
@@ -722,6 +736,20 @@ mod mutant_kill {
         assert_eq!(s.manual_color_gear_override(), Some(ColorerMode::Og));
         s.manual_color_gear_enabled = false;
         assert!(s.manual_color_gear_override().is_none());
+    }
+
+    #[test]
+    fn mutant_kill_manual_escape_gear_override_enabled_gate() {
+        use crate::assemblies::structs::EscaperMode;
+        let mut s = Settings::DEFAULT;
+        assert!(s.manual_escape_gear_override().is_none());
+        s.manual_escape_gear_enabled = true;
+        s.manual_escape_gear = EscaperMode::Gpu;
+        assert_eq!(s.manual_escape_gear_override(), Some(EscaperMode::Gpu));
+        s.manual_escape_gear = EscaperMode::Og;
+        assert_eq!(s.manual_escape_gear_override(), Some(EscaperMode::Og));
+        s.manual_escape_gear_enabled = false;
+        assert!(s.manual_escape_gear_override().is_none());
     }
 
     #[test]

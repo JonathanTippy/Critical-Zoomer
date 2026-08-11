@@ -19,7 +19,9 @@ workshift path. Anything that answers “how fast vs last week” belongs here.
 | `time_to_full_frame` | home view 854×480, wall-clock to every seat delivered | `cz.perf.home-100tps+1` |
 | `full_stack_ips` (printed by the full-frame bench) | total_iterations / wall time, real workgroup loop, scheduling included | `cz.perf.min-300m-ips-cpu+2` (method; the 300M number is pending re-derivation) |
 | `escape_*x_default_pixels` | one `escape_frame` wall time at 1.0× / 1.5× / 2.0× default pixel count | shade-path audit; escaper 60 Hz@1080p wisdom |
+| `escape_gpu_radius_only_*` | GPU escaper with resident answers (radius uniform only) | shade unjam |
 | `color_*x_default_pixels` | one `color` wall time at same scales | shade-path audit; isolate colorer vs escaper |
+| `color_gpu_*` / `color_gpu_params_only_*` | GPU colorer full upload vs params-only resident | shade unjam |
 
 Run (house rule — nice, center-half CPUs):
 
