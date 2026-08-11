@@ -89,13 +89,14 @@ bucket 2 telemetry.
 - **First reference job length still = `MAX_BOUT` (1000); no mid-view extend.** **Closed (2026-08-07):** publish only on period/escape; no length wall. Intermediate snapshots before done remain an open question (see depth-design).
 - **Reference library reuse landing; discard still open.** Greedy keep + per-seat best-ref bind are in; byte-budgeted eviction / unused-ref discard are not.
 - **Display-path latency profiling.** The high-res lag is a *display pipeline* problem (see Known issues): measure per-stage per-frame cost at 1920×1080 — escaper, colorer, window sampling, texture allocation/upload, repaint cadence — to find where backlog accumulates. Do not assume view/remap is the dominant contributor. Defer until after the deep-zoom type-switch milestone (or run in parallel if headed profiling is available).
-- **Pipeline refresh rates (design lock 2026-08-11).** Three cadences:
-  workgroup *output* ~20 Hz; shadergroup whole-view path at **vsync** (default
-  60 until wired); headgroup **vsync by default**, optional typed **max FPS** +
-  disable-vsync (uncapped up to max). Actors hold resident latest buffers and
-  swap — never block waiting. Headgroup today is uncapped
-  (`VSYNC=false` + every-frame `request_repaint`) — fix toward this lock.
-  Doc: `docs/assistant/design/pipeline-refresh-rates.md`.
+- **Pipeline refresh rates (design lock 2026-08-11, revised).** **Two tiers:**
+  content (workgroup publish + shadergroup) at **real vsync from head/egui**
+  (hardcoded 60 rejected); head **vsync default** with typed max FPS +
+  disable-vsync. Per-actor timers + latest-wins buffers; publish = work so far.
+  Escape stays OG default. Content smell ≲15 Hz. **No code until big plan.**
+  Docs: `pipeline-refresh-rates.md`, interview
+  `interviews/2026-08-11-actor-layout-frame-pacing.md`. Head today uncapped
+  (`VSYNC=false` + `request_repaint`) — fix in that plan.
 - **Color gear (OG ↔ GPU) — landed; GPU default 2026-08-11** (manual still
   forces OG/GPU; HUD `color:`). Escape gear remains OG default (`escape:`).
   Auto gearbox must still never pick GPU shade. Interview on cadence:

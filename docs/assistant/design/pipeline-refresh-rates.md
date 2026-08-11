@@ -1,75 +1,97 @@
 # Pipeline refresh rates (binding — 2026-08-11)
 
-Status: **design lock from developer interview**. Not fully implemented.
-Charter: headgroup/shadergroup pacing work needs an issue-stack note before
-edits outside location+HUD.
+Status: **design lock from developer interview** (revised same day). Not
+implemented. No code until a later “big plan” of undiscussed work. Charter:
+headgroup/shadergroup pacing edits need an issue-stack note.
 
 ## Goal
 
-Whole-view output should feel like a **smooth, double-buffered, vsync-paced**
-pipe. Actors must **never sit blocked waiting** on a channel: each holds an
-**internal latest buffer** and **swaps** when a newer message arrives
-(latest-wins). Upstream that runs faster than the next stage only creates
-pressure the downstream must resolve — better to **align rates** so that
-pressure is rare and the work per wake stays manageable.
+Whole-view stages should feel like a **smooth, double-buffered, vsync-paced**
+pipe. Actors **never block waiting** on the next stage: each holds an
+**internal latest buffer** and **swaps** when newer input arrives.
 
-## Three refresh rates
+## Two tiers (revised)
 
-| Assembly | Cadence of its *output* | Notes |
-|---|---|---|
-| **Workgroup** (collector → shade) | **~20 Hz** | Matches the workgroup groove; answer packages need not stream at display rate. Integrating in the collector at this rate is fine. |
-| **Shadergroup** (escaper → colorer → window) | **Vsync** (default **60 Hz** until real vsync rate is wired) | Entire shade path shares one consistent frame rate — effectively the rate of the slowest shade member, intentionally synced so nothing races ahead. Faster than vsync only pressures the next actor; slower than vsync means the display cannot show a smooth continuum of what came before. |
-| **Headgroup** (window present) | **Vsync by default** | Optional **max frame rate** (typed number — allow weird divisors for the monitor) + **disable vsync** → run as fast as possible up to that max. Uncapped headgroup feels slightly more responsive for UI; shade/workgroup stay paced. |
+| Tier | Who | Cadence | Role |
+|---|---|---|---|
+| **Content / continuum** | Workgroup *publish* (collector → shade), entire shadergroup | **Real monitor vsync period** (communicated from head/egui — **not** a hardcoded 60) | Video-like: bailout/color anims. Even ~20 Hz can feel OK if responsive; pain starts around **≲15 Hz** (worse ≲10). |
+| **UI / feel** | Headgroup present | **Vsync by default**; optional typed **max FPS** + **disable vsync** → as fast as possible up to max | Game-like: uncapped head can feel snappier; content tier stays on vsync. |
 
 ```mermaid
 flowchart LR
-  WG[Workgroup out ~20Hz] --> SG[Shadergroup vsync ~60]
-  SG --> HG[Headgroup vsync or maxFPS]
+  vsyncInfo[Head reports vsync Hz] --> WG[Workgroup publish at vsync]
+  vsyncInfo --> SG[Shadergroup at vsync]
+  WG --> SG
+  SG --> HG[Head present vsync or maxFPS]
 ```
 
-## Actor shape (all three)
+Hardcoding “60 FPS” for shade/workgroup is a **shoddy quick fix** — rejected.
+Head must expose the egui/monitor vsync rate (or period) so content actors
+share the **same** number.
 
-1. **Resident buffer** of the current whole-view (or package) the actor owns.
-2. On input: **swap** to the newest; never block the sender (`try_send` /
-   coalesce / undeliver as already law on display and work paths).
-3. On wake: process **from the resident buffer** at the assembly’s cadence —
-   not “as fast as the previous stage floods.”
-4. Small channels stay small; persistent `drop:` still means “this stage is too
-   slow for its cadence × resolution,” not “grow the ring.”
+### Workgroup publish
+
+Collector emits **whatever work is done so far** on the vsync beat — not a
+promise of a complete frame every interval. Full-frame every N ms is aspirational,
+not part of the design contract.
+
+### Shadergroup
+
+Runs at the **same vsync** as content. Animations are closer to video than to
+competitive FPS; matching vsync is enough. Head may go higher; shade should not
+chase uncapped head.
+
+### Escape gear
+
+**OG remains default** — developer reports GPU escape is currently slower.
+
+## Actor wake shape
+
+**Lean toward per-actor timers** (`wait_periodic` at the shared vsync period),
+not “pace only when a channel message arrives.” Channels still deliver *data*
+(latest-wins swap); timers deliver *intent to produce a frame* from the
+resident buffer (needed for bailout/color anim when no new package arrives).
+
+Graceful property to preserve: Steady State lets a **later** actor keep a good
+rate even if an **earlier** one is sick (e.g. bailout anim rough, color-layer
+anim still smooth) — because each has its own wake + resident buffer. Ideal
+steady state is still **everyone on the same vsync**; independence is the
+degraded case, not the goal to optimize for.
+
+### Steady-state stack read (timers vs channels)
+
+From `steady-state-stack` manifesto / philosophy:
+
+- **Pull-reactor:** progress = consumer **intent** + resource available; idle ≈
+  0% CPU until a registered condition fires.
+- **Single wake-up:** consolidate channel *and* timer waits at one
+  `await_for_any!` / `await_for_all!` point — timers are first-class wake
+  sources, not a smell.
+- Bundle lessons race `wait_periodic` heartbeats with index/channel waits —
+  idiomatic.
+
+So: **timer for cadence + channel for data swap** matches the framework.
+Pacing *only* via channel push would couple sick upstream to silent downstream
+(no anim wake) and fight “later actors can still do well.”
 
 ## Headgroup today (bug relative to this lock)
 
-`window/mod.rs` sets `VSYNC = false` and calls `ctx.request_repaint()` every
-frame — uncapped. That was excitement, not the intended default. Default must
-return to vsync; uncapped belongs behind the max-FPS setting.
+`window/mod.rs`: `VSYNC = false` + every-frame `request_repaint()` — uncapped.
+Default must return to vsync; uncapped only behind max-FPS setting. While
+fixing, also **publish vsync Hz/period** to content actors (mechanism TBD in
+interview — settings broadcast already exists).
 
-## Sync mechanism (preferred direction)
+## Out of scope until the big plan
 
-Prefer **one shared shade cadence** rather than each shade actor inventing its
-own timer:
+- Implementing any of the above (developer: hold code; later one large plan).
+- Auto gearbox picking GPU shade.
+- Shade↔naive_gpu device merge.
+- Changing workshift bout timing (only **publish** cadence is in scope here).
 
-- **Default:** shade wakes at vsync period (placeholder 1/60 s) and consumes
-  resident answers / values / colors.
-- **Headgroup** presents on vsync (or max-FPS when uncapped).
-- **Optional later:** headgroup emits a per-frame stencil (or frame tick) that
-  *also* paces shade — only if timer-only shade proves desynced from present.
-  Do not require “every stencil must force a full shade pass” until measured;
-  latest-wins already allows shade to skip when nothing changed.
+## Verify when eventually implemented
 
-Workgroup publish stays on its own ~20 Hz groove; shade always has a resident
-package to re-escape/recolor under animated bailout without needing 60 Hz
-answer floods.
-
-## Out of scope until this lands
-
-- Auto gearbox picking GPU color/escape.
-- Merging shade wgpu with naive_gpu device.
-- Changing workshift internal bout timing (only the **collector publish**
-  cadence is the 20 Hz claim here).
-
-## Verify when implemented
-
-- Settings: max FPS + vsync toggle on headgroup; shade period defaults 60.
-- Headed: default = vsync-smooth; uncapped max FPS feels snappier on UI only.
-- HUD / steady_state: shade `drop:` not climbing unboundedly at default res
-  under bailout anim; workgroup publish rate near 20 Hz.
+- Content actors share head-reported vsync period (not a magic 60).
+- Head: vsync default; max FPS + disable vsync works.
+- Headed: content ≲15 Hz is the failure smell; uncapped head does not force
+  shade to match.
+- Escape default stays OG until GPU escape wins on wall time.
