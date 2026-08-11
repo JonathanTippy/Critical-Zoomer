@@ -411,6 +411,35 @@ mod tests {
         // Kill *→+ / *→/ on the imag 2·z0·z1 term: wrong ops cannot yield 8.
         assert_ne!(im, Float::with_val(prec, 1 * 2 + 2)); // *→+ on 2*
         assert_ne!(im, Float::with_val(prec, 1 + 2 + 4));
+        // Kill *→+ / *→/ on re: z0²−z1²+c0.
+        assert_ne!(re, Float::with_val(prec, 1 + 1 - (2 + 2) + 3)); // *→+
+        assert_ne!(re, Float::with_val(prec, 1 / 1 - 2 / 2 + 3)); // *→/
+        // Kill +→- / +→* on c addends.
+        assert_ne!(re, Float::with_val(prec, 1 - 4 - 3));
+        assert_ne!(im, Float::with_val(prec, (1 * 2 * 2) * 4));
+    }
+
+    #[test]
+    fn mutant_kill_reference_iterate_cycle_get_intexp() {
+        iterate_mandelbrot_step_is_z2_plus_c();
+        get_wraps_periodic_indices_not_linear();
+        observe_cycle_detects_period_two_at_minus_one();
+
+        // intexp_to_float: positive exp left-shifts, negative right-shifts.
+        let hi = intexp_to_float(&IntExp { val: rug::Integer::from(3), exp: 2 }, 64);
+        assert_eq!(hi, Float::with_val(64, 12));
+        let lo = intexp_to_float(&IntExp { val: rug::Integer::from(8), exp: -2 }, 64);
+        assert_eq!(lo, Float::with_val(64, 2));
+        assert_ne!(hi, Float::with_val(64, 3 >> 2)); // <<=→>>=
+        assert_ne!(lo, Float::with_val(64, 8 << 2)); // >>=→<<=
+
+        // extend_inner counters: open orbit advances exactly N steps (not +=→-=/*=).
+        let mut open =
+            ReferenceOrbit::start(&(IntExp::from(3).shift(-4), IntExp::from(1).shift(-3)), 128);
+        let before = open.iterates.len();
+        let n = open.extend_for(7, Duration::from_secs(1));
+        assert_eq!(n, 7);
+        assert_eq!(open.iterates.len(), before + 7);
     }
 
     #[test]
