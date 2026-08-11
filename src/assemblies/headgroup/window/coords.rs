@@ -700,4 +700,42 @@ mod tests {
             );
         }
     }
+
+    /// Thought-killed pins for location math / Apply / f64→IntExp (location bar).
+    #[test]
+    fn mutant_kill_coords_location_and_apply() {
+        // Apply ignores already-at-location (must stay `line_valid` only).
+        assert!(apply_button_enabled(true, true));
+        assert!(apply_button_enabled(true, false));
+        assert!(!apply_button_enabled(false, true));
+        assert!(!apply_button_enabled(false, false));
+        assert_ne!(apply_button_enabled(false, true), true);
+
+        // f64_to_intexp: zero short-circuit; sign; normalize loops (*2 /÷2).
+        assert_eq!(f64_to_intexp(0.0), IntExp::ZERO);
+        assert_eq!(f64_to_intexp(-0.0), IntExp::ZERO);
+        let four = f64_to_intexp(4.0);
+        assert!((f64::from(four.clone()) - 4.0).abs() < 1e-12);
+        let quarter = f64_to_intexp(0.25);
+        assert!((f64::from(quarter.clone()) - 0.25).abs() < 1e-12);
+        assert!((f64::from(f64_to_intexp(-2.5)) + 2.5).abs() < 1e-12);
+        assert_ne!(f64::from(four), 0.0);
+
+        // viewport_center ∘ ul_for_center ≈ identity on math center.
+        let screen = (40u32, 71u32);
+        let cre = f64_to_intexp(-0.75);
+        let cim = f64_to_intexp(0.125);
+        let ul = ul_for_center(cre.clone(), cim.clone(), -2, screen);
+        let (r2, i2) = viewport_center(&ul, screen);
+        assert!((f64::from(r2) - f64::from(cre.clone())).abs() < 1e-9);
+        assert!((f64::from(i2.clone()) - f64::from(cim.clone())).abs() < 1e-9);
+        // Wrong imag sign on UL would invert center imag.
+        assert_ne!(f64::from(i2), -0.125);
+
+        let line = format_location_readout(&cre, &cim, -2);
+        assert!(line.contains("mag 2^-2"));
+        assert!(line.contains('i'));
+        assert_ne!(format_intexp_readout(&IntExp::ZERO), "nan");
+        assert_eq!(format_intexp_readout(&IntExp::ZERO), "0");
+    }
 }

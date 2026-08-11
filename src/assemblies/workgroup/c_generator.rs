@@ -429,4 +429,50 @@ mod tests {
         assert_eq!(generator.get_c((0, 0)).0, 2.0f64.powi(-100));
         assert_ne!(generator.get_c((0, 0)), generator.get_c((1, 0)));
     }
+
+    /// Thought-killed pins for `get_c` +/− / `*` and admission Absolute vs Relative.
+    #[test]
+    fn mutant_kill_c_generator_get_c_and_admission() {
+        let loc = (IntExp::from(-2), IntExp::from(1));
+        let g = CGenerator::<f64>::new(&loc, 0, (4, 3)).expect("shallow grid");
+        let (origin, space) = g.origin_and_space();
+        assert!(space > 0.0);
+        // +seat → +real; +row → −imag (not flipped signs / *→+).
+        let c00 = g.get_c((0, 0));
+        let c10 = g.get_c((1, 0));
+        let c01 = g.get_c((0, 1));
+        assert_eq!(c00, origin);
+        assert!((c10.0 - (origin.0 + space)).abs() < 1e-15);
+        assert!((c01.1 - (origin.1 - space)).abs() < 1e-15);
+        assert_ne!(c10.0, origin.0 - space); // wrong real sign
+        assert_ne!(c01.1, origin.1 + space); // wrong imag sign
+        assert_ne!(c10.0, origin.0 + space + space); // *→+ on seat*space
+        assert_ne!(c10, c01);
+
+        // axis_distinct && : both axes must pass; count<=1 short-circuit stays true.
+        assert!(CGenerator::<f64>::new(&loc, 0, (1, 1)).is_some());
+
+        let view = view_center_for_test(&loc, 0, (4, 3));
+        let abs = admit_generator::<f64>(&loc, 0, (4, 3), None, &view).expect("admit");
+        assert!(!abs.is_relative());
+        assert!(matches!(abs, GeneratorAdmission::Absolute(_)));
+
+        // Deep home prefers relative when pitch < 1e-14 (risky absolute).
+        use crate::constants::{DEFAULT_WINDOW_RES, HOME_POSITION};
+        let home = (
+            IntExp::from(HOME_POSITION.0),
+            IntExp::ZERO - IntExp::from(HOME_POSITION.1),
+        );
+        let center = view_center_for_test(&home, 43, DEFAULT_WINDOW_RES);
+        let deep = admit_generator::<f64>(&home, 43, DEFAULT_WINDOW_RES, None, &center)
+            .expect("home zoom 43 must admit");
+        assert!(
+            deep.is_relative(),
+            "pitch near ulp wall should prefer Relative"
+        );
+        assert_ne!(deep.is_relative(), false);
+
+        let picked = pick_stack_admission(&loc, 0, (4, 3), None, &view).unwrap();
+        assert!(matches!(picked, AdmittedHostStack::F64(_)));
+    }
 }
