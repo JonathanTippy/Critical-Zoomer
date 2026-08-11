@@ -1119,7 +1119,7 @@ dependencies = [
 
 [[package]]
 name = "critical_zoomer"
-version = "0.0.10"
+version = "0.0.11"
 dependencies = [
  "arboard",
  "bytemuck",
