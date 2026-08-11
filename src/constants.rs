@@ -28,5 +28,12 @@ mod mutant_kill {
         assert_ne!(TEST_SCREEN_RES, DEFAULT_WINDOW_RES);
         assert!(MOVE_SPEED_PPS > 0);
         assert!(SCROLL_SPEED > 0.0);
+        // Pan/scroll rates — delete / *→/ / sign flips change feel and break inputs.
+        assert_eq!(MOVE_SPEED_IN_SCREENS, 0.42);
+        assert!(MOVE_SPEED_IN_SCREENS > 0.0 && MOVE_SPEED_IN_SCREENS < 1.0);
+        assert_ne!(MOVE_SPEED_IN_SCREENS, 0.0);
+        assert_eq!(SCROLL_SPEED, 40.0);
+        assert_ne!(SCROLL_SPEED, -40.0);
+        assert_ne!(SCROLL_SPEED, 0.0);
     }
 }

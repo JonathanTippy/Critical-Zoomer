@@ -1079,3 +1079,106 @@ mod smoke_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod mutant_kill {
+    //! Thought-killed pins for host-side naive GPU helpers (index map, finish flags).
+    use super::*;
+    use crate::assemblies::workgroup::screen_worker::workshift::Point;
+
+    fn blank_finish(flags: u32) -> HarvestedFinish {
+        HarvestedFinish {
+            seat_index: 0,
+            flags,
+            iterations: 17,
+            small_time: 3,
+            smallness: 0.5,
+            iter_delta: 0,
+            z_x: 1.25,
+            z_y: -0.5,
+            dc_x: 2.0,
+            dc_y: 0.25,
+            c_x: 0.1,
+            c_y: -0.2,
+            loop_zx: 0.01,
+            loop_zy: 0.02,
+            loop_iter: 9,
+        }
+    }
+
+    fn blank_point() -> Point<f64> {
+        Point {
+            delta_c: (0.0, 0.0),
+            c: (0.0, 0.0),
+            z: (0.0, 0.0),
+            dc: (1.0, 0.0),
+            real_squared: 0.0,
+            imag_squared: 0.0,
+            real_imag: 0.0,
+            iterations: 0,
+            loop_detection_point: ((0.0, 0.0), 0),
+            escapes: false,
+            repeats: false,
+            delivered: false,
+            initialized: true,
+            period: 0,
+            smallness_squared: f64::MAX,
+            small_time: 0,
+            delta: None,
+            direct_only: false,
+            bound_zero_generation: 0,
+        }
+    }
+
+    #[test]
+    fn mutant_kill_pos_from_index_is_row_major() {
+        assert_eq!(pos_from_index(0, 40), (0, 0));
+        assert_eq!(pos_from_index(39, 40), (39, 0));
+        assert_eq!(pos_from_index(40, 40), (0, 1));
+        assert_eq!(pos_from_index(41, 40), (1, 1));
+        // %→/ or /→% would swap axes or collapse.
+        assert_ne!(pos_from_index(41, 40), (0, 41));
+        assert_ne!(pos_from_index(41, 40), (41, 0));
+    }
+
+    #[test]
+    fn mutant_kill_apply_finish_maps_flag_bits_2_and_4() {
+        let mut p = blank_point();
+        apply_finish_to_point(&mut p, &blank_finish(0));
+        assert!(!p.escapes && !p.repeats);
+        assert_eq!(p.iterations, 17);
+        assert_eq!(p.z, (1.25, -0.5));
+        assert_eq!(p.dc, (2.0, 0.25));
+        assert_eq!(p.c, (0.1, -0.2));
+        assert_eq!(p.real_squared, 1.25 * 1.25);
+        assert_eq!(p.imag_squared, (-0.5) * (-0.5));
+        assert_eq!(p.real_imag, 1.25 * -0.5);
+        assert_eq!(p.loop_detection_point, ((0.01, 0.02), 9));
+
+        apply_finish_to_point(&mut p, &blank_finish(2));
+        assert!(p.escapes && !p.repeats);
+        apply_finish_to_point(&mut p, &blank_finish(4));
+        assert!(!p.escapes && p.repeats);
+        apply_finish_to_point(&mut p, &blank_finish(6));
+        assert!(p.escapes && p.repeats);
+        // Wrong bit masks (&1 / &8) must not match.
+        apply_finish_to_point(&mut p, &blank_finish(1));
+        assert!(!p.escapes && !p.repeats);
+        apply_finish_to_point(&mut p, &blank_finish(8));
+        assert!(!p.escapes && !p.repeats);
+    }
+
+    #[test]
+    fn mutant_kill_apply_finish_bulk_publish_sets_final_fields_only() {
+        let mut p = blank_point();
+        p.real_squared = 99.0;
+        p.loop_detection_point = ((7.0, 8.0), 11);
+        apply_finish_bulk_publish(&mut p, &blank_finish(2));
+        assert!(p.escapes && !p.repeats);
+        assert_eq!(p.iterations, 17);
+        assert_eq!(p.z, (1.25, -0.5));
+        // Bulk path skips WIP resume fields.
+        assert_eq!(p.real_squared, 99.0);
+        assert_eq!(p.loop_detection_point, ((7.0, 8.0), 11));
+    }
+}

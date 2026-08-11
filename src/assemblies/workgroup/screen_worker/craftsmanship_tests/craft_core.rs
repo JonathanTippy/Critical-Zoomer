@@ -1705,6 +1705,89 @@ fn mutant_kill_stencil_admit_and_hud_pps() {
     });
 }
 
+/// Thought-killed pins: queue fallback priority (scredge vs edge/out/in).
+#[test]
+fn mutant_kill_queue_fallback_priority() {
+    run_big_stack_size(|| {
+        let mut ctx = make_context(0);
+        // Empty → None.
+        assert!(queue_fallback_pos_pub(&ctx, true).is_none());
+        assert!(queue_fallback_pos_pub(&ctx, false).is_none());
+
+        ctx.in_queue.push_back(((0, 0), 1));
+        ctx.out_queue.push_back(((1, 0), 2));
+        ctx.edge_queue.push_back(((2, 0), 3));
+        ctx.scredge_poses.push_back((3, 1));
+
+        // prefer_scredge: Scredge beats Edge.
+        assert_eq!(
+            queue_fallback_pos_pub(&ctx, true),
+            Some(((3, 1), Step::Scredge))
+        );
+        // !prefer_scredge: Edge before Out before Scredge before In.
+        assert_eq!(
+            queue_fallback_pos_pub(&ctx, false),
+            Some(((2, 0), Step::Edge))
+        );
+        ctx.edge_queue.clear();
+        assert_eq!(
+            queue_fallback_pos_pub(&ctx, false),
+            Some(((1, 0), Step::Out))
+        );
+        ctx.out_queue.clear();
+        assert_eq!(
+            queue_fallback_pos_pub(&ctx, false),
+            Some(((3, 1), Step::Scredge))
+        );
+        ctx.scredge_poses.clear();
+        assert_eq!(
+            queue_fallback_pos_pub(&ctx, false),
+            Some(((0, 0), Step::In))
+        );
+        // prefer_scredge with empty scredge falls through to Edge/Out/In.
+        ctx.scredge_poses.clear();
+        ctx.edge_queue.push_back(((2, 0), 3));
+        assert_eq!(
+            queue_fallback_pos_pub(&ctx, true),
+            Some(((2, 0), Step::Edge))
+        );
+    });
+}
+
+/// Thought-killed pin: idle metric is delivered fraction × 100, not raw fraction.
+#[test]
+fn mutant_kill_percent_completed_is_percent_scale() {
+    run_big_stack_size(|| {
+        let mut ctx = make_context(0);
+        let total = ctx.points.len();
+        for p in &mut ctx.points {
+            p.delivered = false;
+        }
+        let half = total / 2;
+        for i in 0..half {
+            ctx.points[i].delivered = true;
+        }
+        // Empty queues + disabled spiral → shift should not start new seats.
+        assert!(ctx.scredge_poses.is_empty());
+        assert!(ctx.edge_queue.is_empty());
+        assert!(ctx.out_queue.is_empty());
+        assert!(ctx.in_queue.is_empty());
+        assert_eq!(ctx.attention_index, u64::MAX);
+        shift(&mut ctx);
+        let expected = half as f64 / total as f64 * 100.0;
+        assert!(
+            (ctx.percent_completed - expected).abs() < 1e-9,
+            "got {} want {}",
+            ctx.percent_completed,
+            expected
+        );
+        // *→/ or omit ×100 leaves a tiny fraction; /→* explodes.
+        assert!(ctx.percent_completed > 10.0);
+        assert!(ctx.percent_completed < 100.0);
+        assert_ne!(ctx.percent_completed, half as f64 / total as f64);
+    });
+}
+
 // r[verify cz.craft.pan-zoom-slot0+1]
 #[test]
 fn pan_scredge_lead_only_on_first_shift() {
