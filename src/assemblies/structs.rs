@@ -23,6 +23,8 @@ pub struct ViewHud {
     pub gear: ComputeGear,
     pub points_delta: u64,
     pub iterations_delta: u64,
+    /// Cumulative full-frame packages dropped by escaper/colorer drain-to-newest.
+    pub packages_dropped: u64,
 }
 
 /// Host numeric stack for the view shell (`f64` vs FloatExp).

@@ -38,6 +38,10 @@ harness = false
 name = "workgroup_fitness"
 harness = false
 
+[[bench]]
+name = "shadergroup_fitness"
+harness = false
+
 [lib]
 bench = false
 

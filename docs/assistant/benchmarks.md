@@ -10,19 +10,33 @@ workshift path. Anything that answers “how fast vs last week” belongs here.
 
 ## Suite
 
-`benches/workgroup_fitness.rs` (plus the older `benches/my_bench.rs` headgroup microbenches).
+`benches/workgroup_fitness.rs`, `benches/shadergroup_fitness.rs` (plus the older
+`benches/my_bench.rs` headgroup microbenches).
 
 | bench | metric | guards |
 |---|---|---|
 | `time_to_first_publish` | fresh home-view context → first non-empty publish | `cz.perf.play-minimize+1`, `cz.perf.play-8bump-100ms+1` |
 | `time_to_full_frame` | home view 854×480, wall-clock to every seat delivered | `cz.perf.home-100tps+1` |
 | `full_stack_ips` (printed by the full-frame bench) | total_iterations / wall time, real workgroup loop, scheduling included | `cz.perf.min-300m-ips-cpu+2` (method; the 300M number is pending re-derivation) |
+| `escape_*x_default_pixels` | one `escape_frame` wall time at 1.0× / 1.5× / 2.0× default pixel count | shade-path audit; escaper 60 Hz@1080p wisdom |
+| `color_*x_default_pixels` | one `color` wall time at same scales | shade-path audit; isolate colorer vs escaper |
 
 Run (house rule — nice, center-half CPUs):
 
 ```bash
 taskset -c 3-8 nice -n 15 cargo bench --bench workgroup_fitness
+taskset -c 3-8 nice -n 15 cargo bench --bench shadergroup_fitness
 ```
+
+### Shadergroup note (2026-08-11)
+
+Interview cliff: past **~1.5× default pixels** the live app goes pear-shaped;
+headgroup stays ~120 FPS; animated-bailout isolation points at shadergroup ~1 FPS;
+workgroup banding is a separate failure. Benches measure escaper and colorer
+**individually** on a filled DirectKernel home package so the problem child is
+visible. First run establishes the baseline row below — no soft ladder.
+
+HUD `drop:` shows cumulative shade-path package drops (drain-to-newest).
 
 ## Regression guard — FIX NOW
 
@@ -30,7 +44,8 @@ Benchmarks vary run to run; noise is normal. Trends matter.
 
 - After any code edit touching the workgroup or headgroup, rerun **both**
   `workgroup_fitness` and `my_bench` and compare against the **accepted**
-  baseline below.
+  baseline below. After shadergroup (escaper/colorer) edits, also rerun
+  `shadergroup_fitness`.
 - A regression beyond ~20% on an accepted row is **FIX NOW**
   (`docs/assistant/quality-doctrine.md`): fix the code before checkpointing
   or continuing feature grind. Do **not** soften asserts, `#[ignore]` the
@@ -70,6 +85,20 @@ Pin: `home_workshift_full_frame_within_20pct_of_direct_kernel`,
 **Series approximation live (2026-08-11, `--quick`):** first_publish ~12.2 ms;
 full_frame ~279 ms; with_reference ~281 ms; direct_oracle ~284 ms — within ~5% of
 the accepted honest medians above (no ≥20% regression).
+
+**Shadergroup first baseline (2026-08-11, `--quick`, filled DirectKernel home):**
+
+| metric | median | implied Hz if sole wake body | notes |
+|---|---|---|---|
+| escape_1_0x (854×480) | **~5.72 ms** | ~175 | scales ~linear with pixels |
+| escape_1_5x (1046×588) | **~7.93 ms** | ~126 | developer pear-shaped cliff |
+| escape_2_0x (1208×679) | **~9.65 ms** | ~104 | |
+| color_1_0x | **~55.3 ms** | ~18 | **problem child** — ~10× escaper |
+| color_1_5x | **~83.8 ms** | ~12 | alone already ≪ 60 Hz wisdom |
+| color_2_0x | **~101 ms** | ~10 | |
+
+Actors re-run these every ~8 ms wake while holding a package, so colorer alone
+cannot keep up past the cliff; HUD `drop:` will climb when behind.
 
 ## Baseline
 

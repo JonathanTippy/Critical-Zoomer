@@ -17,9 +17,11 @@ use crate::assemblies::structs::*;
 use egui::Color32;
 
 pub struct ColorerState {
-    pub values:Option<ZoomerValuesScreen>,
-    pub start:Instant,
-    pub settings:Settings
+    pub values: Option<ZoomerValuesScreen>,
+    pub start: Instant,
+    pub settings: Settings,
+    /// Full-frame packages discarded by drain-to-newest when behind.
+    pub packages_dropped: u64,
 }
 
 pub async fn run(
@@ -54,7 +56,8 @@ async fn internal_behavior<A: SteadyActor>(
     let mut state = state.lock(|| ColorerState {
         values: None,
         start: Instant::now(),
-        settings: Settings::DEFAULT
+        settings: Settings::DEFAULT,
+        packages_dropped: 0,
     }).await;
 
     // Lock all channels for exclusive access within this actor.
@@ -111,15 +114,17 @@ async fn internal_behavior<A: SteadyActor>(
             }
         }
 
-        if actor.avail_units(&mut values_in) > 0 {
-            while actor.avail_units(&mut values_in) > 1 {
+        let avail = actor.avail_units(&mut values_in);
+        if avail > 0 {
+            let drops = coalesce_drop_count(avail);
+            state.packages_dropped = state.packages_dropped.saturating_add(drops as u64);
+            for _ in 0..drops {
                 let stuff = actor.try_take(&mut values_in).expect("internal error");
                 drop(stuff);
-            };
+            }
             match actor.try_take(&mut values_in) {
-                Some(v) => {
-                    let mut rng = rand::thread_rng();
-                    //info!("recieved values");
+                Some(mut v) => {
+                    v.hud.packages_dropped = state.packages_dropped;
                     state.values = Some(v);
                 }
                 None => {}
@@ -127,24 +132,29 @@ async fn internal_behavior<A: SteadyActor>(
         }
 
         let mut settings = state.settings.clone();
+        let dropped = state.packages_dropped;
+        // Same path every wake (animated layers / bailout upstream): only numbers change.
         if let Some(v) = &mut state.values {
             let output = color(v, &mut settings);
+            v.hud.packages_dropped = dropped;
 
-            actor.try_send(&mut screens_out, View{
-                data: output.clone()
-                , bitmap: vec!(0u8;output.len())
-                , stencil: PointStencil{
-                    resolution: (v.res.0 as usize, v.res.1 as usize)
-                    , location: (
-                        v.objective_location.clone().pos.0
-                        , IntExp::ZERO-v.objective_location.clone().pos.1
-                        , v.objective_location.clone().zoom_pot
-                    )
-                    , serial_number: 0
+            actor.try_send(
+                &mut screens_out,
+                View {
+                    data: output.clone(),
+                    bitmap: vec![0u8; output.len()],
+                    stencil: PointStencil {
+                        resolution: (v.res.0 as usize, v.res.1 as usize),
+                        location: (
+                            v.objective_location.clone().pos.0,
+                            IntExp::ZERO - v.objective_location.clone().pos.1,
+                            v.objective_location.clone().zoom_pot,
+                        ),
+                        serial_number: 0,
+                    },
+                    hud: v.hud,
                 },
-                hud: v.hud,
-});
-            //info!("sent colors to window");
+            );
         }
         state.settings = settings;
 

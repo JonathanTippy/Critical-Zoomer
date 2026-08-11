@@ -1499,7 +1499,7 @@ fn home_zero_orbit_floor_pipeline_no_vertical_black_columns() {
                 pos,
                 &escaper_results,
                 ctx.res,
-                settings.clone(),
+                &settings,
             ));
         }
         let zoomer = ZoomerValuesScreen {
@@ -1767,7 +1767,7 @@ fn home_pipeline_with_live_series_no_vertical_black_columns() {
                 pos_from_index(i, ctx.res.0),
                 &escaper_results,
                 ctx.res,
-                settings.clone(),
+                &settings,
             ));
         }
         let zoomer = ZoomerValuesScreen {
@@ -1972,7 +1972,7 @@ fn home_pipeline_no_vertical_black_columns() {
                 pos,
                 &escaper_results,
                 ctx.res,
-                settings.clone(),
+                &settings,
             ));
         }
         let outside_n = screen_values

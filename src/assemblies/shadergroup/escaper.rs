@@ -4,6 +4,7 @@ use steady_state::*;
 use crate::assemblies::headgroup::window::sampling::*;
 
 use crate::utils::*;
+use crate::constants::PIXELS_PER_UNIT_POT;
 use crate::assemblies::workgroup::screen_worker::workshift::CompletedPoint;
 use crate::assemblies::workgroup::work_collector::*;
 use crate::assemblies::workgroup::screen_worker::workshift::*;
@@ -48,8 +49,61 @@ pub struct ZoomerValuesScreen {
 
 
 pub struct EscaperState<T> {
-    pub values:Option<ResultsPackage<T>>,
-    pub settings:Settings
+    pub values: Option<ResultsPackage<T>>,
+    pub settings: Settings,
+    /// Full-frame packages discarded by drain-to-newest when the shade path
+    /// falls behind (`r[cz.craft.shade-coalesce-drop-count+1]`).
+    pub packages_dropped: u64,
+}
+
+/// How many queued inputs to drop when keeping only the newest.
+/// `avail == 0` → 0; `avail == 1` → 0; `avail == n` → n−1.
+// r[impl cz.craft.shade-coalesce-drop-count+1]
+pub fn coalesce_drop_count(avail_units: usize) -> usize {
+    avail_units.saturating_sub(1)
+}
+
+/// One full-frame escape pass — the only shade-path body the escaper runs.
+/// Animated bailout uses this same path; only `radius` / settings numbers change.
+/// (`docs/assistant/design/shadergroup-virtues.md`)
+// r[impl cz.craft.shade-single-path+1]
+pub fn escape_frame<T>(
+    package: &ResultsPackage<T>,
+    radius: f32,
+    settings: &Settings,
+) -> ZoomerValuesScreen
+where
+    T: Sub<Output = T>
+        + Add<Output = T>
+        + Mul<Output = T>
+        + Into<f64>
+        + PartialOrd
+        + Finite
+        + Gt
+        + Abs
+        + From<f32>
+        + Copy,
+{
+    let r = &package.results;
+    let mut output = Vec::with_capacity(r.len());
+    for i in 0..r.len() {
+        let point = &r[i];
+        let pos = pos_from_index(i, package.screen_res.0);
+        output.push(get_value_from_point(
+            point,
+            radius,
+            pos,
+            r,
+            package.screen_res,
+            settings,
+        ));
+    }
+    ZoomerValuesScreen {
+        values: output,
+        res: package.screen_res,
+        objective_location: package.location.clone(),
+        hud: package.hud,
+    }
 }
 
 pub async fn run(
@@ -82,8 +136,9 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
     let mut settings_in = settings_in.lock().await;
 
     let mut state = state.lock(|| EscaperState {
-        values: None
-        , settings: Settings::DEFAULT
+        values: None,
+        settings: Settings::DEFAULT,
+        packages_dropped: 0,
     }).await;
 
     // Lock all channels for exclusive access within this actor.
@@ -123,80 +178,84 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
             }
         }
 
-        if actor.avail_units(&mut values_in) > 0 {
-            while actor.avail_units(&mut values_in) > 1 {
+        let avail = actor.avail_units(&mut values_in);
+        if avail > 0 {
+            let drops = coalesce_drop_count(avail);
+            state.packages_dropped = state.packages_dropped.saturating_add(drops as u64);
+            for _ in 0..drops {
                 let stuff = actor.try_take(&mut values_in).expect("internal error");
                 drop(stuff);
-            };
+            }
             match actor.try_take(&mut values_in) {
                 Some(v) => {
-                    let location_f64:(f64, f64) = (v.stencil.location.clone().0.into(), (v.stencil.location.clone().1).into());
-                    let space_f64:f64 = IntExp::from(1).shift (-v.stencil.location.2 - PIXELS_PER_UNIT_POT).into();
+                    let location_f64: (f64, f64) = (
+                        v.stencil.location.clone().0.into(),
+                        (v.stencil.location.clone().1).into(),
+                    );
+                    let space_f64: f64 = IntExp::from(1)
+                        .shift(-v.stencil.location.2 - PIXELS_PER_UNIT_POT)
+                        .into();
 
-                    let mut rng = rand::thread_rng();
-                    //info!("recieved values");
-                    state.values = Some(ResultsPackage{
-                        results: v.data.into_iter().enumerate().map(|(i, x)| -> CompletedPoint<T> {
-                            match x.result {
-                                MandelbrotResult::Inside{period} => {
-                                    CompletedPoint::<T>::Repeats{
-                                        period: period as u32
-                                        , smallness: x.min_magnitude.into()
-                                        , small_time: x.min_magnitude_time as u32
+                    let mut hud = v.hud;
+                    hud.packages_dropped = state.packages_dropped;
+                    state.values = Some(ResultsPackage {
+                        results: v
+                            .data
+                            .into_iter()
+                            .enumerate()
+                            .map(|(i, x)| -> CompletedPoint<T> {
+                                match x.result {
+                                    MandelbrotResult::Inside { period } => {
+                                        CompletedPoint::<T>::Repeats {
+                                            period: period as u32,
+                                            smallness: x.min_magnitude.into(),
+                                            small_time: x.min_magnitude_time as u32,
+                                        }
                                     }
-                                }, MandelbrotResult::Outside{escape_time_r2, escape_z, escape_dc} => {
-                                    CompletedPoint::<T>::Escapes {
-                                        escape_time: escape_time_r2 as u32
-                                        , escape_location: (escape_z.0.into(), escape_z.1.into())
-                                        , escape_derivative: (escape_dc.0.into(), escape_dc.1.into())
-                                        ,
-                                        smallness: x.min_magnitude.into()
-                                        ,
-                                        small_time: x.min_magnitude_time as u32
-                                        , start_location: (
-                                            (location_f64.0 + v.stencil.clone().seat_and_row(i).0 as f64 * space_f64).into()
-                                            , (location_f64.1 - v.stencil.clone().seat_and_row(i).1 as f64 * space_f64).into()
-                                        )
-                                    }
+                                    MandelbrotResult::Outside {
+                                        escape_time_r2,
+                                        escape_z,
+                                        escape_dc,
+                                    } => CompletedPoint::<T>::Escapes {
+                                        escape_time: escape_time_r2 as u32,
+                                        escape_location: (escape_z.0.into(), escape_z.1.into()),
+                                        escape_derivative: (escape_dc.0.into(), escape_dc.1.into()),
+                                        smallness: x.min_magnitude.into(),
+                                        small_time: x.min_magnitude_time as u32,
+                                        start_location: (
+                                            (location_f64.0
+                                                + v.stencil.clone().seat_and_row(i).0 as f64
+                                                    * space_f64)
+                                                .into(),
+                                            (location_f64.1
+                                                - v.stencil.clone().seat_and_row(i).1 as f64
+                                                    * space_f64)
+                                                .into(),
+                                        ),
+                                    },
                                 }
-                            }
-                        }).collect()
-                        , screen_res: (v.stencil.resolution.0 as u32, v.stencil.resolution.1 as u32)
-                        , location: ObjectivePosAndZoom{
-                            pos: (v.stencil.location.0, IntExp::ZERO-v.stencil.location.1)
-                            , zoom_pot: v.stencil.location.2
-                        }
-                        , hud: v.hud
+                            })
+                            .collect(),
+                        screen_res: (
+                            v.stencil.resolution.0 as u32,
+                            v.stencil.resolution.1 as u32,
+                        ),
+                        location: ObjectivePosAndZoom {
+                            pos: (v.stencil.location.0, IntExp::ZERO - v.stencil.location.1),
+                            zoom_pot: v.stencil.location.2,
+                        },
+                        hud,
                     });
                 }
                 None => {}
             }
         }
 
+        // Same path every wake (including animated bailout): only numbers change.
         if let Some(v) = &state.values {
-            //let rp = v
-            let r = &v.results;
-            let len = r.len();
-            let mut output = vec!();
-
-            for i in 0..r.len() {
-                let point = &r[i%len];
-                let pos = pos_from_index(i, v.screen_res.0);
-                let value = get_value_from_point(point, radius as f32, pos, &r, v.screen_res, state.settings.clone());
-                output.push(value);
-            }
-
-
-            //info!("done escaping. result is {} pixels long.", output.len());
-
-
-            actor.try_send(&mut screens_out, ZoomerValuesScreen{
-                values: output
-                , res: v.screen_res
-                , objective_location:  v.location.clone()
-                , hud: v.hud
-            });
-            //info!("sent colors to window");
+            let mut screen = escape_frame(v, radius as f32, &state.settings);
+            screen.hud.packages_dropped = state.packages_dropped;
+            actor.try_send(&mut screens_out, screen);
         }
     }
 
@@ -206,7 +265,7 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
 }
 
 pub fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f64> + PartialOrd + Finite + Gt + Abs + From<f32> + Into<f64> + Copy>
-    (p: &CompletedPoint<T>, r: f32, pos:(i32, i32), points: &Vec<CompletedPoint<T>>, res: (u32, u32), settings:Settings) -> ScreenValue {
+    (p: &CompletedPoint<T>, r: f32, pos:(i32, i32), points: &Vec<CompletedPoint<T>>, res: (u32, u32), settings:&Settings) -> ScreenValue {
     match p {
         CompletedPoint::Escapes{escape_time: t, escape_location: z, escape_derivative: escape_dc, start_location: c , smallness:s, small_time:st} => {
 
@@ -654,5 +713,14 @@ mod mutant_kill {
 
         assert_eq!(difff32((1.5, -2.0), (0.5, 1.0)), (1.0, -3.0));
         assert_ne!(difff32((1.5, -2.0), (0.5, 1.0)), (2.0, -1.0)); // -→+
+    }
+
+    // r[verify cz.craft.shade-coalesce-drop-count+1]
+    #[test]
+    fn coalesce_drop_count_keeps_newest_only() {
+        assert_eq!(coalesce_drop_count(0), 0);
+        assert_eq!(coalesce_drop_count(1), 0);
+        assert_eq!(coalesce_drop_count(2), 1);
+        assert_eq!(coalesce_drop_count(50), 49);
     }
 }

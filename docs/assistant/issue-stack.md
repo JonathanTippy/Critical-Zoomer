@@ -45,9 +45,22 @@ Developer acceptance test failed on the tile machine. Most items were tile-era i
 
 ## Known issues (open)
 
-- **Resolution changes not handled well.** v0.0.9 responds poorly to screen resolution changes — mostly going fullscreen / to a larger window. Suspected capacity issue somewhere (possibly channel capacities; never diagnosed). The stencil-only Replace + lazy seat init removes the ~47 MB per-pivot context transfer that was a plausible contributor; leave open pending headed verify that resize behavior improved. Channel capacities may still need attention. Does not break the four guarantees or the design.
-- **High-res viewport lag (1080p) — display path, not worker fill speed.** Developer clarification (2026-08-07): the symptom is that everything under the viewport *feels sluggish and gets behind* — the pipeline accumulates lag — not that the worker fills the frame too slowly. Worker fill speed is at most a separate issue (isolated 1080p home frame: **688 ms** vs **228 ms** at 854×480; sub-linear vs pixel count). Prime suspects are per-frame repeated costs on the display path, each multiplied by 2.07M pixels at 1080p: the escaper's full-frame CPU pass (~8ms cadence, incl. neighbor scans + extra iterations), the colorer's multiple full-image passes plus frame-sized clone/allocation, and the window's full sampling pass plus pixel-buffer allocation, texture recreation/upload, and forced repaint. Per-pivot remapping also a candidate. None measured yet; profile each stage at 1920×1080 (escaper / colorer / sampler / texture upload / final frame time) before any redesign. Channel capacity and view/remap are not established causes. App otherwise verified working normally headed (2026-08-07).
+- **Resolution / ~1.5× default pixels — two failures (2026-08-11 interview).**
+  Past ~1.5× `DEFAULT_WINDOW_RES` pixel count the app goes pear-shaped:
+  (A) **shadergroup too slow** — headgroup stays ~120 FPS; animated-bailout
+  isolation shows shade path ~1 FPS; same single path for static/animated
+  (`shadergroup-virtues.md`). Criterion: `shadergroup_fitness` (escaper vs
+  colorer at 1.0×/1.5×/2.0×). HUD `drop:` counts drain-to-newest package drops.
+  (B) **workgroup drops/leaves unfinished work as bands** — remains when bailout
+  anim is off; not a shade artifact. Stec→direct-to-channel still a design lean.
+  Prior “resolution changes / fullscreen silent” and “1080p display lag” notes
+  fold into this split; profile shade benches before redesigning Stec alone.
 - **Out-filament highlighting absent where verification is difficult.** After period correctness fixes, cloudy false positives are gone, but difficult areas can remain period 0 (unknown); unknown periods correctly create no out-filaments, so highlighting is absent there. Do not fix by publishing guessed periods. The resolution is stronger verification/continuation so difficult interior points eventually get verified periods.
+
+**Charter note (2026-08-11 interview):** shadergroup/headgroup HUD — extract
+`escape_frame`, shade drop counters + HUD `drop:`, Criterion
+`shadergroup_fitness`; document single-path virtue. Bucket 3 display audit +
+bucket 2 telemetry.
 
 ## Design gaps (open)
 

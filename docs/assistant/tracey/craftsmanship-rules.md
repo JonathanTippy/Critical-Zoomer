@@ -560,3 +560,37 @@ queues neighbors; `workshift_naive_gpu` has no percent-based DirectKernel mop.
 `steady_state_naive_gpu_home_no_dummy_holes`,
 `steady_state_screen_worker_home_ips_naive_gpu_path`
 (craftsmanship_tests.rs).
+
+r[cz.craft.shade-single-path+1]
+
+**Normative summary.** Escaper and colorer each have one frame body. Animated
+bailout / animated color params use that same body; only the numbers change.
+Do not fork a second “static vs animated” shade path
+(`docs/assistant/design/shadergroup-virtues.md`).
+
+**Code site.** `shadergroup/escaper.rs` — `escape_frame`; `shadergroup/colorer`
+— `color`.
+
+**Acceptance criteria.**
+- [ ] Actor loops call the shared frame functions; no parallel animated-only
+  implementation.
+- [ ] Criterion `shadergroup_fitness` benches those functions directly.
+
+**Test.** Structural — `escape_frame` / `color` are the measured hot paths;
+actor loops delegate to them.
+
+r[cz.craft.shade-coalesce-drop-count+1]
+
+**Normative summary.** When more than one full-frame package is queued into
+escaper or colorer, drain-to-newest drops the older ones and increments
+`packages_dropped` (HUD `drop:`). Persistent growth means the shade path is too
+slow for the pixel count — fix cost, do not enlarge channels.
+
+**Code site.** `coalesce_drop_count` + `packages_dropped` on escaper/colorer
+state; `ViewHud.packages_dropped`.
+
+**Acceptance criteria.**
+- [ ] `coalesce_drop_count(n) == n.saturating_sub(1)`.
+- [ ] HUD exposes cumulative drops for headed audit.
+
+**Test.** `coalesce_drop_count_keeps_newest_only` (escaper.rs).

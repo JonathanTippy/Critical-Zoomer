@@ -4,10 +4,9 @@
 - **Status:** in progress
 - **Prior session:** [2026-08-11-series-approximation-contract.md](2026-08-11-series-approximation-contract.md)
 
-**Summary:** Product-judgment interview. SA out of scope. GPU bar locked; Oracle
-manual/test. Fullscreen/high-res: ~1 FPS feel past ~1.5× default pixels; headgroup
-120 FPS healthy; animated-bailout points at shadergroup; banding/incomplete +
-incorrect seats. Audit in progress — display-path cost + drop-on-behind suspects.
+**Summary:** Diagnosis locked: headgroup OK; shadergroup too slow (colorer
+problem child per Criterion); workgroup bands/drops. Single-path shade virtue
+enshrined. Benches + drop HUD landed.
 
 ---
 
@@ -395,3 +394,35 @@ even when work exists (A) *plus* wrong/incomplete bands (B)?
 **23.** For direction: prefer next step to be **timed audit of escaper/colorer vs
 res**, or **headed isolation** (force DirectKernel, no GPU; bailout anim off) to
 see if bands remain?
+
+### Developer
+
+Yes, that's accurate. Yes, the bands remain without the bailout animation. I'm
+fairly certain that those are originating in the workgroup. I can't think of any
+way they could from the shader group. So it's pretty clear where the issues are.
+The head group is fine, the shader group is too slow, and the workgroup is
+dropping some of its work, which results in these bands. But yes, make criterion
+benchmarks for the shader group and for the color and escaper individually, so
+that we can see which one is the problem child. Counting drop packages is also a
+good idea. No need to do that isolation test, because I think it's pretty clear
+that the bands are from the workgroup. The cool thing about the shader group
+design is that there's really only one thing that ever happens. And even if
+bailout is animated, it's exactly the same path. There's literally no difference
+other than that different numbers are flowing through, if that makes sense. And
+that should really be recognized and guarded as part of the good design, because
+this separation of concerns and assembly keeping is highly, highly useful to
+making the system comprehensible. And maintainable.
+
+### Assistant
+
+Locked diagnosis: headgroup OK; shadergroup too slow; workgroup bands/drops.
+Implemented (this turn):
+
+- Criterion `shadergroup_fitness` — escaper vs colorer at 1.0×/1.5×/2.0× pixels
+- First baseline: **colorer is the problem child** (~55–100 ms) vs escaper
+  (~6–10 ms). At 1.5×, color alone ~84 ms (~12 Hz) while actors wake every ~8 ms.
+- `escape_frame` extracted; drop counters + HUD `drop:`; single-path virtue doc
+- Craft rules `shade-single-path` / `shade-coalesce-drop-count`
+
+Next discussion: colorer cost cut vs also Stec/workgroup banding — still two
+tracks.

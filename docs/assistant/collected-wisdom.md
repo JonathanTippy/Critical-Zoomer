@@ -38,6 +38,8 @@ Harvested 2026-08-06 during the v0.0.9 revert cleanup. Each entry: the rule, its
 - Screen worker iterates to ‖z‖² > 4. An escaper stage continues escaped points to the animatable bailout radius. Changing bailout reruns the escaper only, never re-iterates the worker.
 - Escaper target: 60 Hz at 1080p worst case (every pixel at max escaper iterations, including the antenna).
 - v0.0.9 does bailout at iterate time with an animated bailout that works (DAT watchlist); a split escaper stage is a GPU-era design decision, not a baseline requirement.
+- **Single path (2026-08-11):** animated vs static bailout is the same `escape_frame` / `color` body — only numbers change (`shadergroup-virtues.md`). Guard that; do not fork paths.
+- **2026-08-11 Criterion:** colorer is ~10× escaper wall time on filled home; problem child for the ~1.5×-pixel cliff (`shadergroup_fitness`).
 
 ## Process
 

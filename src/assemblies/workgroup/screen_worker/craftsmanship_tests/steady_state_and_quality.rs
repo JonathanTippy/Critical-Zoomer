@@ -326,6 +326,7 @@ fn steady_state_workgroup_ips_delta_reaches_hud_rate_counter() {
                 gear: update.active_gear,
                 points_delta: update.completed_points.len() as u64,
                 iterations_delta: update.iterations_delta,
+                packages_dropped: 0,
             };
             let now = Instant::now();
             ips.record(hud.iterations_delta, now);
@@ -454,6 +455,7 @@ fn steady_state_ips_delta_sent_without_completions() {
         gear: update.active_gear,
         points_delta: update.completed_points.len() as u64,
         iterations_delta: update.iterations_delta,
+        packages_dropped: 0,
     };
     let mut ips = RateCounter::default();
     let now = Instant::now();
