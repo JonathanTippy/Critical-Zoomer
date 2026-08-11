@@ -730,6 +730,118 @@ mod mutant_kill {
         assert!((f64::from(IntExp::from(5usize)) - 10.0).abs() < 1e-12);
     }
 
+    /// Thought-killed pins: Sub/Mul/Shl/Shr/round/set_precision arithmetic.
+    #[test]
+    fn mutant_kill_intexp_sub_mul_shl_shr_round_precision() {
+        let a = IntExp {
+            val: Integer::from(5),
+            exp: 2,
+        }; // 20
+        let b = IntExp {
+            val: Integer::from(3),
+            exp: 1,
+        }; // 6
+        let diff = a.clone() - b.clone();
+        assert!((f64::from(diff.clone()) - 14.0).abs() < 1e-12);
+        // Align shifts the higher-exp operand; flipped would be wrong.
+        assert_eq!(diff.exp, 1);
+        assert_eq!(diff.val, Integer::from(7)); // (5<<1)-3 = 10-3? Wait: a.exp>b.exp → (5<<1)-3=7, exp=1 → 14 ✓
+
+        let prod = a.clone() * b.clone();
+        assert_eq!(prod.exp, 3); // 2+1
+        assert_eq!(prod.val, Integer::from(15));
+        assert!((f64::from(prod) - 120.0).abs() < 1e-12);
+        assert_ne!(
+            (a.clone() * b.clone()).exp,
+            a.exp - b.exp
+        );
+
+        let sh = IntExp::from(3i32) << 2;
+        assert_eq!(sh.exp, 2);
+        assert_eq!(sh.val, Integer::from(3));
+        assert!((f64::from(sh.clone()) - 12.0).abs() < 1e-12);
+        let sr = sh >> 1;
+        assert_eq!(sr.exp, 1);
+        assert!((f64::from(sr) - 6.0).abs() < 1e-12);
+        // <<→>> would shrink.
+        assert_ne!(f64::from(IntExp::from(3i32) << 2), 0.75);
+
+        let via = IntExp::from(5i32).shift(-2);
+        assert_eq!(via, IntExp::from(5i32) >> 2);
+
+        let r0 = IntExp {
+            val: Integer::from(100),
+            exp: -3,
+        }
+        .round(0);
+        assert_eq!(r0.val, Integer::from(100));
+        assert_eq!(r0.exp, -3);
+        let r2 = IntExp {
+            val: Integer::from(100),
+            exp: -3,
+        }
+        .round(2);
+        assert_eq!(r2.val, Integer::from(25)); // 100>>2
+        assert_eq!(r2.exp, -1); // -3+2
+        assert_ne!(r2.exp, -5); // +→- on bits
+
+        // set_precision: abs_exp = -exp; tighten/widen to pot.
+        let fine = IntExp {
+            val: Integer::from(16),
+            exp: -4,
+        }; // abs_exp=4
+        let same = fine.clone().set_precision(4);
+        assert_eq!(same.exp, -4);
+        let coarse = fine.clone().set_precision(2);
+        assert_eq!(coarse.exp, -2);
+        assert_eq!(coarse.val, Integer::from(4)); // 16>>2
+        let finer = IntExp {
+            val: Integer::from(3),
+            exp: -1,
+        }
+        .set_precision(3); // abs 1 → pot 3: <<2
+        assert_eq!(finer.exp, -3);
+        assert_eq!(finer.val, Integer::from(12));
+        // Delete `-` on abs_exp would invert Greater/Less.
+        assert_ne!(fine.clone().set_precision(2).exp, 2);
+    }
+
+    /// Thought-killed pins: row-major index/pos, signed_shift, f32↔i16 scale.
+    #[test]
+    fn mutant_kill_index_pos_signed_shift_f32_i16() {
+        assert_eq!(index_from_pos(&(0, 0), 40), 0);
+        assert_eq!(index_from_pos(&(39, 0), 40), 39);
+        assert_eq!(index_from_pos(&(0, 1), 40), 40);
+        assert_eq!(index_from_pos(&(1, 1), 40), 41);
+        assert_ne!(index_from_pos(&(1, 1), 40), 1 + 1);
+        assert_eq!(pos_from_index(41, 40), (1, 1));
+        assert_ne!(pos_from_index(41, 40), (0, 41));
+        assert_eq!(
+            index_from_pos_safe(&(1, 1), (40, 71)),
+            Some(41)
+        );
+        assert!(index_from_pos_safe(&(-1, 0), (40, 71)).is_none());
+        assert!(index_from_pos_safe(&(40, 0), (40, 71)).is_none()); // half-open
+        assert!(index_from_pos_safe(&(0, 71), (40, 71)).is_none());
+        assert_eq!(index_from_pos_safe(&(39, 70), (40, 71)), Some(40 * 70 + 39));
+
+        assert_eq!(signed_shift(8, 2), 32);
+        assert_eq!(signed_shift(32, -2), 8);
+        assert_eq!(signed_shift(-8, 2), -32);
+        assert_ne!(signed_shift(8, 2), signed_shift(8, -2));
+        assert_eq!(shift(8, 2), 32);
+        assert_eq!(shift(32, -2), 8);
+
+        // 2<<12 = 8192 scale (not 2<<11 / 1<<12).
+        assert_eq!(f32_to_i16(0.0), 0);
+        assert_eq!(f32_to_i16(1.0), 8192);
+        assert_eq!(f32_to_i16(-1.0), -8192);
+        assert!((i16_to_f32(8192) - 1.0).abs() < 1e-6);
+        assert!((i16_to_f32(-4096) + 0.5).abs() < 1e-6);
+        assert_ne!(f32_to_i16(1.0), 4096);
+        assert_ne!(f32_to_i16(1.0), 1);
+    }
+
     #[test]
     fn shiftable_integer_and_f64() {
         let i = Integer::from(24).shift(2);

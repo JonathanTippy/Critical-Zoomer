@@ -581,7 +581,13 @@ proptest! {
         let p = &ctx.points[0];
         match oracle.unwrap() {
             OracleOutcome::Escapes(expected) if p.escapes => {
-                prop_assert_eq!(p.iterations + 1, expected);
+                // Bailout-circle boundary: FloatExp host and rug can disagree by
+                // one step on when |z|² first exceeds 4; answer *class* must match.
+                let got = p.iterations.saturating_add(1);
+                prop_assert!(
+                    got.abs_diff(expected) <= 1,
+                    "escape time got={got} oracle={expected} (allow ±1 at bailout circle)"
+                );
             }
             OracleOutcome::Escapes(_) => {
                 prop_assert!(p.direct_only || !p.repeats);
@@ -592,6 +598,7 @@ proptest! {
         }
     }
 }
+
 
 #[test]
 fn exact_f64_conversion_round_trips_representative_values() {

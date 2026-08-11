@@ -1092,4 +1092,42 @@ mod mutant_kill {
         assert_eq!(fe_pair(z), (1.25, -0.5));
         assert_ne!(fe_pair(z), (-0.5, 1.25));
     }
+
+    #[test]
+    fn mutant_kill_f64_period_check_inclusive_and_doubling() {
+        use super::f64_period_check;
+        let z = (0.0, 0.0);
+        let eps = 1e-3;
+        // Hit: inclusive ≤ on both axes; returns original checkpoint.
+        let (hit, cp, n) = f64_period_check((1e-3, -1e-3), z, eps, 10, 4);
+        assert!(hit);
+        assert_eq!(cp, z);
+        assert_eq!(n, 4);
+        // Miss just outside.
+        let (hit2, _, _) = f64_period_check((1e-3 + 1e-12, 0.0), z, eps, 10, 4);
+        assert!(!hit2);
+        // Doubling gate: checkpoint_n=4 → advance at iterations >= 8.
+        let (h3, cp3, n3) = f64_period_check((1.0, 0.0), z, eps, 7, 4);
+        assert!(!h3);
+        assert_eq!(cp3, z);
+        assert_eq!(n3, 4);
+        let (h4, cp4, n4) = f64_period_check((1.0, 0.0), z, eps, 8, 4);
+        assert!(!h4);
+        assert_eq!(cp4, (1.0, 0.0));
+        assert_eq!(n4, 8);
+        // saturating_mul(2) not +2: checkpoint 5 → need >= 10, not >= 7.
+        let (h5, cp5, n5) = f64_period_check((2.0, 0.0), z, eps, 9, 5);
+        assert!(!h5);
+        assert_eq!(cp5, z);
+        assert_eq!(n5, 5);
+        let (h6, cp6, n6) = f64_period_check((2.0, 0.0), z, eps, 10, 5);
+        assert!(!h6);
+        assert_eq!(cp6, (2.0, 0.0));
+        assert_eq!(n6, 10);
+        // checkpoint_n=0 → max(1) so first miss still can advance at iter>=1.
+        let (h7, cp7, n7) = f64_period_check((3.0, 0.0), z, eps, 1, 0);
+        assert!(!h7);
+        assert_eq!(cp7, (3.0, 0.0));
+        assert_eq!(n7, 1);
+    }
 }
