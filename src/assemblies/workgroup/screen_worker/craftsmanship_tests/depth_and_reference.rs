@@ -236,12 +236,12 @@ fn pps_probe_locks_highest_measured_kernel() {
     });
 }
 
-/// Locked PPS winner must reopen the race after ~100ms (GPU slowdown).
+/// Locked PPS winner must reopen the race after ~500ms (GPU slowdown).
 // r[verify cz.perf.pps-selected-kernel+1]
 #[test]
 fn pps_probe_reevaluates_after_interval() {
     use crate::assemblies::structs::KernelMode;
-    use crate::gearbox::PPS_REEVAL_INTERVAL;
+    use crate::gearbox::{PPS_PROBE_SHIFTS_PER_CANDIDATE, PPS_REEVAL_INTERVAL};
     run_big_stack_size(|| {
         let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
         ctx.pps_locked_kernel = Some(KernelMode::NaiveGpu);
@@ -259,6 +259,21 @@ fn pps_probe_reevaluates_after_interval() {
         assert!(
             ctx.pps_probe_queue.contains(&KernelMode::NaiveGpu),
             "re-probe must still consider GPU"
+        );
+        assert_eq!(
+            ctx.pps_probe_shifts_left, PPS_PROBE_SHIFTS_PER_CANDIDATE,
+            "each trial is one tick (5 shifts / ~50ms)"
+        );
+        // Fresh lock must not reopen before the interval.
+        ctx.pps_locked_kernel = Some(KernelMode::Naive);
+        ctx.pps_lock_started = std::time::Instant::now();
+        ctx.pps_probe_queue.clear();
+        ctx.pps_probe_samples.clear();
+        ctx.ensure_pps_probe(true);
+        assert_eq!(
+            ctx.pps_locked_kernel,
+            Some(KernelMode::Naive),
+            "fresh lock must hold until ~500ms"
         );
     });
 }

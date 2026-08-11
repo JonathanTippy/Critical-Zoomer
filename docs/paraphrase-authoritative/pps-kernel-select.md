@@ -20,8 +20,9 @@ Manual gear override still wins over probing.
 
 ## Probe
 
-On a fresh view: sample each legal candidate for a few shifts, lock the highest
-PPS. **Re-open the race every 100ms** while the view is still working — Naive
-GPU in particular tends to slow down as fill progresses, so a one-shot lock is
-wrong. Manual override still wins. Completions during probes still count as
+On a fresh view: sample each legal candidate for **one tick** (5 workshifts ≈
+50ms), lock the highest PPS. **Re-open the race every 500ms** while the view is
+still working — Naive GPU in particular tends to slow down as fill progresses,
+so a one-shot lock is wrong, but 100ms re-races spent most of the time cycling
+equally. Manual override still wins. Completions during probes still count as
 real work.
