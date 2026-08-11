@@ -581,6 +581,22 @@ mod tests {
         assert!(FloatExp::from(-2.0) < FloatExp::from(-1.0));
         assert!(FloatExp::ZERO < FloatExp::ONE);
 
+        // Ord deepen: zero vs signed; sign mismatch; negative magnitude reverse.
+        assert!(FloatExp::ZERO > FloatExp::from(-1.0));
+        assert!(FloatExp::ZERO < FloatExp::from(1.0));
+        assert!(FloatExp::from(-0.0) > FloatExp::from(-2.0) || FloatExp::from(-0.0) == FloatExp::ZERO);
+        assert!(FloatExp::from(-3.0) < FloatExp::from(1.0));
+        assert!(FloatExp::from(1.0) > FloatExp::from(-3.0));
+        // Among negatives, more-negative exponent magnitude: -1 > -4 (both negative).
+        assert!(FloatExp::from(-1.0) > FloatExp::from(-4.0));
+        assert!(FloatExp::from(-4.0) < FloatExp::from(-1.0));
+        // Same exp, mantissa abs: -1.25 < -1.0 when both negative (reverse).
+        assert!(FloatExp::new(-1.25, 0) < FloatExp::new(-1.0, 0));
+        assert_ne!(
+            FloatExp::from(-1.0).partial_cmp(&FloatExp::from(-4.0)),
+            Some(Ordering::Less)
+        );
+
         // Rug bridge: [0.5,1) → [1,2) via *2 and exp-1; to_rug shifts by signed exp.
         let zero_rug = Float::with_val(53, 0);
         assert_eq!(FloatExp::from_rug(&zero_rug), FloatExp::ZERO);

@@ -513,4 +513,41 @@ mod tests {
             crate::reference::bits_for_zoom(f.0.zoom_pot as i64, PIXELS_PER_UNIT_POT)
         );
     }
+
+    /// Thought-killed pins: IEEE bit unpack (sign / biased exp / implicit 1 / subnormal).
+    #[test]
+    fn mutant_kill_reference_f64_to_intexp_ieee_bits() {
+        assert_eq!(f64_to_intexp(0.0), IntExp::ZERO);
+        assert_eq!(f64_to_intexp(-0.0), IntExp::ZERO);
+
+        let one = f64_to_intexp(1.0);
+        assert_eq!(one.val, rug::Integer::from(1u64 << 52));
+        assert_eq!(one.exp, -52);
+        assert!((f64::from(one.clone()) - 1.0).abs() < 1e-15);
+
+        let two = f64_to_intexp(2.0);
+        assert_eq!(two.val, rug::Integer::from(1u64 << 52));
+        assert_eq!(two.exp, -51); // biased 1024 → 1024-1023-52
+        assert!((f64::from(two.clone()) - 2.0).abs() < 1e-15);
+        // Missing implicit 1<<52 would under-scale.
+        assert_ne!(two.val, rug::Integer::from(0u64));
+
+        let neg = f64_to_intexp(-2.0);
+        assert!(neg.val < 0);
+        assert_eq!(neg.exp, -51);
+        assert!((f64::from(neg) + 2.0).abs() < 1e-15);
+        assert_ne!(f64::from(f64_to_intexp(-1.0)), 1.0);
+
+        // Subnormal: lowest positive bit → fraction only, exp -1074.
+        let tiny = f64::from_bits(1);
+        let sub = f64_to_intexp(tiny);
+        assert_eq!(sub.val, rug::Integer::from(1));
+        assert_eq!(sub.exp, -1074);
+        assert_ne!(sub.exp, -1022);
+        assert_ne!(f64_to_intexp(1.0).exp, -1074);
+
+        let four = f64_to_intexp(4.0);
+        assert_eq!(four.exp, -50);
+        assert!((f64::from(four) - 4.0).abs() < 1e-15);
+    }
 }

@@ -528,7 +528,12 @@ pub fn relative_location_from_index(data_res: (u32, u32), index: usize) -> (i32,
 
 #[cfg(test)]
 mod mutant_kill {
-    use super::relative_location_from_index;
+    use super::*;
+    use crate::assemblies::structs::{KernelMode, ReferenceStatus};
+    use crate::assemblies::workgroup::screen_worker::workshift::from_stencil;
+    use crate::constants::{HOME_POSITION, TEST_SCREEN_RES};
+    use crate::floatexp::FloatExp;
+    use crate::utils::{IntExp, ObjectivePosAndZoom};
 
     #[test]
     fn mutant_kill_relative_location_from_index_mod_div() {
@@ -538,5 +543,65 @@ mod mutant_kill {
         assert_eq!(relative_location_from_index((40, 71), 41), (1, 1));
         assert_ne!(relative_location_from_index((40, 71), 41), (0, 41));
         assert_ne!(relative_location_from_index((40, 71), 41), (41, 0));
+    }
+
+    #[test]
+    fn mutant_kill_classify_usable_ref_and_host_stack() {
+        assert_eq!(host_stack_for_context::<f64>(), crate::assemblies::structs::HostStack::F64);
+        assert_eq!(
+            host_stack_for_context::<FloatExp>(),
+            crate::assemblies::structs::HostStack::FloatExp
+        );
+        assert_ne!(
+            host_stack_for_context::<f64>(),
+            crate::assemblies::structs::HostStack::FloatExp
+        );
+
+        let home = ObjectivePosAndZoom {
+            pos: (
+                IntExp::from(HOME_POSITION.0),
+                IntExp::ZERO - IntExp::from(HOME_POSITION.1),
+            ),
+            zoom_pot: -2,
+        };
+        let mut ctx = from_stencil::<f64>((home, TEST_SCREEN_RES), None).expect("home");
+        ctx.manual_gear = None;
+        ctx.pps_locked_kernel = None;
+        ctx.pps_probe_queue.clear();
+        ctx.coords_are_relative = false;
+        ctx.reference_floor_active = false;
+        ctx.last_used_naive_gpu = false;
+        ctx.latest_reference = None;
+        assert!(!usable_reference(&ctx));
+        assert_eq!(classify_reference_status(&ctx), ReferenceStatus::Wip);
+        assert_eq!(classify_kernel_mode(&ctx), KernelMode::Naive);
+
+        ctx.last_used_naive_gpu = true;
+        assert_eq!(classify_kernel_mode(&ctx), KernelMode::NaiveGpu);
+        ctx.reference_floor_active = true;
+        assert_eq!(classify_kernel_mode(&ctx), KernelMode::Pert);
+        // Priority: probe > required, lock > probe, manual > lock.
+        ctx.pps_probe_queue.push(KernelMode::Naive);
+        assert_eq!(classify_kernel_mode(&ctx), KernelMode::Naive);
+        ctx.pps_locked_kernel = Some(KernelMode::NaiveGpu);
+        assert_eq!(classify_kernel_mode(&ctx), KernelMode::NaiveGpu);
+        ctx.manual_gear = Some(KernelMode::Pert);
+        assert_eq!(classify_kernel_mode(&ctx), KernelMode::Pert);
+
+        // Absolute: escaped ref is not usable; relative: any Some is usable.
+        ctx.manual_gear = None;
+        ctx.pps_locked_kernel = None;
+        ctx.pps_probe_queue.clear();
+        ctx.reference_floor_active = false;
+        ctx.coords_are_relative = false;
+        // Build a minimal PublishedReference-shaped gate via latest_reference None stays unusable.
+        assert!(!usable_reference(&ctx));
+        ctx.coords_are_relative = true;
+        assert!(!usable_reference(&ctx)); // still None
+        // direct_only undelivered keeps status Wip even with usable relative ref absent.
+        ctx.coords_are_relative = false;
+        ctx.points[0].direct_only = true;
+        ctx.points[0].delivered = false;
+        assert_eq!(classify_reference_status(&ctx), ReferenceStatus::Wip);
     }
 }
