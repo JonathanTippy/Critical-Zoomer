@@ -12,9 +12,10 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
         for instruction in instructions {
             match instruction {
                 ColoringInstruction::PaintEscapeTime{
-                    opacity, color, range, shading_method, normalizing_method, ..
+                    opacity, color, range, ref mut shading_method, normalizing_method, ..
                 } => {
                     let start = Instant::now();
+                    // `ref mut` so Animable::determine can latch start (Copy would drop it).
                     let period = shading_method.period.determine();
                     let period_recip = 1.0/period;
                     let phase = shading_method.phase.determine();
@@ -65,7 +66,7 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                     //println!("painted escape time in {:6}", start.elapsed().as_secs_f64())
                 }
                 ColoringInstruction::PaintSmallTime{
-                    inside_opacity, outside_opacity, color, range, shading_method, normalizing_method, ..
+                    inside_opacity, outside_opacity, color, range, ref mut shading_method, normalizing_method, ..
                 } => {
                     let start = Instant::now();
                     let period = shading_method.period.determine();
@@ -116,7 +117,7 @@ pub fn color(values: &ZoomerValuesScreen, settings:&mut Settings) -> Vec<Color32
                     //println!("painted small time in {:6}", start.elapsed().as_secs_f64())
                 }
                 ColoringInstruction::PaintSmallness{
-                    inside_opacity, outside_opacity, color, range, shading_method, normalizing_method, ..
+                    inside_opacity, outside_opacity, color, range, ref mut shading_method, normalizing_method, ..
                 } => {
                     let start = Instant::now();
                     let period = shading_method.period.determine();

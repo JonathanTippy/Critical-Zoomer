@@ -179,27 +179,27 @@ use core::ops::RangeInclusive;
 use std::f64::consts::*;
 impl Animable {
     pub fn determine(&mut self) -> f64 {
-        match self {
-            Animable{mut start, period, range, limits, normalizing, animated, value, ..} => {
-                if *animated {
-                    if start.is_none() {start = Some(Instant::now())}
-                    let elapsed = start.unwrap().elapsed();
-                    let phase_time = elapsed.as_secs_f64() % period.as_secs_f64();
-                    let normalized_phase_time = phase_time / period.as_secs_f64();
-                    let wave_result = (1.0-((normalized_phase_time*TAU).cos()))/2.0;
-
-                    let min = normalizing.normalize(&self.range.0);
-                    let max = normalizing.normalize(&self.range.1);
-                    let range = max - min;
-                    normalizing.denormalize(&(min + (range*wave_result)))
-                } else {
-                    normalizing.reshape_input(limits, value)
-                }
-
+        if self.animated {
+            // Latch onto `self` — `Animable` is Copy, so a pattern-bound
+            // `mut start` would only mutate a local and leave phase stuck at ~0.
+            if self.start.is_none() {
+                self.start = Some(Instant::now());
             }
+            let elapsed = self.start.unwrap().elapsed();
+            let period_secs = self.period.as_secs_f64();
+            let phase_time = elapsed.as_secs_f64() % period_secs;
+            let normalized_phase_time = phase_time / period_secs;
+            let wave_result = (1.0 - ((normalized_phase_time * TAU).cos())) / 2.0;
+
+            let min = self.normalizing.normalize(&self.range.0);
+            let max = self.normalizing.normalize(&self.range.1);
+            let range = max - min;
+            self.normalizing
+                .denormalize(&(min + (range * wave_result)))
+        } else {
+            self.normalizing.reshape_input(&self.limits, &self.value)
         }
     }
-
 }
 
 
@@ -568,7 +568,11 @@ pub fn settings (
 
 #[cfg(test)]
 mod mutant_kill {
-    use super::Normalizing;
+    use super::{Animable, ColoringInstruction, Normalizing, Settings, Shading, ShadingInstruction};
+    use crate::assemblies::structs::KernelMode;
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    use std::time::{Duration, Instant};
 
     #[test]
     fn mutant_kill_normalizing_roundtrip_and_arms() {
@@ -620,5 +624,131 @@ mod mutant_kill {
         // scalar uses (input-lo)/(hi-lo): wrong op would break roundtrip endpoints.
         assert!((Normalizing::Reciprocal {}.reshape_input(&limits, &2.0) - 2.0).abs() < 1e-9);
         assert!((Normalizing::Reciprocal {}.reshape_input(&limits, &8.0) - 8.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn mutant_kill_animable_determine_static_wave_and_latch() {
+        let mut a = Animable {
+            start: None,
+            period: Duration::from_secs(10),
+            value: 5.0,
+            animated: false,
+            range: (1.0, 10.0),
+            limits: (1.0, 10.0),
+            normalizing: Normalizing::None {},
+        };
+        assert!((a.determine() - 5.0).abs() < 1e-12);
+        // Static uses reshape/value, not the phase≈0 wave floor.
+        assert_ne!(a.determine(), 1.0);
+        assert!(a.start.is_none());
+
+        a.animated = true;
+        a.range = (2.0, 8.0);
+        a.start = Some(Instant::now());
+        let near_min = a.determine();
+        assert!(
+            (near_min - 2.0).abs() < 0.05,
+            "phase≈0 must map near range.0, got {near_min}"
+        );
+
+        a.start = Some(Instant::now() - Duration::from_millis(5000));
+        a.period = Duration::from_secs(10);
+        let near_max = a.determine();
+        assert!(
+            (near_max - 8.0).abs() < 0.05,
+            "phase=0.5 → cos(π)=-1 → wave=1 → range.1, got {near_max}"
+        );
+        assert_ne!(near_max, near_min);
+        assert!(near_max > 7.0);
+
+        // Latch writes through to self (Copy-bound mut start would leave None).
+        a.start = None;
+        let _ = a.determine();
+        assert!(a.start.is_some());
+        let first = a.start;
+        let _ = a.determine();
+        assert_eq!(a.start, first);
+    }
+
+    #[test]
+    fn mutant_kill_manual_gear_override_enabled_gate() {
+        let mut s = Settings::DEFAULT;
+        assert!(s.manual_gear_override().is_none());
+        s.manual_gear_enabled = true;
+        s.manual_gear = KernelMode::Pert;
+        assert_eq!(s.manual_gear_override(), Some(KernelMode::Pert));
+        s.manual_gear = KernelMode::Naive;
+        assert_eq!(s.manual_gear_override(), Some(KernelMode::Naive));
+        s.manual_gear_enabled = false;
+        assert!(s.manual_gear_override().is_none());
+    }
+
+    #[test]
+    fn mutant_kill_coloring_instruction_id_and_hash() {
+        let shade = ShadingInstruction {
+            period: Animable {
+                start: None,
+                period: Duration::from_secs(1),
+                value: 1.0,
+                animated: false,
+                range: (1.0, 2.0),
+                limits: (1.0, 2.0),
+                normalizing: Normalizing::None {},
+            },
+            phase: Animable {
+                start: None,
+                period: Duration::from_secs(1),
+                value: 0.0,
+                animated: false,
+                range: (0.0, 1.0),
+                limits: (0.0, 1.0),
+                normalizing: Normalizing::None {},
+            },
+            shading: Shading::Modular {},
+        };
+        let pe = ColoringInstruction::PaintEscapeTime {
+            id: 0,
+            opacity: 255,
+            color: (0, 0, 0),
+            range: 0,
+            shading_method: shade,
+            normalizing_method: Normalizing::None {},
+        };
+        let pst = ColoringInstruction::PaintSmallTime {
+            id: 1,
+            inside_opacity: 0,
+            outside_opacity: 30,
+            color: (1, 2, 3),
+            range: 10,
+            shading_method: shade,
+            normalizing_method: Normalizing::None {},
+        };
+        let hif = ColoringInstruction::HighlightInFilaments {
+            id: 3,
+            opacity: 255,
+            color: (0, 0, 0),
+        };
+        assert_eq!(pe.id(), 0);
+        assert_eq!(pst.id(), 1);
+        assert_eq!(hif.id(), 3);
+        assert_ne!(pe.id(), pst.id());
+
+        // Hash is id-only: payload differences with same id must not diverge.
+        let pe_dim = ColoringInstruction::PaintEscapeTime {
+            id: 0,
+            opacity: 1,
+            color: (9, 9, 9),
+            range: 99,
+            shading_method: shade,
+            normalizing_method: Normalizing::Ln {},
+        };
+        let mut h1 = DefaultHasher::new();
+        let mut h2 = DefaultHasher::new();
+        pe.hash(&mut h1);
+        pe_dim.hash(&mut h2);
+        assert_eq!(h1.finish(), h2.finish());
+        let mut h3 = DefaultHasher::new();
+        pst.hash(&mut h3);
+        assert_ne!(h1.finish(), h3.finish());
     }
 }

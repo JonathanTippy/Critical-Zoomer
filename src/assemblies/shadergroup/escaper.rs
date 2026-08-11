@@ -105,7 +105,8 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
             actor.wait_avail(&mut settings_in, 1),
         );
 
-        let mut radius = state.settings.bailout_radius.clone().determine();
+        // Mutate in place so animated bailout can latch `Animable::start`.
+        let mut radius = state.settings.bailout_radius.determine();
         if radius.is_infinite() || radius<2.0 {panic!("invalid radius");radius=2.0};
 
         if actor.avail_units(&mut settings_in) > 0 {
