@@ -375,3 +375,40 @@ pub fn update_sampling_context(context: &mut SamplingContext, screen: View<Color
 });
 
 }
+
+#[cfg(test)]
+mod mutant_kill {
+    use super::*;
+
+    /// Thought-killed pins for remap index math (clamp, row-major, optional bounds).
+    #[test]
+    fn mutant_kill_sampling_relative_index_transform() {
+        assert_eq!(relative_location_i32_row_and_seat(3, 5), (3, 5));
+        assert_ne!(relative_location_i32_row_and_seat(3, 5), (5, 3));
+
+        let res = (4u32, 3u32);
+        // In-bounds: index = row * width + seat
+        assert_eq!(index_from_relative_location((1, 2), res, 12), 2 * 4 + 1);
+        assert_eq!(optional_index_from_relative_location((1, 2), res, 12), Some(9));
+        // Clamp out-of-bounds (not optional None): (-1,-1) → (0,0)
+        assert_eq!(index_from_relative_location((-1, -1), res, 12), 0);
+        assert_eq!(index_from_relative_location((100, 100), res, 12), 2 * 4 + 3); // (3,2)
+        // *→+ on row*width would break (2,1) → 2+4+1=7 vs 9
+        assert_ne!(index_from_relative_location((1, 2), res, 12), 2 + 4 + 1);
+        assert_eq!(optional_index_from_relative_location((-1, 0), res, 12), None);
+        assert_eq!(optional_index_from_relative_location((0, -1), res, 12), None);
+        assert_eq!(optional_index_from_relative_location((4, 0), res, 12), None);
+        assert_eq!(optional_index_from_relative_location((0, 3), res, 12), None);
+        // Inclusive right/bottom edges stay Some
+        assert_eq!(optional_index_from_relative_location((3, 2), res, 12), Some(11));
+
+        // transform: subtract motion then signed_shift by -zoom
+        let t0 = transform_relative_location_i32((10, 20), (2, 4), 0);
+        assert_eq!(t0, (8, 16)); // zoom 0 → identity shift
+        let t1 = transform_relative_location_i32((10, 20), (2, 4), 1);
+        // signed_shift(8, -1) = 8>>1 = 4; signed_shift(16,-1)=8
+        assert_eq!(t1, (4, 8));
+        assert_ne!(t1, (8, 16)); // must apply zoom
+        assert_ne!(t1, (12, 24)); // must subtract m before shift
+    }
+}

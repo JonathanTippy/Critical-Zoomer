@@ -638,3 +638,20 @@ fn get_smallness_derivative<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Int
     let avg_derivative = ((sum.0 as f32) / 2.0, (sum.1 as f32)/2.0);
     avg_derivative
 }
+
+#[cfg(test)]
+mod mutant_kill {
+    use super::*;
+
+    /// Thought-killed pins for escaper neighbor diffs (shadergroup helpers only).
+    #[test]
+    fn mutant_kill_escaper_diff_helpers() {
+        assert_eq!(diff((5, 7), (2, 3)), (3, 4));
+        assert_eq!(diff((2, 3), (5, 7)), (-3, -4));
+        assert_ne!(diff((5, 7), (2, 3)), (5 + 2, 7 + 3)); // -→+
+        assert_ne!(diff((5, 7), (2, 3)), (5 * 2, 7 * 3));
+
+        assert_eq!(difff32((1.5, -2.0), (0.5, 1.0)), (1.0, -3.0));
+        assert_ne!(difff32((1.5, -2.0), (0.5, 1.0)), (2.0, -1.0)); // -→+
+    }
+}
