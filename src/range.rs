@@ -528,6 +528,53 @@ fn range_add_sub_mul_interval_arithmetic() {
     assert!(sub_s.upper_bound >= 3.0 - 1e-9);
 }
 
+/// Filter-friendly thought-kill for `cargo mutants -- --lib mutant_kill`
+/// covering the dense square / guess_middle / can_ne / Mul cluster.
+#[test]
+fn mutant_kill_range_square_middle_ne_mul() {
+    let pos = Range::<f64, false> {
+        lower_bound: 2.0,
+        upper_bound: 3.0,
+    }
+    .square();
+    assert!((pos.lower_bound - 4.0).abs() < 1e-12, "got {:?}", pos);
+    assert!((pos.upper_bound - 9.0).abs() < 1e-12, "got {:?}", pos);
+    // *→+: 2+2=4, 3+3=6 → upper 6; *→/: both 1.
+    assert_ne!(pos.upper_bound, 6.0);
+    assert_ne!(pos.upper_bound, 1.0);
+
+    let mid = Range::<f64, false> {
+        lower_bound: 2.0,
+        upper_bound: 6.0,
+    }
+    .guess_middle();
+    assert!((mid - 4.0).abs() < 1e-12);
+    assert_ne!(mid, 8.0 % 2.0); // /→%
+    assert_ne!(mid, 8.0 * 2.0); // /→*
+    assert_ne!(mid, 2.0 - 6.0);
+    assert_ne!(mid, 2.0 * 6.0);
+
+    let point = Range::<f64, false>::new(5.0);
+    assert!(!point.can_ne(Range::new(5.0))); // !=→== would flip
+    assert!(point.must_eq(Range::new(5.0)));
+    assert!(point.can_ne(Range::new(6.0)));
+    assert!(!point.must_eq(Range::new(6.0)));
+
+    let a = Range::<f64, false> {
+        lower_bound: -2.0,
+        upper_bound: 3.0,
+    };
+    let b = Range::<f64, false> {
+        lower_bound: 4.0,
+        upper_bound: 5.0,
+    };
+    let prod = a * b;
+    // endpoints -8,-10,12,15 → [-10,15]
+    assert!(prod.lower_bound <= -10.0 + 1e-9, "got {:?}", prod);
+    assert!(prod.upper_bound >= 15.0 - 1e-9, "got {:?}", prod);
+    assert_ne!(prod.lower_bound, -2.0 + 4.0); // not + of lowers
+}
+
 #[test]
 fn nan_min_max_propagate_ignorance() {
     let n = f64::NAN;
