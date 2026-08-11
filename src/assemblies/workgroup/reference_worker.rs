@@ -466,5 +466,51 @@ mod tests {
         let a = objective_c(&f, 0, 0);
         let b = objective_c(&f, f.1.0 - 1, 0);
         assert!(a.0 < b.0 || a.0 == b.0);
+        let c_down = objective_c(&f, 0, f.1.1 - 1);
+        assert!(
+            c_down.1 < a.1 || c_down.1 == a.1,
+            "increasing row must decrease imag (screen y down)"
+        );
+
+        // Inclusive coverage: corners of the frame must cover.
+        let corner_tl = objective_c(&f, 0, 0);
+        let corner_br = objective_c(&f, f.1.0 - 1, f.1.1 - 1);
+        assert!(reference_c_covers_frame(&corner_tl, &f));
+        assert!(reference_c_covers_frame(&corner_br, &f));
+
+        // Selection filters: escapes / undelivered / exterior must not win.
+        let mut ctx = from_stencil::<f64>(f.clone(), None).unwrap();
+        let esc_i = (1u32 * TEST_SCREEN_RES.0 + 1) as usize;
+        let undel_i = (2u32 * TEST_SCREEN_RES.0 + 2) as usize;
+        let good_i = (3u32 * TEST_SCREEN_RES.0 + 3) as usize;
+        ctx.points[esc_i].delivered = true;
+        ctx.points[esc_i].escapes = true;
+        ctx.points[esc_i].repeats = false;
+        ctx.points[esc_i].iterations = 999;
+        ctx.points[undel_i].delivered = false;
+        ctx.points[undel_i].repeats = true;
+        ctx.points[undel_i].iterations = 998;
+        ctx.points[good_i].delivered = true;
+        ctx.points[good_i].repeats = true;
+        ctx.points[good_i].escapes = false;
+        ctx.points[good_i].iterations = 50;
+        let selected = select_reference_request(Some((&ctx, &f)), &f);
+        assert_eq!(
+            selected.c,
+            objective_c(&f, 3, 3),
+            "only delivered interior may sticky-select"
+        );
+        // Precision follows the *new* view zoom (not previous).
+        let mut deep = f.clone();
+        deep.0.zoom_pot = 100;
+        let req = select_reference_request(Some((&ctx, &f)), &deep);
+        assert_eq!(
+            req.precision_bits,
+            crate::reference::bits_for_zoom(100, PIXELS_PER_UNIT_POT)
+        );
+        assert_ne!(
+            req.precision_bits,
+            crate::reference::bits_for_zoom(f.0.zoom_pot as i64, PIXELS_PER_UNIT_POT)
+        );
     }
 }

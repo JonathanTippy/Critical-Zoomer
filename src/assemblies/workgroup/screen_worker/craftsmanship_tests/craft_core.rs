@@ -1420,6 +1420,118 @@ fn mutant_kill_gear_coords_and_completion() {
     });
 }
 
+/// Thought-killed pins: pitch epsilon, bout loop/escape, spiral walk, smallness.
+#[test]
+fn mutant_kill_pitch_loop_spiral_and_bout() {
+    // pitch = |Δδc| / 256 (abs + scale; not missing abs / wrong factor).
+    let pts = vec![make_point((0.0, 0.0)), make_point((0.25, 0.0))];
+    let e = pitch_epsilon(&pts);
+    assert_eq!(e, FloatExp::from(0.25) * FloatExp::from(1.0 / 256.0));
+    let flipped = vec![make_point((0.25, 0.0)), make_point((0.0, 0.0))];
+    assert_eq!(pitch_epsilon(&flipped), e, "abs must ignore seat order");
+    assert_ne!(e, FloatExp::from(0.25));
+    assert_ne!(e, FloatExp::from(0.25) * FloatExp::from(256.0));
+    assert_ne!(e, FloatExp::ZERO);
+
+    // Interior c=0: loop_check fires; period = iterations − checkpoint n.
+    let mut interior = make_point((0.0, 0.0));
+    iterate_max_n_times(
+        &mut interior,
+        FloatExp::from(4.0),
+        FloatExp::from(1e-20),
+        BoutCap::new(16),
+    );
+    assert!(interior.repeats, "0+0i must repeat");
+    assert!(!interior.escapes);
+    assert!(
+        interior.period >= 1,
+        "loop_check must record a positive period, got {}",
+        interior.period
+    );
+    // period is set as iterations−checkpoint *before* update_loop_check may advance
+    // the checkpoint to the current iterate — do not re-derive against the final pair.
+
+    // Far exterior already |z|²>r² before any step: escapes without iterating.
+    let mut exterior = make_point(ESC);
+    iterate_max_n_times(
+        &mut exterior,
+        FloatExp::from(4.0),
+        FloatExp::from(1e-20),
+        BoutCap::new(8),
+    );
+    assert!(exterior.escapes);
+    assert!(!exterior.repeats);
+    assert_eq!(exterior.iterations, 0, "pre-escaped z must not count fake steps");
+
+    // Escape after at least one iterate: start inside bailout, c pushes out.
+    let mut escapes_after = make_point((0.0, 0.0));
+    escapes_after.c = (FloatExp::from(2.0), FloatExp::from(2.0));
+    escapes_after.z = (FloatExp::from(0.0), FloatExp::from(0.0));
+    escapes_after.delta_c = escapes_after.c;
+    iterate_max_n_times(
+        &mut escapes_after,
+        FloatExp::from(4.0),
+        FloatExp::from(1e-20),
+        BoutCap::new(8),
+    );
+    assert!(escapes_after.escapes);
+    assert!(escapes_after.iterations >= 1);
+
+    // BoutCap hard-stops unfinished orbits (exact step count when no conclusion).
+    let mut capped = make_point((0.1, 0.2));
+    let start_iters = capped.iterations;
+    iterate_max_n_times(
+        &mut capped,
+        FloatExp::from(4.0),
+        FloatExp::from(1e-30),
+        BoutCap::new(5),
+    );
+    assert!(
+        !capped.escapes && !capped.repeats,
+        "shallow exterior bout of 5 should stay unfinished"
+    );
+    assert_eq!(capped.iterations, start_iters + 5);
+
+    // update_point_results: smallness only improves (strict <).
+    let mut p = make_point((0.0, 0.0));
+    p.z = (FloatExp::from(3.0), FloatExp::from(4.0));
+    p.iterations = 3;
+    p.smallness_squared = FloatExp::from(100.0);
+    update_point_results(&mut p);
+    assert_eq!(p.real_squared, FloatExp::from(9.0));
+    assert_eq!(p.imag_squared, FloatExp::from(16.0));
+    assert_eq!(p.real_imag, FloatExp::from(12.0));
+    assert_eq!(p.smallness_squared, FloatExp::from(25.0));
+    assert_eq!(p.small_time, 3);
+    p.z = (FloatExp::from(10.0), FloatExp::ZERO);
+    p.iterations = 9;
+    update_point_results(&mut p);
+    assert_eq!(
+        p.smallness_squared,
+        FloatExp::from(25.0),
+        "larger rad must not overwrite smallness"
+    );
+    assert_eq!(p.small_time, 3);
+
+    run_big_stack_size(|| {
+        let mut ctx = make_context(0);
+        set_attention(&mut ctx, Some((2, 2)));
+        ctx.attention_index = 0;
+        let first = next_attention_spiral_pos(&mut ctx).expect("anchor");
+        assert_eq!(first, (2, 2));
+        assert_eq!(ctx.attention_index, 1);
+        let second = next_attention_spiral_pos(&mut ctx).expect("ring1");
+        let (dx, dy) = (second.0 - 2, second.1 - 2);
+        assert_eq!(dx.abs().max(dy.abs()), 1, "first ring seat after origin");
+        // Delivered seats are skipped.
+        let idx = index_from_pos(&second, ctx.res.0);
+        ctx.points[idx].delivered = true;
+        ctx.attention_index = 1;
+        let again = next_attention_spiral_pos(&mut ctx).expect("skip delivered");
+        assert_ne!(again, second);
+    });
+}
+
 // r[verify cz.craft.pan-zoom-slot0+1]
 #[test]
 fn pan_scredge_lead_only_on_first_shift() {
