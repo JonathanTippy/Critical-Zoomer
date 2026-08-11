@@ -285,10 +285,11 @@ impl Normalizing {
             }
             Normalizing::RecipLn{..} => {
                 Normalizer{
-                    normalize64: |n| {1.0/n.ln()}
-                    , denormalize64: |n| {(1.0/n).exp()}
-                    , normalize32: |n| {1.0/n.ln()}
-                    , denormalize32: |n| {(1.0/n).exp()}
+                    // Must match `normalize`/`denormalize`: RecipLn is ln(1/x), not 1/ln(x).
+                    normalize64: |n| {(1.0 / n).ln()}
+                    , denormalize64: |n| {1.0 / n.exp()}
+                    , normalize32: |n| {(1.0 / n).ln()}
+                    , denormalize32: |n| {1.0 / n.exp()}
                 }
             }
             Normalizing::Reciprocal{..} => {
@@ -562,5 +563,62 @@ pub fn settings (
     SettingsWindowResult{
         will_close: will_close,
         settings: state.settings.clone()
+    }
+}
+
+#[cfg(test)]
+mod mutant_kill {
+    use super::Normalizing;
+
+    #[test]
+    fn mutant_kill_normalizing_roundtrip_and_arms() {
+        let x = 2.5f64;
+        assert_eq!(Normalizing::None {}.normalize(&x), x);
+        assert_eq!(Normalizing::None {}.denormalize(&x), x);
+
+        let ln = Normalizing::Ln {}.normalize(&x);
+        assert!((ln - x.ln()).abs() < 1e-12);
+        assert!((Normalizing::Ln {}.denormalize(&ln) - x).abs() < 1e-12);
+        assert_ne!(ln, x.exp()); // ln↔exp swap
+
+        let lnln = Normalizing::LnLn {}.normalize(&x);
+        assert!((lnln - x.ln().ln()).abs() < 1e-12);
+        assert!((Normalizing::LnLn {}.denormalize(&lnln) - x).abs() < 1e-9);
+
+        let recip = Normalizing::Reciprocal {}.normalize(&x);
+        assert!((recip - 1.0 / x).abs() < 1e-12);
+        assert!((Normalizing::Reciprocal {}.denormalize(&recip) - x).abs() < 1e-12);
+        assert_ne!(recip, x); // *↔/ identity
+
+        // RecipLn is ln(1/x), not 1/ln(x).
+        let rl = Normalizing::RecipLn {}.normalize(&x);
+        assert!((rl - (1.0 / x).ln()).abs() < 1e-12);
+        assert!((rl - (-x.ln())).abs() < 1e-12);
+        assert_ne!(rl, 1.0 / x.ln());
+        assert!((Normalizing::RecipLn {}.denormalize(&rl) - x).abs() < 1e-12);
+
+        let n = Normalizing::RecipLn {}.get_normalizer();
+        assert!(((n.normalize64)(&x) - (1.0 / x).ln()).abs() < 1e-12);
+        assert_ne!((n.normalize64)(&x), 1.0 / x.ln());
+
+        // reshape: linear in normalized space between limits.
+        let limits = (2.0f64, 8.0f64);
+        let mid = Normalizing::None {}.reshape_input(&limits, &5.0);
+        assert!((mid - 5.0).abs() < 1e-12);
+        let lo = Normalizing::Ln {}.reshape_input(&limits, &2.0);
+        assert!((lo - 2.0).abs() < 1e-9);
+        let hi = Normalizing::Ln {}.reshape_input(&limits, &8.0);
+        assert!((hi - 8.0).abs() < 1e-9);
+        // Midpoint in linear domain is not midpoint in ln-space.
+        let mid_ln = Normalizing::Ln {}.reshape_input(&limits, &5.0);
+        assert!((mid_ln - 5.0).abs() > 0.1);
+        // None reshape is identity in the domain; Ln uses normalized interpolation
+        // so swapped limits change the result for an interior sample.
+        let q_ln = Normalizing::Ln {}.reshape_input(&limits, &3.0);
+        let q_ln_swapped = Normalizing::Ln {}.reshape_input(&(8.0, 2.0), &3.0);
+        assert_ne!(q_ln, q_ln_swapped);
+        // scalar uses (input-lo)/(hi-lo): wrong op would break roundtrip endpoints.
+        assert!((Normalizing::Reciprocal {}.reshape_input(&limits, &2.0) - 2.0).abs() < 1e-9);
+        assert!((Normalizing::Reciprocal {}.reshape_input(&limits, &8.0) - 8.0).abs() < 1e-9);
     }
 }

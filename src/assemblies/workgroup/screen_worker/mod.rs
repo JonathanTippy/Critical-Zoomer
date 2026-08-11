@@ -604,4 +604,27 @@ mod mutant_kill {
         ctx.points[0].delivered = false;
         assert_eq!(classify_reference_status(&ctx), ReferenceStatus::Wip);
     }
+
+    #[test]
+    fn mutant_kill_transform_index_exclusive_zero_and_upper() {
+        // Identity transform (rel=0, zoom=0): seat (0,0) maps to (0,0) and is
+        // rejected by exclusive >0 on both axes; interior seats pass.
+        let in_res = (4u32, 3u32);
+        let out_res = (4u32, 3u32);
+        let len = 12usize;
+        assert!(transform_index(0, in_res, out_res, len, (0, 0), 0).is_none()); // (0,0)
+        assert!(transform_index(1, in_res, out_res, len, (0, 0), 0).is_none()); // (1,0) y==0
+        assert!(transform_index(4, in_res, out_res, len, (0, 0), 0).is_none()); // (0,1) x==0
+        assert_eq!(
+            transform_index(5, in_res, out_res, len, (0, 0), 0),
+            Some(5)
+        ); // (1,1)
+        // Upper inclusive res-1: (3,2) is index 11.
+        assert_eq!(
+            transform_index(11, in_res, out_res, len, (0, 0), 0),
+            Some(11)
+        );
+        // >→>= on zero would admit the origin row/col.
+        assert_ne!(transform_index(0, in_res, out_res, len, (0, 0), 0), Some(0));
+    }
 }

@@ -806,6 +806,44 @@ mod mutant_kill {
         assert_ne!(fine.clone().set_precision(2).exp, 2);
     }
 
+    /// Thought-killed pins: Ord/Eq strictness, zoom_from_pot, Into clamps.
+    #[test]
+    fn mutant_kill_intexp_ord_zoom_from_pot_into() {
+        let a = IntExp::from(3i32);
+        let b = IntExp::from(5i32);
+        assert!(a < b && b > a);
+        assert!(a <= b && b >= a);
+        assert!(a <= a && a >= a);
+        assert_eq!(a.cmp(&b), Ordering::Less);
+        assert_eq!(a.partial_cmp(&b), Some(Ordering::Less));
+        // Different exp, same value: 3*2^1 == 6*2^0.
+        let c = IntExp {
+            val: Integer::from(3),
+            exp: 1,
+        };
+        let d = IntExp::from(6i32);
+        assert_eq!(c, d);
+        assert!(!(c < d) && !(c > d));
+
+        assert_eq!(zoom_from_pot(0), 1.0);
+        assert_eq!(zoom_from_pot(3), 8.0);
+        assert_eq!(zoom_from_pot(-3), 0.125);
+        assert_ne!(zoom_from_pot(1), zoom_from_pot(-1));
+        assert_ne!(zoom_from_pot(0), 0.0);
+
+        let huge = IntExp {
+            val: Integer::from(isize::MAX) + Integer::from(10),
+            exp: 0,
+        };
+        assert_eq!(Into::<isize>::into(huge), isize::MAX);
+        let tiny = IntExp {
+            val: Integer::from(isize::MIN) - Integer::from(10),
+            exp: 0,
+        };
+        assert_eq!(Into::<isize>::into(tiny), isize::MIN);
+        assert_eq!(Into::<isize>::into(IntExp::from(42isize)), 42);
+    }
+
     /// Thought-killed pins: row-major index/pos, signed_shift, f32↔i16 scale.
     #[test]
     fn mutant_kill_index_pos_signed_shift_f32_i16() {
