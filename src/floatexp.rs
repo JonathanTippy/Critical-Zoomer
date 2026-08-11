@@ -580,6 +580,40 @@ mod tests {
         assert!(FloatExp::from(2.0) > FloatExp::from(1.0));
         assert!(FloatExp::from(-2.0) < FloatExp::from(-1.0));
         assert!(FloatExp::ZERO < FloatExp::ONE);
+
+        // Rug bridge: [0.5,1) → [1,2) via *2 and exp-1; to_rug shifts by signed exp.
+        let zero_rug = Float::with_val(53, 0);
+        assert_eq!(FloatExp::from_rug(&zero_rug), FloatExp::ZERO);
+        let r4 = Float::with_val(53, 4.0);
+        let fe4 = FloatExp::from_rug(&r4);
+        assert!((fe4.to_f64() - 4.0).abs() < 1e-12, "got {}", fe4.to_f64());
+        // *→+ or exp-1→+1 would miss 4.0.
+        assert_ne!(fe4.to_f64(), 2.0);
+        assert_ne!(fe4.to_f64(), 1.0);
+        let r_half = Float::with_val(53, 0.5);
+        let fe_half = FloatExp::from_rug(&r_half);
+        assert!((fe_half.to_f64() - 0.5).abs() < 1e-12);
+        assert!((fe_half.mantissa - 1.0).abs() < 1e-12);
+        assert_eq!(fe_half.exponent, -1);
+
+        let back = FloatExp::new(1.25, 3).to_rug(53); // 10
+        assert!((back.to_f64() - 10.0).abs() < 1e-9);
+        let neg_exp = FloatExp::new(1.5, -2).to_rug(53); // 1.5/4 = 0.375
+        assert!((neg_exp.to_f64() - 0.375).abs() < 1e-9);
+        // <<= vs >>= flipped would explode or vanish.
+        assert_ne!(neg_exp.to_f64(), 1.5 * 4.0);
+        assert!((FloatExp::new(-2.0, 1).to_rug(53).to_f64() + 4.0).abs() < 1e-9);
+
+        // IntExp→FE: mantissa*2 and combined exp-1 (not +1).
+        let ie = IntExp {
+            val: rug::Integer::from(5),
+            exp: 1,
+        }; // 5 * 2^1 = 10
+        let from_ie = FloatExp::from(ie);
+        assert!((from_ie.to_f64() - 10.0).abs() < 1e-9);
+        assert_ne!(from_ie.to_f64(), 5.0);
+        assert_ne!(from_ie.to_f64(), 2.5);
+        assert_eq!(FloatExp::from(IntExp::ZERO), FloatExp::ZERO);
     }
 
     #[test]

@@ -2197,4 +2197,66 @@ mod mutant_kill {
         // Strict < / > would reject the boundary.
         assert_ne!(points_near(z, (1.0, 0.0), e), false);
     }
+
+    #[test]
+    fn mutant_kill_isqrt_u64_perfect_and_floor() {
+        use super::isqrt_u64;
+        assert_eq!(isqrt_u64(0), 0);
+        assert_eq!(isqrt_u64(1), 1);
+        assert_eq!(isqrt_u64(2), 1);
+        assert_eq!(isqrt_u64(3), 1);
+        assert_eq!(isqrt_u64(4), 2);
+        assert_eq!(isqrt_u64(8), 2);
+        assert_eq!(isqrt_u64(9), 3);
+        assert_eq!(isqrt_u64(15), 3);
+        assert_eq!(isqrt_u64(16), 4);
+        assert_eq!(isqrt_u64(100), 10);
+        assert_eq!(isqrt_u64(101), 10);
+        // Large perfect square (Newton / leading_zeros init).
+        assert_eq!(isqrt_u64(1u64 << 32), 1u64 << 16);
+        assert_eq!(isqrt_u64((1u64 << 32) - 1), (1u64 << 16) - 1);
+        // y>=x return: must not overshoot floor.
+        assert_ne!(isqrt_u64(10), 4);
+        assert_ne!(isqrt_u64(10), 2);
+    }
+
+    #[test]
+    fn mutant_kill_update_loop_check_doubling_gate() {
+        use super::{update_loop_check_points, Point};
+        let mut p = Point {
+            delta_c: (0.0, 0.0),
+            c: (0.0, 0.0),
+            z: (0.3, 0.4),
+            dc: (1.0, 0.0),
+            real_squared: 0.0,
+            imag_squared: 0.0,
+            real_imag: 0.0,
+            iterations: 3,
+            loop_detection_point: ((9.0, 9.0), 2),
+            escapes: false,
+            repeats: false,
+            delivered: false,
+            initialized: true,
+            period: 0,
+            smallness_squared: f64::MAX,
+            small_time: 0,
+            delta: None,
+            direct_only: false,
+            bound_zero_generation: 0,
+        };
+        // checkpoint 2 → need iterations >= 4 (<<1), so 3 must not advance.
+        update_loop_check_points(&mut p);
+        assert_eq!(p.loop_detection_point, ((9.0, 9.0), 2));
+        p.iterations = 4;
+        update_loop_check_points(&mut p);
+        assert_eq!(p.loop_detection_point, ((0.3, 0.4), 4));
+        // <<1 vs +1: checkpoint 4 → next at >= 8, not >= 5.
+        p.z = (1.0, 2.0);
+        p.iterations = 7;
+        update_loop_check_points(&mut p);
+        assert_eq!(p.loop_detection_point, ((0.3, 0.4), 4));
+        p.iterations = 8;
+        update_loop_check_points(&mut p);
+        assert_eq!(p.loop_detection_point, ((1.0, 2.0), 8));
+    }
 }
