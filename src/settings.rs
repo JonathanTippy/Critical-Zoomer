@@ -569,7 +569,6 @@ pub enum ControlsSettings {
 
 pub struct SettingsWindowResult {
     pub will_close: bool,
-    pub settings: Settings
 }
 
 
@@ -668,9 +667,8 @@ pub fn settings (
 
     state.will_close = false;
 
-    SettingsWindowResult{
-        will_close: will_close,
-        settings: state.settings.clone()
+    SettingsWindowResult {
+        will_close,
     }
 }
 

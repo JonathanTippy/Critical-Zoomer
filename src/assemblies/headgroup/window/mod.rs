@@ -675,21 +675,20 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
 
                 if state.settings_window_open {
-                    let result = settings(&ctx, state.settings_window_context.clone());
-                    let closing = result.will_close;
+                    // Widgetize mutates the shared Settings in place; do not clone
+                    // the full blob back every main frame (that tanked FPS).
+                    let closing = settings(&ctx, state.settings_window_context.clone()).will_close;
                     state.settings_window_open = !closing;
-                    let (head_vsync, head_max) = {
-                        let mut ctx_settings = state.settings_window_context.try_lock().ok();
-                        if let Some(ref mut ctx_settings) = ctx_settings {
-                            ctx_settings.settings = result.settings.clone();
+                    let (head_vsync, head_max) = state
+                        .settings_window_context
+                        .try_lock()
+                        .map(|g| {
                             (
-                                ctx_settings.settings.head_vsync_enabled,
-                                ctx_settings.settings.head_max_fps,
+                                g.settings.head_vsync_enabled,
+                                g.settings.head_max_fps,
                             )
-                        } else {
-                            (state.head_vsync_enabled, state.head_max_fps)
-                        }
-                    };
+                        })
+                        .unwrap_or((state.head_vsync_enabled, state.head_max_fps));
                     state.head_vsync_enabled = head_vsync;
                     state.head_max_fps = head_max;
                     // Do not fan every main frame while open — that halved FPS.
