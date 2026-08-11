@@ -2,6 +2,7 @@ use rug::Float;
 use std::time::{Duration, Instant};
 
 use crate::floatexp::ComplexFloatExp;
+use crate::series::SeriesBuilder;
 use crate::utils::IntExp;
 
 fn intexp_to_float(value: &IntExp, precision: u32) -> Float {
@@ -56,7 +57,8 @@ enum CycleDetector {
 /// A high-precision-computed, low-precision-stored reference orbit.
 ///
 /// `state` is the sole retained high-precision iterate, making extension
-/// resumable without keeping a high-precision history.
+/// resumable without keeping a high-precision history. Series coefficients
+/// advance one step per stored iterate (fused builder).
 pub struct ReferenceOrbit {
     pub c: (Float, Float),
     pub iterates: Vec<ComplexFloatExp>,
@@ -66,6 +68,8 @@ pub struct ReferenceOrbit {
     pub preperiod: u32,
     pub escaped: bool,
     cycle_detector: CycleDetector,
+    /// Fused series coeff builder — one step per stored iterate.
+    series: SeriesBuilder,
 }
 
 impl ReferenceOrbit {
@@ -95,6 +99,8 @@ impl ReferenceOrbit {
                 power: 1,
                 lam: 0,
             },
+            // Build at max practical order; finish() truncates via series_order_for.
+            series: SeriesBuilder::new(8),
         }
     }
 
@@ -154,6 +160,14 @@ impl ReferenceOrbit {
                 continue;
             }
             self.iterates.push(stored(&next));
+            // Fuse series: seed at Z_1; thereafter step with Z_{i-1} when Z_i lands.
+            let i = self.iterates.len() - 1;
+            if i == 1 {
+                self.series.seed_at_c();
+            } else if i >= 2 {
+                let z_prev = self.iterates[i - 1];
+                self.series.step(z_prev);
+            }
             completed += 1;
 
             let norm = Float::with_val(
@@ -268,6 +282,11 @@ impl ReferenceOrbit {
             return self.iterates.get(index as usize).copied();
         }
         self.iterates.get(n as usize).copied()
+    }
+
+    /// Finish fused series coefficients for this orbit (same generation snapshot).
+    pub fn take_series(&self) -> Option<crate::series::SeriesApproximation> {
+        self.series.clone().finish()
     }
 
     /// The floor reference: Z_n = 0 for all n, period 1.

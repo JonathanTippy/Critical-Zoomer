@@ -162,6 +162,45 @@ fn init_delta(
     point.loop_detection_point = (point.z, 0);
 }
 
+fn apply_series_skip(
+    point: &mut Point<FloatExp>,
+    published: Option<&crate::assemblies::workgroup::reference_worker::PublishedReference>,
+) {
+    let Some(pub_ref) = published else {
+        return;
+    };
+    if point.direct_only || pub_ref.orbit.escaped {
+        return;
+    }
+    let Some(series) = pub_ref.series.as_ref() else {
+        return;
+    };
+    let Some(delta) = point.delta.as_mut() else {
+        return;
+    };
+    if point.iterations > 0 {
+        return;
+    }
+    let skip = series.safe_skip(
+        delta.delta_c,
+        pub_ref.orbit.iterates.len().saturating_sub(1),
+    );
+    if skip <= 1 {
+        return;
+    }
+    let Some(dz) = series.evaluate(skip, delta.delta_c) else {
+        return;
+    };
+    let dd = delta.dd;
+    delta.delta_z = dz;
+    point.iterations = skip.saturating_sub(1) as u32;
+    let z_ref = pub_ref
+        .orbit
+        .get(point.iterations.saturating_add(1))
+        .unwrap_or(ComplexFloatExp::ZERO);
+    sync_point_from_delta(point, z_ref, dz, dd);
+}
+
 impl SeatKernel<FloatExp> for FloatExpPerturbationKernel {
     fn start_seat(&self, context: &mut WorkContext<FloatExp>, pos: (i32, i32)) {
         ensure_started(context, pos);
@@ -191,6 +230,10 @@ impl SeatKernel<FloatExp> for FloatExpPerturbationKernel {
             };
             context.points[index].c = c;
             init_delta(&mut context.points[index], orbit, generation, delta_c, c);
+            apply_series_skip(
+                &mut context.points[index],
+                context.latest_reference.as_deref(),
+            );
         }
     }
 

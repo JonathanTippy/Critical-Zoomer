@@ -1,11 +1,11 @@
 # Depth design: perturbation with a background reference worker
 
 Status: **partially implemented** — reference worker, perturbation kernel, gear ladder,
-and HUD telemetry are in the tree. Series approximation is **deferred** (open issue)
-until membership pins stay green **and** a performance-minded rewrite lands
-(`r[cz.depth.series-approximation+1]`; developer interview 2026-08-11). **In
-progress:** CGenerator admission wiring, reference-scoped generator rebuild, and
-PPS-selected naive vs pert dispatch (`r[cz.perf.pps-selected-kernel+1]`).
+HUD telemetry, and **live series approximation** (fused coeff steps + O(log N)
+seat-init skip) are in the tree (`r[cz.depth.series-approximation+1]`; developer
+interview 2026-08-11). **In progress:** CGenerator admission wiring,
+reference-scoped generator rebuild, and PPS-selected naive vs pert dispatch
+(`r[cz.perf.pps-selected-kernel+1]`).
 The per-pixel path uses the **fastest compute gear whose range admits the
 delta**. Research digests live
 in the private sister repo `Critical-Zoomer-Math-Library` (not published with
@@ -260,9 +260,9 @@ rewrite must not revive it unchanged.
 
 ### Acceptance for re-enable
 
-Membership pins green **with SA on**, plus measurable: shallow overhead in the
-noise; deep zoom skip win material; never-stall / workshift tick rates
-preserved; full suite + benches + tracey.
+**Landed 2026-08-11:** membership pins green with SA on; logarithmic probe +
+shallow no-op + deep material skip pins; live `apply_series_skip` on seat init;
+full suite / benches / visual as the gate for this chunk.
 
 ## Acceptance (this push — all gates together)
 

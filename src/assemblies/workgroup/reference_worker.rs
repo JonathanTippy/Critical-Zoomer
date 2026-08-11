@@ -12,6 +12,7 @@ use crate::assemblies::workgroup::screen_worker::workshift::{view_center_compute
 use crate::assemblies::workgroup::c_generator::{admit_generator, GeneratorAdmission, Mandelbrotable};
 use crate::constants::PIXELS_PER_UNIT_POT;
 use crate::reference::ReferenceOrbit;
+use crate::series::SeriesApproximation;
 use crate::utils::{IntExp, ObjectivePosAndZoom};
 
 #[derive(Clone)]
@@ -25,6 +26,9 @@ pub struct PublishedReference {
     /// reference_c — exact objective parameter for this orbit.
     pub c: (IntExp, IntExp),
     pub generation: u64,
+    /// Simple series coeffs for this orbit (same generation snapshot).
+    // r[impl cz.depth.series-approximation+1]
+    pub series: Option<SeriesApproximation>,
 }
 
 impl std::fmt::Debug for PublishedReference {
@@ -34,6 +38,7 @@ impl std::fmt::Debug for PublishedReference {
             .field("c", &self.c)
             .field("orbit_len", &self.orbit.iterates.len())
             .field("period", &self.orbit.period)
+            .field("series_rows", &self.series.as_ref().map(|s| s.rows))
             .finish()
     }
 }
@@ -83,10 +88,12 @@ impl ReferenceWorkerState {
 
         let job = self.job.take().expect("completed job exists");
         self.generation = self.generation.wrapping_add(1);
+        let series = job.orbit.take_series();
         Some(PublishedReference {
             orbit: job.orbit,
             c: job.request.c,
             generation: self.generation,
+            series,
         })
     }
 }
@@ -357,7 +364,7 @@ mod tests {
         let f = frame();
         let mut context = from_stencil::<f64>(f.clone(), None).unwrap();
         let shallow = (1u32, 1u32);
-        let deep = (30u32, 40u32);
+        let deep = (TEST_SCREEN_RES.0 / 2, TEST_SCREEN_RES.1 - 2);
         let shallow_i = (shallow.1 * TEST_SCREEN_RES.0 + shallow.0) as usize;
         let deep_i = (deep.1 * TEST_SCREEN_RES.0 + deep.0) as usize;
         context.points[shallow_i].delivered = true;
@@ -382,7 +389,7 @@ mod tests {
     fn sticky_selection_keeps_interior_outside_new_view() {
         let old = frame();
         let mut context = from_stencil::<f64>(old.clone(), None).unwrap();
-        let deep = (30u32, 40u32);
+        let deep = (TEST_SCREEN_RES.0 / 2, TEST_SCREEN_RES.1 - 2);
         let deep_i = (deep.1 * TEST_SCREEN_RES.0 + deep.0) as usize;
         context.points[deep_i].delivered = true;
         context.points[deep_i].repeats = true;

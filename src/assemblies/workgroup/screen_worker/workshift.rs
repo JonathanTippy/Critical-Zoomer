@@ -777,10 +777,12 @@ fn bootstrap_relative_reference<T: Mandelbrotable>(
     let bits = bits_for_zoom(zoom_pot, PIXELS_PER_UNIT_POT).max(128);
     let mut best = {
         let orbit = ReferenceOrbit::compute(anchor, bits, 4096);
+        let series = orbit.take_series();
         PublishedReference {
             orbit,
             c: (anchor.0.clone(), anchor.1.clone()),
             generation: 0,
+            series,
         }
     };
     let step_x = (res.0 / 8).max(1);
@@ -796,10 +798,12 @@ fn bootstrap_relative_reference<T: Mandelbrotable>(
             );
             let orbit = ReferenceOrbit::compute(&c, bits, 4096);
             if orbit.iterates.len() > best.orbit.iterates.len() {
+                let series = orbit.take_series();
                 best = PublishedReference {
                     orbit,
                     c,
                     generation: 0,
+                    series,
                 };
             }
             x = x.saturating_add(step_x);

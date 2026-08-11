@@ -51,23 +51,16 @@ Developer acceptance test failed on the tile machine. Most items were tile-era i
 
 ## Design gaps (open)
 
-- **Series approximation deferred (2026-08-08; contract clarified 2026-08-11).**
-  Live series on `PublishedReference` / `apply_series_skip` removed from the
-  production path until relative `delta_c` + escaped-ref soft-continue membership
-  stay green under `pin_exterior_not_marked_in_at_zoom_52` and
-  `pin_not_blocky_delta_c_at_zoom_49`. Dormant sketch: `src/series.rs`. Rule
-  `r[cz.depth.series-approximation+1]` is deferred pending **both** membership
-  green **and** a rewrite that meets the developer performance contract
-  (interview 2026-08-11; also `depth-design.md` / `D-SERIES-*`):
-  - Always-on; skip is **seat init**, not bout work — probe so cheap it is free
-    (binary search / O(log N); ~one access when skip is useless).
-  - Deep zoom is the win; shallow must not pay meaningful overhead.
-  - Coeffs: one series step per reference iterate, fused into the reference
-    loop (no separate pipeline); no unnecessary big-O; airtight from day one.
-  - Prior live attempt failed that bar (linear `safe_skip`, heap coeff rows,
-    FloatExp-heavy probe) and was yanked for membership before a clean
-    with/without measure. Do not re-wire the sketch unchanged.
-  Next: plan first implementation chunk against that contract (docs ready).
+- **Series approximation live (2026-08-11).** Performance-minded rewrite landed:
+  flat coeffs, `SeriesBuilder` fused into `ReferenceOrbit::extend_inner`,
+  O(log N) `safe_skip` (large `|δc|` immediate no-op), always-on
+  `apply_series_skip` after `init_delta` in both pert kernels. Prior linear/heap
+  sketch replaced. Rule `r[cz.depth.series-approximation+1]` is on the production
+  path. Pins: `series_approximation_wired_into_production_kernels`,
+  `series_safe_skip_eval_count_is_logarithmic`,
+  `series_shallow_probe_stays_nearly_free`,
+  `series_deep_skip_is_material_on_long_orbit`,
+  `live_series_skip_initializes_delta_prefix`, membership pins with SA on.
 - **Deep exterior black/"in" vs blockiness (2026-08-08) — root cause fixed.** Flip-flop from stuffing generator `delta_c` into the zero-orbit δc slot (false interior) vs iterating collapsed f64 absolute `c` without a reference (blocky). Production bug: `workshift` called `perturbation_reference_active()` *after* `latest_reference.take()`, so the held orbit was always dropped and seats iterated zero-orbit with generator `delta_c` → false `repeats` at iters≈2 (flat black) while HUD still showed `mode:pert`/`ref:complete`. Fix: decide publish-orbit use from the held snapshot. Pins (workshift path): `pin_exterior_not_marked_in_at_zoom_52`, `pin_not_blocky_delta_c_at_zoom_49`. Soft-continue still uses absolute `c` in the δc slot.
 - **Depth integration — final gear push (2026-08-07).** **Closed for finish-line gates** except series (now deferred): live f64 host + F64→ScaledF64→FloatExp compute gears, HUD gear+IPS+PPS, home perturbation parity vs DirectKernel
   (~357 ms vs ~378 ms Criterion), scaled-f64 ~4.6× vs all-FloatExp microbench,

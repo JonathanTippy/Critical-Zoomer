@@ -147,6 +147,7 @@ fn reference_install_mid_fill_keeps_shift_progress() {
                     orbit: ReferenceOrbit::compute(&reference_c, 128, 64),
                     c: reference_c,
                     generation: 1,
+                series: None,
                 }));
                 installed = true;
             }
@@ -339,6 +340,7 @@ fn faux_user_zoom_to_hard_minibrot_matches_direct() {
             orbit: ReferenceOrbit::compute(&prior_req.c, prior_req.precision_bits, 256),
             c: prior_req.c.clone(),
             generation: 3,
+        series: None,
         });
         prior.latest_reference = Some(uncovered.clone());
         assert!(
@@ -379,6 +381,7 @@ fn faux_user_zoom_to_hard_minibrot_matches_direct() {
             orbit: ReferenceOrbit::compute(&hard_req.c, hard_req.precision_bits, 64),
             c: hard_req.c.clone(),
             generation: 4,
+        series: None,
         });
         assert!(
             crate::assemblies::workgroup::reference_worker::reference_c_covers_frame(
@@ -485,6 +488,7 @@ fn from_stencil_carried_ref_anchors_to_ref_c() {
             orbit,
             c: ref_req.c.clone(),
             generation: 11,
+        series: None,
         }));
         let carried =
             from_stencil(frame.clone(), Some((shell, frame.0.clone()))).expect("carried");
@@ -516,6 +520,7 @@ fn reference_install_rebuilds_c_generator() {
             orbit: ReferenceOrbit::compute(&ref_req.c, ref_req.precision_bits, 4096),
             c: ref_req.c.clone(),
             generation: 42,
+        series: None,
         };
         let compute_loc = (
             frame.0.pos.0.clone(),
@@ -563,12 +568,13 @@ fn relative_shell_init_uses_f64_gear_not_floatexp() {
     use super::perturb_kernel::PerturbationKernel;
     use crate::delta_gear::ComputeGear;
     run_big_stack_size(|| {
+        // Wide deep grid so pitch forces F64 (not ScaledF64) at pot 50.
         let frame = (
             ObjectivePosAndZoom {
                 pos: (IntExp::from(-1).shift(-1), IntExp::ZERO),
                 zoom_pot: 50,
             },
-            TEST_SCREEN_RES,
+            (40u32, 41u32),
         );
         let mut ctx = from_stencil::<f64>(frame, None).expect("relative shell");
         assert!(ctx.coords_are_relative);
@@ -780,7 +786,7 @@ fn pin_not_blocky_delta_c_at_zoom_49() {
     use super::perturb_kernel::PerturbationKernel;
     use crate::assemblies::headgroup::window::coords::{decimal_str_to_intexp, ul_for_center};
     run_big_stack_size(|| {
-        let res = TEST_SCREEN_RES;
+        let res = (40u32, 71u32);
         let frame = (
             ul_for_center(
                 decimal_str_to_intexp("0.360069520505").unwrap(),
@@ -850,7 +856,8 @@ fn c_intexp_add_distinct_per_seat_at_user_zoom_49() {
     use crate::assemblies::headgroup::window::coords::{decimal_str_to_intexp, ul_for_center};
     use super::workshift::{from_stencil, c_for_seat_f64, DirectKernel, SeatKernel};
     run_big_stack_size(|| {
-        let res = TEST_SCREEN_RES;
+        // Deep-zoom distinctness / collapse pins: keep the pre-shrink grid.
+        let res = (40u32, 71u32);
         let zoom_pot = 49i32;
         let center_re = decimal_str_to_intexp("0.360069520505").unwrap();
         let center_im = decimal_str_to_intexp("0.613443210714").unwrap();
@@ -939,6 +946,7 @@ fn relative_perturb_matches_direct_at_user_zoom_49() {
             orbit: ReferenceOrbit::compute(&anchor, 128, 4096),
             c: anchor,
             generation: 1,
+        series: None,
         });
         direct.latest_reference = Some(published.clone());
         perturb.latest_reference = Some(published);
@@ -1283,6 +1291,7 @@ fn home_reference_arrival_reopens_stale_deliveries() {
             orbit: ReferenceOrbit::compute(&req.c, req.precision_bits, 512),
             c: req.c,
             generation: 1,
+        series: None,
         });
         ctx.latest_reference = Some(pub_ref);
         invalidate_stale_deliveries(&mut ctx, 1);
@@ -1306,6 +1315,7 @@ fn home_worker_no_vertical_repeat_columns() {
             orbit: ReferenceOrbit::compute(&req.c, req.precision_bits, 4096),
             c: req.c,
             generation: 1,
+        series: None,
         }));
         while !ctx.points.iter().all(|p| p.delivered) {
             check_test_budget();
@@ -1547,6 +1557,7 @@ fn home_production_budget_pipeline_no_vertical_black_columns() {
             orbit: ReferenceOrbit::compute(&req.c, req.precision_bits, 4096),
             c: req.c,
             generation: 1,
+        series: None,
         }));
         refresh_test_budget();
         const TOKEN_BUDGET: u32 = 16_000_000;
@@ -1599,6 +1610,7 @@ fn home_incremental_collector_matches_worker_delivery() {
             orbit,
             c: req.c,
             generation: 1,
+        series: None,
         }));
         let mut collector_results =
             vec![CompletedPoint::Dummy {}; (ctx.res.0 * ctx.res.1) as usize];
@@ -1658,6 +1670,7 @@ fn home_pipeline_with_live_series_no_vertical_black_columns() {
             orbit,
             c: req.c,
             generation: 1,
+        series: None,
         }));
         refresh_test_budget();
         while ctx.percent_completed < 100.0 {
@@ -1819,6 +1832,7 @@ fn home_pipeline_no_vertical_black_columns() {
             orbit: ReferenceOrbit::compute(&req.c, req.precision_bits, 4096),
             c: req.c,
             generation: 1,
+        series: None,
         }));
         while !ctx.points.iter().all(|p| p.delivered) {
             check_test_budget();

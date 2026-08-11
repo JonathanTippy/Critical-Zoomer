@@ -217,6 +217,47 @@ fn init_delta(
     point.loop_detection_point = (point.z, 0);
 }
 
+fn apply_series_skip(
+    point: &mut Point<f64>,
+    published: Option<&crate::assemblies::workgroup::reference_worker::PublishedReference>,
+) {
+    let Some(pub_ref) = published else {
+        return;
+    };
+    if point.direct_only || pub_ref.orbit.escaped {
+        return;
+    }
+    let Some(series) = pub_ref.series.as_ref() else {
+        return;
+    };
+    let Some(delta) = point.delta.as_mut() else {
+        return;
+    };
+    if point.iterations > 0 {
+        return;
+    }
+    let skip = series.safe_skip(
+        delta.delta_c,
+        pub_ref.orbit.iterates.len().saturating_sub(1),
+    );
+    if skip <= 1 {
+        return;
+    }
+    let Some(dz) = series.evaluate(skip, delta.delta_c) else {
+        return;
+    };
+    let dd = delta.dd;
+    delta.delta_z = dz;
+    delta.gear = gear_for_delta(delta.delta_c, dz);
+    delta.scale = scaled_scale_from_dz(dz);
+    point.iterations = skip.saturating_sub(1) as u32;
+    let z_ref = pub_ref
+        .orbit
+        .get(point.iterations.saturating_add(1))
+        .unwrap_or(ComplexFloatExp::ZERO);
+    sync_point_from_delta_fe(point, z_ref, dz, dd);
+}
+
 /// Zero-orbit floor: skip gear scan / orbit lookup when shallow absolute f64.
 ///
 /// The δc / δz slots must hold absolute `c` / `z` (same math as naive). Never put
@@ -848,7 +889,7 @@ impl SeatKernel<f64> for PerturbationKernel {
                 context.coords_are_relative,
                 &context.coord_anchor,
             );
-            // Series approximation deferred — no apply_series_skip.
+            apply_series_skip(&mut context.points[index], published);
         }
         // HUD gear aggregate is refreshed once per workshift — never per seat.
         // Scanning all seats here is O(n) per bout and collapses home fill.

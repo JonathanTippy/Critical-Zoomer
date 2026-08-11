@@ -255,20 +255,18 @@ module for depth tests.
 
 r[cz.depth.series-approximation+1]
 
-**Rule.** Series approximation stays **off the production path** until membership
-pins stay green under `pin_exterior_not_marked_in_at_zoom_52` and
-`pin_not_blocky_delta_c_at_zoom_49` **and** a rewrite meets the performance
-contract below (the 2026-08-07/08 live attempt did not). When re-enabled:
-always-on (no enable/disable branch for “worth it”); a published reference
-includes series coefficients; seat **initialization** may skip a safe prefix by
-evaluating the series in `delta_c`, then resume ordinary delta iteration. Skip
-never invents a final answer. Skip discovery is part of point init — it must be
-so cheap it is effectively free (binary search over the orbit / O(log N)
-evals; ~one access when the useful skip is tiny). It must **not** steal bout
-budget from iterate workshifts. Deep zoom is the payoff; shallow/home must not
-pay meaningful overhead when the skip is useless. Until re-enabled, hard tests
-must prove production kernels do **not** call `apply_series_skip` — never
-`#[ignore]` those checks (`docs/assistant/quality-doctrine.md`).
+**Rule.** Series approximation is **on the production path**: always-on (no
+enable/disable branch for “worth it”); a published reference includes series
+coefficients fused one step per reference iterate; seat **initialization** may
+skip a safe prefix by evaluating the series in `delta_c`, then resume ordinary
+delta iteration. Skip never invents a final answer. Skip discovery is part of
+point init — it must be so cheap it is effectively free (binary search over the
+orbit / O(log N) evals; large `|δc|` is an immediate no-op). It must **not**
+steal bout budget from iterate workshifts. Deep zoom is the payoff;
+shallow/home must not pay meaningful overhead when the skip is useless.
+Membership pins `pin_exterior_not_marked_in_at_zoom_52` and
+`pin_not_blocky_delta_c_at_zoom_49` must stay green with SA on — never
+`#[ignore]` (`docs/assistant/quality-doctrine.md`).
 
 **Normative performance contract (developer 2026-08-11).**
 - Win target: deep zoom (long orbits, large safe skips).
@@ -290,17 +288,21 @@ must prove production kernels do **not** call `apply_series_skip` — never
 f64 kernel path; unbounded-at-init cost. That attempt was also yanked for
 membership correctness before it could be measured cleanly.
 
-**Implementation.** Dormant: `src/series.rs` (prior sketch; not the target
-shape). Not attached from `reference_worker`; no `apply_series_skip` in
-production kernels (`perturb_kernel.rs`). Design intent:
-`docs/assistant/design/depth-design.md` (Series approximation), decisions
-`D-SERIES-*` in `docs/assistant/unit-design/decisions.md`.
+**Implementation.** `src/series.rs` (`SeriesBuilder` + flat `SeriesApproximation`);
+fused in `ReferenceOrbit::extend_inner`; published on `PublishedReference.series`;
+`apply_series_skip` after `init_delta` in `perturb_kernel.rs` /
+`perturb_floatexp.rs`. Design intent: `docs/assistant/design/depth-design.md`,
+decisions `D-SERIES-*` in `docs/assistant/unit-design/decisions.md`.
 
-**Verification.** `series_approximation_not_wired_into_production_kernels`,
-plus series package parity tests that run against the dormant module / future
-wire-up (must stay green or be fixed in code — no ignore). When re-wired:
-shallow overhead and deep-skip win must be pinned (no soft floor); membership
-pins above must stay green with SA on.
+**Verification.** `series_approximation_wired_into_production_kernels`,
+`series_safe_skip_eval_count_is_logarithmic`,
+`series_shallow_probe_stays_nearly_free`,
+`series_deep_skip_is_material_on_long_orbit`,
+`series_skip_matches_delta_tail`,
+`series_never_publishes_guessed_completion`,
+`live_series_skip_initializes_delta_prefix`,
+`published_reference_with_series_matches_direct_outside_r2`,
+plus membership pins above (must stay green with SA on — no ignore).
 
 r[cz.depth.oracle-gear+1]
 

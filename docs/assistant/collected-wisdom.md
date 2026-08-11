@@ -52,4 +52,5 @@ Harvested 2026-08-06 during the v0.0.9 revert cleanup. Each entry: the rule, its
 - SA win is deep zoom; always-on; skip is seat init and must be free (binary
   search); coeffs fused one-step-per-reference-iterate. See
   `r[cz.depth.series-approximation+1]`, `depth-design.md`, `D-SERIES-2`…`6`.
-- Prior live SA sketch failed that bar; do not revive unchanged.
+- Prior live SA sketch failed that bar; replaced 2026-08-11 by the fused /
+  O(log N) production path.

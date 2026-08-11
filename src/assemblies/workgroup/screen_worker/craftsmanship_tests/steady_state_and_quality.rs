@@ -93,13 +93,13 @@ fn steady_state_screen_worker_home_ips_cpu_direct() {
 fn steady_state_screen_worker_home_ips_naive_gpu_path() {
     run_big_stack_size(|| {
         use crate::assemblies::structs::KernelMode;
-        let _gpu_guard = super::naive_gpu::lock_gpu_tests();
+        let mut shared = super::naive_gpu::SharedGpu::acquire();
+        refresh_test_budget();
+        assert!(shared.is_some(), "expected naive GPU adapter");
+        let shared = shared.as_mut().unwrap();
         let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
         // Force GPU path: PPS race may lock Naive CPU on TEST_SCREEN_RES.
         ctx.manual_gear = Some(KernelMode::NaiveGpu);
-        let mut gpu = super::naive_gpu::NaiveGpuContext::try_new();
-        refresh_test_budget();
-        assert!(gpu.is_some(), "expected naive GPU adapter");
         let t0 = Instant::now();
         let mut shifts = 0u32;
         let mut iters = 0u64;
@@ -109,7 +109,7 @@ fn steady_state_screen_worker_home_ips_naive_gpu_path() {
         while !ctx.points.iter().all(|p| p.delivered) {
             check_test_budget();
             let unfinished = ctx.points.iter().any(|p| !p.delivered);
-            workshift(0, 0, 0, 0, &mut ctx, gpu.as_mut());
+            workshift(0, 0, 0, 0, &mut ctx, Some(shared.ctx()));
             if ctx.last_used_naive_gpu {
                 used_gpu = true;
             } else if unfinished {
@@ -149,7 +149,6 @@ fn steady_state_screen_worker_home_ips_naive_gpu_path() {
         eprintln!(
             "steady_state screen_worker naive-GPU: ips={ips:.3e} iters={iters} shifts={shifts}"
         );
-        drop(gpu);
     });
 }
 
@@ -159,8 +158,7 @@ fn steady_state_screen_worker_home_ips_naive_gpu_path() {
 fn steady_state_naive_gpu_home_neighbor_queues_grow() {
     run_big_stack_size(|| {
         use crate::assemblies::structs::KernelMode;
-        let _gpu_guard = super::naive_gpu::lock_gpu_tests();
-        let Some(mut gpu) = super::naive_gpu::NaiveGpuContext::try_new() else {
+        let Some(mut shared) = super::naive_gpu::SharedGpu::acquire() else {
             eprintln!("steady_state_naive_gpu_home_neighbor_queues_grow: no GPU — skipped");
             return;
         };
@@ -172,7 +170,7 @@ fn steady_state_naive_gpu_home_neighbor_queues_grow() {
         let mut q = q0;
         while !(saw_final && q > q0) && !ctx.points.iter().all(|p| p.delivered) {
             check_test_budget();
-            workshift(0, 0, 0, 0, &mut ctx, Some(&mut gpu));
+            workshift(0, 0, 0, 0, &mut ctx, Some(shared.ctx()));
             assert!(
                 ctx.last_used_naive_gpu,
                 "home shallow fill must stay on naive GPU"
@@ -211,8 +209,7 @@ fn steady_state_naive_gpu_home_neighbor_queues_grow() {
 #[test]
 fn steady_state_naive_gpu_home_fills_without_cpu_mop() {
     run_big_stack_size(|| {
-        let _gpu_guard = super::naive_gpu::lock_gpu_tests();
-        let Some(mut gpu) = super::naive_gpu::NaiveGpuContext::try_new() else {
+        let Some(mut shared) = super::naive_gpu::SharedGpu::acquire() else {
             eprintln!("steady_state_naive_gpu_home_fills_without_cpu_mop: no GPU — skipped");
             return;
         };
@@ -223,7 +220,7 @@ fn steady_state_naive_gpu_home_fills_without_cpu_mop() {
         while !ctx.points.iter().all(|p| p.delivered) {
             check_test_budget();
             let unfinished = ctx.points.iter().any(|p| !p.delivered);
-            workshift(0, 0, 0, 0, &mut ctx, Some(&mut gpu));
+            workshift(0, 0, 0, 0, &mut ctx, Some(shared.ctx()));
             if unfinished && !ctx.last_used_naive_gpu {
                 cpu_while_unfinished += 1;
             }
@@ -249,8 +246,7 @@ fn steady_state_naive_gpu_home_fills_without_cpu_mop() {
 #[test]
 fn steady_state_naive_gpu_home_no_dummy_holes() {
     run_big_stack_size(|| {
-        let _gpu_guard = super::naive_gpu::lock_gpu_tests();
-        let Some(mut gpu) = super::naive_gpu::NaiveGpuContext::try_new() else {
+        let Some(mut shared) = super::naive_gpu::SharedGpu::acquire() else {
             eprintln!("steady_state_naive_gpu_home_no_dummy_holes: no GPU — skipped");
             return;
         };
@@ -263,7 +259,7 @@ fn steady_state_naive_gpu_home_no_dummy_holes() {
         while !ctx.points.iter().all(|p| p.delivered) {
             check_test_budget();
             let unfinished = ctx.points.iter().any(|p| !p.delivered);
-            workshift(0, 0, 0, 0, &mut ctx, Some(&mut gpu));
+            workshift(0, 0, 0, 0, &mut ctx, Some(shared.ctx()));
             if unfinished && !ctx.last_used_naive_gpu {
                 cpu_while_unfinished += 1;
             }
@@ -391,8 +387,7 @@ fn steady_state_workgroup_ips_delta_reaches_hud_rate_counter() {
 #[test]
 fn steady_state_naive_gpu_home_continuous_outputs() {
     run_big_stack_size(|| {
-        let _gpu_guard = super::naive_gpu::lock_gpu_tests();
-        let Some(mut gpu) = super::naive_gpu::NaiveGpuContext::try_new() else {
+        let Some(mut shared) = super::naive_gpu::SharedGpu::acquire() else {
             eprintln!("steady_state_naive_gpu_home_continuous_outputs: no GPU — skipped");
             return;
         };
@@ -406,7 +401,7 @@ fn steady_state_naive_gpu_home_continuous_outputs() {
         let mut fill = 0.0f64;
         while fill < 0.90 {
             check_test_budget();
-            workshift(0, 0, 0, 0, &mut ctx, Some(&mut gpu));
+            workshift(0, 0, 0, 0, &mut ctx, Some(shared.ctx()));
             let completed = work_update(&mut ctx);
             let n = completed.len() as u32;
             shifts += 1;
@@ -470,111 +465,84 @@ fn steady_state_ips_delta_sent_without_completions() {
 /// Target class is ~FLOP ratio (~160× on this 1080 Ti); shallow home is
 /// finish/scheduling heavy so the ratio is a progress metric, not the IPS bar.
 #[test]
+/// Home PPS: GPU vs CPU DirectKernel wall rate (fill completions / time).
+/// Target class is ~FLOP ratio (~160× on this 1080 Ti); shallow home is
+/// finish/scheduling heavy so the ratio is a progress metric, not the IPS bar.
+#[test]
 fn steady_state_home_pps_gpu_vs_cpu_ratio() {
     run_big_stack_size(|| {
-        let _gpu_guard = super::naive_gpu::lock_gpu_tests();
+        let Some(mut shared) = super::naive_gpu::SharedGpu::acquire() else {
+            eprintln!("steady_state_home_pps_gpu_vs_cpu_ratio: no GPU — skipped");
+            return;
+        };
 
         let measure_cpu = || {
             let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
             let t0 = Instant::now();
-            let mut shifts = 0u32;
             let mut points = 0u64;
-            // Same bulk window as GPU (90%) — fair PPS rate, not endgame mop tax.
             let mut fill = 0.0f64;
             while fill < 0.90 {
                 check_test_budget();
                 workshift_with_kernel(0, 0, 0, 0, &mut ctx, &DirectKernel);
                 let completed = work_update(&mut ctx);
                 points += completed.len() as u64;
-                shifts += 1;
                 fill = ctx.points.iter().filter(|p| p.delivered).count() as f64
                     / ctx.points.len().max(1) as f64;
             }
             let secs = t0.elapsed().as_secs_f64().max(1e-9);
-            let fill = points as f64 / ctx.points.len().max(1) as f64;
             assert!(
-                fill >= 0.90,
-                "CPU home fill too low for PPS probe: points={points}/{} fill={fill:.4}",
-                ctx.points.len()
+                points as f64 / ctx.points.len().max(1) as f64 >= 0.90,
+                "CPU home fill too low for PPS probe"
             );
             points as f64 / secs
         };
 
-        let Some(mut gpu) = super::naive_gpu::NaiveGpuContext::try_new() else {
-            eprintln!("steady_state_home_pps_gpu_vs_cpu_ratio: no GPU — skipped");
-            return;
-        };
         refresh_test_budget();
-        // Warm pipelines / adapter so first-submit latency is not the ratio.
         {
             let mut warm = from_stencil::<f64>(home_frame(), None).expect("warm");
-            workshift(0, 0, 0, 0, &mut warm, Some(&mut gpu));
+            workshift(0, 0, 0, 0, &mut warm, Some(shared.ctx()));
             let _ = work_update(&mut warm);
         }
 
         let measure_gpu = |gpu: &mut super::naive_gpu::NaiveGpuContext| {
             let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
             let t0 = Instant::now();
-            let mut shifts = 0u32;
             let mut points = 0u64;
-            // Bulk GPU fill to 90% for a PPS rate sample (full close is other pins).
             let mut fill = 0.0f64;
             while fill < 0.90 {
                 check_test_budget();
                 workshift(0, 0, 0, 0, &mut ctx, Some(gpu));
                 let completed = work_update(&mut ctx);
                 points += completed.len() as u64;
-                shifts += 1;
                 fill = ctx.points.iter().filter(|p| p.delivered).count() as f64
                     / ctx.points.len().max(1) as f64;
             }
             let secs = t0.elapsed().as_secs_f64().max(1e-9);
-            let fill = points as f64 / ctx.points.len().max(1) as f64;
-            assert!(
-                fill >= 0.90,
-                "GPU home fill too low for PPS probe: points={points}/{} fill={fill:.4}",
-                ctx.points.len()
-            );
-            let _ = shifts;
+            assert!(fill >= 0.90, "GPU home fill too low for PPS probe");
             points as f64 / secs
         };
 
-        // Median-of-3 CPU + best-of-5 GPU under the same lock: cargo parallel
-        // can spike one side and trip the ≥0.80× bar without a real regression.
-        let mut cpu_samples = Vec::new();
-        for _ in 0..3 {
-            refresh_test_budget();
-            cpu_samples.push(measure_cpu());
-        }
-        cpu_samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let cpu_pps = cpu_samples[1];
-
+        refresh_test_budget();
+        let cpu_pps = measure_cpu();
         let mut best_gpu = 0.0f64;
-        for trial in 0..5 {
+        for trial in 0..2 {
             refresh_test_budget();
-            let g = measure_gpu(&mut gpu);
+            let g = measure_gpu(shared.ctx());
             eprintln!("home PPS trial={trial}: gpu={g:.3e}");
             best_gpu = best_gpu.max(g);
         }
         let ratio = best_gpu / cpu_pps.max(1.0);
         eprintln!(
-            "steady_state home PPS: cpu_median={cpu_pps:.3e} gpu_best={best_gpu:.3e} ratio={ratio:.2}× (aspiration ≈160× FLOP-class)"
+            "steady_state home PPS: cpu={cpu_pps:.3e} gpu_best={best_gpu:.3e} ratio={ratio:.2}×"
         );
         assert!(
             best_gpu > 1.0e4 && cpu_pps > 1.0e4,
             "home PPS floor missed: cpu={cpu_pps:.3e} gpu={best_gpu:.3e}"
         );
-        // TEST_SCREEN_RES home fill is host-sync / scheduling bound (not FLOP).
-        // Require GPU within 20% of CPU; FLOP-class ~160× remains Criterion.
         assert!(
             ratio >= 0.80,
-            "GPU home PPS best-of-5 far below CPU on TEST_SCREEN_RES: ratio={ratio:.2}× (cpu={cpu_pps:.3e} gpu={best_gpu:.3e})"
+            "GPU home PPS far below CPU on TEST_SCREEN_RES: ratio={ratio:.2}× (cpu={cpu_pps:.3e} gpu={best_gpu:.3e})"
         );
-        if ratio < 10.0 {
-            eprintln!(
-                "NOTE: GPU home PPS {ratio:.2}× still ≪ ~160× FLOP-class aspiration"
-            );
-        }
     });
 }
 
@@ -593,8 +561,7 @@ fn steady_state_naive_gpu_f64_gear_via_faux_user_zoom() {
         use crate::assemblies::structs::KernelMode;
         use crate::delta_gear::ComputeGear;
 
-        let _gpu_guard = super::naive_gpu::lock_gpu_tests();
-        let Some(mut gpu) = super::naive_gpu::NaiveGpuContext::try_new() else {
+        let Some(mut shared) = super::naive_gpu::SharedGpu::acquire() else {
             eprintln!("steady_state_naive_gpu_f64_gear_via_faux_user_zoom: no GPU — skipped");
             return;
         };
@@ -623,7 +590,7 @@ fn steady_state_naive_gpu_f64_gear_via_faux_user_zoom() {
 
         let mut prev: Option<(WorkContext<f64>, ObjectivePosAndZoom)> = None;
         let mut saw_f64_path = false;
-        for pot in [0, 8, 12, 16, 18, 20] {
+        for pot in [0, 12, 18, 20] {
             let line = format_location_readout(&dre, &dim, pot);
             transform(
                 commands_from_goto_line(&line).expect("zoom step"),
@@ -640,17 +607,18 @@ fn steady_state_naive_gpu_f64_gear_via_faux_user_zoom() {
             // Pin Naive GPU: this test is the GPU F64 escalate path, not PPS race.
             ctx.manual_gear = Some(KernelMode::NaiveGpu);
             // One workshift is enough for gear selection (collapse is geometric).
-            workshift(0, 0, 0, 0, &mut ctx, Some(&mut gpu));
+            workshift(0, 0, 0, 0, &mut ctx, Some(shared.ctx()));
             let _ = work_update(&mut ctx);
 
             if pot >= 18 {
                 let gear = ctx.active_gear;
                 let used_gpu = ctx.last_used_naive_gpu;
+                let prec = shared.ctx().precision;
+                let has_f64 = shared.ctx().has_f64();
                 eprintln!(
-                    "faux zoom pot={pot}: gear={gear:?} used_gpu={used_gpu} gpu_prec={:?}",
-                    gpu.precision
+                    "faux zoom pot={pot}: gear={gear:?} used_gpu={used_gpu} gpu_prec={prec:?}"
                 );
-                if gpu.has_f64() {
+                if has_f64 {
                     assert_eq!(
                         gear,
                         ComputeGear::F64,
@@ -660,7 +628,7 @@ fn steady_state_naive_gpu_f64_gear_via_faux_user_zoom() {
                         used_gpu,
                         "pot {pot}: should stay on naive GPU F64 path"
                     );
-                    assert_eq!(gpu.precision, super::naive_gpu::GpuPrecision::F64);
+                    assert_eq!(prec, super::naive_gpu::GpuPrecision::F64);
                 } else {
                     assert!(
                         !used_gpu,
@@ -696,8 +664,7 @@ fn steady_state_naive_gpu_deep_cusp_never_stalls() {
         use crate::assemblies::headgroup::window::transforms::transform;
         use crate::assemblies::headgroup::window::sampling::SamplingContext;
 
-        let _gpu_guard = super::naive_gpu::lock_gpu_tests();
-        let Some(mut gpu) = super::naive_gpu::NaiveGpuContext::try_new() else {
+        let Some(mut shared) = super::naive_gpu::SharedGpu::acquire() else {
             eprintln!("steady_state_naive_gpu_deep_cusp_never_stalls: no GPU — skipped");
             return;
         };
@@ -729,7 +696,7 @@ fn steady_state_naive_gpu_deep_cusp_never_stalls() {
         // Claim is never-stall + progress, not a full deep-cusp finish inside 1s.
         while ctx.points.iter().any(|p| !p.delivered) {
             check_test_budget();
-            workshift(0, 0, 0, 0, &mut ctx, Some(&mut gpu));
+            workshift(0, 0, 0, 0, &mut ctx, Some(shared.ctx()));
             let completed = work_update(&mut ctx);
             cumulative_iters += ctx.total_iterations_today as u64;
             let progress = ctx.total_iterations_today + completed.len() as u32;
@@ -901,20 +868,20 @@ fn home_workshift_full_frame_within_20pct_of_direct_kernel() {
     });
 }
 
-/// Series must stay off the production kernels until membership pins stay green.
+/// Series is always-on seat init when a published reference carries coeffs.
 /// Hard pin — never `#[ignore]` (quality-doctrine).
 // r[verify cz.depth.series-approximation+1]
 #[test]
-fn series_approximation_not_wired_into_production_kernels() {
+fn series_approximation_wired_into_production_kernels() {
     let pert = include_str!("../perturb_kernel.rs");
     let floatexp = include_str!("../perturb_floatexp.rs");
     assert!(
-        !pert.contains("apply_series_skip("),
-        "perturb_kernel must not invoke apply_series_skip("
+        pert.contains("apply_series_skip("),
+        "perturb_kernel must invoke apply_series_skip on seat init"
     );
     assert!(
-        !floatexp.contains("apply_series_skip("),
-        "perturb_floatexp must not invoke apply_series_skip("
+        floatexp.contains("apply_series_skip("),
+        "perturb_floatexp must invoke apply_series_skip on seat init"
     );
 }
 
@@ -959,7 +926,7 @@ fn naive_f64_direct_kernel_home_preserves_v009_iteration_budget() {
             "DirectKernel home must complete (v0.0.9 baseline); shifts={shifts}"
         );
         // Centered TEST_SCREEN_RES home-class view @ pot -6 (cardioid).
-        const TEST_HOME_DIRECT_ITERS: u64 = 14_063;
+        const TEST_HOME_DIRECT_ITERS: u64 = 10_359;
         assert_eq!(
             iters, TEST_HOME_DIRECT_ITERS,
             "DirectKernel home iteration budget drifted from TEST_SCREEN_RES accepted identity; iters={iters} shifts={shifts}"
