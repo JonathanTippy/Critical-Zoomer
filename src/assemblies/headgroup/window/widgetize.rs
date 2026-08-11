@@ -69,6 +69,32 @@ impl Settings {
         });
         ui.label("Default OG; manual forces OG or GPU.");
         ui.separator();
+        ui.label("Cadence — content refresh (collector / shade)");
+        ui.checkbox(&mut self.content_refresh_automatic, "Automatic (monitor vsync Hz)");
+        ui.add_enabled_ui(!self.content_refresh_automatic, |ui| {
+            ui.add(
+                egui::Slider::new(&mut self.content_refresh_hz, 1.0..=240.0)
+                    .text("content Hz")
+                    .logarithmic(true),
+            );
+        });
+        ui.label(format!(
+            "Resolved content {:.1} Hz ({:.1} ms)",
+            self.resolved_content_hz(),
+            self.resolved_content_period().as_secs_f64() * 1000.0
+        ));
+        ui.separator();
+        ui.label("Cadence — head present");
+        ui.checkbox(&mut self.head_vsync_enabled, "Vsync");
+        ui.add_enabled_ui(!self.head_vsync_enabled, |ui| {
+            ui.add(
+                egui::DragValue::new(&mut self.head_max_fps)
+                    .speed(1.0)
+                    .range(1.0..=1000.0)
+                    .prefix("max FPS "),
+            );
+        });
+        ui.separator();
 
         ui.label("order of coloring steps:");
 

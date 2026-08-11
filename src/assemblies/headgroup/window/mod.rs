@@ -42,7 +42,7 @@ const RECOVER_EGUI_CRASHES:bool = false;
 // be minimized or not on top, it might bother the user by restarting.
 //const MIN_FRAME_RATE:f64 = 20.0;
 //const MAX_FRAME_TIME:f64 = 1.0 / MIN_FRAME_RATE;
-const VSYNC:bool = false;
+const VSYNC: bool = true; // bootstrap; runtime head_vsync_enabled gates present pacing
 
 
 
@@ -119,12 +119,12 @@ pub async fn run(
     actor: SteadyActorShadow,
     pixels_in: SteadyRx<View<Color32>>,
     stencil_out: SteadyTx<(PointStencil)>,
-    settings_out: SteadyTxBundle<Settings,3>,
+    settings_out: SteadyTxBundle<Settings,4>,
     attention_out: SteadyTx<Option<(i32, i32)>>,
     state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
     internal_behavior(
-        actor.into_spotlight([&pixels_in], [&stencil_out, &settings_out[0], &settings_out[1], &settings_out[2], &attention_out]),
+        actor.into_spotlight([&pixels_in], [&stencil_out, &settings_out[0], &settings_out[1], &settings_out[2], &settings_out[3], &attention_out]),
         pixels_in,
         stencil_out,
         settings_out,
@@ -139,7 +139,7 @@ async fn internal_behavior<A: SteadyActor>(
     actor: A,
     pixels_in: SteadyRx<View<Color32>>,
     stencil_out: SteadyTx<(PointStencil)>,
-    settings_out: SteadyTxBundle<Settings, 3>,
+    settings_out: SteadyTxBundle<Settings, 4>,
     attention_out: SteadyTx<Option<(i32, i32)>>,
     state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
@@ -271,7 +271,7 @@ struct EguiWindowPassthrough<'a, A> {
     portable_actor: Arc<Mutex<A>>,
     pixels_in: SteadyRx<View<Color32>>,
     stencil_out: SteadyTx<(PointStencil)>,
-    settings_out: SteadyTxBundle<Settings, 3>,
+    settings_out: SteadyTxBundle<Settings, 4>,
     attention_out: SteadyTx<Option<(i32, i32)>>,
     portable_state:Arc<Mutex<StateGuard<'a, WindowState>>>
 }
@@ -292,6 +292,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             self.settings_out[0].try_lock().unwrap()
             ,self.settings_out[1].try_lock().unwrap()
             ,self.settings_out[2].try_lock().unwrap()
+            ,self.settings_out[3].try_lock().unwrap()
         ];
         let mut attention_out = self.attention_out.try_lock().unwrap();
         let mut state = self.portable_state.lock().unwrap();
@@ -333,8 +334,20 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             );
 
 
-            // prevent vsync
-            ctx.request_repaint();
+            // Present pacing: vsync (default) keeps continuous repaint; uncapped
+            // path paces to head_max_fps from settings.
+            {
+                let s = state
+                    .settings_window_context
+                    .try_lock()
+                    .map(|g| g.settings.clone())
+                    .unwrap_or(Settings::DEFAULT);
+                if s.head_vsync_enabled {
+                    ctx.request_repaint();
+                } else {
+                    ctx.request_repaint_after(s.resolved_head_max_period());
+                }
+            }
 
             let size = (state.size.x as usize, state.size.y as usize);
             let pixels = size.0 * size.1;
@@ -653,12 +666,25 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 if state.settings_window_open {
                     let result = settings(&ctx, state.settings_window_context.clone());
                     state.settings_window_open = !result.will_close;
-                    for mut channel in settings_out {
-                        actor.try_send(&mut channel, result.settings.clone());
+                    if let Ok(mut ctx_settings) = state.settings_window_context.try_lock() {
+                        ctx_settings.settings = result.settings.clone();
                     }
-                } else {
+                }
+                // Feed measured present Hz into Automatic content refresh, then fan out.
+                if let Ok(mut ctx_settings) = state.settings_window_context.try_lock() {
+                    if let Some((_, _, period, _)) = timinginfo {
+                        let secs = period.as_secs_f64();
+                        if secs > 0.0 {
+                            let measured = 1.0 / secs;
+                            if measured.is_finite() && measured >= 1.0 && measured <= 240.0 {
+                                ctx_settings.settings.auto_vsync_hz = measured;
+                            }
+                        }
+                    }
+                    let snap = ctx_settings.settings.clone();
+                    drop(ctx_settings);
                     for mut channel in settings_out {
-                        actor.try_send(&mut channel, state.settings_window_context.try_lock().unwrap().settings.clone());
+                        actor.try_send(&mut channel, snap.clone());
                     }
                 }
             });

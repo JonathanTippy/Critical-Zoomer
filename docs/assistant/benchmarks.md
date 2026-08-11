@@ -117,13 +117,25 @@ the accepted honest medians above (no ≥20% regression).
 | color_gpu_1_0x (resident) | **~5.18 ms** | ~3.6× vs pre-residency GPU |
 | color_gpu_1_5x | **~7.94 ms** | |
 | color_gpu_2_0x | **~11.2 ms** | |
-| color_gpu_params_only_1_0x | **~0.80 ms** | no pixel re-upload |
-| escape_gpu_radius_only_1_0x | **~3.11 ms** | resident answers; radius uniform |
+| color_gpu_params_only_1_0x | **~0.80 ms** | historical dirty params-only |
+
+**Cadence pass (2026-08-11, content-beat always-refresh, `--quick`):**
+Actor dirty skip removed; GPU paint always refreshes from current inputs
+(persistent buffers kept). New medians replace the dirty-skip pins above for
+slip checks:
+
+| metric | median | notes |
+|---|---|---|
+| color_gpu_1_0x | **~12.9 ms** | full refresh each call |
+| color_gpu_1_5x | **~22.5 ms** | |
+| color_gpu_2_0x | **~28.5 ms** | |
+| color_gpu_params_only_1_0x | **~12.5 ms** | same class as full refresh (no actor dirty) |
+| escape_gpu_radius_only_1_0x | **~3.11 ms** | unchanged class |
 | workgroup time_to_full_frame | **~300 ms** | within ~20% of ~270 ms accepted |
 
-Actors re-run these every ~8 ms wake while holding a package. Color gear defaults
-to **GPU** (2026-08-11); escape defaults OG. HUD stamps `color:` and `escape:`.
-Workgroup TTFP / “stops after GPU color” remain parked after this pass.
+Actors wake on `resolved_content_period()` (Automatic = head `auto_vsync_hz`).
+Color gear defaults to **GPU**; escape defaults OG. HUD stamps `color:` /
+`escape:` and stage rates `pub:/esc:/col:/ctrl:`.
 
 ## Baseline
 

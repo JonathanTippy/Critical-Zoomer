@@ -25,6 +25,15 @@ Developer acceptance test failed on the tile machine. Most items were tile-era i
 - zoom response: new work starts immediately on pivot at v0.0.9 (replace + remap); the 1–2s play regression was tile-era retarget machinery. Any successor must match the old latency, not "improve toward" it.
 - unfinished pixels must never look like finished flat black: v0.0.9 fills from remap / provisional edge answers / Dummy-interior default; keep an honest-incomplete signal in any GPU port.
 
+**Charter note (2026-08-11 cadence pass):** headgroup present vsync default +
+Settings cadence knobs (`content_refresh_*`, `head_vsync_enabled`,
+`head_max_fps`, `auto_vsync_hz`); Settings fan-out to collector; content-tier
+`wait_periodic(resolved_content_period)` on collector/escaper/colorer; no
+actor dirty skip-send; GPU paint always refreshes from current inputs
+(persistent buffers kept). HUD `pub:/esc:/col:/ctrl:` emission-Instant rates
+already landed. Escape gear stays OG default. Workgroup TTFP / Replace coalesce
+still parked.
+
 ## True bugs (open)
 
 - **Precision wall / gear:F64 at ~pot 43–48 — fix on live path (2026-08-09).** Headed

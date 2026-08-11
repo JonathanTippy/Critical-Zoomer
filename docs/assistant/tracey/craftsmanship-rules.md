@@ -438,19 +438,23 @@ The 10ms constant itself stays code-reviewed (timing is not meaningfully unit-te
 
 r[cz.craft.emergent-cadence+1]
 
-**Normative summary.** Publish cadence is emergent: every non-empty shift sends; there is no
-publish timer or gate. Smoothness means **continuous outputs**: while unfinished and seats
-are finishable, each ~10 ms workshift should drain fresh completions (viewer freshness);
-gaps of visible new points must stay within about one 50 ms pulse. Iterate-heavy interior
-may burn iterations without finals — that is not a cadence failure.
+**Normative summary.** Worker → collector cadence is emergent: every non-empty
+shift (or iteration-delta update) sends a `WorkUpdate`; there is no publish
+timer inside the worker. Collector → shade publish is the **content beat**
+(`resolved_content_period()`): resident work-so-far is emitted on that period
+even when shifts are sparse. Smoothness means **continuous outputs** on the
+content tier while unfinished; iterate-heavy interior may burn iterations
+without finals — that is not a cadence failure.
 
 **Code site.** `screen_worker/mod.rs` — post-shift drain-and-send, every shift;
+`work_collector.rs` — content-period publish of resident package;
 `naive_gpu/mod.rs` — harvest-every-bout until the shift has published points, then optional
 multi-bout amortize only when finals are sparse.
 
 **Acceptance criteria.**
-- [ ] While incomplete, publishes track workrate with no fixed interval; when complete,
-  publishing goes idle (no empty publishes).
+- [ ] While incomplete, worker `WorkUpdate`s track workrate with no fixed interval; when complete,
+  worker publishing goes idle (no empty updates).
+- [ ] Collector publishes resident packages on the content beat while a package exists.
 - Worker-layer never-stall: unfinished frames must show progress every workshift
   (`total_iterations_today` / seat advance / completions).
 - Home/shallow GPU fill: after the first completion, ≤5 consecutive shifts without a

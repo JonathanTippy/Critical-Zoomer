@@ -1,6 +1,6 @@
 use eframe::epaint::Color32;
 use steady_state::*;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::assemblies::headgroup::window::*;
 use crate::assemblies::workgroup::screen_worker::workshift::*;
@@ -10,6 +10,7 @@ use crate::constants::*;
 use crate::constants::*;
 
 use crate::assemblies::structs::*;
+use crate::settings::Settings;
 
 use rand::prelude::SliceRandom;
 use crate::utils::*;
@@ -41,33 +42,99 @@ pub const WORKER_INIT_ZOOM:f64 = if WORKER_INIT_ZOOM_POT>0 {(1<<WORKER_INIT_ZOOM
 pub const PIXELS_PER_UNIT_POT:i32 = 9;
 pub const PIXELS_PER_UNIT: u64 = 1<<(PIXELS_PER_UNIT_POT);
 
+fn answer_from_completed(x: CompletedPoint<f64>) -> Answer {
+    match x {
+        CompletedPoint::Escapes {
+            escape_time,
+            escape_location,
+            escape_derivative,
+            smallness,
+            small_time,
+            ..
+        } => Answer {
+            result: MandelbrotResult::Outside {
+                escape_time_r2: escape_time as u64,
+                escape_z: (escape_location.0 as f32, escape_location.1 as f32),
+                escape_dc: (escape_derivative.0 as f32, escape_derivative.1 as f32),
+            },
+            min_magnitude_time: small_time as u64,
+            min_magnitude: smallness,
+        },
+        CompletedPoint::Repeats {
+            period,
+            smallness,
+            small_time,
+        } => Answer {
+            result: MandelbrotResult::Inside {
+                period: period as u64,
+            },
+            min_magnitude_time: small_time as u64,
+            min_magnitude: smallness,
+        },
+        CompletedPoint::Dummy {} => Answer {
+            result: MandelbrotResult::Inside { period: 0 },
+            min_magnitude_time: 0,
+            min_magnitude: 0.0,
+        },
+    }
+}
 
+fn view_from_package(package: &ResultsPackage<f64>, ctrl_emit: Option<Instant>) -> View<Answer> {
+    let mut hud = package.hud;
+    hud.controller_emitted_at = ctrl_emit;
+    hud.publisher_emitted_at = Some(Instant::now());
+    View {
+        stencil: PointStencil {
+            location: (
+                package.location.pos.0.clone(),
+                IntExp::ZERO - package.location.pos.1.clone(),
+                package.location.zoom_pot,
+            ),
+            resolution: (
+                package.screen_res.0 as usize,
+                package.screen_res.1 as usize,
+            ),
+            serial_number: 0,
+        },
+        data: package
+            .results
+            .iter()
+            .cloned()
+            .map(answer_from_completed)
+            .collect(),
+        bitmap: vec![0; package.results.len()],
+        hud,
+    }
+}
 
 pub async fn run(
     actor: SteadyActorShadow,
     from_worker: SteadyRx<WorkUpdate<f64>>,
     answers_out: SteadyTx<View<Answer>>,
+    settings_in: SteadyRx<Settings>,
     state: SteadyState<WorkCollectorState<f64>>,
 ) -> Result<(), Box<dyn Error>> {
-    // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
-        actor.into_spotlight([&from_worker], [&answers_out]),
+        actor.into_spotlight([&from_worker, &settings_in], [&answers_out]),
         from_worker,
         answers_out,
+        settings_in,
         state,
     )
-        .await
+    .await
 }
 
 async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
     from_worker: SteadyRx<WorkUpdate<f64>>,
     answers_out: SteadyTx<View<Answer>>,
+    settings_in: SteadyRx<Settings>,
     state: SteadyState<WorkCollectorState<f64>>,
 ) -> Result<(), Box<dyn Error>> {
 
     let mut values_out = answers_out.lock().await;
     let mut from_worker = from_worker.lock().await;
+    let mut settings_in = settings_in.lock().await;
 
     let mut state = state.lock(|| WorkCollectorState {
         completed_work: None
@@ -75,27 +142,32 @@ async fn internal_behavior<A: SteadyActor>(
         , pending_controller_emitted_at: None
     }).await;
 
-    let max_sleep = Duration::from_millis(50);
-
-
-
+    let mut content_period = Settings::DEFAULT.resolved_content_period();
+    let mut last_publish = Instant::now()
+        .checked_sub(Duration::from_secs(1))
+        .unwrap_or_else(Instant::now);
 
     while actor.is_running(
         || i!(values_out.mark_closed())
     ) {
 
-        await_for_any!(//#!#//
-            actor.wait_periodic(max_sleep),
+        await_for_any!(
+            actor.wait_periodic(content_period),
             actor.wait_avail(&mut from_worker, 1),
+            actor.wait_avail(&mut settings_in, 1),
         );
 
-        if actor.avail_units(&mut from_worker) > 0 {
-            let U =actor.try_take(&mut from_worker).expect("work update seemed available but wasn't...");
+        while actor.avail_units(&mut settings_in) > 0 {
+            if let Some(s) = actor.try_take(&mut settings_in) {
+                content_period = s.resolved_content_period();
+            }
+        }
+
+        while actor.avail_units(&mut from_worker) > 0 {
+            let U = actor.try_take(&mut from_worker).expect("work update seemed available but wasn't...");
             if let Some(at) = U.controller_emitted_at {
                 state.pending_controller_emitted_at = Some(at);
             }
-            // Taken up front so publish can stamp the outgoing View without borrowing state twice.
-            let mut ctrl_emit = state.pending_controller_emitted_at.take();
 
             if let Some(surrounding_work) = &mut state.surrounding_work {
                 if let Some(mut f) = U.frame_info.clone() {
@@ -119,14 +191,7 @@ async fn internal_behavior<A: SteadyActor>(
                         ..Default::default()
                     };
                 } else {
-                    //let j = U.completed_points;
                     let l = U.completed_points.len();
-
-                    /*for i in j..j+l {
-                        if i-j < vs.len() && i < state.completed_work[0].results.len() {
-                            state.completed_work[0].results[i] = vs[i-j].clone();
-                        }
-                    }*/
                     let vs = U.completed_points;
                     for i in 0..l {
                         let W = vs[i].clone();
@@ -143,166 +208,55 @@ async fn internal_behavior<A: SteadyActor>(
                         color: crate::assemblies::structs::ColorerHud::Og,
                         ..Default::default()
                     };
-                    if !actor.is_full(&mut values_out) {
-                        let mut hud = completed_work.hud;
-                        hud.controller_emitted_at = ctrl_emit.take();
-                        hud.publisher_emitted_at = Some(Instant::now());
-                        match actor.try_send(&mut values_out,
-                                   View{
-                                       stencil: PointStencil{
-                                           location: (completed_work.location.clone().pos.0, IntExp::ZERO-completed_work.location.clone().pos.1, completed_work.location.zoom_pot)
-                                           , resolution: (completed_work.screen_res.0 as usize, completed_work.screen_res.1 as usize)
-                                           , serial_number: 0
-                                       }
-                                       , data: completed_work.clone().results.into_iter().map(|x| -> Answer {
-                                           match x {
-                                               CompletedPoint::Escapes{escape_time, escape_location, escape_derivative, smallness, small_time, ..} => {
-                                                   Answer{
-                                                       result: MandelbrotResult::Outside {
-                                                           escape_time_r2: escape_time as u64
-                                                           , escape_z: (escape_location.0 as f32, escape_location.1 as f32)
-                                                           , escape_dc: (escape_derivative.0 as f32, escape_derivative.1 as f32)
-                                                       }
-                                                       , min_magnitude_time: small_time as u64
-                                                       , min_magnitude: smallness
-                                                   }
-                                               }
-                                               , CompletedPoint::Repeats{ period, smallness, small_time} => {
-                                                   Answer{
-                                                       result: MandelbrotResult::Inside {
-                                                           period: period as u64
-                                                       }
-                                                       ,
-                                                       min_magnitude_time: small_time as u64
-                                                       ,
-                                                       min_magnitude: smallness
-                                                   }
-                                               }
-                                               , CompletedPoint::Dummy{} => {
-                                                   Answer {
-                                                       result: MandelbrotResult::Inside {
-                                                           period: 0
-                                                       }
-                                                       ,
-                                                       min_magnitude_time: 0
-                                                       ,
-                                                       min_magnitude: 0.0
-                                                   }
-                                               }
-                                           }
-                                       }).collect()
-                                       , bitmap: vec!(0;completed_work.results.len()),
-                                       hud,
-}) {
-                            SendOutcome::Success => {}
-                            SendOutcome::Blocked(v)
-                            | SendOutcome::Timeout(v)
-                            | SendOutcome::Closed(v) => {
-                                ctrl_emit = v.hud.controller_emitted_at;
-                            }
-                        }
-                    }
                 }
             } else {
                 let f = U.frame_info.expect("work collector recieved an initial work update without any info");
-                state.completed_work = Some(
-                    ResultsPackage {
-                        results: vec![CompletedPoint::Dummy{}; (f.1.0 * f.1.1) as usize]
-                        , screen_res: f.1
-                        , location: f.0
-                        , hud: crate::assemblies::structs::ViewHud {
-                            stack: U.host_stack,
-                            mode: U.kernel_mode,
-                            reference: U.reference_status,
-                            gear: U.active_gear,
-                            points_delta: U.completed_points.len() as u64,
-                            iterations_delta: U.iterations_delta,
-                            packages_dropped: 0,
-                            color: crate::assemblies::structs::ColorerHud::Og,
-                            ..Default::default()
+                let mut package = ResultsPackage {
+                    results: vec![CompletedPoint::Dummy{}; (f.1.0 * f.1.1) as usize],
+                    screen_res: f.1,
+                    location: f.0,
+                    hud: crate::assemblies::structs::ViewHud {
+                        stack: U.host_stack,
+                        mode: U.kernel_mode,
+                        reference: U.reference_status,
+                        gear: U.active_gear,
+                        points_delta: U.completed_points.len() as u64,
+                        iterations_delta: U.iterations_delta,
+                        packages_dropped: 0,
+                        color: crate::assemblies::structs::ColorerHud::Og,
+                        ..Default::default()
+                    },
+                };
+                let l = U.completed_points.len();
+                let vs = U.completed_points;
+                for i in 0..l {
+                    let W = vs[i].clone();
+                    package.results[W.1] = W.0;
+                }
+                state.completed_work = Some(package);
+            }
+        }
+
+        // Content beat: publish resident work-so-far at the shared period.
+        if last_publish.elapsed() >= content_period {
+            if let Some(package) = state.completed_work.clone() {
+                if !actor.is_full(&mut values_out) {
+                    let mut ctrl_emit = state.pending_controller_emitted_at.take();
+                    let view = view_from_package(&package, ctrl_emit.take());
+                    match actor.try_send(&mut values_out, view) {
+                        SendOutcome::Success => {
+                            last_publish = Instant::now();
                         }
-                    }
-                );
-                if let Some(completed_work) = &mut state.completed_work {
-                    let l = U.completed_points.len();
-                    let vs = U.completed_points;
-                    for i in 0..l {
-                        let W = vs[i].clone();
-                        completed_work.results[W.1] = W.0;
-                    }
-                    if !actor.is_full(&mut values_out) {
-                        let mut hud = completed_work.hud;
-                        hud.controller_emitted_at = ctrl_emit.take();
-                        hud.publisher_emitted_at = Some(Instant::now());
-                        match actor.try_send(&mut values_out, View {
-                        stencil: PointStencil {
-                            location: (completed_work.location.clone().pos.0, IntExp::ZERO-completed_work.location.clone().pos.1, completed_work.location.zoom_pot)
-                            ,
-                            resolution: (completed_work.screen_res.0 as usize, completed_work.screen_res.1 as usize)
-                            ,
-                            serial_number: 0
-                        }
-                        ,
-                        data: completed_work.clone().results.into_iter().map(|x| -> Answer {
-                            match x {
-                                CompletedPoint::Escapes { escape_time, escape_location, escape_derivative, smallness, small_time, .. } => {
-                                    Answer {
-                                        result: MandelbrotResult::Outside {
-                                            escape_time_r2: escape_time as u64
-                                            ,
-                                            escape_z: (escape_location.0 as f32, escape_location.1 as f32)
-                                            , escape_dc: (escape_derivative.0 as f32, escape_derivative.1 as f32)
-                                        }
-                                        ,
-                                        min_magnitude_time: small_time as u64
-                                        ,
-                                        min_magnitude: smallness
-                                    }
-                                }
-                                ,
-                                CompletedPoint::Repeats { period, smallness, small_time } => {
-                                    Answer {
-                                        result: MandelbrotResult::Inside {
-                                            period: period as u64
-                                        }
-                                        ,
-                                        min_magnitude_time: small_time as u64
-                                        ,
-                                        min_magnitude: smallness
-                                    }
-                                }
-                                ,
-                                CompletedPoint::Dummy {} => {
-                                    Answer {
-                                        result: MandelbrotResult::Inside {
-                                            period: 0
-                                        }
-                                        ,
-                                        min_magnitude_time: 0
-                                        ,
-                                        min_magnitude: 0.0
-                                    }
-                                }
-                            }
-                        }).collect()
-                        ,
-                        bitmap: vec!(0; completed_work.results.len()),
-                        hud,
-}) {
-                            SendOutcome::Success => {}
-                            SendOutcome::Blocked(v)
-                            | SendOutcome::Timeout(v)
-                            | SendOutcome::Closed(v) => {
-                                ctrl_emit = v.hud.controller_emitted_at;
-                            }
+                        SendOutcome::Blocked(v)
+                        | SendOutcome::Timeout(v)
+                        | SendOutcome::Closed(v) => {
+                            state.pending_controller_emitted_at = v.hud.controller_emitted_at;
                         }
                     }
                 }
             }
-            state.pending_controller_emitted_at = ctrl_emit;
         }
     }
-    // Final shutdown log, reporting all statistics.
     info!("Computer shutting down.");
     Ok(())
 }

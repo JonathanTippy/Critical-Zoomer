@@ -272,20 +272,27 @@ One function, three behaviors, no case analysis. The mathematics of the shared t
 
 ---
 
-## 8. The 50ms pulse: how publish cadence emerges instead of being scheduled
+## 8. Workshift density + content-beat publish
 
 Look at the timing architecture from the outside:
 
 - The worker's shift clock is ~10ms.
-- After *every* shift, non-empty completions are sent (`total_workshifts % 1 == 0` — every shift, no gating).
-- The collector wakes on new data or its own 50ms periodic timer.
-- Every seat-write publishes a full View.
+- After *every* shift, non-empty completions (or iteration deltas) are sent as
+  `WorkUpdate`s (`total_workshifts % 1 == 0` — every shift, no gating).
+- The collector swaps those into a single resident package and **publishes to
+  shade on the content beat** (`Settings::resolved_content_period()`, Automatic
+  = head-measured vsync Hz). Escaper and colorer share that period.
+- Every collector publish is still a full `View` snapshot of work-so-far.
 
-The architecture's rule — "send hoarded work on transform, or every 50ms while incomplete; always have new work at that interval" — is satisfied **without a scheduler**: the shift loop naturally produces completions several times per 50ms window under any non-trivial frame, and the natural remap-on-frame-info covers the transform case. The cadence is an emergent property of the shift clock plus per-shift drain. There is no timer to tune, no "publish every N" constant to get wrong, no burst-then-starve behavior. The design found the cadence inside the work rhythm rather than bolting it on.
+Worker → collector cadence remains emergent from the shift clock. Collector →
+shade is intentionally timer-paced so incomplete large frames still refresh at
+vsync even when shifts are sparse. Head present may use vsync or
+uncapped-to-max-FPS independently.
 
-**Smoothness (developer, 2026-08-09):** continuous outputs — get finished points out at the full ~10 ms workshift rate when overhead allows, and never leave a finishable frame quiet for longer than about one 50 ms pulse. Multi-bout GPU amortize is allowed only after a shift has already published some finals (or when the wave is clearly iterate-heavy).
-
-And the worker's idle path — `percent_completed < 100` keeps it chaining shifts with no sleep; complete means it sleeps on the 50ms/command wait — means the machine is exactly as busy as the screen is unfinished. Load is proportional to ignorance. There is no polling, no spin, no wasted cycles on a finished frame.
+And the worker's idle path — `percent_completed < 100` keeps it chaining shifts
+with no sleep; complete means it sleeps on the 50ms/command wait — means the
+machine is exactly as busy as the screen is unfinished. Load is proportional to
+ignorance.
 
 ---
 

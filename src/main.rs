@@ -120,7 +120,7 @@ fn build_graph(graph: &mut Graph) {
     let (
         window_tx_to_stuff
         , stuff_rx_from_window
-    ) = channel_builder.with_capacity(50).build_channel_bundle::<Settings, 3>();
+    ) = channel_builder.with_capacity(50).build_channel_bundle::<Settings, 4>();
 
     //work controller to worker commands channel
 
@@ -183,10 +183,11 @@ fn build_graph(graph: &mut Graph) {
 
     //let mut responsive_team = graph.actor_troupe();
 
-    let (colorer_settings, escaper_settings, worker_settings) = (
+    let (colorer_settings, escaper_settings, worker_settings, collector_settings) = (
         stuff_rx_from_window[0].clone(),
         stuff_rx_from_window[1].clone(),
         stuff_rx_from_window[2].clone(),
+        stuff_rx_from_window[3].clone(),
     );
 
     let state = new_state();
@@ -241,7 +242,7 @@ fn build_graph(graph: &mut Graph) {
     let state = new_state();
     actor_builder.with_name(NAME_WORK_COLLECTOR)
         .build(move |context|
-            workgroup::work_collector::run(context, work_collector_rx_from_screen_worker.clone(), work_collector_tx_to_escaper.clone(), state.clone())
+            workgroup::work_collector::run(context, work_collector_rx_from_screen_worker.clone(), work_collector_tx_to_escaper.clone(), collector_settings.clone(), state.clone())
             , SoloAct
         );
 
