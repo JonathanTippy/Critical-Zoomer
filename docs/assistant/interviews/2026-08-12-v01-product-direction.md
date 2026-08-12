@@ -500,3 +500,26 @@ not strongly recommending the cap but it seems the best option atm
 Corrected: strong lock is **coupled** window and sample/view. Cap is
 **weak**, currently best, and if used it caps **both**. Uncoupling
 (4K window, 1080p sample) is out.
+
+---
+
+### Developer
+
+whats next?
+
+### Assistant
+
+Named product slices and a layer note. Did **not** recommend a ghost-hunting
+session first.
+
+### Developer
+
+Any reason you can't recommend a ghost hunting session?
+
+### Assistant
+
+**No.** That should have been next. Product work on top of misleading
+post-v0.0.9 notes is how false-fixed repeats. **Next: ghost hunt** — find
+assistant comments/docs that disagree with live code or with this
+interview; mark or fix the note; do not “fix” the product in the same
+pass unless the ghost *is* the code/doc split (e.g. present pacing).
