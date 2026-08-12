@@ -8,12 +8,12 @@
 
 **Summary (living):** Developer corrects false RCA framing — bailout tail is
 **always** ≤~10 iters by Mandelbrot superpower escape, including large animated
-radius. GPU escape slowness is **data shipping** plus, in-app with GPU color,
-**shared `shade_ops` / shared shade device**. Live `esc:~15`/`col:~50` with
-`drop:4` is real. **Goal:** each GPU-using actor compartmentalizes its GPU
-relationship so actors do not fight for GPU time; prove any change with live
-rates. Dual-device is one experiment, not a declared fix. **No code** until
-greenlit / goals settle.
+radius. Live `esc:~15` then `esc:~9` / `col:~45–50` with `drop:` is real and
+authoritative. Dual-device did **not** fix headed rates. Dummy-head RCA:
+convert + GPU pack/readback, not channel full. Within-actor convert hoist +
+same-walk prepack measured dummy-head GPU esc ~60 Hz — **not a headed fix**.
+**Keep a strong escaper↔colorer actor API**; fusion parked unless unavoidable.
+Stencil: O(1) per loop (two `IntExp`s grow at design depth).
 
 ---
 
@@ -27,11 +27,14 @@ greenlit / goals settle.
 | Why colorer GPU helps despite same round-trip pattern | **partial** — cost-ratio story is secondary to live rates | virtues § shipping |
 | Live HUD `esc:~15` / `col:~50` beats Criterion | **locked** — real app rates authoritative | this interview |
 | `drop:4` does not explain esc undercount | **locked** | this interview |
-| Why `esc:~15` with GPU escape | **RCA** — `shade_ops` lock shared with GPU color | this interview |
-| Separate wgpu devices for escape vs color | **applied 2026-08-12** — measure live `esc:`/`col:` | escaper/colorer gpu |
-| Per-actor GPU compartmentalization | **goal + first step** — escaper≠colorer device; prove by measure | this interview |
+| Why `esc:~15`/`esc:~9` with GPU escape | **RCA (dummy-head)** — convert + GPU pack/readback, not channel full; dual-device did not fix headed | this interview |
+| Separate wgpu devices for escape vs color | **applied 2026-08-12** — did not fix headed `esc:` | escaper/colorer gpu |
+| Per-actor GPU compartmentalization | **goal** — prove by headed `esc:`/`col:`, not Criterion | this interview |
+| Strong escaper↔colorer actor API | **locked** — fusion last resort | virtues + this interview |
+| Stencil O(1) per loop, never O(pixels) | **locked** — two `IntExp`s grow at design depth | virtues + wisdom |
+| Convert hoist + same-walk `gpu_answer_pack` | **applied** — dummy-head GPU esc ~60 Hz measured; headed not re-checked | escaper |
 | Dual parallel CPU/GPU views for all actor linkages | **idea only** — developer wary (upload everywhere) | this interview |
-| Fuse escape+color on device / keep values resident | undiscussed | — |
+| Fuse escape+color on device / keep values resident | **parked** unless within-actor options are exhausted | this interview |
 | Workgroup answers already GPU-native → shade without host | undiscussed | naive-gpu / publish |
 | Big plan / implementation | **wait** | developer |
 
@@ -386,10 +389,11 @@ large and will at design depth. proceed with next escaper opt.
 walk; escape body `write_buffer`s the prepack (no second CompletedPoint→GpuAnswer
 walk). Scratch pack retained as fallback. Actor API unchanged.
 
-**Re-measure (release cadence):** GPU mean esc **32.6 → 60.2** (pin green);
+**Re-measure (release dummy-head, not headed):** GPU mean esc **32.6 → 60.2**;
 body **~18 → ~7.1 ms/wake**; send_ok 303 vs packages_taken 150 (resident
-re-emit back). OG still ~64 Hz.
+re-emit back). OG still ~64 Hz. Dummy-head cadence tests currently pass.
+**Not declared fixed** — headed `esc:` with `escape:GPU` was not re-checked.
 
-**Session close:** dummy-head GPU cadence pin is green. Fusion still parked.
-Headed `esc:` with `escape:GPU` is the remaining product check. Next within-actor
-if headed is still short: map/`poll(Wait)` shipping, not collapsing the actor API.
+**Session close:** stencil discipline and strong actor API locked. Fusion
+parked. Next within-actor if headed is still short: map/`poll(Wait)` shipping,
+not collapsing the actor API.
