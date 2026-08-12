@@ -60,15 +60,16 @@ every interval. WorkUpdates still arrive densely from the worker; the collector
 worker→collector), then publishes on `resolved_content_period()`.
 
 Only the **screen worker** parks when every seat is delivered. Collector and
-shadergroup stay on the content continuum. The window must not re-send an
-identical stencil (same location+resolution) — duplicate Replace keeps the
-worker unparked. Ignore ±1px `available_size` flicker. Attention sends need a
-≥2px step (or None↔Some). Park wait wakes only on Replace / settings /
-references — not attention chatter and not a periodic timer.
+shadergroup stay on the content continuum. Park waits stay on the warm input
+set (Replace, attention, settings, references, slow heartbeat) — do not silence
+that pipe. The park predicate must be **O(1)** (`seats_need_work`); scanning
+every seat (~410k) on each wake after fill was burning ~30% worker CPU with
+zero workshifts (`CZ_PROFILE_CPU` settle profile 2026-08-11).
 
-Post-fill settle must be checked over ~10 s wall time: short fill-only tests
-missed load climbing a few seconds after the frame looked complete
-(`steady_state_home_stays_parked_for_10s_after_fill`).
+Post-fill settle must be checked over ~10 s wall time
+(`steady_state_home_stays_parked_for_10s_after_fill`). Shade/colorer/collector
+staying busy after fill is continuum cost on a full resident package — not a
+channel-storm by itself.
 
 ### Shadergroup
 

@@ -255,6 +255,7 @@ async fn internal_behavior<A: SteadyActor>(
         // Content beat: always publish resident work-so-far (shade always runs).
         // r[impl cz.craft.content-beat-publish+1]
         if content_beat_due(last_publish, content_period, Instant::now()) {
+            let _cpu = crate::debug_agent::busy_collector();
             if let Some(package) = state.completed_work.clone() {
                 if !actor.is_full(&mut values_out) {
                     let mut ctrl_emit = state.pending_controller_emitted_at.take();

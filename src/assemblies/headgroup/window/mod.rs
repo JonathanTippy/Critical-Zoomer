@@ -117,9 +117,6 @@ pub struct WindowState {
     , pub head_max_fps: f64
     // Last auto_vsync_hz value fanned to content actors.
     , pub last_fanned_auto_vsync_hz: f64
-    // Debounce oscillating predicted_dt before adopting a new auto_vsync_hz.
-    , pub pending_auto_vsync_hz: Option<f64>
-    , pub pending_auto_vsync_hits: u32
     // Fan Settings only when UI/cadence actually changed.
     , pub settings_fanout_needed: bool
     // Cap live settings preview fan-out while the panel is open.
@@ -129,60 +126,6 @@ pub struct WindowState {
     , pub last_attention: Option<(i32, i32)>
     // Last stencil location+res actually sent (skip duplicate Replace).
     , pub last_sent_stencil_key: Option<(ObjectivePosAndZoom, (usize, usize))>
-}
-
-/// Content Settings fan: only when resolved Hz moves ≥2 from last fan, and the
-/// new reading is stable for several presents (predicted_dt often oscillates).
-// r[impl cz.craft.emergent-cadence+1]
-pub fn should_adopt_auto_vsync(
-    last_fanned: f64,
-    egui_hz: f64,
-    pending: Option<f64>,
-    pending_hits: u32,
-    stable_hits: u32,
-) -> (bool, Option<f64>, u32) {
-    if (egui_hz - last_fanned).abs() < 2.0 {
-        return (false, None, 0);
-    }
-    if pending == Some(egui_hz) {
-        let hits = pending_hits.saturating_add(1);
-        if hits >= stable_hits {
-            (true, None, 0)
-        } else {
-            (false, Some(egui_hz), hits)
-        }
-    } else {
-        (false, Some(egui_hz), 1)
-    }
-}
-
-/// Skip duplicate stencils; ignore ±1px size flicker (egui available_size noise).
-pub fn stencil_key_should_send(
-    last: &Option<(ObjectivePosAndZoom, (usize, usize))>,
-    location: &ObjectivePosAndZoom,
-    size: (usize, usize),
-) -> bool {
-    match last {
-        None => true,
-        Some((prev_loc, prev_size)) => {
-            if prev_loc != location {
-                return true;
-            }
-            prev_size.0.abs_diff(size.0) >= 2 || prev_size.1.abs_diff(size.1) >= 2
-        }
-    }
-}
-
-/// Attention send gate: None↔Some always; else require ≥2px manhattan step.
-pub fn attention_should_send(
-    last: Option<(i32, i32)>,
-    next: Option<(i32, i32)>,
-) -> bool {
-    match (last, next) {
-        (None, None) => false,
-        (Some(a), Some(b)) => (a.0 - b.0).unsigned_abs() >= 2 || (a.1 - b.1).unsigned_abs() >= 2,
-        _ => true,
-    }
 }
 
 /// Entry point for the window actor.
@@ -262,8 +205,6 @@ async fn internal_behavior<A: SteadyActor>(
         , head_vsync_enabled: Settings::DEFAULT.head_vsync_enabled
         , head_max_fps: Settings::DEFAULT.head_max_fps
         , last_fanned_auto_vsync_hz: Settings::DEFAULT.auto_vsync_hz
-        , pending_auto_vsync_hz: None
-        , pending_auto_vsync_hits: 0
         , settings_fanout_needed: true
         , settings_ui_fan_timer: Instant::now()
         , display_texture: None
@@ -360,6 +301,7 @@ struct EguiWindowPassthrough<'a, A> {
 impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        let _cpu = crate::debug_agent::busy_window();
         let this_frame_start = Instant::now();
 
         // min framerate
@@ -491,14 +433,9 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     state.sampling_context.location.clone(),
                     (state.size.x as usize, state.size.y as usize),
                 );
-                // Duplicate stencils (same loc/res) must not Replace — that kept
-                // the worker unparked (graph.dot: thousands of controller msgs).
-                // Also ignore ±1px available_size flicker.
-                if stencil_key_should_send(
-                    &state.last_sent_stencil_key,
-                    &key.0,
-                    key.1,
-                ) {
+                // Duplicate stencils (same loc/res) must not Replace — that restarts
+                // work. Exact key only; continuum still flows Views/attention/settings.
+                if state.last_sent_stencil_key.as_ref() != Some(&key) {
                     actor.try_send(&mut stencil_out, PointStencil{
                         location: (state.sampling_context.location.pos.0.clone()
                         , IntExp::ZERO-state.sampling_context.location.pos.1.clone()
@@ -516,8 +453,8 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             // sample
 
             let (mut command_package, attention) = parse_inputs(&ctx, &mut state, size);
-            // Attention every frame / 1px jitter kept the worker hot (graph.dot).
-            if attention_should_send(state.last_attention, attention) {
+            // Same attention value need not resend; changing attention still flows.
+            if attention != state.last_attention {
                 actor.try_send(&mut attention_out, attention);
                 state.last_attention = attention;
             }
@@ -820,26 +757,18 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 // Never rewrite from measured present FPS — that jittered timers.
                 // Never create a second winit EventLoop to probe the monitor —
                 // that poisons eframe with WinitEventLoop(RecreationAttempt).
-                // Debounced ≥2 Hz vs last fan: predicted_dt oscillation must not
-                // fan Settings every present (that kept shade/worker channels hot).
+                // Hysteresis ≥2 Hz vs last fan: predicted_dt ±1 Hz noise must not
+                // rewrite content timers every present.
                 let mut snap_to_fan = None;
                 let mut mark_fanout = false;
                 let predicted_dt = ctx.input(|i| i.predicted_dt);
                 let egui_hz = Settings::resolve_auto_vsync_hz(predicted_dt, None);
-                const VSYNC_STABLE_HITS: u32 = 30;
-                let (adopt, pending, hits) = should_adopt_auto_vsync(
-                    state.last_fanned_auto_vsync_hz,
-                    egui_hz,
-                    state.pending_auto_vsync_hz,
-                    state.pending_auto_vsync_hits,
-                    VSYNC_STABLE_HITS,
-                );
-                state.pending_auto_vsync_hz = pending;
-                state.pending_auto_vsync_hits = hits;
+                if (egui_hz - state.last_fanned_auto_vsync_hz).abs() >= 2.0 {
+                    mark_fanout = true;
+                }
                 if let Ok(mut ctx_settings) = state.settings_window_context.try_lock() {
-                    if adopt {
+                    if mark_fanout {
                         ctx_settings.settings.auto_vsync_hz = egui_hz;
-                        mark_fanout = true;
                     }
                     if state.settings_fanout_needed || mark_fanout {
                         snap_to_fan = Some(ctx_settings.settings.clone());
@@ -869,66 +798,3 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
     }
 }
 
-
-#[cfg(test)]
-mod settle_send_gates {
-    use super::*;
-    use crate::utils::IntExp;
-
-    fn loc(zoom: i32) -> ObjectivePosAndZoom {
-        ObjectivePosAndZoom {
-            pos: (IntExp::from(0), IntExp::from(0)),
-            zoom_pot: zoom,
-        }
-    }
-
-    #[test]
-    fn stencil_ignores_one_pixel_size_flicker() {
-        let l = loc(0);
-        let last = Some((l.clone(), (800, 600)));
-        assert!(!stencil_key_should_send(&last, &l, (801, 600)));
-        assert!(!stencil_key_should_send(&last, &l, (800, 601)));
-        assert!(stencil_key_should_send(&last, &l, (802, 600)));
-        assert!(stencil_key_should_send(&last, &loc(1), (800, 600)));
-        assert!(stencil_key_should_send(&None, &l, (800, 600)));
-    }
-
-    #[test]
-    fn attention_requires_two_pixel_step() {
-        assert!(!attention_should_send(Some((10, 10)), Some((10, 10))));
-        assert!(!attention_should_send(Some((10, 10)), Some((11, 10))));
-        assert!(attention_should_send(Some((10, 10)), Some((12, 10))));
-        assert!(attention_should_send(None, Some((0, 0))));
-        assert!(attention_should_send(Some((0, 0)), None));
-        assert!(!attention_should_send(None, None));
-    }
-
-    #[test]
-    fn auto_vsync_adoption_debounces_oscillation() {
-        let mut pending = None;
-        let mut hits = 0;
-        // Oscillate 60↔120 — must not adopt within one hit.
-        for hz in [120.0, 60.0, 120.0, 60.0] {
-            let (adopt, p, h) = should_adopt_auto_vsync(60.0, hz, pending, hits, 30);
-            assert!(!adopt, "oscillation adopted early at {hz}");
-            pending = p;
-            hits = h;
-        }
-        // Stable 120 for 30 hits → adopt.
-        pending = None;
-        hits = 0;
-        let mut adopted = false;
-        for _ in 0..30 {
-            let (adopt, p, h) = should_adopt_auto_vsync(60.0, 120.0, pending, hits, 30);
-            pending = p;
-            hits = h;
-            if adopt {
-                adopted = true;
-                break;
-            }
-        }
-        assert!(adopted, "stable 120Hz must adopt after debounce");
-        let (adopt_near, _, _) = should_adopt_auto_vsync(60.0, 61.0, None, 0, 30);
-        assert!(!adopt_near, "sub-2Hz must not start debounce");
-    }
-}

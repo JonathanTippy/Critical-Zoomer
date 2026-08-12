@@ -35,6 +35,7 @@ fn main() {
         std::env::set_var("WINIT_X11_SCALE_FACTOR", "1");
     }
 
+    debug_agent::init_cpu_profile_from_env();
 
     let builder = thread::Builder::new()
         .name("worker-thread".into())

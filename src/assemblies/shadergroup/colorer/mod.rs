@@ -147,6 +147,7 @@ async fn internal_behavior<A: SteadyActor>(
         let gpu = state.gpu.clone();
         // Cadence: every wake with resident values, always color + try_send.
         // r[impl cz.craft.shade-always-emit+1]
+        let _cpu = crate::debug_agent::busy_colorer();
         if let Some(v) = &mut state.values {
             let (output, color_hud) =
                 gpu::color_with_gear(v, &mut settings, want_gpu, &gpu);

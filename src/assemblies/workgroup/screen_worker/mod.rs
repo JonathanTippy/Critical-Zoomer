@@ -55,6 +55,9 @@ pub struct WorkerState<T: Mandelbrotable> {
     , manual_gear: Option<crate::assemblies::structs::KernelMode>
     // Controller Replace emission Instant awaiting the next successful WorkUpdate put.
     , pending_controller_emitted_at: Option<std::time::Instant>
+    // O(1) park predicate: avoid scanning ~410k seats on every wake after fill.
+    // Updated after each workshift / Replace; true while any seat is undelivered.
+    , seats_need_work: bool
 }
 
 /// The single live render target: a work context and the frame_info it was
@@ -162,6 +165,7 @@ async fn internal_behavior<A: SteadyActor>(
         , naive_gpu: None
         , manual_gear: None
         , pending_controller_emitted_at: None
+        , seats_need_work: false
     }).await;
     // Inject after lock so a pre-existing empty SteadyState cannot drop the device.
     if state.naive_gpu.is_none() {
@@ -173,24 +177,28 @@ async fn internal_behavior<A: SteadyActor>(
     ) {
 
         // r[impl cz.craft.load-proportional-ignorance+1]
-        // Park only when every seat is delivered. percent_completed alone can
-        // lag a shift behind; the seat flags are the ground truth.
-        let working = match &state.work_context {
-            Some(live) => live.context.points.iter().any(|p| !p.delivered),
-            None => false,
-        };
+        // Park when no undelivered seats remain. Use the cached flag — scanning
+        // every seat on each wake costs tens of %CPU after a full home fill.
+        let working = state.seats_need_work;
 
         if !working {
-            // True park: wake only on work that can reopen seats (Replace) or
-            // gear/settings / reference install. Do **not** wait on attention —
-            // pointer chatter kept the actor hot after fill (graph.dot). Do not
-            // wait_periodic either — that forced ~20 empty wakes/sec forever.
+            // Warm continuum: still wake on the same input classes (commands,
+            // attention, settings, references) plus a slow heartbeat. Wakes must
+            // stay cheap (O(1) park check) — do not silence the pipe.
+            let max_sleep = Duration::from_millis(50);
             await_for_any!(
+                actor.wait_periodic(max_sleep),
                 actor.wait_avail(&mut commands_in, 1),
+                actor.wait_avail(&mut attention_in, 1),
                 actor.wait_avail(&mut settings_in, 1),
                 actor.wait_avail(&mut references_in, 1),
             );
+            crate::debug_agent::note_worker_park_wake();
+        } else {
+            crate::debug_agent::note_worker_working();
         }
+
+        let _loop_cpu = crate::debug_agent::busy_worker_loop();
 
         if actor.avail_units(&mut settings_in) > 0 {
             while actor.avail_units(&mut settings_in) > 1 {
@@ -340,6 +348,7 @@ async fn internal_behavior<A: SteadyActor>(
                             );
                         }
                         state.work_context = Some(LiveTarget { context: new_ctx, frame_info: frame_info.clone() });
+                        state.seats_need_work = true;
                         let ctrl = state.pending_controller_emitted_at.take();
                         let update = telemetry_update(
                             Some(frame_info),
@@ -360,6 +369,8 @@ async fn internal_behavior<A: SteadyActor>(
                                 state.pending_controller_emitted_at = Some(at);
                             }
                         }
+                    } else {
+                        state.seats_need_work = false;
                     }
                 }
             }
@@ -373,10 +384,8 @@ async fn internal_behavior<A: SteadyActor>(
         // Re-check after Replace/commands — a fresh shell must work this turn.
         // When still complete, do not run a workshift (that burned ~10 ms/spin
         // and kept the actor hot despite the park wait above).
-        let still_working = match &state.work_context {
-            Some(live) => live.context.points.iter().any(|p| !p.delivered),
-            None => false,
-        };
+        // O(1) cached flag; refresh from seats after each shift below.
+        let still_working = state.seats_need_work;
 
         let mut iters_delta = 0u64;
         if still_working {
@@ -393,6 +402,7 @@ async fn internal_behavior<A: SteadyActor>(
             if let Some(live) = &mut state.work_context {
                 // workshift zeros `total_iterations_today` then counts only this shift.
                 // Do not subtract a leftover prior-shift total (that zeroed IPS on the HUD).
+                let _shift_cpu = crate::debug_agent::busy_worker_shift();
                 workshift(
                     token_budget,
                     iteration_token_cost,
@@ -402,6 +412,9 @@ async fn internal_behavior<A: SteadyActor>(
                     gpu.as_mut(),
                 );
                 iters_delta = live.context.total_iterations_today as u64;
+                state.seats_need_work = live.context.points.iter().any(|p| !p.delivered);
+            } else {
+                state.seats_need_work = false;
             }
             state.naive_gpu = gpu;
             state.total_workshifts += 1;

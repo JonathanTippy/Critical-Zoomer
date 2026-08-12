@@ -474,21 +474,23 @@ r[cz.craft.load-proportional-ignorance+1]
 
 **Normative summary.** The worker is busy exactly while the screen is unfinished:
 incomplete (any undelivered seat) → chain shifts with no sleep; complete → park
-on Replace/settings/references only (no attention wait, no periodic timer) and
-**do not run a workshift**.
+on the warm wait set (commands/attention/settings/references + slow periodic)
+and **do not run a workshift**. The incomplete check must be O(1) after fill
+(`seats_need_work`) — full-seat scans on every wake are forbidden.
 
-**Code site.** `screen_worker/mod.rs` — park `await_for_any` on commands/settings/
-references; workshift gated on undelivered seats after command drain.
+**Code site.** `screen_worker/mod.rs` — `seats_need_work` + park `await_for_any`;
+workshift gated on the same flag.
 
 **Acceptance criteria.**
-- [ ] CPU usage measured on a completed frame is ~idle; on an incomplete frame the worker does
+- [ ] CPU usage measured on a completed frame is ~idle for *workshifts*; on an incomplete frame the worker does
   not sleep between shifts.
 - [ ] After every seat is `delivered`, the actor loop skips `workshift` until a Replace
   creates undelivered seats again.
 - [ ] Delivered home stays delivered (0 iters) across a 10s post-fill window.
+- [ ] Post-settle `CZ_PROFILE_CPU`: `worker_shift_ms≈0` and `worker_loop_ms` stays small under warm wakes.
 
 **Test.** `mutant_kill_complete_frame_has_no_undelivered_seats`;
-`steady_state_home_stays_parked_for_10s_after_fill`; headed graph.dot after settle.
+`steady_state_home_stays_parked_for_10s_after_fill`; headed `CZ_PROFILE_CPU` after settle.
 
 r[cz.craft.drain-to-newest+1]
 

@@ -279,6 +279,7 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
         // Cadence: every wake with resident values, always escape + try_send.
         // `answers_need_gpu_upload` only gates private GPU answer upload (not actor send).
         // r[impl cz.craft.shade-always-emit+1]
+        let _cpu = crate::debug_agent::busy_escaper();
         let want_gpu = matches!(
             state.settings.resolved_escape_gear(),
             EscaperMode::Gpu
