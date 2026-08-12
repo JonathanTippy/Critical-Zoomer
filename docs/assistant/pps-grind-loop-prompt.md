@@ -16,7 +16,7 @@ Per tick (mandatory order):
 4. REGRESSION GATE (non-negotiable — do not skip or narrow):
    - Full test suite: cargo test --all-targets (release, taskset center-half + nice). Fix every failure you introduced or uncovered before checkpointing. “Only the tests I think are relevant” is forbidden.
    - All Criterion benches: cargo bench --bench workgroup_fitness and cargo bench --bench my_bench (same CPU niceness). Investigate ~≥20% regressions vs docs/assistant/benchmarks.md baselines; update baselines in the same commit only when the change intentionally moves them.
-   - Tracey health: run `tracey validate` (or the repo’s equivalent link audit). Every r[impl …] must resolve; every rule’s pinned tests must exist. Fix broken links / orphan markers before checkpoint.
+   - Tracey health: run `tracey query validate`. Every r[impl …] must resolve; every rule’s pinned tests must exist. Fix broken links / orphan markers before checkpoint. Install/config: `docs/assistant/tracey.md`.
 5. Checkpoint: automatic checkpoint <datetime> on the feature branch. Update issue-stack PPS note.
 6. Do not re-arm wakes; the fixed /loop sleeper owns cadence. No request_smart_mode_approval. Cleanup only via .cursor/hooks/kill-test-zombies.sh.
 

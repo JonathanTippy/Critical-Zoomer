@@ -21,6 +21,8 @@ Assistant-owned index for this folder. The developer's files speak for themselve
 - `../quality-slip-review.md` — how the bar softened after v0.0.9 and how to stop.
 - `../headgroup-charter.md` — what may change outside the workgroup.
 - `../coverage.md` — living llvm-cov baseline path.
+- `../tracey.md` — install (prebuilt, not `cargo install` on 1.97), CLI
+  (`query validate`), config paths. Validate-clean ≠ coverage-complete.
 - `../fuzz.md` — cargo-fuzz targets (coords + admission).
 
 ## Trashed tile-era design

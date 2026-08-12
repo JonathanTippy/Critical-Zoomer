@@ -148,6 +148,7 @@ bucket 2 telemetry.
   directions discussed: frozen Arc/pool snapshots first; sparse integrator if
   lineage must stay without full-frame hops; same-res Point buffer reuse on
   worker. Doc: `design/collector-publish-bottleneck.md`. No code until chosen.
+  Context closed 2026-08-12 still **not implemented**.
 - **Pipeline refresh rates (design lock 2026-08-11, revised).** **Two tiers:**
   content (workgroup publish + shadergroup) at **real vsync from head/egui**
   (hardcoded 60 rejected); head **vsync default** with typed max FPS +

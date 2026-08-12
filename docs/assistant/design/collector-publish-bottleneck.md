@@ -3,7 +3,8 @@
 Status: **diagnosed; not implemented.** Conversation lock for workgroup
 throughput under motion and at ≥ default resolution. Does not amend
 `workgroup-virtues.md` closures; it names where the live tree pays O(pixels)
-while still obeying them.
+while still obeying them. Context closed 2026-08-12 with **no chosen
+implementation** and **no product fix**.
 
 ## What HUD was showing
 
