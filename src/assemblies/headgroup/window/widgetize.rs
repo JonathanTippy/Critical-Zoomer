@@ -66,25 +66,6 @@ impl Settings {
             });
         });
         ui.separator();
-        ui.label("Cadence — content refresh (collector / shade)");
-        ui.checkbox(
-            &mut self.content_refresh_automatic,
-            "Automatic (egui / monitor vsync Hz)",
-        );
-        ui.add_enabled_ui(!self.content_refresh_automatic, |ui| {
-            ui.add(
-                egui::Slider::new(&mut self.content_refresh_hz, 1.0..=240.0)
-                    .text("content Hz")
-                    .logarithmic(true),
-            );
-        });
-        ui.label(format!(
-            "auto_vsync {:.1} Hz · resolved content {:.1} Hz ({:.1} ms)",
-            self.auto_vsync_hz,
-            self.resolved_content_hz(),
-            self.resolved_content_period().as_secs_f64() * 1000.0
-        ));
-        ui.separator();
 
         ui.label("order of coloring steps:");
 

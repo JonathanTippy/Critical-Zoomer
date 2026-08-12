@@ -64,8 +64,8 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
 - **Shelved (2026-08-11): head window ~100% CPU / vsync pacing.** Worker parks at
   0 after fill (`seats_need_work`). Window present uses plain `request_repaint`
   (same outcome as the period-forced path here). Head vsync / max-FPS settings
-  UI removed — those controls did not change behavior. Revisit display pacing
-  later; not blocking other work.
+  UI removed — those controls did not change behavior. Content-refresh cadence
+  UI also removed (same). Revisit display pacing later; not blocking other work.
 
 - **Resolution / ~1.5× default pixels — revealed issues (2026-08-11).**
   Past ~1.5× `DEFAULT_WINDOW_RES` / at 1080p:
