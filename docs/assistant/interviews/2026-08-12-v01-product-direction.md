@@ -6,11 +6,12 @@
 
 **Summary (lock so far, not closed):** v0.1 is product-forward. Three
 must-ships: (1) depth target with quality you would stand behind — headed
-and oracle/DirectKernel, sequential not simultaneous; (2) cycling color as
-an extra shading choice (working hypothesis: hue on normalized escape time;
-XaoS as research target; default stays sinus); (3) 1080p must feel as good
-as current default resolution; window can be fullscreen/larger; texture may
-cap at 1080p. Open bugs do not own the calendar except when they make those
+then oracle/DirectKernel pins; (2) cycling color as an extra shading choice
+(working hypothesis: hue on normalized escape time; XaoS as research
+target; default stays sinus); (3) 1080p must feel as good as current
+default resolution. Window may be fullscreen/larger; **the whole compute
+grid (workgroup stencil / answers / shade) caps at 1080p** and the window
+upsamples. Open bugs do not own the calendar except when they make those
 three untrue. False-“fixed” headed bugs and concurrent-window reverts are
 process failures, not a reason to empty the stack first.
 
@@ -176,3 +177,18 @@ gear, not named as a v0.1 must-ship here.
 texture**; upsample of a 1080p texture into a larger window; order of the
 three must-ships if you want to name one; XaoS hue-map vs palette-spin
 (you asked for research, not a pick).
+
+---
+
+### Developer
+
+yup
+
+### Assistant
+
+**Locked:** the 1080p cap is the **whole compute grid** — workgroup answers
+at most 1080p — then upsample into a larger or fullscreen window. Not a
+color-texture-only cap.
+
+Parked (research, not a pick): XaoS hue-map vs palette-spin. Order of the
+three must-ships unnamed; any of them can start when you say go.
