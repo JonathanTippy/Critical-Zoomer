@@ -19,6 +19,13 @@ pipe. Actors **never block waiting** on the next stage: each holds an
 Hardcoding “60 FPS” as the long-term content rate is rejected; 60 is only the
 bootstrap until the head learns the display period.
 
+### Head present (no spin)
+
+Head uses `request_repaint_after(period)` always — never bare
+`request_repaint()`. With broken/absent GL vsync, bare repaint spun at hundreds
+of FPS and pinned the window actor at 100% CPU. Period is Automatic
+`auto_vsync_hz` when vsync is enabled, else `1 / head_max_fps`.
+
 ### How `auto_vsync_hz` is learned (stable)
 
 **Do not measure present frame times** into `auto_vsync_hz` — that jittered

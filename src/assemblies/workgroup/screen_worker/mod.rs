@@ -175,12 +175,14 @@ async fn internal_behavior<A: SteadyActor>(
     ) {
 
         // r[impl cz.craft.load-proportional-ignorance+1]
+        // Park only when every seat is delivered. percent_completed alone can
+        // lag a shift behind; the seat flags are the ground truth.
         let working = match &state.work_context {
-            Some(live) => {live.context.percent_completed < 100.0}
-            , None => {false}
+            Some(live) => live.context.points.iter().any(|p| !p.delivered),
+            None => false,
         };
 
-        if working {} else {
+        if !working {
             await_for_any!(
                 actor.wait_periodic(max_sleep),
                 actor.wait_avail(&mut commands_in, 1),
@@ -360,61 +362,70 @@ async fn internal_behavior<A: SteadyActor>(
         let iteration_token_cost = state.iteration_token_cost.clone();
         let bout_token_cost = state.bout_token_cost.clone();
         let point_token_cost = state.point_token_cost.clone();
-        
+
+        // Re-check after Replace/commands — a fresh shell must work this turn.
+        // When still complete, do not run a workshift (that burned ~10 ms/spin
+        // and kept the actor hot despite the park wait above).
+        let still_working = match &state.work_context {
+            Some(live) => live.context.points.iter().any(|p| !p.delivered),
+            None => false,
+        };
 
         let mut iters_delta = 0u64;
-        // Split borrows: take GPU handle, then mutate live context.
-        let mut gpu = state.naive_gpu.take();
-        if let Some(live) = &mut state.work_context {
-            // workshift zeros `total_iterations_today` then counts only this shift.
-            // Do not subtract a leftover prior-shift total (that zeroed IPS on the HUD).
-            workshift(
-                token_budget,
-                iteration_token_cost,
-                bout_token_cost,
-                point_token_cost,
-                &mut live.context,
-                gpu.as_mut(),
-            );
-            iters_delta = live.context.total_iterations_today as u64;
-        }
-        state.naive_gpu = gpu;
-        state.total_workshifts += 1;
-        if state.total_workshifts % 1 == 0 {
-            let ctrl = state.pending_controller_emitted_at.take();
-            let mut restore_ctrl = None;
+        if still_working {
+            // Split borrows: take GPU handle, then mutate live context.
+            let mut gpu = state.naive_gpu.take();
             if let Some(live) = &mut state.work_context {
-                let c = work_update(&mut live.context);
-                // Send even when this shift only advanced iterations (no finals):
-                // otherwise HUD IPS drops to 0 on iterate-heavy interior work.
-                if !c.is_empty() || iters_delta > 0 {
-                    // r[impl cz.craft.emergent-cadence+1]
-                    // r[impl cz.depth.gear-hud+2]
-                    // r[impl cz.craft.undeliver-on-full+1]
-                    let update = telemetry_update(
-                        None,
-                        c,
-                        Some(&mut live.context),
-                        iters_delta,
-                        ctrl,
-                    );
-                    match actor.try_send(&mut updates_out, update) {
-                        SendOutcome::Success => {}
-                        SendOutcome::Blocked(u)
-                        | SendOutcome::Timeout(u)
-                        | SendOutcome::Closed(u) => {
-                            restore_ctrl = u.controller_emitted_at;
-                            undeliver_failed_batch(&mut live.context, &u.completed_points);
+                // workshift zeros `total_iterations_today` then counts only this shift.
+                // Do not subtract a leftover prior-shift total (that zeroed IPS on the HUD).
+                workshift(
+                    token_budget,
+                    iteration_token_cost,
+                    bout_token_cost,
+                    point_token_cost,
+                    &mut live.context,
+                    gpu.as_mut(),
+                );
+                iters_delta = live.context.total_iterations_today as u64;
+            }
+            state.naive_gpu = gpu;
+            state.total_workshifts += 1;
+            if state.total_workshifts % 1 == 0 {
+                let ctrl = state.pending_controller_emitted_at.take();
+                let mut restore_ctrl = None;
+                if let Some(live) = &mut state.work_context {
+                    let c = work_update(&mut live.context);
+                    // Send even when this shift only advanced iterations (no finals):
+                    // otherwise HUD IPS drops to 0 on iterate-heavy interior work.
+                    if !c.is_empty() || iters_delta > 0 {
+                        // r[impl cz.craft.emergent-cadence+1]
+                        // r[impl cz.depth.gear-hud+2]
+                        // r[impl cz.craft.undeliver-on-full+1]
+                        let update = telemetry_update(
+                            None,
+                            c,
+                            Some(&mut live.context),
+                            iters_delta,
+                            ctrl,
+                        );
+                        match actor.try_send(&mut updates_out, update) {
+                            SendOutcome::Success => {}
+                            SendOutcome::Blocked(u)
+                            | SendOutcome::Timeout(u)
+                            | SendOutcome::Closed(u) => {
+                                restore_ctrl = u.controller_emitted_at;
+                                undeliver_failed_batch(&mut live.context, &u.completed_points);
+                            }
                         }
+                    } else {
+                        restore_ctrl = ctrl;
                     }
                 } else {
                     restore_ctrl = ctrl;
                 }
-            } else {
-                restore_ctrl = ctrl;
-            }
-            if let Some(at) = restore_ctrl {
-                state.pending_controller_emitted_at = Some(at);
+                if let Some(at) = restore_ctrl {
+                    state.pending_controller_emitted_at = Some(at);
+                }
             }
         }
     }

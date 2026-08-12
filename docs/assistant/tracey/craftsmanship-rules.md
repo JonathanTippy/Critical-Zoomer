@@ -469,17 +469,21 @@ code review + e2e.
 
 r[cz.craft.load-proportional-ignorance+1]
 
-**Normative summary.** The worker is busy exactly while the screen is unfinished: incomplete →
-chain shifts with no sleep; complete → sleep on the 50ms/command wait.
+**Normative summary.** The worker is busy exactly while the screen is unfinished:
+incomplete (any undelivered seat) → chain shifts with no sleep; complete → sleep
+on the 50ms/command wait and **do not run a workshift**.
 
 **Code site.** `screen_worker/mod.rs` — `max_sleep` 50ms and the idle/chain branch on
-`percent_completed`.
+undelivered seats; workshift gated on the same predicate after command drain.
 
 **Acceptance criteria.**
 - [ ] CPU usage measured on a completed frame is ~idle; on an incomplete frame the worker does
   not sleep between shifts.
+- [ ] After every seat is `delivered`, the actor loop skips `workshift` until a Replace
+  creates undelivered seats again.
 
-**Test.** None — actor sleep branch; acceptance by code review + e2e (CPU measurement).
+**Test.** `mutant_kill_complete_frame_has_no_undelivered_seats` (craftsmanship_tests);
+actor sleep branch by code review + headed CPU check.
 
 r[cz.craft.drain-to-newest+1]
 

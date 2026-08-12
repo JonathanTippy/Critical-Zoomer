@@ -348,17 +348,27 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             );
 
 
-            // Present pacing from cached settings (updated on fan-out).
-            if state.head_vsync_enabled {
-                ctx.request_repaint();
+            // Present pacing. Never bare `request_repaint()` — with broken/absent
+            // GL vsync that spins at hundreds of FPS and pins the window thread.
+            // Cap to the aimed period (egui/OS vsync Hz, or head_max_fps).
+            let period = if state.head_vsync_enabled {
+                let hz = if state.last_fanned_auto_vsync_hz.is_finite()
+                    && state.last_fanned_auto_vsync_hz >= 1.0
+                {
+                    state.last_fanned_auto_vsync_hz.min(240.0)
+                } else {
+                    60.0
+                };
+                Duration::from_secs_f64(1.0 / hz)
             } else {
                 let hz = if state.head_max_fps.is_finite() && state.head_max_fps >= 1.0 {
                     state.head_max_fps.min(1000.0)
                 } else {
                     1.0
                 };
-                ctx.request_repaint_after(Duration::from_secs_f64(1.0 / hz));
-            }
+                Duration::from_secs_f64(1.0 / hz)
+            };
+            ctx.request_repaint_after(period);
 
             let size = (state.size.x as usize, state.size.y as usize);
             let pixels = size.0 * size.1;

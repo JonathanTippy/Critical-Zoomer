@@ -1828,6 +1828,30 @@ fn mutant_kill_percent_completed_is_percent_scale() {
     });
 }
 
+/// Park predicate: once every seat is delivered, the actor must not keep
+/// chaining workshifts (load-proportional-ignorance).
+#[test]
+fn mutant_kill_complete_frame_has_no_undelivered_seats() {
+    run_big_stack_size(|| {
+        let mut ctx = make_context(0);
+        for p in &mut ctx.points {
+            p.delivered = true;
+        }
+        let needs_work = ctx.points.iter().any(|p| !p.delivered);
+        assert!(!needs_work);
+        shift(&mut ctx);
+        assert!(
+            ctx.percent_completed >= 100.0,
+            "all-delivered must report complete, got {}",
+            ctx.percent_completed
+        );
+        assert!(!ctx.points.iter().any(|p| !p.delivered));
+        // One undelivered seat must keep the worker busy.
+        ctx.points[0].delivered = false;
+        assert!(ctx.points.iter().any(|p| !p.delivered));
+    });
+}
+
 /// Thought-killed pins: LIFO completion drain and struggling_to_clear 2s gate.
 #[test]
 fn mutant_kill_completion_lifo_and_struggling_to_clear() {

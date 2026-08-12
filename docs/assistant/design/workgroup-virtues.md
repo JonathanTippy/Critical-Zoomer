@@ -289,8 +289,9 @@ shade is intentionally timer-paced so incomplete large frames still refresh at
 vsync even when shifts are sparse. Head present may use vsync or
 uncapped-to-max-FPS independently.
 
-And the worker's idle path — `percent_completed < 100` keeps it chaining shifts
-with no sleep; complete means it sleeps on the 50ms/command wait — means the
+And the worker's idle path — undelivered seats keep it chaining shifts
+with no sleep; once every seat is delivered it sleeps on the 50ms/command wait
+and skips `workshift` — means the
 machine is exactly as busy as the screen is unfinished. Load is proportional to
 ignorance.
 
