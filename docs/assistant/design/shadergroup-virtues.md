@@ -51,6 +51,45 @@ buffer; radius is a uniform on anim ticks. Shares the colorer wgpu device under
 a short shade-ops lock. Oracle: GPU matches an f32 CPU twin; `big_time` matches
 OG under the same `bailout_max_additional_iterations`.
 
+## Bailout tail is intentionally tiny (principal)
+
+The separate escaper exists because **continuing past ‖z‖²>4 is almost always
+≤~10 iterations**, even when the animated bailout radius is huge: escaped
+orbits *superpower*-escape. Default `bailout_max_additional_iterations = 10`
+is policy matching that math, not a temporary cap waiting for “real” work.
+
+Consequence for ports: **GPU escape cannot win by doing more FLOPs at large
+radius.** The arithmetic budget is always tiny. Any GPU path that still ships
+full-frame answers/values through the host will pay PCIe/map costs that dwarf
+the kernel. Measured (2026-08-11, 854×480): dispatch ~0.05 ms; upload-path
+pack+write ~5 ms; map_async readback ~4–5 ms; CPU OG escape ~5–6 ms Criterion.
+Escape gear stays **OG default** until shipping is solved, not until radius is
+large.
+
+## GPU shipping economics — why colorer wins and escaper does not
+
+Both GPU colorer and GPU escaper currently round-trip through the host
+(upload → compute → `map_async` readback). They do **not** have different
+shipping *laws*; they have different **cost ratios**:
+
+| stage | CPU baseline (1.0× default) | GPU payload shape | Why GPU helps / hurts |
+|---|---|---|---|
+| **Escaper** | ~5–6 ms | fat in (~48 B/px answers) + fat out (~32 B/px values) for ~≤10 iters + `atan2` | Shipping ≈ whole CPU job → GPU ties or loses |
+| **Colorer** | ~43–55 ms OG (multi-layer script) | fat in (~32 B/px values) + **thin out (4 B/px RGBA)** | Replaces a *much* larger CPU walk; readback is 8× smaller than escape out → net win (~13 ms class after always-refresh) |
+
+So the colorer is not “immune” to GPU data shipping — it still pays upload and
+readback — but its **CPU alternative was the problem child** (~10× escaper),
+and its **output is display-thin**. The escaper’s CPU alternative was already
+cheap, and its output is still a full values frame the next stage re-consumes.
+
+Stacking GPU escape + GPU color today makes the middle worse: escape readback
+into `ZoomerValuesScreen`, then colorer re-packs nearly the same layout as
+`GpuPixel` and uploads again. Dual parallel CPU/GPU channel views (one idea
+under interview) would push that upload problem onto every linkage unless
+residency is real end-to-end.
+
+Live design talk: `docs/assistant/interviews/2026-08-11-shade-gpu-residency.md`.
+
 ## Single path
 
 There is **one** shade pipeline body:

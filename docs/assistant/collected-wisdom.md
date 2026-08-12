@@ -36,11 +36,26 @@ Harvested 2026-08-06 during the v0.0.9 revert cleanup. Each entry: the rule, its
 ## Two-stage escape / animated bailout
 
 - Screen worker iterates to ‖z‖² > 4. An escaper stage continues escaped points to the animatable bailout radius. Changing bailout reruns the escaper only, never re-iterates the worker.
+- **Why a separate bailout phase works (binding principal, 2026-08-11):** once a
+  point has escaped, the Mandelbrot map is *superpower* escaping — magnitude
+  grows so fast that continuing from R≈2 out to a large animated bailout takes
+  **literally not more than ~10 iterations in almost all cases**
+  (`bailout_max_additional_iterations` defaults to 10). The split is not “cheap
+  for small radius, expensive for large radius.” Large animated radius does
+  **not** create a heavy iterate grind on the escaper; the tail stays short by
+  math, not by hoping the radius stays near 2. That is the point of the phase
+  cut: workgroup owns membership / escape-to-4; shadergroup owns a tiny continue
+  + paint so bailout anim never re-runs the worker.
 - Escaper target: 60 Hz at 1080p worst case (every pixel at max escaper iterations, including the antenna).
 - v0.0.9 does bailout at iterate time with an animated bailout that works (DAT watchlist); a split escaper stage is a GPU-era design decision, not a baseline requirement.
 - **Single path (2026-08-11):** animated vs static bailout is the same `escape_frame` / `color` body — only numbers change (`shadergroup-virtues.md`). Guard that; do not fork paths.
 - **2026-08-11 Criterion:** colorer is ~10× escaper wall time on filled home; problem child for the ~1.5×-pixel cliff (`shadergroup_fitness`).
-- **Colorer upgrades:** honest rewrite only — feature parity, same results, no simplifications, tests for every behavior. Future settings **color gear** (OG vs GPU), manual like worker gear — not auto (`assembly-boundaries.md`).
+- **GPU escape RCA (2026-08-11 night):** host data shipping dominates the GPU
+  escaper (pack/upload + full-frame readback), not bailout arithmetic. See
+  `shadergroup-virtues.md` § GPU shipping economics and the interview
+  `interviews/2026-08-11-shade-gpu-residency.md`. Do **not** explain the slowdown
+  as “needs a large radius to amortize.”
+- **Colorer upgrades:** honest rewrite only — feature parity, same results, no simplifications, tests for every behavior. Settings **color gear** (OG vs GPU), manual like worker gear — not auto (`assembly-boundaries.md`).
 - **Assemblies:** workgroup = answers; shadergroup = bailout tail + coloring; headgroup = present colors (+ stencils). Separation of concerns is what keeps the project workable. Study v0.0.9 for the hundreds of unlisted design decisions.
 
 ## Process
