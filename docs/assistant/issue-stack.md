@@ -61,6 +61,14 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
 
 ## Known issues (open)
 
+- **Shelved (2026-08-11): head window ~100% CPU / vsync pacing.** Worker parks at
+  0 after fill (`seats_need_work`). Window thread still pegs a core from the
+  start (btop), not a slow creep. Not [#5092](https://github.com/emilk/egui/issues/5092)
+  as written (that is egui-wgpu; we use glow). Possible cousins: egui run-loop
+  Poll / redundant redraw (#8326 / #8398). Also open: deferred-settings dual
+  Wait FPS coupling — do **not** disable root GL Wait. Revisit when display
+  pacing is the active priority; not blocking other work.
+
 - **Resolution / ~1.5× default pixels — revealed issues (2026-08-11).**
   Past ~1.5× `DEFAULT_WINDOW_RES` / at 1080p:
   (A) **shadergroup too slow** — colorer problem child (`shadergroup_fitness`).

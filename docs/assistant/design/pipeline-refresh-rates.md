@@ -104,4 +104,7 @@ RateCounters; `ips:` / `pps:` unchanged.
 - Head: vsync default; max FPS + disable vsync paces present.
 - Escape default stays OG.
 - `auto_vsync_hz` does not track instantaneous present FPS.
-- Idle home: screen worker load drops once seats are delivered (no stencil storm).
+- Idle home: screen worker load drops once seats are delivered (O(1)
+  `seats_need_work`; warm continuum wakes stay cheap).
+- **Shelved:** head window ~100% CPU / vsync Wait vs egui run-loop Poll — see
+  `issue-stack.md`. Not active work.
