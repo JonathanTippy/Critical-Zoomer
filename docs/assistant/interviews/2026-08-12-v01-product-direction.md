@@ -9,16 +9,18 @@ must-ships: (1) depth target with quality you would stand behind — headed
 then oracle/DirectKernel pins; (2) cycling color as an extra shading choice
 (working hypothesis: hue on normalized escape time; XaoS as research
 target; default stays sinus); (3) 1080p must **feel** as good as current
-default resolution — not by capping the window or decoupling head view
-from window pixels. **Pause new GPU compute/escape grind** — CPU is
-enough for v0.1. One thing at a time. Delivery gap: capture the *layers*
-of “works” so assistant checks match what the developer sees; assistant
-may say “looks better” as a candidate only.
+default resolution. **Window res = sample/view res** (do not uncouple).
+A 1080p **window cap is weakly held but currently the best option** (caps
+both together; no 4K-window + 1080p-sample). **Pause new GPU compute/
+escape grind** — CPU is enough for v0.1. One thing at a time. Delivery
+gap: capture the *layers* of “works” so assistant checks match what the
+developer sees; assistant may say “looks better” as a candidate only.
 Layer locks: whole answer; worker finishes entire context (redo OK);
 gear fail = admit-none, false-shallow, **or post-admit precision drop**;
-shade is a pipe; head view = window pixels (**do not cap the window**);
-1080p is a feel target; post-v0.0.9 AI comments are ghost candidates.
-Head 100% CPU: `351afdf` restored bare `request_repaint`; not fixed.
+shade is a pipe; head view = window pixels (**do not uncouple**; 1080p
+window cap is weak but currently best); post-v0.0.9 AI comments are ghost
+candidates. Head 100% CPU: `351afdf` restored bare `request_repaint`; not
+fixed.
 
 ---
 
@@ -475,12 +477,26 @@ channel still described as carrying f64 completions while compute gears
 go FloatExp — that is exactly (C) if those completions are the values
 that get reused/remapped as if they still had depth.
 
-**Window vs 1080p (supersedes “cap the window”)**
+**Window vs 1080p (corrected)**
 
-You will not recommend capping the window. Head view **equals** window
-pixels; that design is not compromised to be nice to the 1080p feel bar
-or mean to 4K. 1080p remains the **feel target** (must work well there).
-A hard window max is a product cop-out, not the architecture. The earlier
-“compute grid caps at 1080p / upsample” idea is in conflict with
-head-view=window if the window is larger — parked until you pick a
-non-compromised way to keep 1080p feel without shrinking the view.
+Do **not** uncouple window resolution from sample/view resolution. Head
+view **equals** window pixels — that is the strong lock.
+
+A 1080p **cap is not strongly recommended**, but it is the **best option
+right now**: cap the **window** (and therefore the sample view with it).
+Do not keep a 4K window and a 1080p sample. Mean to 4K; acceptable for
+v0.1 feel. The earlier “compute grid caps, window upsamples” idea is
+**rejected** — that is uncoupling.
+
+---
+
+### Developer
+
+no I meant I'm not receommending uncoupling window & sample view res. I'm
+not strongly recommending the cap but it seems the best option atm
+
+### Assistant
+
+Corrected: strong lock is **coupled** window and sample/view. Cap is
+**weak**, currently best, and if used it caps **both**. Uncoupling
+(4K window, 1080p sample) is out.
