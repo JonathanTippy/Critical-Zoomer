@@ -494,3 +494,18 @@ Recorded:
   the project workable — `assembly-boundaries.md`.
 - **Quality:** v0.0.9 is dense with unlisted decisions; study that code; new work
   must match that bar, not invent thinner substitutes.
+
+---
+
+### Amendment (2026-08-11 evening) — channel-full backpressure
+
+**Developer lock:** when the worker→collector channel is full, graceful behavior
+is to **calm down and wait** for the collector — not undeliver Finals (that
+reopened Dummy / black streaks). Throughput yields to the bottleneck; collector
+speedup is secondary.
+
+**Supersedes** earlier synthesis in this interview of “try_send →
+undeliver-and-break; senders never block” for this path.
+
+**Landed:** `r[cz.craft.wait-on-channel-full+1]` replaces
+`r[cz.craft.undeliver-on-full+1]`.

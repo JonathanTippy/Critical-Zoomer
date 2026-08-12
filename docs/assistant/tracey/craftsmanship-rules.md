@@ -303,22 +303,25 @@ finish it. Guesses never block truth.
 **Test.** `provisional_answer_never_marks_delivered` (craftsmanship_tests.rs) — after a shift
 of scredge work on a slow seat: provisional answers exist, `delivered` is still false.
 
-r[cz.craft.undeliver-on-full+1]
+r[cz.craft.wait-on-channel-full+1]
 
-**Normative summary.** Completions stage into a growable per-shift Vec (no fixed
-ceiling). When `try_send` of the `WorkUpdate` to the collector fails (channel
-full / blocked), `undeliver_failed_batch` clears `delivered` on Finals in that
-batch and re-queues them — never a silently dropped answer. Senders never block.
+**Normative summary.** Completions stage into a growable per-shift Vec. When the
+worker→collector channel is full, the screen worker **calms down and waits**
+(`wait_vacant`) until the collector drains — it does **not** clear `delivered`
+or reopen Dummy holes. On shutdown interrupt only, unsent answers are restaged
+(`restage_unsent_batch`) with `delivered` left true. Throughput yields to the
+collector bottleneck; speeding the collector is secondary.
 
-**Code site.** `workshift.rs` — `push_delivery`; `screen_worker/mod.rs` —
-`undeliver_failed_batch` on `SendOutcome::{Blocked,Timeout,Closed}`.
+**Code site.** `screen_worker/mod.rs` — `send_update_waiting`, pre-workshift
+`is_full`/`wait_vacant`, `restage_unsent_batch`.
 
 **Acceptance criteria.**
-- [ ] Failed send: Finals in the batch are undelivered and re-queued; later
-  shifts can republish.
+- [ ] Channel-full: worker waits; Finals stay delivered; no Dummy reopen from
+  undeliver-on-full.
+- [ ] Shutdown interrupt restages answers without clearing `delivered`.
 - [ ] `push_delivery` still owns buffer slot + `delivered` atomically for stage.
 
-**Test.** `failed_channel_send_undelivers_batch`,
+**Test.** `channel_full_restages_without_clearing_delivered`,
 `mutant_kill_push_delivery_provisional_not_final` (craftsmanship_tests.rs).
 
 r[cz.craft.clamped-remap-smear+1]
@@ -550,8 +553,8 @@ queue discovery as CPU (`queue_incomplete_neighbors`,
 fill is only a cold-start / empty-queue fallback. **Forbidden:** skipping queue
 updates for PPS (including “bulk flood” shortcuts); treating linear undelivered
 scan as the steady fill authority; any ≥N% CPU mop / residual phase / seeded
-fake `out_queue` to hide Dummy holes. Channel-full undeliver
-(`undeliver_failed_batch`) remains undeliver-on-full honesty, not a mop.
+fake `out_queue` to hide Dummy holes. Channel-full wait
+(`wait-on-channel-full`) remains honesty, not a mop.
 Precision escalate to CPU when shader F64 is unavailable for a collapsed F32
 view is allowed for that shift only.
 
@@ -671,7 +674,7 @@ r[cz.craft.completion-cap-fits-screen+1]
 **Normative summary.** Per-shift completion staging is a growable `Vec` (Stec
 removed). On Replace enlarge, capacity is at least the new pixel count so a
 full-screen flood never needs a fixed ceiling. Channel backpressure is the only
-publish throttle (`undeliver-on-full` at send).
+publish throttle (`wait-on-channel-full` at send).
 
 **Code site.** `workshift.rs` — `from_stencil` (fresh and reuse arms).
 

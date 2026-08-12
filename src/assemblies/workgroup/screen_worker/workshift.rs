@@ -32,9 +32,9 @@ pub enum Delivery<T> {
     Final(T),
 }
 
-/// Staging always succeeds into a growable Vec. Channel-full undeliver is handled
-/// at `try_send` in the worker actor (`undeliver_failed_batch`).
-// r[impl cz.craft.undeliver-on-full+1]
+/// Staging always succeeds into a growable Vec. Channel-full: worker waits for
+/// the collector (`wait-on-channel-full`); does not clear `delivered` here.
+// r[impl cz.craft.wait-on-channel-full+1]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[must_use = "PushOutcome must be observed"]
 pub enum PushOutcome {
@@ -42,14 +42,15 @@ pub enum PushOutcome {
 }
 
 impl<T: Mandelbrotable> WorkContext<T> {
-    /// Atomically stage a delivery into the per-shift completion Vec and update
-    /// the seat's `delivered` flag. The two can never disagree:
-    /// - `Final` -> delivered = true, Published
-    /// - `Provisional` -> delivered unchanged, Published
-    /// Channel-full undeliver happens after `try_send` fails (worker actor).
-    // r[impl cz.craft.provisional-not-delivered+1]
-    // r[impl cz.craft.undeliver-on-full+1]
-    pub fn push_delivery(&mut self, delivery: Delivery<CompletedPoint<T>>, index: usize) -> PushOutcome {
+/// Atomically stage a delivery into the per-shift completion Vec and update
+/// the seat's `delivered` flag. The two can never disagree:
+/// - `Final` -> delivered = true, Published
+/// - `Provisional` -> delivered unchanged, Published
+/// Channel-full: worker waits for the collector (`wait-on-channel-full`); it
+/// does not clear `delivered` here.
+// r[impl cz.craft.provisional-not-delivered+1]
+// r[impl cz.craft.wait-on-channel-full+1]
+pub fn push_delivery(&mut self, delivery: Delivery<CompletedPoint<T>>, index: usize) -> PushOutcome {
         let (point, is_final) = match delivery {
             Delivery::Provisional(p) => (p, false),
             Delivery::Final(p) => (p, true),
@@ -1623,7 +1624,7 @@ where
             }
 
             // r[impl cz.craft.provisional-not-delivered+1]
-            // r[impl cz.craft.undeliver-on-full+1]
+            // r[impl cz.craft.wait-on-channel-full+1]
             let _ = context.push_delivery(Delivery::Final(completed_point), index);
 
 

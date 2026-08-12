@@ -204,7 +204,12 @@ When a bout does *not* finish its seat:
 - **Out**: pop from front, push to back — rotate. A brutal escape pixel (the neck/butt regions, where iterations run to the bound repeatedly) yields the floor to every other out-queued seat before its next turn. One hard seat can never block the frontier behind it.
 - **In**: deliberately *not* rotated (the rotate is commented out) — a slow repeat keeps being probed. The asymmetry is intentional: an unfinished interior point's neighborhood benefits from persistent probing (period detection wants iteration depth), whereas an unfinished escape's neighbors are usually equally slow, so rotation wins there. These opposite treatments of the two queues are the kind of detail that only survives because it was tested by hand against real images.
 - **Scredge**: pushes a **provisional answer** — a `Repeats` with the loop-check delta as period and the running smallness/small-time — into the completion staging Vec, and moves on. This is the most audacious line in the file: an unfinished screen-edge pixel is published as a *best-effort guess* so the collector's package keeps filling at the motion boundary. The guess is honest about its evidence (period is "how long since my last checkpoint", smallness is real data), it is bounded in impact (edge seats only, and the seat remains undelivered so later shifts still try to finish it — provisional data never blocks true completion), and it eliminates the "blank frontier at the leading edge during pans" failure without inventing a special display state. The architecture's "active temporal dynamic resolution", realized as one `push_delivery`.
-- **Collector channel full** (failed `try_send`): Finals in the failed batch are **undelivered** and re-queued (`undeliver_failed_batch`). The seat is not lost; later shifts republish. Backpressure degrades into a re-queue, never into a dropped answer. Staging is a growable per-shift `Vec` (fixed-cap `Stec` removed 2026-08-11); the channel is the publish throttle.
+- **Collector channel full**: the worker **waits** (`wait_vacant`) until the
+  collector drains — it does not clear `delivered` or reopen Dummy holes.
+  Throughput yields to the collector bottleneck. On shutdown interrupt only,
+  unsent answers are restaged with `delivered` left true
+  (`restage_unsent_batch`). Staging is a growable per-shift `Vec` (fixed-cap
+  `Stec` removed 2026-08-11). `r[cz.craft.wait-on-channel-full+1]`
 
 ### Attention: the user's gaze as a fifth queue
 
@@ -331,7 +336,9 @@ Details that are easy to miss and were clearly earned (each bound to its code si
 - **Period derivative test** — verified periods via atom-domain candidate → Newton → multiplier. `r[cz.craft.period-derivative-test+1]`
 - **Out rotates, In doesn't** — asymmetric treatment of slow escapes vs slow repeats. `r[cz.craft.out-rotates-in-stays+1]`
 - **Provisional answers never mark delivered** — guesses never block truth (type-enforced: only `Delivery::Final` may set `delivered`, via `push_delivery`). `r[cz.craft.provisional-not-delivered+1]`
-- **Undeliver-and-break on full buffer** — backpressure degrades to re-queue, never to loss (type-enforced: `push_delivery` owns the buffer slot and `delivered` flag atomically, `#[must_use]` on the outcome; fixed-array structure replaceable, §12). `r[cz.craft.undeliver-on-full+1]`
+- **Wait-on-channel-full** — when the collector is behind, the worker calms down
+  and waits; `delivered` stays set (no Dummy reopen). Type-enforced staging via
+  `push_delivery`; restage only on shutdown interrupt. `r[cz.craft.wait-on-channel-full+1]`
 - **Clamped remap as smear** — motion-fill and storage-remap are one operation. `r[cz.craft.clamped-remap-smear+1]`
 - **Stencil-only Replace, lazy seat init** — no seeded context crosses the channel; seats materialize at first start; the single live target is structural (`LiveTarget` pairs context + `frame_info`). `r[cz.craft.stencil-only-replace+2]`
 - **Small channels** — the machine promises to consume toward the tip. `r[cz.craft.small-channels+1]`

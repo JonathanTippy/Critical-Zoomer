@@ -570,9 +570,9 @@ fn provisional_answer_never_marks_delivered() {
     });
 }
 
-// verifies r[cz.craft.undeliver-on-full+1] — channel-send failure, not Stec cap
+// verifies r[cz.craft.wait-on-channel-full+1] — unsent batch restages; delivered stays
 #[test]
-fn failed_channel_send_undelivers_batch() {
+fn channel_full_restages_without_clearing_delivered() {
     run_big_stack_size(|| {
         let mut ctx = make_context(1);
         let idx = index_from_pos(&(2, 0), ctx.res.0);
@@ -589,15 +589,17 @@ fn failed_channel_send_undelivers_batch() {
             },
             idx,
         )];
-        super::undeliver_failed_batch(&mut ctx, &batch);
+        super::restage_unsent_batch(&mut ctx, batch);
         assert!(
-            !ctx.points[idx].delivered,
-            "failed send must rewind delivered"
+            ctx.points[idx].delivered,
+            "wait-on-full must not clear delivered (Dummy holes)"
         );
-        assert!(
-            ctx.out_queue.iter().any(|(p, _)| *p == (2, 0)),
-            "failed send must re-queue the finished seat"
+        assert_eq!(
+            ctx.completed_points.len(),
+            1,
+            "unsent answers must return to staging for the next flush"
         );
+        assert_eq!(ctx.completed_points[0].1, idx);
     });
 }
 
@@ -974,13 +976,15 @@ fn mutant_kill_push_delivery_provisional_not_final() {
         assert_eq!(out2, PushOutcome::Published);
         assert!(ctx.points[idx].delivered, "final must mark delivered");
 
-        // Channel-fail path: undeliver_failed_batch rewinds Finals.
+        // Shutdown-interrupt path: restage keeps delivered + answers for retry.
         let batch = work_update(&mut ctx);
-        super::undeliver_failed_batch(&mut ctx, &batch);
+        assert_eq!(batch.len(), 2, "provisional + final were staged");
+        super::restage_unsent_batch(&mut ctx, batch);
         assert!(
-            !ctx.points[idx].delivered,
-            "failed send must leave Final undelivered"
+            ctx.points[idx].delivered,
+            "restage must keep Final delivered (no Dummy hole)"
         );
+        assert_eq!(ctx.completed_points.len(), 2);
     });
 }
 
