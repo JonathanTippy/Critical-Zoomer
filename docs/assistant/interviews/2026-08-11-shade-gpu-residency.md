@@ -26,6 +26,7 @@ dual-view upload tax everywhere. **No code** until goals settle.
 | Live HUD `esc:~15` / `col:~50` beats Criterion | **locked** — real app rates authoritative | this interview |
 | `drop:4` does not explain esc undercount | **locked** | this interview |
 | Why `esc:~15` with GPU escape | **RCA** — `shade_ops` lock shared with GPU color | this interview |
+| Separate wgpu devices for escape vs color | **idea** — may remove mutex; not proven; dual-wgpu parked risk | this interview |
 | Dual parallel CPU/GPU views for all actor linkages | **idea only** — developer wary (upload everywhere) | this interview |
 | Fuse escape+color on device / keep values resident | undiscussed | — |
 | Workgroup answers already GPU-native → shade without host | undiscussed | naive-gpu / publish |
@@ -201,3 +202,37 @@ Mechanism:
 So the escaper is not “mysteriously 15 Hz”; it is **queued behind a ~50 Hz GPU
 colorer on one serialized shade device**. OG escape avoids `shade_ops` and can
 keep content cadence; GPU escape cannot while colorer owns the same lock.
+
+---
+
+### Developer
+
+Well that seems like a simple fix, just make sure that the device is different,
+right?
+
+### Assistant
+
+**Partly — different devices remove the `shade_ops` serialization, but they are
+not obviously a complete/simple product fix.**
+
+What separate devices *would* buy:
+
+- Escaper and colorer no longer need one mutex around submit+`map_async`.
+- Each can progress on its own wgpu device/queue without waiting on the other’s
+  poll Wait.
+
+What they would *not* automatically buy:
+
+- Still two full host round-trips (escape values out, color pixels in/out) —
+  the shipping problem remains.
+- Same **physical** GPU: driver still multiplexes two clients; PCIe/readback
+  can contend even with two devices. Esc might rise above 15 without reaching
+  content cadence.
+- Duplicate VRAM sessions/buffers; init/teardown complexity.
+- Already parked as product risk: **dual wgpu / stops-on-GPU-color**
+  (`actor-layout` interview / issue-stack).
+
+So: “different device” is a fair **experiment** to test whether the mutex was
+the live limiter, not a settled design. A deeper fix is still residency/fusion
+so escape output never returns to the host for color to re-upload. No code until
+you say to try the dual-device experiment (or prefer another goal from Q1–6).
