@@ -10,10 +10,10 @@ then oracle/DirectKernel pins; (2) cycling color as an extra shading choice
 (working hypothesis: hue on normalized escape time; XaoS as research
 target; default stays sinus); (3) 1080p must feel as good as current
 default resolution. Window may be fullscreen/larger; **the whole compute
-grid (workgroup stencil / answers / shade) caps at 1080p** and the window
-upsamples. Open bugs do not own the calendar except when they make those
-three untrue. False-“fixed” headed bugs and concurrent-window reverts are
-process failures, not a reason to empty the stack first.
+grid caps at 1080p** and the window upsamples. **Pause new GPU compute/
+escape grind** — CPU is enough for v0.1. One thing at a time. Delivery
+gap: capture the *layers* of “works” so assistant checks match what the
+developer sees; assistant may say “looks better” as a candidate only.
 
 ---
 
@@ -235,3 +235,51 @@ at a time; RCA from *your* headed observation; change; you look; only then
 pin tests that encode that observation; never write “fixed” until you say
 it. Loops only after the headed failure is named. Xvfb/PNG is a first pass
 for still frames, not a substitute for feel/rates/depth browsing.
+
+---
+
+### Developer
+
+is mostly correct, but I do feel as if there's a lot of the other things as
+well. I don't want to ban the assistant saying it looks better, but there are
+clearly some considerations that affect whether it works or not that we're
+not properly capturing, and I want those to be fully understood and
+documented so that the assistant can act in a way that makes sense and
+matches with what I see, and that might be a complicated thing to connect
+together because there are a few layers that it could be at, but that's what
+I want to track down. One question, yes, basically we can pause GPU work.
+It's really a great optimization, but I think the app can work on CPU and
+work decently well, probably well enough for 0.1. I want to get more focused
+in and do one thing at a time so that we can make sure that we do that thing
+well.
+
+### Assistant
+
+**Locked this turn**
+
+- Diagnosis stands, **plus** the other leaks: too many slices, too much
+  talk, loops on the wrong bar. Not only false-fixed.
+- Assistant **may** say “looks better.” That is a candidate read, not a
+  product close. The gap is missing **considerations** — not a speech ban.
+- **Pause GPU work for v0.1.** CPU naive/pert is the ship path; GPU is a
+  later optimization. Colorer GPU already default may stay as landed
+  cosmetics unless you say to force OG; **new** GPU compute/escape grind
+  stops.
+- **One thing at a time**, done well.
+
+**The thing to track down:** layers between what you see and what an
+assistant check can honestly claim. Proposal to argue with (not lock):
+
+| Layer | What you actually notice | What we often pin instead |
+|---|---|---|
+| 1 Answers | membership / period / escape look right | DirectKernel field equality on a tiny stencil |
+| 2 Publish / remap | bands, dummy black, unfinished sold as done | “channel send succeeded” / percent_completed |
+| 3 Gear / type | blocky transitions, HUD gear vs picture | admit-margin unit test, view_gear floor pin |
+| 4 Shade | color/filaments/bailout anim | Color32 vs OG on a fixture |
+| 5 Present | fullscreen, 1080p feel, upsample | dummy-head RateCounters |
+| 6 Tick / roam | never chug, pan/zoom at head rate | workshift never-stall micro |
+
+False-fixed = we greened a **lower or adjacent** layer than the one you
+were looking at. Dummy-head vs window is 5 vs 6. Admit slider vs blockiness
+is 3’s mechanism vs 3’s picture. Dual-device vs `esc:` is 5’s lab vs 5’s
+headed HUD.
