@@ -120,3 +120,59 @@ the real pain, not “too many tickets.” Three concurrent windows on one tree
 can revert or lose work; that is a known failure mode. One live editor at a
 time is the recovery rule. Open bugs still do not automatically jump the
 three must-ships unless they make depth/1080p/color untrue.
+
+---
+
+### Assistant (study turn — prior interviews)
+
+Read the earlier sessions before asking again. What was already locked and
+should not be re-asked:
+
+**Origin / UX (2026-08-11 series interview).** The app exists because other
+zoomers were clunky. Wanted: video-game free roam, never frozen by iteration
+count, never chugging because the app is overwhelmed. Feel = smooth ticks +
+completion rate. Tick vs throughput is not a forced tradeoff; if they fight
+it is shoddy work; if forced, protect the tick. Non-negotiable: small
+interruptible work shifts.
+
+**Fullscreen / 1080p feel (2026-08-11 GPU/fullscreen interview).** Already
+said fullscreen is a bigger deal than GPU 160× validity. Symptom evolved
+from “worker silent until leave fullscreen” to sluggish ~1 FPS workgroup
+output + incomplete/incorrect bands past ~1.5× default pixels. Diagnosis
+locked: headgroup healthy (~120 FPS); shadergroup too slow; workgroup
+dropping work (bands). **Same feel as windowed is required.** Stec deleted;
+channel-full → wait for collector (not undeliver Finals). Colorer GPU only
+as an honest rewrite: feature parity, no simplifications, tests on every
+behavior, manual OG↔GPU gear. GPU color later accepted as default. Escape
+stays OG until shipping is actually fixed in the live app.
+
+**Cadence (2026-08-11 actor layout).** Content (publish + shade) at real
+head/egui vsync; head may uncap. ~20 FPS content is OK (video); ≲15 smells;
+≲10 is the failure. Head is the game. Live HUD rates beat Criterion. Do not
+declare shade/GPU “fixed” until headed `esc:`/`col:` say so.
+
+**Depth / trust (feasibility + precision-wall).** Continuous browse without
+cost showing through is the central feasibility claim. Refs: greedy keep,
+never discard for glitch. Transition rectangular blockiness / gear kaput
+were **not** declared fixed after the 10-bit admit slider. Naive black
+wrong-interior is a periodicity tangent. Oracle: every-field bit-exact;
+test-primary; manually selectable; never auto gearbox; precision-doubling
+until stable + strong period.
+
+**This session’s three must-ships** sit on that, they do not replace it.
+1080p feel was already a product bar; the new relief is **texture may cap at
+1080p** so a larger/fullscreen window need not compute 4K. Depth-trust was
+already “headed is truth; tests pin; don’t say fixed until you look.”
+Cycling is the new cosmetic must-ship.
+
+**Inferred, not re-asked:** headed confirmation before calling a bug fixed
+(standing law). 1080p “feels good” = same never-stall / tick honesty / fill
+as default res, with content allowed to be vsync-class (~20 OK, ≲15 smell) —
+not “HUD rates identical to 854×480.” GPU 160× is a validity bar for that
+gear, not named as a v0.1 must-ship here.
+
+**Still actually open (not repeating):** whether the 1080p cap is the
+**workgroup stencil** (answers computed at ≤1080p) or only the **color
+texture**; upsample of a 1080p texture into a larger window; order of the
+three must-ships if you want to name one; XaoS hue-map vs palette-spin
+(you asked for research, not a pick).
