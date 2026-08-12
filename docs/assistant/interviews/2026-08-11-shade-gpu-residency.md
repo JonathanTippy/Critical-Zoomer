@@ -61,28 +61,25 @@ RGBA out), restated below for the transcript.
 
 **Correction (developer challenge 2026-08-11 night):** Criterion walls are
 **not** the product truth. Developer reports live HUD **`esc:~15` vs `col:~50`**
-with the real app — that stands. Isolated benches (CPU escape ~6 ms, GPU escape
-upload ~11 ms, GPU color ~14 ms) cannot overturn headed rates.
+with the real app — that stands. Isolated benches cannot overturn headed rates.
 
-**Why those HUD numbers can diverge (mechanism, not excuse):**
+**HUD `esc:` semantics (important):**
 
-- `col:` counts colorer **emits** that reach the window (`color_emitted_at`).
-  Colorer **re-paints resident values every content wake** even when escaper has
-  not produced a new screen — so it can sit near content cadence (~50 Hz) while
-  escape is behind.
-- `esc:` only advances when a window-bound frame still carries
-  `escape_emitted_at`. Colorer copies that stamp from the latest values screen,
-  then `clear_emission_stamps()` after a successful send — so later re-colors
-  do **not** re-count escape. Net: **`esc:` ≈ escaper delivery rate into the
-  shade path; `col:` ≈ colorer emit rate.** They are not the same kind of
-  clock.
-- So “escape slower than color in the app” is a real pipeline fact when escape
-  cannot keep the content beat (GPU escape + host round-trip + live device
-  contention with colorer/`shade_ops` and the rest of the process). Criterion
-  without that coupling is insufficient RCA.
+- Escaper stamps `escape_emitted_at` only on **successful** `try_send` of a
+  values screen (design: emission Instant, successful put only).
+- Colorer does **not** invent escape emits when it re-paints: it forwards the
+  stamp from the latest values screen, then `clear_emission_stamps()` so the
+  same Instant is not re-counted. So `col:` can be ~50 while `esc:` is ~15
+  without the HUD “lying” about escape — those are two stages’ emit rates.
+- Window `esc:` therefore tracks escaper puts **that survive** colorer→window
+  coalesce. With empty `drop:` and no silent overwrite before first forward,
+  **`esc:` is the escaper’s actual emission rate**. If intermediate frames are
+  drain-dropped, `esc:` undercounts true escaper puts (same class of caveat as
+  other stage rates observed at the head).
 
-Parking: treat live `esc:`/`col:` as authoritative for shade-GPU shipping
-work; do not argue from bench-only escape&lt;color walls again.
+Parking: live `esc:`/`col:` remain authoritative for shade-GPU shipping work;
+do not argue from bench-only escape&lt;color walls. Separately confirm HUD
+integrity — see developer follow-up on whether `esc:` equals escaper puts.
 
 **Interview questions (goals first; mechanisms only if you already lean):**
 
@@ -130,7 +127,33 @@ runs ~50fps. Real app rates are all that matter.
 
 Accepted. Criterion-based “escape GPU still faster than color GPU” is **withdrawn**
 as product evidence. Live `esc:~15` / `col:~50` is the bar. Documented above:
-those HUD counters measure different things (escape **delivery** vs colorer
-**re-emit**), which is exactly how color can look healthy while escape is the
-shade bottleneck under GPU shipping + in-process GPU coupling. Interview
+those HUD counters are two stages’ emit rates (escape puts vs colorer puts);
+colorer can re-emit resident values faster than escape produces. Interview
 questions 1–6 still open when you want to continue on goals.
+
+---
+
+### Developer
+
+Its highly important that the HUD values are correct. Is the HUD not displaying
+the actual emission rate of the escaper?
+
+### Assistant
+
+**Mostly yes — `esc:` is the escaper emission rate**, not a colorer artifact.
+
+- Stamp is set only on escaper **successful** `try_send` (`escape_emitted_at`).
+- Colorer forwards that Instant on the next colored frame and clears it so
+  re-paints do **not** re-count the same escape put.
+- Window RateCounter records that Instant → `esc:` ≈ escaper puts/sec that
+  reach the head.
+
+So `esc:~15` means the escaper is only successfully putting about 15/s (e.g.
+GPU escape body blocking the actor), while `col:~50` means the colorer is
+successfully putting about 50/s. Both can be correct at once.
+
+**Integrity caveat (not “re-color inflation”):** because counting happens at the
+window, drain-to-newest between escaper→colorer or colorer→window can
+**undercount** escaper puts that never arrive stamped. Check `drop:` when
+auditing. Design lock remains: emission Instant on successful put only
+(`pipeline-refresh-rates.md`).

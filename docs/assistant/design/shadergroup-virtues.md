@@ -83,12 +83,12 @@ and its **output is display-thin**. The escaper’s CPU alternative was already
 cheap, and its output is still a full values frame the next stage re-consumes.
 
 **Live rates override benches (2026-08-12):** headed HUD with GPU escape shows
-roughly **`esc:~15` / `col:~50`**. That is authoritative. Colorer’s higher HUD
-rate does **not** prove its GPU body is cheaper in isolation — colorer
-re-emits on resident values every content wake, while `esc:` only counts frames
-that still carry a fresh `escape_emitted_at` (see residency interview). Product
-RCA for shade GPU must explain **in-app escape delivery**, not Criterion-only
-walls.
+roughly **`esc:~15` / `col:~50`**. That is authoritative for product feel.
+`esc:` is the escaper’s emission Instant rate (successful put), observed at the
+window after colorer forwards the stamp once — colorer re-paints do not invent
+escape emits. `col:` can run near content cadence on resident values while
+`esc:` shows the slower escape put rate. See residency interview for HUD
+integrity caveats (coalesce undercount).
 
 Stacking GPU escape + GPU color today makes the middle worse: escape readback
 into `ZoomerValuesScreen`, then colorer re-packs nearly the same layout as
