@@ -241,7 +241,7 @@ proptest! {
     }
 }
 
-// verifies r[cz.craft.epsilon-pixel-pitch+1]
+// r[verify cz.craft.epsilon-pixel-pitch+1]
 #[test]
 fn epsilon_scales_with_pixel_pitch() {
     let a = vec![make_point((0.0, 0.0)), make_point((0.25, 0.0))];
@@ -252,7 +252,7 @@ fn epsilon_scales_with_pixel_pitch() {
     assert_eq!(eb, ea * FloatExp::TWO, "doubling pixel pitch must double epsilon");
 }
 
-// verifies r[cz.craft.cached-products+1]
+// r[verify cz.craft.cached-products+1]
 proptest! {
     #[test]
     fn cached_products_match_z(zr in -1000.0f64..1000.0, zi in -1000.0f64..1000.0) {
@@ -268,7 +268,7 @@ proptest! {
         prop_assert_eq!(p.small_time, 17);
     }
 
-    // verifies r[cz.craft.mixmap-shuffle+1]
+    // r[verify cz.craft.mixmap-shuffle+1]
     #[test]
     fn mixmap_is_permutation(n in 1usize..2048) {
         let mut m = get_random_mixmap(n);
@@ -276,7 +276,7 @@ proptest! {
         prop_assert_eq!(m, (0..n).collect::<Vec<_>>());
     }
 
-    // verifies r[cz.craft.clamped-remap-smear+1]
+    // r[verify cz.craft.clamped-remap-smear+1]
     #[test]
     fn remap_index_clamps_to_border(
         lx in -200i32..200,
@@ -291,7 +291,7 @@ proptest! {
         prop_assert_eq!(i, cy * w as usize + cx);
     }
 
-    // verifies r[cz.craft.period-derivative-test+1]
+    // r[verify cz.craft.period-derivative-test+1]
     #[test]
     fn main_cardioid_points_detect_as_period_one(
         radius in 0.0f64..0.95,
@@ -310,7 +310,7 @@ proptest! {
         prop_assert_eq!(detected_period(c, 4096), 1);
     }
 
-    // verifies r[cz.craft.period-derivative-test+1]
+    // r[verify cz.craft.period-derivative-test+1]
     // The period-2 bulb is exactly the disk |c + 1| < 1/4.
     #[test]
     fn period_two_bulb_detects_as_period_two(
@@ -345,7 +345,7 @@ proptest! {
         }
     }
 
-    // verifies r[cz.craft.period-derivative-test+1]
+    // r[verify cz.craft.period-derivative-test+1]
     // The cardioid/bulb neck at c = -0.75 is the parabolic worst case: approach
     // lag explodes there, which is exactly where epsilon-based detection dies.
     // Newton needs no orbit convergence, so correctness must hold to f64 depth.
@@ -374,7 +374,7 @@ fn detected_period(c: (f64, f64), max_iter: u32) -> u32 {
         .unwrap_or(0)
 }
 
-// verifies r[cz.craft.period-derivative-test+1]
+// r[verify cz.craft.period-derivative-test+1]
 #[test]
 fn known_attractors_have_their_published_periods() {
     assert_eq!(verified_period((0.0, 0.0), 1), Some(1));
@@ -390,14 +390,14 @@ fn known_attractors_have_their_published_periods() {
     );
 }
 
-// verifies r[cz.craft.period-derivative-test+1]
+// r[verify cz.craft.period-derivative-test+1]
 #[test]
 fn exterior_or_wrong_period_is_not_accepted() {
     assert_eq!(verified_period((1.0, 0.0), 1), None);
     assert_eq!(verified_period((-1.0, 0.0), 1), None);
 }
 
-// verifies r[cz.craft.lifo-drain+1]
+// r[verify cz.craft.lifo-drain+1]
 #[test]
 fn completion_drain_is_lifo() {
     run_big_stack_size(|| {
@@ -412,7 +412,7 @@ fn completion_drain_is_lifo() {
     });
 }
 
-// verifies r[cz.craft.edge-push-front+1]
+// r[verify cz.craft.edge-push-front+1]
 #[test]
 fn edge_neighbors_jump_queue_front() {
     run_big_stack_size(|| {
@@ -432,7 +432,7 @@ fn edge_neighbors_jump_queue_front() {
     });
 }
 
-// verifies r[cz.craft.cost-metadata+1]
+// r[verify cz.craft.cost-metadata+1]
 #[test]
 fn queue_entries_carry_source_cost() {
     run_big_stack_size(|| {
@@ -453,7 +453,7 @@ fn queue_entries_carry_source_cost() {
     });
 }
 
-// verifies r[cz.craft.scredge-first-shift0+1]
+// r[verify cz.craft.scredge-first-shift0+1]
 // Attention owns slot 0; when the spiral is exhausted, shift 0 still prefers
 // scredge over edge (the old first-shift motion-edge proof).
 #[test]
@@ -525,7 +525,7 @@ fn spiral_skips_offscreen_seats() {
     });
 }
 
-// verifies r[cz.craft.out-rotates-in-stays+1]
+// r[verify cz.craft.out-rotates-in-stays+1]
 // Note: the In arm's rotation is commented out in workshift.rs; the asymmetry
 // is currently latent (In seats are re-selected in place). This test pins the
 // Out rotation and the fact that neither queue loses entries.
@@ -550,7 +550,7 @@ fn out_rotates_without_loss() {
     });
 }
 
-// verifies r[cz.craft.provisional-not-delivered+1]
+// r[verify cz.craft.provisional-not-delivered+1]
 #[test]
 fn provisional_answer_never_marks_delivered() {
     run_big_stack_size(|| {
@@ -576,7 +576,7 @@ fn provisional_answer_never_marks_delivered() {
     });
 }
 
-// verifies r[cz.craft.wait-on-channel-full+1] — unsent batch restages; delivered stays
+// r[verify cz.craft.wait-on-channel-full+1] — unsent batch restages; delivered stays
 #[test]
 fn channel_full_restages_without_clearing_delivered() {
     run_big_stack_size(|| {
@@ -609,7 +609,7 @@ fn channel_full_restages_without_clearing_delivered() {
     });
 }
 
-// verifies r[cz.craft.shared-remap-transform+1]
+// r[verify cz.craft.shared-remap-transform+1]
 #[test]
 fn remap_onto_same_view_is_fixed_point() {
     run_big_stack_size(|| {
@@ -638,7 +638,7 @@ fn remap_onto_same_view_is_fixed_point() {
     });
 }
 
-// verifies r[cz.craft.wall-clock-law+1]
+// r[verify cz.craft.wall-clock-law+1]
 // Structural: a workshift always terminates (the loop law is elapsed wall-clock,
 // not queue state). The 10ms constant itself stays code-reviewed.
 #[test]
