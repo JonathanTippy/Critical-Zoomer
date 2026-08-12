@@ -155,5 +155,15 @@ successfully putting about 50/s. Both can be correct at once.
 **Integrity caveat (not “re-color inflation”):** because counting happens at the
 window, drain-to-newest between escaper→colorer or colorer→window can
 **undercount** escaper puts that never arrive stamped. Check `drop:` when
-auditing. Design lock remains: emission Instant on successful put only
-(`pipeline-refresh-rates.md`).
+auditing. ### Developer
+
+drop is 4
+
+### Assistant
+
+`drop:4` is **cumulative** shade coalesce (`packages_dropped`), not a rate.
+Four drops over the session cannot explain `esc:~15` vs `col:~50` — at most a
+handful of missing escape stamps total, not a ~35 Hz hole in the 1s window.
+So with `drop:4`, treat **`esc:~15` as the real escaper emission rate**; the
+coalesce-undercount caveat is idle here. Persistent/`growing` `drop:` would be
+the “shade too slow for pixel count” smell (`r[cz.craft.shade-coalesce-drop-count]`).
