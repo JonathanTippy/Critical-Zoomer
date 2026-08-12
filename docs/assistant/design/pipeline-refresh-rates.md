@@ -21,10 +21,15 @@ bootstrap until the head learns the display period.
 
 ### Head present (no spin)
 
-Head uses `request_repaint_after(period)` always — never bare
-`request_repaint()`. With broken/absent GL vsync, bare repaint spun at hundreds
-of FPS and pinned the window actor at 100% CPU. Period is Automatic
-`auto_vsync_hz` when vsync is enabled, else `1 / head_max_fps`.
+Head paces with `request_repaint_after(period)` always — never bare
+`request_repaint()`. Period is Automatic `auto_vsync_hz` when “pace to vsync
+period” is enabled, else `1 / head_max_fps`.
+
+**GL swap Wait is off** (`NativeOptions.vsync = false`). eframe glow applies one
+`SwapInterval` to *every* viewport surface; with Wait, a deferred settings
+window plus the root each block a full vblank → ~½ FPS (egui#5836 class). Timer
+pacing aims at the monitor period without serializing presents. Settings
+deferred viewport keeps its own `request_repaint_after(100ms)`.
 
 ### How `auto_vsync_hz` is learned (stable)
 
@@ -35,13 +40,14 @@ monitor before `eframe::run_native` — that poisons the process with
 
 The head aims at egui’s declared vsync period:
 
-1. Each present: `Settings::resolve_auto_vsync_hz(ctx.predicted_dt, None)`.
+1. Each present: `Settings::resolve_auto_vsync_hz(ctx.predicted_dt, None)`
+   (rounded to whole Hz).
 2. egui’s `predicted_dt` is the integration’s “expected vsync period.”
 3. eframe often leaves `predicted_dt` at the **1/60 placeholder**; Automatic
    then stays on that stable rate (manual Hz overrides). A future
    non-EventLoop monitor source may fill the optional probe argument.
 
-Fan Settings to content actors only when the resolved Hz moves (≥0.5 Hz).
+Fan Settings to content actors only when the resolved Hz moves (≥2 Hz).
 
 ### Workgroup publish
 
@@ -72,9 +78,10 @@ swap. Timer = production intent; channel = latest-resident swap.
 
 ## Headgroup
 
-`NativeOptions.vsync` defaults on. Settings: vsync checkbox + max FPS when
-uncapped. Stable `auto_vsync_hz` fans Settings to colorer, escaper, worker, and
-collector.
+`NativeOptions.vsync` is **false** (DontWait) so deferred settings cannot
+serialize GL Wait presents. Settings: “pace to vsync period” checkbox + max FPS
+when uncapped. Stable `auto_vsync_hz` fans Settings to colorer, escaper, worker,
+and collector.
 
 ## HUD
 
@@ -84,6 +91,6 @@ RateCounters; `ips:` / `pps:` unchanged.
 ## Verify
 
 - Content actors share head-reported vsync period (or manual Hz).
-- Head: vsync default; max FPS + disable vsync paces present.
+- Head: timer pace to vsync period by default; max FPS when uncapped; GL Wait off.
 - Escape default stays OG.
 - `auto_vsync_hz` does not track instantaneous present FPS.

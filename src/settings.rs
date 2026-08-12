@@ -217,13 +217,15 @@ impl Settings {
         } else {
             from_egui
         };
-        if !hz.is_finite() || hz < 1.0 {
+        let hz = if !hz.is_finite() || hz < 1.0 {
             1.0
         } else if hz > 240.0 {
             240.0
         } else {
             hz
-        }
+        };
+        // Whole-Hz quantize: predicted_dt noise must not thrash content timers.
+        hz.round().clamp(1.0, 240.0)
     }
 
     /// Content-tier wake period from [`Self::resolved_content_hz`].

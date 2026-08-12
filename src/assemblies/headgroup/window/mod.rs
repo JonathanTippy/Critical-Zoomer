@@ -42,7 +42,10 @@ const RECOVER_EGUI_CRASHES:bool = false;
 // be minimized or not on top, it might bother the user by restarting.
 //const MIN_FRAME_RATE:f64 = 20.0;
 //const MAX_FRAME_TIME:f64 = 1.0 / MIN_FRAME_RATE;
-const VSYNC: bool = true; // bootstrap; runtime head_vsync_enabled gates present pacing
+// GL swap-interval Wait on *every* viewport (eframe glow) serializes deferred
+// settings + root presents → ~1/N FPS (egui#5836 class). Pace with
+// request_repaint_after instead; head_vsync_enabled selects the period source.
+const GL_SWAP_VSYNC: bool = false;
 
 
 
@@ -238,7 +241,7 @@ async fn internal_behavior<A: SteadyActor>(
 
         })),
         viewport: viewport_options,
-        vsync: VSYNC,
+        vsync: GL_SWAP_VSYNC,
         ..NativeOptions::default()
 
 
@@ -353,8 +356,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             );
 
 
-            // Present pacing. Never bare `request_repaint()` — with broken/absent
-            // GL vsync that spins at hundreds of FPS and pins the window thread.
+            // Present pacing via timer only (GL swap Wait is off — see GL_SWAP_VSYNC).
             // Cap to the aimed period (egui/OS vsync Hz, or head_max_fps).
             let period = if state.head_vsync_enabled {
                 let hz = if state.last_fanned_auto_vsync_hz.is_finite()
@@ -382,35 +384,45 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             let mut sampler_buffer = Vec::with_capacity(pixels);
 
-            match actor.try_take(&mut pixels_in) {
-                Some(s) => {
-                    got_new_view = true;
-                    let now = Instant::now();
-                    state.pps_counter.record(s.hud.points_delta, now);
-                    state.ips_counter.record(s.hud.iterations_delta, now);
-                    if let Some(at) = s.hud.publisher_emitted_at {
-                        state.publisher_fps_counter.record(1, at);
-                    }
-                    if let Some(at) = s.hud.escape_emitted_at {
-                        state.escape_fps_counter.record(1, at);
-                    }
-                    if let Some(at) = s.hud.color_emitted_at {
-                        state.color_fps_counter.record(1, at);
-                    }
-                    if let Some(at) = s.hud.controller_emitted_at {
-                        state.controller_fps_counter.record(1, at);
-                    }
-                    state.last_gear_label = s.hud.gear.hud_label();
-                    state.last_stack_label = s.hud.stack.hud_label();
-                    state.last_mode_label = s.hud.mode.hud_label();
-                    state.last_ref_label = s.hud.ref_hud_label();
-                    state.last_color_label = s.hud.color.hud_label();
-                    state.last_escape_label = s.hud.escape.hud_label();
-                    state.last_packages_dropped = s.hud.packages_dropped;
-                    update_sampling_context(&mut state.sampling_context, s);
-
+            // Drain-to-newest: window is not the collector — keep the tip only.
+            let avail_views = actor.avail_units(&mut pixels_in);
+            if avail_views > 0 {
+                let (drops, take) =
+                    crate::assemblies::shadergroup::escaper::take_newest_plan(avail_views);
+                for _ in 0..drops {
+                    let _ = actor.try_take(&mut pixels_in);
                 }
-                None => {}
+                if take {
+                    match actor.try_take(&mut pixels_in) {
+                        Some(s) => {
+                            got_new_view = true;
+                            let now = Instant::now();
+                            state.pps_counter.record(s.hud.points_delta, now);
+                            state.ips_counter.record(s.hud.iterations_delta, now);
+                            if let Some(at) = s.hud.publisher_emitted_at {
+                                state.publisher_fps_counter.record(1, at);
+                            }
+                            if let Some(at) = s.hud.escape_emitted_at {
+                                state.escape_fps_counter.record(1, at);
+                            }
+                            if let Some(at) = s.hud.color_emitted_at {
+                                state.color_fps_counter.record(1, at);
+                            }
+                            if let Some(at) = s.hud.controller_emitted_at {
+                                state.controller_fps_counter.record(1, at);
+                            }
+                            state.last_gear_label = s.hud.gear.hud_label();
+                            state.last_stack_label = s.hud.stack.hud_label();
+                            state.last_mode_label = s.hud.mode.hud_label();
+                            state.last_ref_label = s.hud.ref_hud_label();
+                            state.last_color_label = s.hud.color.hud_label();
+                            state.last_escape_label = s.hud.escape.hud_label();
+                            state.last_packages_dropped = s.hud.packages_dropped;
+                            update_sampling_context(&mut state.sampling_context, s);
+                        }
+                        None => {}
+                    }
+                }
             }
 
             if state.sampling_context.updated
@@ -552,10 +564,37 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                         let esc_fps = state.escape_fps_counter.rate(now);
                                         let col_fps = state.color_fps_counter.rate(now);
                                         let ctrl_fps = state.controller_fps_counter.rate(now);
+                                        let hud_fps = r.0.0 as f64 / 1000000000.0;
+                                        if let Ok(path) = std::env::var("CZ_FRAME_LOG") {
+                                            if !path.is_empty() {
+                                                use std::io::Write;
+                                                use std::sync::atomic::{AtomicU64, Ordering};
+                                                static LAST_LOG_MS: AtomicU64 = AtomicU64::new(0);
+                                                let t_ms = std::time::SystemTime::now()
+                                                    .duration_since(std::time::UNIX_EPOCH)
+                                                    .map(|d| d.as_millis() as u64)
+                                                    .unwrap_or(0);
+                                                let prev = LAST_LOG_MS.load(Ordering::Relaxed);
+                                                if t_ms.saturating_sub(prev) >= 100 {
+                                                    LAST_LOG_MS.store(t_ms, Ordering::Relaxed);
+                                                    if let Ok(mut f) = std::fs::OpenOptions::new()
+                                                        .create(true)
+                                                        .append(true)
+                                                        .open(&path)
+                                                    {
+                                                        let _ = writeln!(
+                                                            f,
+                                                            "t_ms={t_ms} fps={hud_fps:.2} settings={}",
+                                                            state.settings_window_open as u8
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
                                         // r[impl cz.depth.gear-hud+2]
                                         response += format!(
                                             "fps:{:.0}  pub:{:.0}  esc:{:.0}  col:{:.0}  ctrl:{:.0}  stack:{}  mode:{}  ref:{}  gear:{}\npps:{:.0}  ips:{:.0}  drop:{}  color:{}  escape:{}  1s:{:.1}",
-                                            r.0.0 as f64 / 1000000000.0,
+                                            hud_fps,
                                             pub_fps,
                                             esc_fps,
                                             col_fps,
@@ -684,6 +723,12 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     }
                 );
 
+                if !state.settings_window_open
+                    && std::env::var("CZ_OPEN_SETTINGS").ok().as_deref() == Some("1")
+                {
+                    state.settings_window_open = true;
+                }
+
                 // Add a home icon button in the top-right corner
                 ui.put(
                     egui::Rect::from_min_size(
@@ -734,13 +779,15 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 // Never rewrite from measured present FPS — that jittered timers.
                 // Never create a second winit EventLoop to probe the monitor —
                 // that poisons eframe with WinitEventLoop(RecreationAttempt).
+                // Hysteresis ≥2 Hz: predicted_dt ±1 Hz noise must not fan Settings
+                // every present (that kept shade/worker channels hot).
                 let mut snap_to_fan = None;
                 let mut mark_fanout = false;
                 let predicted_dt = ctx.input(|i| i.predicted_dt);
                 let egui_hz = Settings::resolve_auto_vsync_hz(predicted_dt, None);
                 if let Ok(mut ctx_settings) = state.settings_window_context.try_lock() {
                     let prev = ctx_settings.settings.auto_vsync_hz;
-                    if (egui_hz - prev).abs() >= 0.5 {
+                    if (egui_hz - prev).abs() >= 2.0 {
                         ctx_settings.settings.auto_vsync_hz = egui_hz;
                         mark_fanout = true;
                     }

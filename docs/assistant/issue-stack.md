@@ -32,10 +32,10 @@ Settings cadence knobs (`content_refresh_*`, `head_vsync_enabled`,
 actor skip-send; GPU paint always refreshes from current inputs
 (persistent buffers kept). HUD `pub:/esc:/col:/ctrl:` emission-Instant rates
 already landed. Escape gear stays OG default. Workgroup TTFP / Replace coalesce
-still parked. **Charter note (2026-08-11 settings viewport):** deferred native
-settings viewport restored (user preference); settings viewport uses its own
-`request_repaint_after(100ms)` so parent present is not forced into a dual-vsync
-serialize; display timing only — no lighting redesign.
+still parked. **Charter note (2026-08-11 settings viewport):** deferred native settings
+viewport kept; GL swap Wait disabled (timer pacing) so dual-viewport Wait cannot
+halve FPS; settings viewport `request_repaint_after(100ms)`; auto_vsync fan
+hysteresis ≥2 Hz. Display timing only — no lighting redesign.
 
 ## True bugs (open)
 
