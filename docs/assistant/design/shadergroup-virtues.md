@@ -47,9 +47,10 @@ Same pattern for the bailout tail:
 - **GPU** — f32 continue R=2→radius only (`escaper/gpu/`); interiors pass-through
 
 Manual only; never auto. HUD stamps `escape:OG|GPU|GPU→OG`. Resident answer
-buffer; radius is a uniform on anim ticks. Shares the colorer wgpu device under
-a short shade-ops lock. Oracle: GPU matches an f32 CPU twin; `big_time` matches
-OG under the same `bailout_max_additional_iterations`.
+buffer; radius is a uniform on anim ticks. **Own wgpu device/queue**
+(compartmentalized from the colorer — no shared `shade_ops`). Oracle: GPU
+matches an f32 CPU twin; `big_time` matches OG under the same
+`bailout_max_additional_iterations`.
 
 ## Bailout tail is intentionally tiny (principal)
 
@@ -82,12 +83,12 @@ readback — but its **CPU alternative was the problem child** (~10× escaper),
 and its **output is display-thin**. The escaper’s CPU alternative was already
 cheap, and its output is still a full values frame the next stage re-consumes.
 
-**Live rates override benches (2026-08-12):** headed HUD with GPU escape shows
-roughly **`esc:~15` / `col:~50`**. Authoritative. Primary in-app cause: GPU
-escape and GPU color **serialize on `shade_ops`**; colorer’s ~50 Hz paints
-consume most of that mutex/device budget, leaving ~15 Hz worth of lock time for
-escape (see residency interview). Shipping cost per escape call still matters;
-the rate gap vs color is lock multiplexing, not HUD mis-count (`drop:4` idle).
+**Live rates override benches (2026-08-12):** headed HUD with GPU escape showed
+roughly **`esc:~15` / `col:~50`** under the old shared shade device +
+`shade_ops`. **2026-08-12 change:** escaper owns a separate wgpu device; colorer
+keeps its own — actors no longer serialize on one shade lock. Re-measure live
+`esc:`/`col:` before calling the rate gap fixed (physical GPU may still
+multiplex). Shipping/host round-trip remains a separate issue.
 
 Stacking GPU escape + GPU color today makes the middle worse: escape readback
 into `ZoomerValuesScreen`, then colorer re-packs nearly the same layout as

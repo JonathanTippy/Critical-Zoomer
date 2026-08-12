@@ -28,8 +28,8 @@ greenlit / goals settle.
 | Live HUD `esc:~15` / `col:~50` beats Criterion | **locked** — real app rates authoritative | this interview |
 | `drop:4` does not explain esc undercount | **locked** | this interview |
 | Why `esc:~15` with GPU escape | **RCA** — `shade_ops` lock shared with GPU color | this interview |
-| Separate wgpu devices for escape vs color | **idea** — may remove mutex; not proven; dual-wgpu parked risk | this interview |
-| Per-actor GPU compartmentalization | **goal (developer)** — actors must not fight for GPU time; prove by measure | this interview |
+| Separate wgpu devices for escape vs color | **applied 2026-08-12** — measure live `esc:`/`col:` | escaper/colorer gpu |
+| Per-actor GPU compartmentalization | **goal + first step** — escaper≠colorer device; prove by measure | this interview |
 | Dual parallel CPU/GPU views for all actor linkages | **idea only** — developer wary (upload everywhere) | this interview |
 | Fuse escape+color on device / keep values resident | undiscussed | — |
 | Workgroup answers already GPU-native → shade without host | undiscussed | naive-gpu / publish |
@@ -262,3 +262,17 @@ related HUD) show it.**
 Mechanism left open on purpose — per-actor device/queue/instance are candidates
 to try, not prescriptions. Residency/fusion can still matter inside an actor’s
 compartment. Experiment when you greenlight; measure first.
+
+---
+
+### Developer
+
+Apply the change
+
+### Assistant
+
+Applied: `GpuEscaper` creates its own wgpu device/queue (`escaper_gpu`); no longer
+uses `GpuColorer::shared_device` or cross-actor `shade_ops`. Colorer keeps
+`paint_lock` only on its device. Shared `wgpu_init_lock` for adapter init races
+under libtest. **Not declared fixed** until you re-check headed `esc:`/`col:`
+with escape gear GPU.

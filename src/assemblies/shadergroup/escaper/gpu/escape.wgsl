@@ -1,5 +1,5 @@
 //! f32 bailout-tail compute — R=2 answers → continue to animated radius.
-//! Resident answer buffer; radius is a uniform. Shared device with colorer.
+//! Resident answer buffer; radius is a uniform. Escaper-owned wgpu device.
 
 struct Answer {
     kind: u32,          // 0 Escapes, 1 Repeats, 2 Dummy

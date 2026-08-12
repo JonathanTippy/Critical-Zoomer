@@ -15,15 +15,14 @@ const MAX_LAYERS: usize = 16;
 const SHADER: &str = include_str!("color.wgsl");
 
 /// Process-wide colorer GPU (one device). Avoids parallel `try_new` races with
-/// other wgpu users under libtest. Shared with the GPU escaper via [`shared_device`].
+/// other wgpu users under libtest. Escaper owns a separate device
+/// (compartmentalized); both serialize init via [`wgpu_init_lock`].
 static SHARED_GPU: OnceLock<Option<Arc<GpuColorer>>> = OnceLock::new();
 static INIT_LOCK: Mutex<()> = Mutex::new(());
-/// Serialize shade-path GPU ops (colorer + escaper) including readback.
-static SHADE_OPS: Mutex<()> = Mutex::new(());
 
-/// Shared critical section for all shade GPU submit+map work.
-pub fn shade_ops() -> &'static Mutex<()> {
-    &SHADE_OPS
+/// Process-wide lock for wgpu adapter/device init (libtest + multi-actor startup).
+pub fn wgpu_init_lock() -> &'static Mutex<()> {
+    &INIT_LOCK
 }
 
 #[repr(C)]
@@ -85,8 +84,7 @@ pub struct GpuColorer {
     pub(crate) queue: wgpu::Queue,
     pipeline: wgpu::ComputePipeline,
     bind_group_layout: wgpu::BindGroupLayout,
-    /// Serialize paint (readback map_async is not re-entrant across threads).
-    /// Prefer [`shade_ops`] so escaper and colorer do not interleave map_async.
+    /// Serialize paint on this actor's device (map_async is not re-entrant).
     paint_lock: Mutex<()>,
     session: Mutex<Option<ColorSession>>,
 }
@@ -100,11 +98,6 @@ impl GpuColorer {
                 Self::try_new().map(Arc::new)
             })
             .clone()
-    }
-
-    /// Device/queue handles for other shade-path GPU users (escaper).
-    pub fn shared_device() -> Option<(wgpu::Device, wgpu::Queue)> {
-        Self::shared().map(|g| (g.device.clone(), g.queue.clone()))
     }
 
     pub fn try_new() -> Option<Self> {
@@ -299,7 +292,6 @@ impl GpuColorer {
         values: &ZoomerValuesScreen,
         settings: &mut Settings,
     ) -> Option<Vec<Color32>> {
-        let _ops = shade_ops().lock().unwrap_or_else(|e| e.into_inner());
         let _paint = self.paint_lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut session_guard = self.session.lock().unwrap_or_else(|e| e.into_inner());
 

@@ -1,8 +1,8 @@
 //! Escaper-owned wgpu f32 bailout tail — R=2 → radius only; interiors pass-through.
-//! Shares the colorer device; serializes via [`crate::assemblies::shadergroup::colorer::gpu::shade_ops`].
-//! Resident answers; radius uniform on anim ticks.
+//! Own device/queue (compartmentalized from the colorer). Resident answers;
+//! radius uniform on anim ticks.
 
-use crate::assemblies::shadergroup::colorer::gpu::{shade_ops, GpuColorer};
+use crate::assemblies::shadergroup::colorer::gpu::wgpu_init_lock;
 use crate::assemblies::shadergroup::escaper::{ScreenValue, ZoomerValuesScreen};
 use crate::assemblies::workgroup::screen_worker::workshift::CompletedPoint;
 use crate::assemblies::workgroup::work_collector::ResultsPackage;
@@ -68,6 +68,8 @@ pub struct GpuEscaper {
     queue: wgpu::Queue,
     pipeline: wgpu::ComputePipeline,
     bind_group_layout: wgpu::BindGroupLayout,
+    /// Serialize submit+map on this actor's device only.
+    ops_lock: Mutex<()>,
     session: Mutex<Option<EscapeSession>>,
 }
 
@@ -75,10 +77,57 @@ impl GpuEscaper {
     pub fn shared() -> Option<Arc<GpuEscaper>> {
         SHARED
             .get_or_init(|| {
-                let (device, queue) = GpuColorer::shared_device()?;
-                Self::try_new_on(device, queue).map(Arc::new)
+                let _g = wgpu_init_lock()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                Self::try_new().map(Arc::new)
             })
             .clone()
+    }
+
+    pub fn try_new() -> Option<Self> {
+        if std::env::var("CZ_FORCE_CPU_ESCAPE").ok().as_deref() == Some("1") {
+            return None;
+        }
+        pollster::block_on(Self::try_new_async())
+    }
+
+    async fn try_new_async() -> Option<Self> {
+        let backend_attempts = [
+            wgpu::Backends::VULKAN,
+            wgpu::Backends::GL,
+            wgpu::Backends::PRIMARY,
+        ];
+        let mut adapter = None;
+        for backends in backend_attempts {
+            let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+                backends,
+                ..Default::default()
+            });
+            if let Ok(a) = instance
+                .request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::HighPerformance,
+                    compatible_surface: None,
+                    force_fallback_adapter: false,
+                })
+                .await
+            {
+                adapter = Some(a);
+                break;
+            }
+        }
+        let adapter = adapter?;
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("escaper_gpu"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                memory_hints: Default::default(),
+                trace: Default::default(),
+            })
+            .await
+            .ok()?;
+        Self::try_new_on(device, queue)
     }
 
     pub fn try_new_on(device: wgpu::Device, queue: wgpu::Queue) -> Option<Self> {
@@ -142,6 +191,7 @@ impl GpuEscaper {
             queue,
             pipeline,
             bind_group_layout,
+            ops_lock: Mutex::new(()),
             session: Mutex::new(None),
         })
     }
@@ -212,9 +262,7 @@ impl GpuEscaper {
     where
         T: Into<f64> + Copy,
     {
-        let _ops = shade_ops()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _ops = self.ops_lock.lock().unwrap_or_else(|e| e.into_inner());
         let n = package.results.len() as u32;
         if n == 0 {
             return Some(ZoomerValuesScreen {
