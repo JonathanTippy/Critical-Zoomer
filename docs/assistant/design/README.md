@@ -11,6 +11,7 @@ Assistant-owned index for this folder. The developer's files speak for themselve
 - `assembly-boundaries.md` — workgroup = answers, shadergroup = bailout tail +
   color, headgroup = present colors (+ stencils); study v0.0.9 for unlisted decisions.
 - `workgroup-virtues.md` — enshrined study of the v0.0.9 workgroup (commit e6a0560): the mechanisms and invariants that kept it from getting behind pivots, confusing work storage, stalling, or publishing stale work. **Read before changing anything in the workgroup.** Every later regression traced to breaking one of its seven invariants; they are not to be re-broken.
+- `collector-publish-bottleneck.md` — 2026-08-12 diagnosis: HUD `ctrl:`/`pub:` coupling, stencil-only controller audit, O(pixels) remap/publish/shell costs, Arc-vs-handback and sparse-integrator options (not implemented).
 - `depth-design.md` — perturbation with background reference worker; partially implemented (see file status). CGenerator admission + PPS-selected kernel dispatch in progress.
 - `gearbox.md` — compute-gear policy + test-only FloatExp Oracle (`src/gearbox/`).
 

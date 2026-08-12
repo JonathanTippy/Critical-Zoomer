@@ -80,6 +80,14 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
   (C) **Parked (revealed after banding):** time-to-first-work and work-update
   post rate degrade past ~1.5× / 1080p — revisit after GPU colorer makes the
   shade path fast enough to expose them cleanly.
+  (D) **Collector / publish / shell O(pixels) — diagnosed 2026-08-12.** Headed
+  `pub:`/`ctrl:` ~15 at 854×480 under motion, →0 at 1080p. Controller is
+  stencil-only (~80 B); `ctrl:` couples to collector publish stamps, not
+  controller loop cost. Release probe: same-res `from_stencil` ~13 ms / ~76 ms;
+  `sample_old_values` ~24 ms / ~97 ms; publish clone+`view_from_package`
+  ~10 ms / ~151 ms. Options (Arc frozen snapshot, sparse integrator for remap
+  lineage, shell reuse) in `design/collector-publish-bottleneck.md`. Not
+  implemented. Do not “fix” with shared-mutable Views or delta shade protocols.
 
 **Charter note (2026-08-11 GPU colorer):** bucket-3 honest rewrite of
 shadergroup colorer (wgpu f32, feature parity, exact Color32 vs OG) + bucket-2
@@ -112,7 +120,19 @@ bucket 2 telemetry.
   FloatExp-*host* banding root cause remains open but moot on the f64-host path.
 - **First reference job length still = `MAX_BOUT` (1000); no mid-view extend.** **Closed (2026-08-07):** publish only on period/escape; no length wall. Intermediate snapshots before done remain an open question (see depth-design).
 - **Reference library reuse landing; discard still open.** Greedy keep + per-seat best-ref bind are in; byte-budgeted eviction / unused-ref discard are not.
-- **Display-path latency profiling.** The high-res lag is a *display pipeline* problem (see Known issues): measure per-stage per-frame cost at 1920×1080 — escaper, colorer, window sampling, texture allocation/upload, repaint cadence — to find where backlog accumulates. Do not assume view/remap is the dominant contributor. Defer until after the deep-zoom type-switch milestone (or run in parallel if headed profiling is available).
+- **Display-path latency profiling.** Partially superseded 2026-08-12 for the
+  workgroup publish path: see Known issues (D) and
+  `design/collector-publish-bottleneck.md` (controller audit + collector/shell
+  microbench). Remaining open: headed per-stage cost at 1920×1080 for escaper,
+  colorer, window sampling, texture upload, and repaint cadence — still do not
+  blame view/remap alone for shade-side lag.
+- **Collector publish throughput / remap lineage (design gap 2026-08-12).** Dense
+  absorb-all + full-package clone every content beat is correct for continuity
+  and whole snapshots, but O(pixels)×pivots when behind. Tip-only dense remap
+  is not free (lineage carries intermediate seats through smear). Preferred
+  directions discussed: frozen Arc/pool snapshots first; sparse integrator if
+  lineage must stay without full-frame hops; same-res Point buffer reuse on
+  worker. Doc: `design/collector-publish-bottleneck.md`. No code until chosen.
 - **Pipeline refresh rates (design lock 2026-08-11, revised).** **Two tiers:**
   content (workgroup publish + shadergroup) at **real vsync from head/egui**
   (hardcoded 60 rejected); head **vsync default** with typed max FPS +
@@ -153,7 +173,10 @@ Not bugs; provisional mechanisms that shipped because they beat nothing. None is
   (`wait-on-channel-full`); no Dummy reopen. Fixed-cap Stec / double-queue
   staging deleted per interview.
 - **Delivered-aware attention sampling**: done as the attention square-ring spiral (`cz.craft.attention-spiral+1`).
-- **Incremental WorkContext construction**: done as stencil-only Replace + lazy `ensure_started` (see `cz.craft.stencil-only-replace+2`). Chunked amortization beyond first-start laziness remains optional if install-time shell work ever shows up in play.
+- **Incremental WorkContext construction**: channel side done (stencil-only Replace +
+  lazy `ensure_started`). Remaining: same-res worker shell still O(pixels)
+  `resize_with` placeholders — see Known issues (D) /
+  `design/collector-publish-bottleneck.md`.
 - **Completion staging vs channel**: staging Vec is only for per-shift batching + LIFO; backpressure is the channel.
 
 ## Done (recent)

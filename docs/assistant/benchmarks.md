@@ -243,3 +243,20 @@ The isolated 1920×1080 worker takes ~688ms versus ~228ms at the default
 therefore one real contributor to the reported sluggishness, but the
 sub-linear scaling does not support blaming the scheduler or view/remap design.
 The remap and shader portions still require separate headed profiling.
+
+### Collector / shell publish probe (2026-08-12)
+
+One-shot release timings (not Criterion pins). Full write-up:
+`design/collector-publish-bottleneck.md`.
+
+| Path | 854×480 | 1920×1080 |
+|---|---|---|
+| `admit_generator` | ~0.0001 ms | ~0.0001 ms |
+| `from_stencil` cold | ~79 ms | ~490 ms |
+| `from_stencil` same-res pan reuse | ~13 ms | ~76 ms |
+| `sample_old_values` | ~24 ms | ~97 ms |
+| publish equiv (`clone` + `view_from_package`) | ~9–10 ms | ~151 ms |
+
+Controller Replace remains ~80 B (stencil-only). HUD `ctrl:`/`pub:` ~15 at
+default res under motion is consistent with shell + remap + publish stacking;
+1080p publish alone is a ~6.6 Hz ceiling before shade.

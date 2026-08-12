@@ -17,7 +17,7 @@ The four behaviors this design guaranteed:
 Three Steady-State actors, each `SoloAct` on its own thread, connected by small channels:
 
 ```
-Window ──PointStencil──► WorkController ──Replace(WorkContext)──► ScreenWorker
+Window ──PointStencil──► WorkController ──Replace(stencil)──► ScreenWorker
    │  (cap 50)               (cap 10)                                  │
    └──attention (i32,i32)──────(cap 50)────────────────────────────────┘
                                                     WorkUpdate  (cap 50)
@@ -28,6 +28,11 @@ Window ──PointStencil──► WorkController ──Replace(WorkContext)─�
                                                                          ▼
                                                           Escaper → Colorer → Window
 ```
+
+Live `Replace` is stencil-only (`frame_info` + emission Instant) — not a seeded
+`WorkContext` on the wire (`r[cz.craft.stencil-only-replace+2]`). The worker
+builds the shell from the stencil; seat `c` is lazy at first start. The diagram
+above used to say `Replace(WorkContext)`; that was the pre-laziness shape.
 
 That is the entire data path from user input to finished membership facts. Four kinds of message cross actor boundaries. One command type. One update type. One output type. The vocabulary is small enough that every actor can be reasoned about alone — and that smallness is not austerity, it is the load-bearing property. Every later failure mode (versioning conflicts, gate disagreements, stream reconciliation) requires more vocabulary than this.
 
@@ -41,11 +46,11 @@ The split is exactly the split of *time horizons*:
 - **The worker** answers “what seat should be iterated *this moment*?” — a question with one answer per bout.
 - **The collector** answers “what do we know *so far*?” — a question whose answer accumulates and occasionally transforms wholesale.
 
-Notice what is *not* an actor: scheduling policy. The controller does not tell the worker which seat to do next. It hands over a self-contained `WorkContext` — points, queues, mixmap, edge seeds — and steps out of the way. The worker’s scheduling state is *its own*, disposable, and invisible to everyone else. This is the first deep decision:
+Notice what is *not* an actor: scheduling policy. The controller does not tell the worker which seat to do next. It hands over a **stencil** (wanted frame); the worker alone owns the live `WorkContext` — points, queues, mixmap, edge seeds — and steps itself. The worker’s scheduling state is *its own*, disposable, and invisible to everyone else. This is the first deep decision:
 
 > **The schedule is ephemeral; the hoard is authoritative; and they are different objects held by different actors.**
 
-Because the controller never shares mutable scheduling state with the worker, a pivot cannot produce a half-updated schedule. There is no negotiation, no two-phase commit, no “stop doing X, start doing Y” protocol. There is one command — `Replace` — which is the entire new world in a single message. The worker either has the old world or the new world; there is no third state. This is why pivots cannot fail structurally: there is nothing to desynchronize.
+Because the controller never shares mutable scheduling state with the worker, a pivot cannot produce a half-updated schedule. There is no negotiation, no two-phase commit, no “stop doing X, start doing Y” protocol. There is one command — `Replace` — which names the entire new world in a single small message. The worker either has the old world or the new world; there is no third state. This is why pivots cannot fail structurally: there is nothing to desynchronize.
 
 ---
 
@@ -267,6 +272,8 @@ Every publish is a **complete `View<Answer>`**: the full package, mapped through
 
 The cost — re-sending a full screen — is the price of eliminating an entire class of bugs: partial-stream disagreement. The DAT-era failures (NORES floods, WIP holes, missing lookback columns) are all partial-stream diseases. v0.0.9 chose the bandwidth and bought the correctness. And the `Dummy → Inside{period:0}` conversion means unpublished seats render as plain interior — the set's home frame is mostly interior, so an unfinished screen looks like the set with fuzzy exterior detail arriving, which is exactly the architecture's "best-res available" fill order expressed as a data default.
 
+**Implementation note (2026-08-12):** “whole snapshot” is a **contract** (one complete world per put), not a requirement to `clone` the private package every content beat. Frozen `Arc` / ping-pong / handback-pool snapshots are compatible; shared-mutable buffers are not. Live costs and options: `collector-publish-bottleneck.md`.
+
 ### The remap handles all three motion cases with one code path
 
 - **Move**: relative position in pixels shifts the sampling origin. Overlap preserved, new edge clamped-smeared, worker redoes smear + frontier.
@@ -388,7 +395,7 @@ The closures above are the gold. These five remaining pieces are not — they we
   `r[cz.craft.attention-spiral+1]`
 - **~~The `Stec` fixed array stack~~ (resolved 2026-08-11).** Deleted. Completions stage in a growable per-shift `Vec` drained LIFO into the collector channel; channel-full undelivers the batch.
 - **The completion staging Vec ("publish queue").** Still a second queue in front of the `WorkUpdate` channel. Its remaining jobs are per-shift batching and LIFO drain; if those stop earning their keep, drain straight into the channel.
-- **Monolithic WorkContext construction.** Building the next world in one O(pixels) lump on the controller is correct but crude. A small incremental generator could spread construction across the pivot window — one more turn of the play-reduction ratchet. The builder/runner split is gold; the batch size is the unfinished part.
+- **Monolithic WorkContext construction.** Controller-side seeding is **done** (stencil-only Replace + lazy `ensure_started`). The remaining O(pixels) lump is **worker shell install**: same-res pan still `resize_with` placeholder `Point`s (~13 ms @ 854×480, ~76 ms @ 1080p in the 2026-08-12 probe). Amortize or generation-invalidate without bringing a seeded context back onto the channel. See `collector-publish-bottleneck.md`.
 - **Token accounting.** Too hard to get right, and the code already knows it: the token budget in the shift-loop condition is commented out; wall-clock is the only law. The surviving token fields and recomputation are a fossil. Delete them.
 
 The pattern in all five: the *policy* each served (foveation, boundedness, batching, overlapped construction, budgeting) was right, and the *mechanism* was the first thing that worked. That is exactly what "culmination of manual testing" means — the failures were killed for real, and a few of the weapons were provisional.
