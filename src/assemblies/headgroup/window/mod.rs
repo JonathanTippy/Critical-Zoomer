@@ -360,25 +360,25 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             // Present pacing. Never bare `request_repaint()` — with broken/absent
             // GL vsync that spins at hundreds of FPS and pins the window thread.
             // Cap to the aimed period (egui/OS vsync Hz, or head_max_fps).
-            if state.head_vsync_enabled {
-                ctx.request_repaint(); // prefer to let Egui handle this
-                /*let hz = if state.last_fanned_auto_vsync_hz.is_finite()
+            // (Window ~100% CPU / vsync Wait shelved — see issue-stack.md.)
+            let period = if state.head_vsync_enabled {
+                let hz = if state.last_fanned_auto_vsync_hz.is_finite()
                     && state.last_fanned_auto_vsync_hz >= 1.0
                 {
                     state.last_fanned_auto_vsync_hz.min(240.0)
                 } else {
                     60.0
                 };
-                Duration::from_secs_f64(1.0 / hz)*/
+                Duration::from_secs_f64(1.0 / hz)
             } else {
-                let period = {let hz = if state.head_max_fps.is_finite() && state.head_max_fps >= 1.0 {
+                let hz = if state.head_max_fps.is_finite() && state.head_max_fps >= 1.0 {
                     state.head_max_fps.min(1000.0)
                 } else {
                     1.0
                 };
-                Duration::from_secs_f64(1.0 / hz)};
-                ctx.request_repaint_after(period);
+                Duration::from_secs_f64(1.0 / hz)
             };
+            ctx.request_repaint_after(period);
 
 
             let mut got_new_view = false;
