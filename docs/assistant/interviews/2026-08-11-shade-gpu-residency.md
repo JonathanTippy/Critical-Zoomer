@@ -276,3 +276,7 @@ uses `GpuColorer::shared_device` or cross-actor `shade_ops`. Colorer keeps
 `paint_lock` only on its device. Shared `wgpu_init_lock` for adapter init races
 under libtest. **Not declared fixed** until you re-check headed `esc:`/`col:`
 with escape gear GPU.
+
+Lab probe (release, 854×480, 40 parallel wakes): esc ~95 Hz and color ~48 Hz
+**concurrent** on own devices — consistent with removing the 15 Hz lock
+multiplex; still confirm in the real app.
