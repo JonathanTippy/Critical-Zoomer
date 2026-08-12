@@ -34,14 +34,18 @@ is reuse policy.
    pan/zoom.
 2. **Best ref per seat.** For each point, use the kept reference that seems best.
    Prefer that over a single global “current frame” reference gate.
-3. **Glitch is local.** If a seat glitches against its chosen reference, that
-   seat falls back to the **zero orbit** until a suitable reference exists for
-   it. Do **not** abandon the reference for the whole screen because some seats
-   glitched.
+3. **Glitch is local; refs are never discarded for glitch.** References are
+   liberally / greedily saved. If a seat glitches against its chosen reference,
+   **only that seat pauses** until a better reference is available for it.
+   Do **not** abandon or delete the reference for the whole screen, and do
+   **not** discard a reference because some seats glitched. (Live code may still
+   soft-continue via zero-orbit / `direct_only`; product intent is pause-until-
+   better-ref for glitching seats — verify against
+   `docs/assistant/interviews/2026-08-12-precision-wall-gear-switching.md`.)
 4. **Discard is secondary.** Memory must not leak unbounded forever, but budget
    and eviction are not the priority until liberal reuse is working. A plausible
    later rule: discard a reference if **no** seat on the screen used it (total
-   glitch / unused). Do not block progress on inventing discard policy.
+   unused) — **not** because it glitched. Do not block progress on inventing discard policy.
 
 ## What this is not
 

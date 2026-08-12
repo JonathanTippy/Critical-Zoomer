@@ -22,4 +22,8 @@ Heap adaptive gear + reference orbits (discrimination + 20 bits). Least preferre
 
 ## Selection (UD-NUM-SEL-1) — D-GEAR-1
 
-C generator fails closed if type cannot distinguish all stencil points. No mid-iteration “upgrade gear” path.
+C generator fails closed if type cannot distinguish all stencil points **with
+~10 bits of render headroom** (2026-08-12). Same margin on absolute `c` and
+perturbation `delta_c`. No mid-iteration “upgrade gear” path: new stencil →
+gearbox re-admits. Gear = compute kernel; type = cheapest admitted representation
+inside that gear. See `docs/assistant/paraphrase-authoritative/c-generator-admit-margin.md`.

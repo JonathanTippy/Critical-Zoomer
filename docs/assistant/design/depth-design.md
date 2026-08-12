@@ -36,9 +36,13 @@ escape derivative stays `dc`.
   in the `delta_c` slot (never generator `delta_c`).
 - **Floatexp**: f64 mantissa + wide integer exponent. The **storage** type for reference
   iterates and mathematical deltas. Range, not mantissa, is what depth demands.
-- **Compute gear**: the hardware representation used for the hot delta recurrence
-  (f64, scaled-f64, or full FloatExp). Storage stays FloatExp; compute picks the
-  fastest safe gear.
+- **Compute gear (kernel):** production seat-worker path — naive `DirectKernel`,
+  `PerturbationKernel`, Naive GPU, etc. **Not** a numeric type. Gearbox picks
+  among admitting kernels by expected PPS (`r[cz.perf.pps-selected-kernel+1]`).
+- **Compute type / delta ladder:** numeric representation used inside a kernel
+  for the hot recurrence (f64, scaled-f64, or full FloatExp under pert). Storage
+  stays FloatExp; each gear picks the **smallest type** C-generator admits
+  (with ~10-bit render margin).
 - **Reference worker**: a new actor that computes/extends reference orbits in the background.
   Not "rebasing" — that word means a mid-orbit numerical fold (z ← z+Δz), a different,
   smaller technique; this design contains no world-stopping recomputation.
@@ -203,6 +207,20 @@ Relative admission subtracts in exact `IntExp` before narrowing; anchor is
 `published.c` when a reference exists, else view center. On reference generation
 change, rebuild the generator relative to the new reference so seats initialize
 from the matching grid.
+
+**Values gated:** absolute seat `c` on naive paths; `delta_c` on perturbation
+paths (the numbers actually iterated). **Render margin (2026-08-12):** admission
+must keep ~**10 bits** of headroom beyond neighbor distinguishability on both
+paths — distinguish-only false-admits shallow types and yields rectangular
+transition blockiness. Interview:
+`docs/assistant/interviews/2026-08-12-precision-wall-gear-switching.md`;
+paraphrase: `docs/assistant/paraphrase-authoritative/c-generator-admit-margin.md`.
+
+**Perturbation admit order:** nearest kept ref to the screen → δc stencil →
+margin admit → smallest type. Closer ref may unlock a cheaper type; must be
+correct even if uncommon. A pure “no close ref → wall” case is deprioritized as
+extremely unlikely; glitch-without-safe-ref is the stuck case that matters
+(local seat pause; never discard refs for glitch — see reference-reuse).
 
 ## What the workgroup changes look like
 

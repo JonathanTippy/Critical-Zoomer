@@ -23,14 +23,22 @@ Do not iterate deep relative seats with collapsed f64 absolute `c` alone — tha
 r[cz.depth.c-generator-fails-closed+1]
 
 **Rule.** Objective-coordinate conversion is admitted only when the target compute type keeps
-every adjacent screen point distinct. Admission is O(1): compute exact `IntExp` origin and
+every adjacent screen point distinct **and** retains about **10 bits** of render headroom
+beyond bare neighbor distinguishability (same margin on absolute `c` and relative/`delta_c`
+paths). Distinguishing seats alone is not enough for correct Mandelbrot dynamics; missing
+the margin false-admits shallow types and yields rectangular transition blockiness.
+Admission is O(1): compute exact `IntExp` origin and
 pixel pitch, probe only the near and far ends of each axis (including the max-magnitude end
 where float ulp is worst), convert probe points through `T: From<IntExp>`, and verify
-adjacency in `T`. On success store `origin` and `space` as `T`; hot `get_c` is pure `T`
+adjacency in `T` with the margin. On success store `origin` and `space` as `T`; hot `get_c` is pure `T`
 multiply-add with no per-seat IntExp. Generated coordinates reproduce v0.0.9's top-left,
 no-half-pixel grid exactly. Relative generation subtracts the anchor in exact `IntExp` before
 narrowing; anchor is `published.c` when a reference exists, else view center. Rebuild the
 generator when reference generation changes so seats bind to the matching grid.
+
+Design lock / interview: `docs/assistant/interviews/2026-08-12-precision-wall-gear-switching.md`,
+`docs/assistant/paraphrase-authoritative/c-generator-admit-margin.md`. Margin pins still open
+on the issue stack until land.
 
 **Implementation.** `src/assemblies/workgroup/c_generator.rs` — `Mandelbrotable`,
 `CGenerator::new`, `new_relative`, `admit_generator`, `rebuild_generator_for_reference`.

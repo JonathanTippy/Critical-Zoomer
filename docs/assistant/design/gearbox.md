@@ -5,13 +5,27 @@ selection helpers, and the test-only Oracle path. Perturbation delta stepping
 still lives in `delta_gear.rs` until fully moved; callers should prefer
 `gearbox` for policy and HUD labels.
 
+## Vocabulary (2026-08-12)
+
+| Term | Meaning |
+|---|---|
+| **Gear** | Seat-worker / **compute kernel** path (`DirectKernel`, `PerturbationKernel`, Naive GPU, …). Not a numeric type. |
+| **Type** | Numeric representation inside a gear (f32/f64/ScaledF64/FloatExp, …). |
+| **Admit** | C-generator says this gear+type can carry the values actually iterated for the stencil (absolute `c` or δc), with render margin — see `docs/assistant/paraphrase-authoritative/c-generator-admit-margin.md`. |
+
+Decision rule: **among gears that admit, lock highest expected PPS; within a gear,
+smallest admitted type** (smaller type ⇒ better PPS for that gear). New stencil →
+re-evaluate. Temporary blockiness from remapping old work is unrelated; rectangular
+precision blocks while a deeper admitting option exists means admit/selection failed
+(suspected: shallow false admit without ~10-bit C-gen margin).
+
 ## Separation of concerns
 
 | Concern | Owner |
 |---|---|
 | Fastest safe delta recurrence (F64 → ScaledF64 → FloatExp) | `delta_gear` / gearbox policy |
-| View admission → default **type**/delta gear | `gearbox::policy` |
-| **PPS race** among legal compute kernels | `gearbox::policy` + `workshift` |
+| View admission → default **type** inside a gear | `gearbox::policy` + `CGenerator` |
+| **PPS race** among legal compute kernels (**gears**) | `gearbox::policy` + `workshift` |
 | Production naive absolute f64 | `DirectKernel` (scheduler-owned) |
 | Production perturbation | `PerturbationKernel` |
 | **Test-only** deep naive truth | `gearbox::oracle::OracleKernel` |
@@ -28,8 +42,8 @@ kernels (Naive CPU, Naive GPU if present, Perturbation) for **one workshift each
 (especially Naive GPU) can lose the lock without spending most of the window
 cycling. Relative (dishonest-naive) views hard-lock Perturbation with no race.
 
-Manual gear (settings) overrides the race. Host numeric type remains automatic
-from depth admission.
+Manual gear (settings) overrides the race. Host numeric **type** remains automatic
+from C-generator admission (with render margin).
 
 ## Oracle gear (bulletproof quality, tests only)
 

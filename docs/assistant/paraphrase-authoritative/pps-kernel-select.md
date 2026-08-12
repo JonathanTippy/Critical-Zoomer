@@ -4,10 +4,12 @@ Source: developer 2026-08-10 — gearbox must not assume GPU is fastest.
 
 ## Intent
 
-Among **legal** compute kernels (gears), **measure** completed points per second
+Among **legal** compute kernels (**gears**), **measure** completed points per second
 and **lock** the winner for the view. Do not prefer Naive GPU by default.
 
-Host / numeric **type** stays automatic from depth admission.
+Host / numeric **type** stays automatic from C-generator admission (distinguish +
+~10-bit render margin). Gear ≠ type — see
+`c-generator-admit-margin.md`.
 
 ## Legal set
 
