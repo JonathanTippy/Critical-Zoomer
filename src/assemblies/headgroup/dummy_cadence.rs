@@ -207,6 +207,8 @@ async fn internal_behavior<A: SteadyActor>(
                         state.first_color_at = Some(now);
                         state.measure_deadline =
                             Some(now + cfg.measure_after_first_frame);
+                        // Measure-window-only escaper counters (drop TTFP warmup).
+                        crate::debug_agent::reset_escape_rca();
                         // Count this first frame too.
                         if s.hud.publisher_emitted_at.is_some() {
                             state.pub_total = 1;

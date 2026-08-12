@@ -269,6 +269,8 @@ mod steady_state_pipeline_cadence_tests {
 
     fn run_case(escape: EscaperMode, color: ColorerMode) -> CadenceReport {
         let _guard = CADENCE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        crate::debug_agent::init_cpu_profile_from_env();
+        crate::debug_agent::enable_escape_rca();
         // Pre-init shade GPUs on this thread so actor threads do not race adapter create.
         let _ = crate::assemblies::shadergroup::colorer::gpu::GpuColorer::shared();
         let _ = crate::assemblies::shadergroup::escaper::gpu::GpuEscaper::shared();
@@ -296,6 +298,34 @@ mod steady_state_pipeline_cadence_tests {
             r.esc_total,
             r.col_total,
             r.esc_total as f64 / r.measure_secs.max(0.001),
+        );
+        let rca = crate::debug_agent::snapshot_escape_rca();
+        let wake_hz = rca.wakes as f64 / r.measure_secs.max(0.001);
+        let send_ok_hz = rca.send_ok as f64 / r.measure_secs.max(0.001);
+        let body_ms_per_wake = if rca.wakes > 0 {
+            rca.body_ms / rca.wakes as f64
+        } else {
+            0.0
+        };
+        let body_duty = if r.measure_secs > 0.0 {
+            (rca.body_ms / 1000.0) / r.measure_secs
+        } else {
+            0.0
+        };
+        eprintln!(
+            "escaper RCA: wakes={} ({:.1}/s)  body_ms={:.1} ({:.2}ms/wake duty={:.0}%)  convert_ms={:.1}  send_ok={} ({:.1}/s)  send_full={}  send_blocked={}  no_values={}  packages_taken={}",
+            rca.wakes,
+            wake_hz,
+            rca.body_ms,
+            body_ms_per_wake,
+            body_duty * 100.0,
+            rca.convert_ms,
+            rca.send_ok,
+            send_ok_hz,
+            rca.send_full,
+            rca.send_blocked,
+            rca.no_values,
+            rca.packages_taken,
         );
     }
 

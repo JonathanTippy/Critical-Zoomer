@@ -295,3 +295,52 @@ fps:55 pub:8 esc:9 col:45 … escape:GPU — not any better. Escaper 100% CPU at
 records HUD RateCounters. Release: OG cadence green (col~52, esc~22); GPU escape
 pin **red** (mean esc~15 ≪ 40) matching the ghost class. See
 `steady_state_pipeline_cadence_*` and `testing.md`.
+
+---
+
+### Developer
+
+Good, profile that test and RCA the escaper rate.
+
+### Assistant
+
+**Instrumented** escaper RCA (`enable_escape_rca` / measure-window reset at first
+color): wakes, convert ns, escape-body ns, send ok/full/blocked, packages taken.
+Dummy-head prints the snapshot next to HUD rates.
+
+**Release profile (unsandboxed, `--test-threads=1`, 854×480, 5 s measure):**
+
+| gear | pub | esc | col | wake/s | body ms/wake | convert ms/pkg | send_full | packages≈send_ok |
+|------|-----|-----|-----|--------|--------------|----------------|-----------|------------------|
+| GPU  | 16  | 18  | 77  | 17.4   | **20.9**     | **~36**        | **0**     | 87≈88            |
+| OG   | 21  | 23  | 80  | 26.6   | **7.7**      | **~34**        | **0**     | 115→133          |
+
+`CZ_PROFILE_CPU` busy probes (body only): colorer ~50% of wall; escaper body
+~15–20%; convert is *outside* the busy probe and still ~3.1 s of the 5 s GPU
+measure (~62% wall).
+
+#### RCA (escaper rate)
+
+1. **Not channel backpressure.** `send_full=0`, `send_blocked=0`. Stamps equal
+   successful sends.
+2. **Convert dominates.** MandelbrotResult→CompletedPoint on each package take
+   costs ~34–36 ms at live window res (per-pixel `stencil.clone().seat_and_row`).
+   Same cost OG and GPU.
+3. **GPU body is secondary but real.** Escape body ~21 ms GPU vs ~8 ms OG
+   (submit+`poll(Wait)`+unmap path). Combined with convert:
+   - GPU ceiling ≈ 1/(36+21) ms ≈ **17 Hz** (matches mean esc 17.8)
+   - OG ceiling ≈ 1/(34+8) ms ≈ **24 Hz** (matches mean esc 26.6 with a few
+     resident re-emits)
+4. **Why esc≈pub, not esc≈col.** Under GPU, nearly every wake takes a new
+   workgroup package (`packages_taken≈send_ok`); convert+body leave no budget
+   for content-beat resident re-escape. Colorer keeps `col~80` by re-emitting
+   resident values without that convert tax. Live `esc:~9` is the same saturation
+   class under heavier headed load — dual-device did not remove convert or the
+   blocking GPU readback.
+5. **Ruled out as primary:** Criterion FLOPs, shared `shade_ops`, stamp
+   visibility without send.
+
+**Next levers (not applied):** cheapen/hoist convert (no per-pixel stencil
+clone); async/non-blocking GPU readback or fuse escape into colorer compartment;
+ensure resident content-beat escape without re-taking every package. Measure
+again with the same RCA print — not Criterion alone.

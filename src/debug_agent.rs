@@ -26,6 +26,17 @@ static WINDOW_CALLS: AtomicU64 = AtomicU64::new(0);
 static WORKER_WORKING_WAKES: AtomicU64 = AtomicU64::new(0);
 static WORKER_PARK_WAKES: AtomicU64 = AtomicU64::new(0);
 
+/// Escaper cadence RCA counters (enabled with `CZ_ESCAPE_RCA=1`).
+static ESC_RCA: AtomicBool = AtomicBool::new(false);
+static ESC_RCA_WAKES: AtomicU64 = AtomicU64::new(0);
+static ESC_RCA_BODY_NS: AtomicU64 = AtomicU64::new(0);
+static ESC_RCA_CONVERT_NS: AtomicU64 = AtomicU64::new(0);
+static ESC_RCA_SEND_OK: AtomicU64 = AtomicU64::new(0);
+static ESC_RCA_SEND_FULL: AtomicU64 = AtomicU64::new(0);
+static ESC_RCA_SEND_BLOCKED: AtomicU64 = AtomicU64::new(0);
+static ESC_RCA_NO_VALUES: AtomicU64 = AtomicU64::new(0);
+static ESC_RCA_PACKAGES_TAKEN: AtomicU64 = AtomicU64::new(0);
+
 /// No-op. Was NDJSON append under `.cursor/debug-*.log`.
 #[inline(always)]
 pub fn log(_hypothesis_id: &str, _location: &str, _message: &str, _data_json: &str) {}
@@ -158,6 +169,107 @@ pub fn note_worker_working() {
 pub fn note_worker_park_wake() {
     if PROFILE_CPU.load(Ordering::Relaxed) {
         WORKER_PARK_WAKES.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// Enable escaper cadence RCA counters (`CZ_ESCAPE_RCA=1` or explicit call).
+pub fn init_escape_rca_from_env() {
+    if std::env::var_os("CZ_ESCAPE_RCA").is_some() {
+        enable_escape_rca();
+    }
+}
+
+pub fn enable_escape_rca() {
+    ESC_RCA.store(true, Ordering::Relaxed);
+    reset_escape_rca();
+}
+
+pub fn reset_escape_rca() {
+    for c in [
+        &ESC_RCA_WAKES,
+        &ESC_RCA_BODY_NS,
+        &ESC_RCA_CONVERT_NS,
+        &ESC_RCA_SEND_OK,
+        &ESC_RCA_SEND_FULL,
+        &ESC_RCA_SEND_BLOCKED,
+        &ESC_RCA_NO_VALUES,
+        &ESC_RCA_PACKAGES_TAKEN,
+    ] {
+        c.store(0, Ordering::Relaxed);
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct EscapeRcaSnapshot {
+    pub wakes: u64,
+    pub body_ms: f64,
+    pub convert_ms: f64,
+    pub send_ok: u64,
+    pub send_full: u64,
+    pub send_blocked: u64,
+    pub no_values: u64,
+    pub packages_taken: u64,
+}
+
+pub fn snapshot_escape_rca() -> EscapeRcaSnapshot {
+    EscapeRcaSnapshot {
+        wakes: ESC_RCA_WAKES.load(Ordering::Relaxed),
+        body_ms: ESC_RCA_BODY_NS.load(Ordering::Relaxed) as f64 / 1e6,
+        convert_ms: ESC_RCA_CONVERT_NS.load(Ordering::Relaxed) as f64 / 1e6,
+        send_ok: ESC_RCA_SEND_OK.load(Ordering::Relaxed),
+        send_full: ESC_RCA_SEND_FULL.load(Ordering::Relaxed),
+        send_blocked: ESC_RCA_SEND_BLOCKED.load(Ordering::Relaxed),
+        no_values: ESC_RCA_NO_VALUES.load(Ordering::Relaxed),
+        packages_taken: ESC_RCA_PACKAGES_TAKEN.load(Ordering::Relaxed),
+    }
+}
+
+#[inline(always)]
+pub fn esc_rca_wake() {
+    if ESC_RCA.load(Ordering::Relaxed) {
+        ESC_RCA_WAKES.fetch_add(1, Ordering::Relaxed);
+    }
+}
+#[inline(always)]
+pub fn esc_rca_no_values() {
+    if ESC_RCA.load(Ordering::Relaxed) {
+        ESC_RCA_NO_VALUES.fetch_add(1, Ordering::Relaxed);
+    }
+}
+#[inline(always)]
+pub fn esc_rca_package_taken() {
+    if ESC_RCA.load(Ordering::Relaxed) {
+        ESC_RCA_PACKAGES_TAKEN.fetch_add(1, Ordering::Relaxed);
+    }
+}
+#[inline(always)]
+pub fn esc_rca_send_ok() {
+    if ESC_RCA.load(Ordering::Relaxed) {
+        ESC_RCA_SEND_OK.fetch_add(1, Ordering::Relaxed);
+    }
+}
+#[inline(always)]
+pub fn esc_rca_send_full() {
+    if ESC_RCA.load(Ordering::Relaxed) {
+        ESC_RCA_SEND_FULL.fetch_add(1, Ordering::Relaxed);
+    }
+}
+#[inline(always)]
+pub fn esc_rca_send_blocked() {
+    if ESC_RCA.load(Ordering::Relaxed) {
+        ESC_RCA_SEND_BLOCKED.fetch_add(1, Ordering::Relaxed);
+    }
+}
+#[inline(always)]
+pub fn esc_rca_add_body_ns(ns: u64) {
+    if ESC_RCA.load(Ordering::Relaxed) {
+        ESC_RCA_BODY_NS.fetch_add(ns, Ordering::Relaxed);
+    }
+}
+#[inline(always)]
+pub fn esc_rca_add_convert_ns(ns: u64) {
+    if ESC_RCA.load(Ordering::Relaxed) {
+        ESC_RCA_CONVERT_NS.fetch_add(ns, Ordering::Relaxed);
     }
 }
 

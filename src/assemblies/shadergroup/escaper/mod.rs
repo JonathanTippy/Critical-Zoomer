@@ -175,6 +175,7 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
             actor.wait_avail(&mut values_in, 1),
             actor.wait_avail(&mut settings_in, 1),
         );
+        crate::debug_agent::esc_rca_wake();
 
         if actor.avail_units(&mut settings_in) > 0 {
             while actor.avail_units(&mut settings_in) > 1 {
@@ -211,6 +212,8 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
             if take {
             match actor.try_take(&mut values_in) {
                 Some(v) => {
+                    crate::debug_agent::esc_rca_package_taken();
+                    let t_conv = std::time::Instant::now();
                     let location_f64: (f64, f64) = (
                         v.stencil.location.clone().0.into(),
                         (v.stencil.location.clone().1).into(),
@@ -270,6 +273,9 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
                         hud,
                     });
                     state.answers_need_gpu_upload = true;
+                    crate::debug_agent::esc_rca_add_convert_ns(
+                        t_conv.elapsed().as_nanos() as u64,
+                    );
                 }
                 None => {}
             }
@@ -286,6 +292,7 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
         );
         if let Some(v) = &state.values {
             let upload = state.answers_need_gpu_upload;
+            let t_body = std::time::Instant::now();
             let (mut screen, escape_hud) = gpu::escape_with_gear(
                 v,
                 radius as f32,
@@ -294,12 +301,14 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
                 &state.gpu,
                 upload,
             );
+            crate::debug_agent::esc_rca_add_body_ns(t_body.elapsed().as_nanos() as u64);
             screen.hud.packages_dropped = state.packages_dropped;
             screen.hud.escape = escape_hud;
             if !actor.is_full(&mut screens_out) {
                 screen.hud.escape_emitted_at = Some(std::time::Instant::now());
                 match actor.try_send(&mut screens_out, screen) {
                     SendOutcome::Success => {
+                        crate::debug_agent::esc_rca_send_ok();
                         state.answers_need_gpu_upload = false;
                         if let Some(v) = &mut state.values {
                             v.hud.clear_emission_stamps();
@@ -307,9 +316,15 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
                     }
                     SendOutcome::Blocked(_)
                     | SendOutcome::Timeout(_)
-                    | SendOutcome::Closed(_) => {}
+                    | SendOutcome::Closed(_) => {
+                        crate::debug_agent::esc_rca_send_blocked();
+                    }
                 }
+            } else {
+                crate::debug_agent::esc_rca_send_full();
             }
+        } else {
+            crate::debug_agent::esc_rca_no_values();
         }
     }
 
