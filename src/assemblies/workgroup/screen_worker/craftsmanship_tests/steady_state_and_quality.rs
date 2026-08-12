@@ -905,6 +905,89 @@ fn production_workshift_never_dispatches_oracle_gear() {
     );
 }
 
+/// RCA probe for GH #34: GPU vs CPU class mismatches (false interior → black).
+/// Prints counts; fails if GPU marks Escapes-as-Repeats or leaves undelivered.
+#[test]
+fn rca_naive_gpu_vs_cpu_class_parity_home_and_boundary() {
+    run_big_stack_size(|| {
+        let Some(mut shared) = super::naive_gpu::SharedGpu::acquire() else {
+            eprintln!("rca_naive_gpu_vs_cpu_class_parity: no GPU — skipped");
+            return;
+        };
+        refresh_test_budget();
+
+        let frames = [
+            ("home", home_frame()),
+            (
+                "antenna",
+                {
+                    use crate::assemblies::headgroup::window::coords::{f64_to_intexp, ul_for_center};
+                    (
+                        ul_for_center(
+                            f64_to_intexp(-1.0),
+                            f64_to_intexp(0.0),
+                            2,
+                            TEST_SCREEN_RES,
+                        ),
+                        TEST_SCREEN_RES,
+                    )
+                },
+            ),
+        ];
+
+        for (label, frame) in frames {
+            let mut cpu = from_stencil::<f64>(frame.clone(), None).expect(label);
+            while !cpu.points.iter().all(|p| p.delivered) {
+                check_test_budget();
+                workshift_with_kernel(0, 0, 0, 0, &mut cpu, &DirectKernel);
+                let _ = work_update(&mut cpu);
+            }
+
+            let mut gpu = from_stencil::<f64>(frame, None).expect(label);
+            gpu.manual_gear = Some(crate::assemblies::structs::KernelMode::NaiveGpu);
+            while !gpu.points.iter().all(|p| p.delivered) {
+                check_test_budget();
+                workshift(0, 0, 0, 0, &mut gpu, Some(shared.ctx()));
+                let _ = work_update(&mut gpu);
+            }
+
+            let n = cpu.points.len();
+            assert_eq!(n, gpu.points.len());
+            let mut false_interior = 0usize;
+            let mut false_exterior = 0usize;
+            let mut both_interior = 0usize;
+            let mut both_exterior = 0usize;
+            for i in 0..n {
+                let c_in = cpu.points[i].repeats;
+                let c_out = cpu.points[i].escapes;
+                let g_in = gpu.points[i].repeats;
+                let g_out = gpu.points[i].escapes;
+                assert!(
+                    cpu.points[i].delivered && gpu.points[i].delivered,
+                    "{label} seat {i} undelivered cpu={} gpu={}",
+                    cpu.points[i].delivered,
+                    gpu.points[i].delivered
+                );
+                match (c_in, g_in, c_out, g_out) {
+                    (true, true, _, _) => both_interior += 1,
+                    (false, false, true, true) => both_exterior += 1,
+                    (false, true, true, _) => false_interior += 1,
+                    (true, false, _, true) => false_exterior += 1,
+                    _ => {}
+                }
+            }
+            eprintln!(
+                "rca {label}: both_in={both_interior} both_out={both_exterior} false_in={false_interior} false_out={false_exterior} gear={:?}",
+                shared.ctx().precision
+            );
+            assert_eq!(
+                false_interior, 0,
+                "{label}: GPU false interiors (CPU escape → GPU repeat) = {false_interior} — black splotch class"
+            );
+        }
+    });
+}
+
 /// v0.0.9-era naive f64 home fill: counted iteration budget scales with seat
 /// count at fixed pitch. Product identity was 10_302_563 @ 854×480; at
 /// TEST_SCREEN_RES the accepted identity is the measured DirectKernel total
