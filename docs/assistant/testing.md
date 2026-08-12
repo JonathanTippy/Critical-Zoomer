@@ -27,6 +27,7 @@ that prove numbers and invariants still flow through the machine.
 | Screen worker alone | `craftsmanship_tests.rs` (`steady_state_screen_worker_*`) | Fill + IPS floors on DirectKernel / naive-GPU path |
 | Post-fill park settle | `steady_state_home_stays_parked_for_10s_after_fill` | 10s wall idle after home fill: seats stay delivered, 0 iters |
 | Workgroup chain | `craftsmanship_tests.rs` (`steady_state_workgroup_*`) | `iterations_delta` / `points_delta` survive into HUD `RateCounter` |
+| **Pipeline cadence (dummy head)** | `assemblies/pipeline.rs` (`steady_state_pipeline_cadence_*`) | Real workgroup+shadergroup graph; dummy head fans settings/stencil and records the same `pub:`/`esc:`/`col:` RateCounters. OG escape must stay healthy; GPU escape floor (≥40 Hz esc) pins the live cadence ghost until fixed |
 | Home PPS ratio | `steady_state_home_pps_gpu_vs_cpu_ratio` | GPU vs CPU wall PPS (climb toward ~FLOP ratio) |
 | GPU host queues | `steady_state_naive_gpu_home_neighbor_queues_grow` | Finals grow out/in/edge queues (no bulk skip) |
 | GPU no CPU mop | `steady_state_naive_gpu_home_fills_without_cpu_mop` | Home closes on GPU; no ≥N% DirectKernel mop |
@@ -56,5 +57,11 @@ bulk GPU fill. Completeness is a GPU+host-queue property
 
 ```bash
 taskset -c 4-11 nice -n 15 cargo test --lib steady_state_ -- --nocapture
+taskset -c 4-11 nice -n 15 cargo test --release --lib steady_state_pipeline_cadence -- --nocapture --test-threads=1
 taskset -c 4-11 nice -n 15 cargo test --lib --release
 ```
+
+Pipeline cadence tests start a full actor graph (dummy head replaces egui). Run them
+**serialized** and prefer **release** so GPU color floors are honest. Expect
+`steady_state_pipeline_cadence_gpu_escape` red until GPU escape keeps content-class
+`esc:` (live symptom: `esc~9` / escaper ~100% CPU with `escape:GPU`).

@@ -280,3 +280,18 @@ with escape gear GPU.
 Lab probe (release, 854×480, 40 parallel wakes): esc ~95 Hz and color ~48 Hz
 **concurrent** on own devices — consistent with removing the 15 Hz lock
 multiplex; still confirm in the real app.
+
+---
+
+### Developer
+
+fps:55 pub:8 esc:9 col:45 … escape:GPU — not any better. Escaper 100% CPU at
+9fps. Want dummy-head full-graph cadence steady-state.
+
+### Assistant
+
+**Agreed** — Criterion/dual-device probes missed the live pipe. Implemented
+`assemblies/pipeline.rs` + `headgroup/dummy_cadence.rs`: real graph, dummy head
+records HUD RateCounters. Release: OG cadence green (col~52, esc~22); GPU escape
+pin **red** (mean esc~15 ≪ 40) matching the ghost class. See
+`steady_state_pipeline_cadence_*` and `testing.md`.
