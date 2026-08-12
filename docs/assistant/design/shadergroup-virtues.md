@@ -83,12 +83,11 @@ and its **output is display-thin**. The escaper’s CPU alternative was already
 cheap, and its output is still a full values frame the next stage re-consumes.
 
 **Live rates override benches (2026-08-12):** headed HUD with GPU escape shows
-roughly **`esc:~15` / `col:~50`**. That is authoritative for product feel.
-`esc:` is the escaper’s emission Instant rate (successful put), observed at the
-window after colorer forwards the stamp once — colorer re-paints do not invent
-escape emits. `col:` can run near content cadence on resident values while
-`esc:` shows the slower escape put rate. See residency interview for HUD
-integrity caveats (coalesce undercount).
+roughly **`esc:~15` / `col:~50`**. Authoritative. Primary in-app cause: GPU
+escape and GPU color **serialize on `shade_ops`**; colorer’s ~50 Hz paints
+consume most of that mutex/device budget, leaving ~15 Hz worth of lock time for
+escape (see residency interview). Shipping cost per escape call still matters;
+the rate gap vs color is lock multiplexing, not HUD mis-count (`drop:4` idle).
 
 Stacking GPU escape + GPU color today makes the middle worse: escape readback
 into `ZoomerValuesScreen`, then colorer re-packs nearly the same layout as

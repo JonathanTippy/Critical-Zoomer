@@ -24,6 +24,8 @@ dual-view upload tax everywhere. **No code** until goals settle.
 | GPU escape default stays OG until shipping solved | locked (prior) | escape gear |
 | Why colorer GPU helps despite same round-trip pattern | **partial** — cost-ratio story is secondary to live rates | virtues § shipping |
 | Live HUD `esc:~15` / `col:~50` beats Criterion | **locked** — real app rates authoritative | this interview |
+| `drop:4` does not explain esc undercount | **locked** | this interview |
+| Why `esc:~15` with GPU escape | **RCA** — `shade_ops` lock shared with GPU color | this interview |
 | Dual parallel CPU/GPU views for all actor linkages | **idea only** — developer wary (upload everywhere) | this interview |
 | Fuse escape+color on device / keep values resident | undiscussed | — |
 | Workgroup answers already GPU-native → shade without host | undiscussed | naive-gpu / publish |
@@ -167,3 +169,35 @@ handful of missing escape stamps total, not a ~35 Hz hole in the 1s window.
 So with `drop:4`, treat **`esc:~15` as the real escaper emission rate**; the
 coalesce-undercount caveat is idle here. Persistent/`growing` `drop:` would be
 the “shade too slow for pixel count” smell (`r[cz.craft.shade-coalesce-drop-count]`).
+
+---
+
+### Developer
+
+Ok, why is the escaper rate 15fps?
+
+### Assistant
+
+**Because GPU escape and GPU color share one exclusive `shade_ops` lock on the
+same wgpu device, and colorer already spends most of that budget.**
+
+Mechanism:
+
+1. Escaper stamps/`esc:` only after a successful put; body is
+   `escape_with_gear` → GPU `escape_frame` which takes `shade_ops` then
+   upload/compute/`map_async` Wait.
+2. Colorer (default GPU) does the same lock for every paint (~14–22 ms at
+   default res in process).
+3. `col:~50` ⇒ colorer alone wants on the order of **50 × ~15–20 ms ≈ 0.75–1.0 s
+   of lock time per second**.
+4. Leftover lock time for escape ≈ a few hundred ms/s. At ~15–25 ms per GPU
+   escape (upload path / contended readback at default res), that leftover is
+   about **~15 puts/s** — matching HUD `esc:~15`.
+5. Confirmed not the main story: `drop:4`, Criterion-alone walls, or “needs large
+   radius.” Pixel scale still hurts (720p upload already ~48 ms isolated), but
+   **15 vs 50 at default-sized home is explained by lock multiplexing with the
+   colorer**, not by escape arithmetic.
+
+So the escaper is not “mysteriously 15 Hz”; it is **queued behind a ~50 Hz GPU
+colorer on one serialized shade device**. OG escape avoids `shade_ops` and can
+keep content cadence; GPU escape cannot while colorer owns the same lock.
