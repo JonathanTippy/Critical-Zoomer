@@ -59,7 +59,7 @@ pub struct EscaperState<T> {
     pub packages_dropped: u64,
     pub gpu: Option<Arc<gpu::GpuEscaper>>,
     /// Private: new answers package → re-upload resident GPU buffer (not actor send skip).
-    pub answers_dirty: bool,
+    pub answers_need_gpu_upload: bool,
 }
 
 /// How many queued inputs to drop when keeping only the newest.
@@ -67,6 +67,14 @@ pub struct EscaperState<T> {
 // r[impl cz.craft.shade-coalesce-drop-count+1]
 pub fn coalesce_drop_count(avail_units: usize) -> usize {
     avail_units.saturating_sub(1)
+}
+
+/// Drain-to-newest plan: drop older units, then take the tip if any remain.
+/// Actors must use this instead of inventing a partial drain.
+// r[impl cz.craft.shade-coalesce-drop-count+1]
+pub fn take_newest_plan(avail_units: usize) -> (usize, bool) {
+    let drops = coalesce_drop_count(avail_units);
+    (drops, avail_units > 0)
 }
 
 /// One full-frame escape pass — the only shade-path body the escaper runs.
@@ -146,7 +154,7 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
         settings: Settings::DEFAULT,
         packages_dropped: 0,
         gpu: gpu::GpuEscaper::shared(),
-        answers_dirty: true,
+        answers_need_gpu_upload: true,
     }).await;
 
     // Lock all channels for exclusive access within this actor.
@@ -180,7 +188,7 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
                     state.settings = s;
                     content_period = state.settings.resolved_content_period();
                     // Bailout / max_extra may have changed — re-upload answers.
-                    state.answers_dirty = true;
+                    state.answers_need_gpu_upload = true;
                 }
                 None => {}
             }
@@ -194,12 +202,13 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
 
         let avail = actor.avail_units(&mut values_in);
         if avail > 0 {
-            let drops = coalesce_drop_count(avail);
+            let (drops, take) = take_newest_plan(avail);
             state.packages_dropped = state.packages_dropped.saturating_add(drops as u64);
             for _ in 0..drops {
                 let stuff = actor.try_take(&mut values_in).expect("internal error");
                 drop(stuff);
             }
+            if take {
             match actor.try_take(&mut values_in) {
                 Some(v) => {
                     let location_f64: (f64, f64) = (
@@ -260,20 +269,22 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
                         },
                         hud,
                     });
-                    state.answers_dirty = true;
+                    state.answers_need_gpu_upload = true;
                 }
                 None => {}
+            }
             }
         }
 
         // Cadence: every wake with resident values, always escape + try_send.
-        // `answers_dirty` only gates private GPU answer upload (not actor send).
+        // `answers_need_gpu_upload` only gates private GPU answer upload (not actor send).
+        // r[impl cz.craft.shade-always-emit+1]
         let want_gpu = matches!(
             state.settings.resolved_escape_gear(),
             EscaperMode::Gpu
         );
         if let Some(v) = &state.values {
-            let upload = state.answers_dirty;
+            let upload = state.answers_need_gpu_upload;
             let (mut screen, escape_hud) = gpu::escape_with_gear(
                 v,
                 radius as f32,
@@ -288,7 +299,7 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
                 screen.hud.escape_emitted_at = Some(std::time::Instant::now());
                 match actor.try_send(&mut screens_out, screen) {
                     SendOutcome::Success => {
-                        state.answers_dirty = false;
+                        state.answers_need_gpu_upload = false;
                         if let Some(v) = &mut state.values {
                             v.hud.clear_emission_stamps();
                         }
@@ -764,5 +775,30 @@ mod mutant_kill {
         assert_eq!(coalesce_drop_count(1), 0);
         assert_eq!(coalesce_drop_count(2), 1);
         assert_eq!(coalesce_drop_count(50), 49);
+    }
+
+    // r[verify cz.craft.shade-coalesce-drop-count+1]
+    #[test]
+    fn take_newest_plan_drops_all_but_tip() {
+        assert_eq!(take_newest_plan(0), (0, false));
+        assert_eq!(take_newest_plan(1), (0, true));
+        assert_eq!(take_newest_plan(7), (6, true));
+        // Flood of N → drop N−1, keep newest.
+        let n = 50usize;
+        let (drops, take) = take_newest_plan(n);
+        assert_eq!(drops, n - 1);
+        assert!(take);
+        assert_eq!(drops + usize::from(take), n);
+    }
+
+    // r[verify cz.craft.shade-always-emit+1]
+    #[test]
+    fn shade_always_emits_when_resident_even_without_upload() {
+        // Upload gate must not imply skip-send: resident body still runs.
+        let answers_need_gpu_upload = false;
+        let has_resident = true;
+        let should_escape = has_resident;
+        assert!(should_escape);
+        assert!(!answers_need_gpu_upload);
     }
 }

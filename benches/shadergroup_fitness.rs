@@ -219,7 +219,7 @@ fn bench_color_gpu_params_only(c: &mut Criterion, name: &str, pixel_scale: f64) 
             for _ in 0..iters {
                 let mut s = settings.clone();
                 let t0 = Instant::now();
-                // Full refresh each paint (PaintDirty removed); still exercises
+                // Full refresh each paint (actor-level skip-send removed); still exercises
                 // persistent session after warm.
                 let out = gpu.paint(&screen, &mut s).expect("gpu paint");
                 black_box(out);

@@ -107,6 +107,90 @@ fn view_from_package(package: &ResultsPackage<f64>, ctrl_emit: Option<Instant>) 
     }
 }
 
+/// Content beat is due when the shared period has elapsed — independent of
+/// whether new work arrived. Shade always gets the resident package.
+// r[impl cz.craft.content-beat-publish+1]
+pub(crate) fn content_beat_due(last_publish: Instant, period: Duration, now: Instant) -> bool {
+    now.duration_since(last_publish) >= period
+}
+
+/// Fold one WorkUpdate into collector state. Collector never drain-to-newest.
+// r[impl cz.craft.collector-absorbs-all+1]
+pub(crate) fn absorb_work_update(state: &mut WorkCollectorState<f64>, u: WorkUpdate<f64>) {
+    if let Some(at) = u.controller_emitted_at {
+        state.pending_controller_emitted_at = Some(at);
+    }
+
+    if let Some(surrounding_work) = &mut state.surrounding_work {
+        if let Some(mut f) = u.frame_info.clone() {
+            f.0.zoom_pot -= 1;
+            *surrounding_work = sample_old_values(surrounding_work, f.0, f.1);
+        }
+    }
+
+    if let Some(completed_work) = &mut state.completed_work {
+        if let Some(f) = u.frame_info {
+            *completed_work = sample_old_values(completed_work, f.0, f.1);
+            completed_work.hud = crate::assemblies::structs::ViewHud {
+                stack: u.host_stack,
+                mode: u.kernel_mode,
+                reference: u.reference_status,
+                gear: u.active_gear,
+                points_delta: 0,
+                iterations_delta: u.iterations_delta,
+                packages_dropped: 0,
+                color: crate::assemblies::structs::ColorerHud::Og,
+                ..Default::default()
+            };
+        } else {
+            let l = u.completed_points.len();
+            let vs = u.completed_points;
+            for i in 0..l {
+                let w = vs[i].clone();
+                completed_work.results[w.1] = w.0;
+            }
+            completed_work.hud = crate::assemblies::structs::ViewHud {
+                stack: u.host_stack,
+                mode: u.kernel_mode,
+                reference: u.reference_status,
+                gear: u.active_gear,
+                points_delta: l as u64,
+                iterations_delta: u.iterations_delta,
+                packages_dropped: 0,
+                color: crate::assemblies::structs::ColorerHud::Og,
+                ..Default::default()
+            };
+        }
+    } else {
+        let f = u
+            .frame_info
+            .expect("work collector recieved an initial work update without any info");
+        let mut package = ResultsPackage {
+            results: vec![CompletedPoint::Dummy {}; (f.1 .0 * f.1 .1) as usize],
+            screen_res: f.1,
+            location: f.0,
+            hud: crate::assemblies::structs::ViewHud {
+                stack: u.host_stack,
+                mode: u.kernel_mode,
+                reference: u.reference_status,
+                gear: u.active_gear,
+                points_delta: u.completed_points.len() as u64,
+                iterations_delta: u.iterations_delta,
+                packages_dropped: 0,
+                color: crate::assemblies::structs::ColorerHud::Og,
+                ..Default::default()
+            },
+        };
+        let l = u.completed_points.len();
+        let vs = u.completed_points;
+        for i in 0..l {
+            let w = vs[i].clone();
+            package.results[w.1] = w.0;
+        }
+        state.completed_work = Some(package);
+    }
+}
+
 pub async fn run(
     actor: SteadyActorShadow,
     from_worker: SteadyRx<WorkUpdate<f64>>,
@@ -164,81 +248,13 @@ async fn internal_behavior<A: SteadyActor>(
         }
 
         while actor.avail_units(&mut from_worker) > 0 {
-            let U = actor.try_take(&mut from_worker).expect("work update seemed available but wasn't...");
-            if let Some(at) = U.controller_emitted_at {
-                state.pending_controller_emitted_at = Some(at);
-            }
-
-            if let Some(surrounding_work) = &mut state.surrounding_work {
-                if let Some(mut f) = U.frame_info.clone() {
-                    f.0.zoom_pot -= 1;
-                    *surrounding_work = sample_old_values(&surrounding_work, f.0, f.1);
-                }
-            }
-
-            if let Some(completed_work) = &mut state.completed_work {
-                if let Some(f) = U.frame_info {
-                    *completed_work = sample_old_values(&completed_work, f.0, f.1);
-                    completed_work.hud = crate::assemblies::structs::ViewHud {
-                        stack: U.host_stack,
-                        mode: U.kernel_mode,
-                        reference: U.reference_status,
-                        gear: U.active_gear,
-                        points_delta: 0,
-                        iterations_delta: U.iterations_delta,
-                        packages_dropped: 0,
-                        color: crate::assemblies::structs::ColorerHud::Og,
-                        ..Default::default()
-                    };
-                } else {
-                    let l = U.completed_points.len();
-                    let vs = U.completed_points;
-                    for i in 0..l {
-                        let W = vs[i].clone();
-                        completed_work.results[W.1] = W.0;
-                    }
-                    completed_work.hud = crate::assemblies::structs::ViewHud {
-                        stack: U.host_stack,
-                        mode: U.kernel_mode,
-                        reference: U.reference_status,
-                        gear: U.active_gear,
-                        points_delta: l as u64,
-                        iterations_delta: U.iterations_delta,
-                        packages_dropped: 0,
-                        color: crate::assemblies::structs::ColorerHud::Og,
-                        ..Default::default()
-                    };
-                }
-            } else {
-                let f = U.frame_info.expect("work collector recieved an initial work update without any info");
-                let mut package = ResultsPackage {
-                    results: vec![CompletedPoint::Dummy{}; (f.1.0 * f.1.1) as usize],
-                    screen_res: f.1,
-                    location: f.0,
-                    hud: crate::assemblies::structs::ViewHud {
-                        stack: U.host_stack,
-                        mode: U.kernel_mode,
-                        reference: U.reference_status,
-                        gear: U.active_gear,
-                        points_delta: U.completed_points.len() as u64,
-                        iterations_delta: U.iterations_delta,
-                        packages_dropped: 0,
-                        color: crate::assemblies::structs::ColorerHud::Og,
-                        ..Default::default()
-                    },
-                };
-                let l = U.completed_points.len();
-                let vs = U.completed_points;
-                for i in 0..l {
-                    let W = vs[i].clone();
-                    package.results[W.1] = W.0;
-                }
-                state.completed_work = Some(package);
-            }
+            let u = actor.try_take(&mut from_worker).expect("work update seemed available but wasn't...");
+            absorb_work_update(&mut state, u);
         }
 
-        // Content beat: publish resident work-so-far at the shared period.
-        if last_publish.elapsed() >= content_period {
+        // Content beat: always publish resident work-so-far (shade always runs).
+        // r[impl cz.craft.content-beat-publish+1]
+        if content_beat_due(last_publish, content_period, Instant::now()) {
             if let Some(package) = state.completed_work.clone() {
                 if !actor.is_full(&mut values_out) {
                     let mut ctrl_emit = state.pending_controller_emitted_at.take();
@@ -447,6 +463,82 @@ mod mutant_kill {
         match v01 {
             CompletedPoint::Escapes { escape_time, .. } => assert_eq!(escape_time, 2),
             other => panic!("{other:?}"),
+        }
+    }
+
+    // r[verify cz.craft.content-beat-publish+1]
+    #[test]
+    fn content_beat_due_without_new_work() {
+        let period = Duration::from_millis(16);
+        let t0 = Instant::now();
+        assert!(!content_beat_due(t0, period, t0));
+        assert!(content_beat_due(
+            t0,
+            period,
+            t0 + period + Duration::from_millis(1)
+        ));
+        // Still due even if no WorkUpdate arrived in between — shade keeps running.
+        assert!(content_beat_due(t0, period, t0 + period * 2));
+    }
+
+    fn seat_escape(time: u32) -> CompletedPoint<f64> {
+        CompletedPoint::Escapes {
+            escape_time: time,
+            escape_location: (0.0, 0.0),
+            escape_derivative: (1.0, 0.0),
+            start_location: (0.0, 0.0),
+            smallness: 0.0,
+            small_time: 0,
+        }
+    }
+
+    fn bare_update(
+        frame: Option<(ObjectivePosAndZoom, (u32, u32))>,
+        points: Vec<(CompletedPoint<f64>, usize)>,
+    ) -> WorkUpdate<f64> {
+        WorkUpdate {
+            frame_info: frame,
+            completed_points: points,
+            active_gear: crate::delta_gear::ComputeGear::F64,
+            host_stack: crate::assemblies::structs::HostStack::F64,
+            kernel_mode: crate::assemblies::structs::KernelMode::Naive,
+            reference_status: crate::assemblies::structs::ReferenceStatus::Wip,
+            iterations_delta: 0,
+            controller_emitted_at: None,
+        }
+    }
+
+    // r[verify cz.craft.collector-absorbs-all+1]
+    #[test]
+    fn collector_absorbs_all_seat_updates() {
+        let loc = ObjectivePosAndZoom {
+            pos: (IntExp::ZERO, IntExp::ZERO),
+            zoom_pot: -2,
+        };
+        let res = (2u32, 2u32);
+        let mut state = WorkCollectorState {
+            completed_work: None,
+            surrounding_work: None,
+            pending_controller_emitted_at: None,
+        };
+        absorb_work_update(
+            &mut state,
+            bare_update(Some((loc.clone(), res)), vec![(seat_escape(10), 0)]),
+        );
+        absorb_work_update(
+            &mut state,
+            bare_update(None, vec![(seat_escape(20), 1)]),
+        );
+        absorb_work_update(
+            &mut state,
+            bare_update(None, vec![(seat_escape(30), 2), (seat_escape(40), 3)]),
+        );
+        let pkg = state.completed_work.expect("package");
+        for (i, expect) in [10u32, 20, 30, 40].into_iter().enumerate() {
+            match &pkg.results[i] {
+                CompletedPoint::Escapes { escape_time, .. } => assert_eq!(*escape_time, expect),
+                other => panic!("seat {i}: {other:?}"),
+            }
         }
     }
 }

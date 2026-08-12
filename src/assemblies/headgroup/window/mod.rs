@@ -121,6 +121,9 @@ pub struct WindowState {
     , pub settings_fanout_needed: bool
     // Cap live settings preview fan-out while the panel is open.
     , pub settings_ui_fan_timer: Instant
+    // Reuse GPU texture when no new View arrived this frame.
+    , pub display_texture: Option<TextureHandle>
+    , pub last_attention: Option<(i32, i32)>
 }
 
 /// Entry point for the window actor.
@@ -202,6 +205,8 @@ async fn internal_behavior<A: SteadyActor>(
         , last_fanned_auto_vsync_hz: Settings::DEFAULT.auto_vsync_hz
         , settings_fanout_needed: true
         , settings_ui_fan_timer: Instant::now()
+        , display_texture: None
+        , last_attention: None
     }).await;
 
     {
@@ -370,6 +375,8 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             };
             ctx.request_repaint_after(period);
 
+            let mut got_new_view = false;
+
             let size = (state.size.x as usize, state.size.y as usize);
             let pixels = size.0 * size.1;
 
@@ -377,6 +384,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             match actor.try_take(&mut pixels_in) {
                 Some(s) => {
+                    got_new_view = true;
                     let now = Instant::now();
                     state.pps_counter.record(s.hud.points_delta, now);
                     state.ips_counter.record(s.hud.iterations_delta, now);
@@ -405,11 +413,6 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 None => {}
             }
 
-            if state.sampling_context.screen.is_none() {
-                for _ in 0..pixels {sampler_buffer.push(Color32::PURPLE)};
-                //actor.try_send(&mut sampler_out, (state.sampling_context.relative_transforms.clone(), (state.size.x as u32, state.size.y as u32)));
-            }
-
             if state.sampling_context.updated
             {
                 actor.try_send(&mut stencil_out, PointStencil{
@@ -427,7 +430,11 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             // sample
 
             let (mut command_package, attention) = parse_inputs(&ctx, &mut state, size);
-            actor.try_send(&mut attention_out, attention);
+            // Attention every frame was ~4K msgs and kept the worker hot (graph.dot).
+            if attention != state.last_attention {
+                actor.try_send(&mut attention_out, attention);
+                state.last_attention = attention;
+            }
 
             if !state.startup_goto_applied {
                 if let Ok(line) = std::env::var("CZ_GOTO") {
@@ -450,30 +457,45 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             state.sampling_context.screen_size = (size.0 as u32, size.1 as u32);
 
-            if state.sampling_context.screen.is_some() {
-                sample(command_package, &mut sampler_buffer, &mut state.sampling_context);
+            let need_resample = got_new_view
+                || !command_package.is_empty()
+                || state.display_texture.is_none()
+                || state.sampling_context.screen.is_none();
+
+            if need_resample {
+                if state.sampling_context.screen.is_some() {
+                    sample(command_package, &mut sampler_buffer, &mut state.sampling_context);
+                } else if !command_package.is_empty() {
+                    transform(command_package, &mut state.sampling_context);
+                } else if state.sampling_context.screen.is_none() {
+                    for _ in 0..pixels {
+                        sampler_buffer.push(Color32::PURPLE);
+                    }
+                }
+
+                crate::assemblies::headgroup::window::snip::maybe_write_viewport_snip(
+                    size,
+                    &sampler_buffer,
+                );
+
+                let image = ColorImage {
+                    size: [size.0, size.1],
+                    pixels: sampler_buffer,
+                    source_size: egui::vec2(size.0 as f32, size.1 as f32),
+                };
+                state.display_texture = Some(ctx.load_texture(
+                    "pixel_texture",
+                    image,
+                    egui::TextureOptions::NEAREST,
+                ));
             } else if !command_package.is_empty() {
                 transform(command_package, &mut state.sampling_context);
             }
 
-            crate::assemblies::headgroup::window::snip::maybe_write_viewport_snip(
-                size,
-                &sampler_buffer,
-            );
-
-            let start = Instant::now();
-
-            let image = ColorImage {
-                size: [size.0, size.1],
-                pixels: sampler_buffer,
-                source_size: egui::vec2(size.0 as f32, size.1 as f32)
-            };
-
-            let handle = ctx.load_texture(
-                "pixel_texture",
-                image,
-                egui::TextureOptions::NEAREST,
-            );
+            let handle = state
+                .display_texture
+                .clone()
+                .expect("display texture set above");
 
 
             egui::CentralPanel::default()
@@ -685,15 +707,8 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
 
                 if state.settings_window_open {
-                    // Embedded settings (not a deferred native viewport): a second
-                    // vsync-presenting window on the same GL thread halved FPS.
-                    let was_open = true;
-                    settings(
-                        &ctx,
-                        state.settings_window_context.clone(),
-                        &mut state.settings_window_open,
-                    );
-                    let closing = was_open && !state.settings_window_open;
+                    let closing = settings(&ctx, state.settings_window_context.clone());
+                    state.settings_window_open = !closing;
                     let (head_vsync, head_max) = state
                         .settings_window_context
                         .try_lock()
@@ -706,8 +721,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                         .unwrap_or((state.head_vsync_enabled, state.head_max_fps));
                     state.head_vsync_enabled = head_vsync;
                     state.head_max_fps = head_max;
-                    // Do not fan every main frame while open — that also hurts FPS.
-                    // Preview at ≤10 Hz; always fan when the panel closes.
+                    // Preview fan ≤10 Hz while open; always fan on close.
                     if closing
                         || state.settings_ui_fan_timer.elapsed()
                             >= Duration::from_millis(100)

@@ -595,14 +595,57 @@ escaper or colorer, drain-to-newest drops the older ones and increments
 `packages_dropped` (HUD `drop:`). Persistent growth means the shade path is too
 slow for the pixel count — fix cost, do not enlarge channels.
 
-**Code site.** `coalesce_drop_count` + `packages_dropped` on escaper/colorer
-state; `ViewHud.packages_dropped`.
+**Code site.** `coalesce_drop_count` + `take_newest_plan` + `packages_dropped`
+on escaper/colorer state; `ViewHud.packages_dropped`.
 
 **Acceptance criteria.**
 - [ ] `coalesce_drop_count(n) == n.saturating_sub(1)`.
+- [ ] `take_newest_plan(n)` drops `n−1` and takes the tip.
 - [ ] HUD exposes cumulative drops for headed audit.
 
-**Test.** `coalesce_drop_count_keeps_newest_only` (escaper.rs).
+**Test.** `coalesce_drop_count_keeps_newest_only`, `take_newest_plan_drops_all_but_tip` (escaper.rs).
+
+r[cz.craft.content-beat-publish+1]
+
+**Normative summary.** Work collector publishes the resident package on every
+content beat (`resolved_content_period`), whether or not new WorkUpdates
+arrived since the last publish. Shade stays on the continuum; only the screen
+worker parks.
+
+**Code site.** `content_beat_due` + publish branch in `work_collector.rs`.
+
+**Acceptance criteria.**
+- [ ] `content_beat_due` is true after the period with no intervening work.
+- [ ] Publish path has no “only when work arrived” gate.
+
+**Test.** `content_beat_due_without_new_work` (work_collector.rs).
+
+r[cz.craft.collector-absorbs-all+1]
+
+**Normative summary.** Collector folds every WorkUpdate into the resident
+package. Never drain-to-newest on worker→collector (that channel is lossy only
+if the actor loop itself skips takes — forbidden).
+
+**Code site.** `absorb_work_update` in `work_collector.rs`.
+
+**Acceptance criteria.**
+- [ ] K distinct seat fills across K updates all land in the package.
+
+**Test.** `collector_absorbs_all_seat_updates` (work_collector.rs).
+
+r[cz.craft.shade-always-emit+1]
+
+**Normative summary.** Escaper and colorer always run the resident body and
+attempt `try_send` each content wake when values are resident. GPU upload flags
+(`answers_need_gpu_upload`) must not gate actor send.
+
+**Code site.** Escaper / colorer actor loops; `r[impl]` markers at emit sites.
+
+**Acceptance criteria.**
+- [ ] No skip-send based on “unchanged inputs.”
+- [ ] Upload gate is private to GPU buffers only.
+
+**Test.** `shade_always_emits_when_resident_even_without_upload` (escaper.rs).
 
 r[cz.craft.gpu-color-parity+1]
 

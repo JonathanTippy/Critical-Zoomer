@@ -5,7 +5,7 @@ use eframe::egui::*;
  // For X11
 //use winit::platform::wayland::EventLoopBuilderExtWayland; // For Wayland
 //use winit::platform::windows::EventLoopBuilderExtWindows; // For Windows
-use egui::{Color32, Vec2, Pos2};
+use egui::{Color32, Vec2, Pos2, ViewportId, WindowLevel};
 use std::sync::{Arc, Mutex};
 
 use egui_dnd::dnd;
@@ -608,26 +608,72 @@ pub struct SettingsWindowContext {
 pub fn settings (
     ctx: &egui::Context,
     state: Arc<Mutex<SettingsWindowContext>>,
-    open: &mut bool,
-) {
-    // Embedded in the root viewport on purpose: a second native deferred
-    // window with vsync serializes presents on the same GL thread and halves
-    // main FPS (~60→~30). One present keeps the Mandelbrot pane at vsync.
-    let mut still_open = *open;
-    egui::Window::new("Settings")
-        .default_size([
-            DEFAULT_SETTINGS_WINDOW_RES.0 as f32,
-            DEFAULT_SETTINGS_WINDOW_RES.1 as f32,
-        ])
-        .vscroll(true)
-        .open(&mut still_open)
-        .show(ctx, |ui| {
-            ui.visuals_mut().override_text_color = Some(Color32::WHITE);
-            if let Ok(mut guard) = state.try_lock() {
-                guard.settings.widgetize(ui);
-            }
-        });
-    *open = still_open;
+) -> bool {
+    let state1 = state.clone();
+    let state2 = state.clone();
+
+    let locked = state.try_lock().unwrap();
+
+    let viewport_options =
+        egui::ViewportBuilder::default()
+            .with_inner_size(locked.size.clone());
+
+    let viewport_options = match locked.location {
+        Some(l) => viewport_options.with_position(l),
+        None => viewport_options,
+    };
+
+    drop(locked);
+
+    ctx.show_viewport_deferred(
+        ViewportId::from_hash_of("my_viewport"),
+        viewport_options
+            .with_title("Settings")
+            .with_window_level(WindowLevel::AlwaysOnTop),
+        move |ctx, _class| {
+            let mut state = state1.try_lock().unwrap();
+
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.visuals_mut().override_text_color = Some(Color32::WHITE);
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        state.settings.widgetize(ui);
+                    });
+                // Paint this viewport on its own cadence. Parent continuous
+                // present must not force a second vsync wait every frame.
+                ctx.request_repaint_after(std::time::Duration::from_millis(100));
+            });
+
+            ctx.input(|input_state| {
+                match input_state
+                    .raw
+                    .viewports
+                    .get(&ViewportId::from_hash_of("my_viewport"))
+                {
+                    Some(info) => {
+                        if let Some(r) = info.outer_rect {
+                            state.location = Some(r.min);
+                        }
+                        if let Some(r) = info.inner_rect {
+                            state.size = r.size();
+                        }
+                        for viewport_event in info.events.clone() {
+                            if let egui::ViewportEvent::Close = viewport_event {
+                                state.will_close = true;
+                            }
+                        }
+                    }
+                    None => {}
+                }
+            });
+        },
+    );
+
+    let mut locked = state2.try_lock().unwrap();
+    let will_close = locked.will_close;
+    locked.will_close = false;
+    will_close
 }
 
 #[cfg(test)]

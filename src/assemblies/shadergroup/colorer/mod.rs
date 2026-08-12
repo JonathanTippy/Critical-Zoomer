@@ -121,18 +121,20 @@ async fn internal_behavior<A: SteadyActor>(
 
         let avail = actor.avail_units(&mut values_in);
         if avail > 0 {
-            let drops = coalesce_drop_count(avail);
+            let (drops, take) = take_newest_plan(avail);
             state.packages_dropped = state.packages_dropped.saturating_add(drops as u64);
             for _ in 0..drops {
                 let stuff = actor.try_take(&mut values_in).expect("internal error");
                 drop(stuff);
             }
-            match actor.try_take(&mut values_in) {
-                Some(mut v) => {
-                    v.hud.packages_dropped = state.packages_dropped;
-                    state.values = Some(v);
+            if take {
+                match actor.try_take(&mut values_in) {
+                    Some(mut v) => {
+                        v.hud.packages_dropped = state.packages_dropped;
+                        state.values = Some(v);
+                    }
+                    None => {}
                 }
-                None => {}
             }
         }
 
@@ -144,6 +146,7 @@ async fn internal_behavior<A: SteadyActor>(
         );
         let gpu = state.gpu.clone();
         // Cadence: every wake with resident values, always color + try_send.
+        // r[impl cz.craft.shade-always-emit+1]
         if let Some(v) = &mut state.values {
             let (output, color_hud) =
                 gpu::color_with_gear(v, &mut settings, want_gpu, &gpu);

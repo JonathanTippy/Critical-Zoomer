@@ -23,12 +23,12 @@ fn steady_state_screen_worker_home_ips_cpu_direct() {
         // Extra frames + reject contaminated walls (same iters, ≫~3–4 ms) so
         // concurrent cargo/mutants load cannot soft-fail a healthy kernel.
         const FRAMES: u32 = 12;
-        const MAX_CLEAN_WALL_S: f64 = 0.0045;
+        const MAX_IN_BUDGET_WALL_S: f64 = 0.0045;
         let mut best_ips = 0.0f64;
         let mut best_meta = (0u64, 0u32, 0.0f64);
         let mut total_shifts = 0u32;
         let mut total_deltas_nonzero = 0u32;
-        let mut clean_samples = 0u32;
+        let mut in_budget_samples = 0u32;
         for _frame in 0..FRAMES {
             refresh_test_budget();
             let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
@@ -55,8 +55,8 @@ fn steady_state_screen_worker_home_ips_cpu_direct() {
                 ctx.points.iter().all(|p| p.delivered),
                 "home frame did not complete"
             );
-            if secs <= MAX_CLEAN_WALL_S {
-                clean_samples += 1;
+            if secs <= MAX_IN_BUDGET_WALL_S {
+                in_budget_samples += 1;
                 if ips > best_ips {
                     best_ips = ips;
                     best_meta = (iters, shifts, secs);
@@ -68,18 +68,18 @@ fn steady_state_screen_worker_home_ips_cpu_direct() {
             "iterations_delta went zero on too many shifts ({total_deltas_nonzero}/{total_shifts}); HUD IPS would die"
         );
         assert!(
-            clean_samples >= 1,
-            "no clean DirectKernel home fill (wall≤{MAX_CLEAN_WALL_S}s) in {FRAMES} frames — host overloaded or FIX NOW"
+            in_budget_samples >= 1,
+            "no in-budget DirectKernel home fill (wall≤{MAX_IN_BUDGET_WALL_S}s) in {FRAMES} frames — host overloaded or FIX NOW"
         );
         assert!(
             best_ips > 3.0e6,
-            "screen-worker DirectKernel home IPS {best_ips:.3e} below steady-state floor (3e6); best iters={} shifts={} fill_wall={:.3}s clean={clean_samples}/{FRAMES}",
+            "screen-worker DirectKernel home IPS {best_ips:.3e} below steady-state floor (3e6); best iters={} shifts={} fill_wall={:.3}s in_budget={in_budget_samples}/{FRAMES}",
             best_meta.0,
             best_meta.1,
             best_meta.2
         );
         eprintln!(
-            "steady_state screen_worker CPU DirectKernel: best_ips={best_ips:.3e} iters={} shifts={} fill_wall={:.3}s clean={clean_samples}/{FRAMES}",
+            "steady_state screen_worker CPU DirectKernel: best_ips={best_ips:.3e} iters={} shifts={} fill_wall={:.3}s in_budget={in_budget_samples}/{FRAMES}",
             best_meta.0, best_meta.1, best_meta.2
         );
     });

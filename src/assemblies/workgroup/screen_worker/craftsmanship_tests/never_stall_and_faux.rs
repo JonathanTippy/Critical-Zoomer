@@ -351,10 +351,10 @@ fn faux_user_zoom_to_hard_minibrot_matches_direct() {
             "home-class reference must not cover the hard view (blob repro precondition)"
         );
 
-        let mut clean = from_stencil::<f64>(hard.clone(), Some((prior, prior_frame.0)))
+        let mut zero_orbit = from_stencil::<f64>(hard.clone(), Some((prior, prior_frame.0)))
             .expect("hard");
         assert!(
-            clean.latest_reference.is_none(),
+            zero_orbit.latest_reference.is_none(),
             "uncovered sticky reference must not install into the hard view"
         );
 
@@ -362,15 +362,15 @@ fn faux_user_zoom_to_hard_minibrot_matches_direct() {
         refresh_test_budget();
         fill_until_percent(&mut direct, &DirectKernel, 40.0);
         refresh_test_budget();
-        fill_until_percent(&mut clean, &PerturbationKernel, 40.0);
-        let (disagree, compared) = disagree_rate(&direct, &clean);
+        fill_until_percent(&mut zero_orbit, &PerturbationKernel, 40.0);
+        let (disagree, compared) = disagree_rate(&direct, &zero_orbit);
         assert!(
             compared > 0,
             "expected some delivered seats on the hard fixture"
         );
         assert!(
             disagree * 100 / compared.max(1) < 5,
-            "clean zero-orbit path diverged: {disagree}/{compared}"
+            "zero-orbit path diverged: {disagree}/{compared}"
         );
 
         // Hazardous short covering center ref (old length-wall publish): still
@@ -1355,7 +1355,7 @@ fn home_worker_no_vertical_repeat_columns() {
     });
 }
 
-/// Before reference publishes, zero-orbit floor must still finish home cleanly.
+/// Before reference publishes, zero-orbit floor must still finish home in budget.
 #[test]
 fn home_zero_orbit_floor_pipeline_no_vertical_black_columns() {
     use crate::assemblies::shadergroup::colorer::color::color;

@@ -45,15 +45,21 @@ Fan Settings to content actors only when the resolved Hz moves (≥0.5 Hz).
 
 ### Workgroup publish
 
-Collector emits **whatever work is done so far** on the content beat — not a
-promise of a complete frame every interval. WorkUpdates still arrive densely
-from the worker; the collector swaps them into the resident package and
-publishes on `resolved_content_period()`.
+Collector emits **whatever work is done so far** on **every** content beat —
+not only when new WorkUpdates arrived, and not a promise of a complete frame
+every interval. WorkUpdates still arrive densely from the worker; the collector
+**absorbs all of them** into the resident package (never drain-to-newest on
+worker→collector), then publishes on `resolved_content_period()`.
+
+Only the **screen worker** parks when every seat is delivered. Collector and
+shadergroup stay on the content continuum.
 
 ### Shadergroup
 
-Escaper and colorer wake on the same content period, swap latest input, always
-run the resident body, and `try_send` (no actor-level dirty skip-send).
+Escaper and colorer wake on the same content period, swap latest input
+(drain-to-newest via `take_newest_plan`), always run the resident body, and
+`try_send` (no actor-level skip-send). Compile-time ban: `build.rs` rejects
+`dirty`/`clean` tokens in `src`/`benches`.
 
 ### Escape gear
 

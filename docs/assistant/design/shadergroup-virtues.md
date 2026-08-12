@@ -33,9 +33,11 @@ must **not** auto-pick shade GPU. HUD stamps `color:OG|GPU|GPU→OG` (fallback
 only when no usable device). Exact `Color32` parity is pinned by
 `gpu_matches_og_*` tests.
 
-GPU colorer keeps **persistent buffers** and skips uploads when values/params
-are clean (mechanical sympathy). Animated layers / new packages mark dirty
-every wake so silent skip cannot freeze anim.
+GPU colorer keeps **persistent buffers** and may skip **redundant GPU uploads**
+when the resident answers are already on device (mechanical sympathy). Actors
+still always paint each content wake — upload skipping is not skip-send.
+Animated layers / new packages force a fresh upload so silent skip cannot
+freeze anim.
 
 ## Escape gear switch
 

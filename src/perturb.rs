@@ -368,13 +368,13 @@ mod tests {
             "got {out:?}"
         );
         // Ensure && thresholds: n>0 AND small ratio — zero-orbit never glitches
-        // that way for ordinary δc=0.1 (escapes or unfinished cleanly).
+        // that way for ordinary δc=0.1 (escapes or unfinished without glitch).
         let zref = ReferenceOrbit::zero_orbit();
         let mid = ComplexFloatExp::new(FloatExp::from(0.1), FloatExp::ZERO);
-        let clean = iterate_pixel(&zref, mid, 1.0e-15, 32);
+        let zero_orbit_out = iterate_pixel(&zref, mid, 1.0e-15, 32);
         assert!(
-            !matches!(clean, PerturbedOutcome::Glitch),
-            "zero-orbit mid δc should not Pauldelbrot-glitch: {clean:?}"
+            !matches!(zero_orbit_out, PerturbedOutcome::Glitch),
+            "zero-orbit mid δc should not Pauldelbrot-glitch: {zero_orbit_out:?}"
         );
     }
 
