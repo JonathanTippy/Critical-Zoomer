@@ -58,6 +58,14 @@ RGBA out), restated below for the transcript.
 - Colorer readback is **4 B/pixel** (RGBA). Escape GPU still ships **~32 B/pixel**
   values out (and ~48 B/pixel answers in on new packages).
 
+**Correction (developer challenge 2026-08-11 night):** “escaper currently slower
+than colorer” does **not** match Criterion walls. 1.0× default (this machine,
+`--quick`): CPU escape ~6.1 ms; GPU escape radius-only ~4.5 ms; GPU escape
+**upload** ~11.0 ms; CPU color ~38.7 ms; GPU color ~14.1 ms. So GPU escape is
+still **faster than** GPU color even on the fat upload path; it is “slow” only
+versus **CPU escape**. The right compare for “does GPU help this stage?” is
+same-stage GPU vs CPU, not escape GPU vs color GPU.
+
 **Interview questions (goals first; mechanisms only if you already lean):**
 
 1. **Success feel.** When shade is “right” on GPU, what do you want to *notice*
