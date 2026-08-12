@@ -37,16 +37,20 @@ narrowing; anchor is `published.c` when a reference exists, else view center. Re
 generator when reference generation changes so seats bind to the matching grid.
 
 Design lock / interview: `docs/assistant/interviews/2026-08-12-precision-wall-gear-switching.md`,
-`docs/assistant/paraphrase-authoritative/c-generator-admit-margin.md`. Margin pins still open
-on the issue stack until land.
+`docs/assistant/paraphrase-authoritative/c-generator-admit-margin.md`. Mechanism is in
+`CGenerator::new_with_margin`; **transition blockiness is not product-verified**.
 
 **Implementation.** `src/assemblies/workgroup/c_generator.rs` — `Mandelbrotable`,
-`CGenerator::new`, `new_relative`, `admit_generator`, `rebuild_generator_for_reference`.
+`CGenerator::new`, `new_with_margin`, `new_relative`, `admit_generator`,
+`admit_generator_with_margin`, `rebuild_generator_for_reference`. Settings:
+`c_generator_margin_bits`.
 
 **Verification.** `generator_matches_v009_grid_bit_for_bit`,
 `rejects_collapse_at_far_end`, `successful_generator_has_distinct_neighbors`,
 `relative_generator_subtracts_before_narrowing`, `from_stencil_carried_ref_anchors_to_ref_c`,
-`reference_install_rebuilds_c_generator`.
+`reference_install_rebuilds_c_generator`,
+`home_f64_absolute_wall_moves_earlier_with_default_margin`,
+`margin_bits_zero_matches_prior_distinguish_only_admit`.
 
 r[cz.depth.relative-coords+1]
 

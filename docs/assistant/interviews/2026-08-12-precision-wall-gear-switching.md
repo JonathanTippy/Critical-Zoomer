@@ -50,3 +50,9 @@ Closer ref can make the same stencil admit on a cheaper type — uncommon, must 
 Paraphrase: `docs/assistant/paraphrase-authoritative/c-generator-admit-margin.md`.
 Design: `docs/assistant/design/gearbox.md`, depth-design CGenerator section, `reference-reuse.md`.
 Live stack: `docs/assistant/issue-stack.md`.
+
+### Session end (2026-08-12)
+
+Interview closed. Follow-up in this chat: 10-bit admit margin + settings slider
+were added to the C-generator. **Product bugs (transition blockiness, gear kaput,
+naive black/periodicity) were not declared fixed.**

@@ -45,7 +45,9 @@ extra may approach zero, but leaving the margin at 10 is fine.
 
 **Suspected live bug:** missing this margin → shallow type false-admits →
 gearbox never steps deeper → rectangular blockiness at transitions while
-deeper gears “exist.”
+deeper gears “exist.” A default-10-bit probe is in the C-generator (settings
+override for testing). **The visual/product bug is still open** until the
+developer confirms.
 
 ## Perturbation evaluation order
 
