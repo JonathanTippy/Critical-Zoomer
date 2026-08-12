@@ -8,16 +8,17 @@
 must-ships: (1) depth target with quality you would stand behind — headed
 then oracle/DirectKernel pins; (2) cycling color as an extra shading choice
 (working hypothesis: hue on normalized escape time; XaoS as research
-target; default stays sinus); (3) 1080p must feel as good as current
-default resolution. Window may be fullscreen/larger; **the whole compute
-grid caps at 1080p** and the window upsamples. **Pause new GPU compute/
-escape grind** — CPU is enough for v0.1. One thing at a time. Delivery
-gap: capture the *layers* of “works” so assistant checks match what the
-developer sees; assistant may say “looks better” as a candidate only.
+target; default stays sinus); (3) 1080p must **feel** as good as current
+default resolution — not by capping the window or decoupling head view
+from window pixels. **Pause new GPU compute/escape grind** — CPU is
+enough for v0.1. One thing at a time. Delivery gap: capture the *layers*
+of “works” so assistant checks match what the developer sees; assistant
+may say “looks better” as a candidate only.
 Layer locks: whole answer; worker finishes entire context (redo OK);
-gear fail = admit-none or false-shallow; shade is a pipe; head view =
-window pixels; post-v0.0.9 AI comments are ghost candidates. Head 100%
-CPU: `351afdf` restored bare `request_repaint`; not fixed.
+gear fail = admit-none, false-shallow, **or post-admit precision drop**;
+shade is a pipe; head view = window pixels (**do not cap the window**);
+1080p is a feel target; post-v0.0.9 AI comments are ghost candidates.
+Head 100% CPU: `351afdf` restored bare `request_repaint`; not fixed.
 
 ---
 
@@ -433,3 +434,53 @@ rates,” either Wait is not actually blocking, or `update` is doing
 full-frame work (e.g. a new `sampler_buffer` every pass) at a high Poll
 rate. **Not declared fixed.** Docs that say present pacing is implemented
 are a ghost relative to `351afdf`.
+
+---
+
+### Developer
+
+Okay, one additional failure mode that could cause a block because I just
+realized is that maybe the C generator is admitting it as it should and then
+somehow after that point it's failing due to other precision issues. I could
+see that happening if the code is written in a really retarded way basically.
+It could also happen in perturbation I suppose, again, if the code is written
+in a really retarded way. Oh, yes, perfectly reasonable to cap the window at
+1080p, I think. I mean, it might be a little bit mean to people with 4K
+monitors, I'm going to be honest. I feel so strongly that the design should
+not be compromised here that I can't really recommend it. But I should be
+more detailed about what I mean when I say the code is written in a retarded
+way. I'm drawing a blank. Honestly, it's pretty straightforward in my head.
+But I should put it down. How could this be written wrong? If the naive,
+there are two branches here. You could have the naive or the perturbed.
+Naive could be written wrong. Actually, no, I don't know if I want to split
+them up. The mechanism that I'm thinking of where this is written wrong is
+that there's some layer in between the C generator and the actual worker that
+is dropping precision because it's basing in some certain precision level,
+like F64, for example. That was a big problem early on that there was, I
+think, an F64 layer somewhere that was just forcing the precision wall. It
+suffices to say that if any code after the C generator uses insufficient
+precision, that could also yield a rectangular-looking low-res look.
+
+### Assistant
+
+**Gear / type — three failure shapes (was two)**
+
+(A) C-generator admits nothing → worker stops (detectable).
+(B) C-generator false-admits a too-shallow gear → rectangular low-res.
+(C) **C-generator admits correctly, then a later layer drops precision**
+(e.g. an f64 interlayer between admit and the iterate) → same rectangular
+look. Naive or pert; do not split the theory. Early post-v0.0.9 already
+had an f64 layer forcing the wall. Live suspect, not a claim: worker
+channel still described as carrying f64 completions while compute gears
+go FloatExp — that is exactly (C) if those completions are the values
+that get reused/remapped as if they still had depth.
+
+**Window vs 1080p (supersedes “cap the window”)**
+
+You will not recommend capping the window. Head view **equals** window
+pixels; that design is not compromised to be nice to the 1080p feel bar
+or mean to 4K. 1080p remains the **feel target** (must work well there).
+A hard window max is a product cop-out, not the architecture. The earlier
+“compute grid caps at 1080p / upsample” idea is in conflict with
+head-view=window if the window is larger — parked until you pick a
+non-compromised way to keep 1080p feel without shrinking the view.
