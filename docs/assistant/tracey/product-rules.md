@@ -167,12 +167,6 @@ r[cz.system.max-homotheties+1]
 - **SUSPENDED.** v0.0.9 keeps exactly one magnification in play (plus one hoard slot), which
   trivially satisfies the bound; the rule only bites when lookahead returns.
 
-r[cz.ui.coords-parse+1]
-
-**Normative summary.** Coordinate field accepts likely forms (space/comma/plus-i, parens,
-brackets, imag-leading) and rejects invalid input without user confusion.
-*Superseded by `+2` for placement and mag-required parse.*
-
 r[cz.ui.coords-parse+2]
 
 **Normative summary.** Goto field at bottom-right accepts likely coordinate forms
@@ -190,12 +184,6 @@ already at that location); applying moves viewport center; field is not cleared.
 **Acceptance criteria.**
 - Ported with coords Apply enable rules and goto round-trip tests.
 
-r[cz.ui.location-readout+1]
-
-**Normative summary.** Read-only location field shows viewport center with copy;
-coordinates entry/display always includes magnification.
-*Superseded by `+2` for bottom-right placement.*
-
 r[cz.ui.location-readout+2]
 
 **Normative summary.** Read-only location field in the bottom-right panel (with
@@ -204,6 +192,22 @@ goto) shows viewport center with copy; always includes magnification.
 **Acceptance criteria.**
 - Location HUD string includes `mag 2^N`, Copy button, center (not UL); panel
   anchored bottom-right.
+
+r[cz.ui.goto-accepts-readout+1]
+
+**Normative summary.** Goto accepts a pasted location readout (including magnification)
+and navigates to that center without requiring re-formatting by the user.
+
+**Acceptance criteria.**
+- Parse/apply path accepts readout forms; verify tags on coords goto tests.
+
+r[cz.ui.goto-absolute-center+1]
+
+**Normative summary.** Goto `SetPos` targets absolute viewport center (not UL); zoom
+(`SetZoom`) precedes `SetPos` so center uses the named magnification.
+
+**Acceptance criteria.**
+- Command order SetZoom then SetPos; center semantics pinned in coords tests.
 
 r[cz.ui.viewport-fill+1]
 

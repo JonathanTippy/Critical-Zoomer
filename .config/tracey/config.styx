@@ -2,16 +2,23 @@ specs (
   {
     name critical-zoomer
     include (
-      docs/requirements.md
-      docs/standards.md
-      docs/design/*.md
+      docs/assistant/tracey/craftsmanship-rules.md
+      docs/assistant/tracey/depth-rules.md
+      docs/assistant/tracey/standards-rules.md
+      docs/assistant/tracey/product-rules.md
+      docs/assistant/tracey/integration-rules.md
+      docs/assistant/tracey/e2e-rules.md
+      docs/assistant/tracey/shade-rules.md
+      docs/assistant/tracey/foundations-rules.md
     )
     impls (
       {
         name rust
         include (src/**/*.rs scripts/**/*.sh)
         exclude (target/** **/*.wgsl)
-        test_include (src/**/*.rs scripts/**/*.sh)
+        test_include (
+          src/**/craftsmanship_tests/**/*.rs
+        )
       }
     )
   }

@@ -48,6 +48,16 @@ on the issue stack until land.
 `relative_generator_subtracts_before_narrowing`, `from_stencil_carried_ref_anchors_to_ref_c`,
 `reference_install_rebuilds_c_generator`.
 
+r[cz.depth.relative-coords+1]
+
+**Rule.** Relative/`delta_c` coordinate generation must admit only when the narrowed type
+keeps a legal path (distinct neighbors with render headroom) or hard-wall refusal —
+home f64 admission must not soft-fail into an illegal relative grid.
+
+**Implementation.** `src/assemblies/workgroup/c_generator.rs` — relative admit / home path.
+
+**Verification.** `home_f64_admission_has_legal_path_or_hard_wall`.
+
 r[cz.depth.floatexp-range+1]
 
 **Rule.** Per-pixel deltas and stored reference iterates use a normalized f64 mantissa plus
@@ -345,10 +355,6 @@ Aggregate HUD gear may be MIXED when seats disagree.
 `aggregate_seat_gears_reports_mixed`,
 `f64_gear_zero_orbit_center_reports_period_one`,
 `f64_gear_home_fills_without_per_seat_gear_scan`.
-
-r[cz.depth.gear-hud+1]
-
-**Rule.** *Superseded by `+2` for mode/ref terminology.*
 
 r[cz.depth.gear-hud+2]
 
