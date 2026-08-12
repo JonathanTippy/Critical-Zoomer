@@ -82,6 +82,14 @@ readback — but its **CPU alternative was the problem child** (~10× escaper),
 and its **output is display-thin**. The escaper’s CPU alternative was already
 cheap, and its output is still a full values frame the next stage re-consumes.
 
+**Live rates override benches (2026-08-12):** headed HUD with GPU escape shows
+roughly **`esc:~15` / `col:~50`**. That is authoritative. Colorer’s higher HUD
+rate does **not** prove its GPU body is cheaper in isolation — colorer
+re-emits on resident values every content wake, while `esc:` only counts frames
+that still carry a fresh `escape_emitted_at` (see residency interview). Product
+RCA for shade GPU must explain **in-app escape delivery**, not Criterion-only
+walls.
+
 Stacking GPU escape + GPU color today makes the middle worse: escape readback
 into `ZoomerValuesScreen`, then colorer re-packs nearly the same layout as
 `GpuPixel` and uploads again. Dual parallel CPU/GPU channel views (one idea

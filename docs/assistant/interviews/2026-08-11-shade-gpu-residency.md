@@ -22,7 +22,8 @@ dual-view upload tax everywhere. **No code** until goals settle.
 | False “large radius amortizes GPU escape” claim | **rejected** — documented | virtues + wisdom |
 | Bailout ≤~10 iters / superpower escape principal | **locked** | wisdom + virtues |
 | GPU escape default stays OG until shipping solved | locked (prior) | escape gear |
-| Why colorer GPU helps despite same round-trip pattern | **answered in docs** | virtues § shipping |
+| Why colorer GPU helps despite same round-trip pattern | **partial** — cost-ratio story is secondary to live rates | virtues § shipping |
+| Live HUD `esc:~15` / `col:~50` beats Criterion | **locked** — real app rates authoritative | this interview |
 | Dual parallel CPU/GPU views for all actor linkages | **idea only** — developer wary (upload everywhere) | this interview |
 | Fuse escape+color on device / keep values resident | undiscussed | — |
 | Workgroup answers already GPU-native → shade without host | undiscussed | naive-gpu / publish |
@@ -58,13 +59,30 @@ RGBA out), restated below for the transcript.
 - Colorer readback is **4 B/pixel** (RGBA). Escape GPU still ships **~32 B/pixel**
   values out (and ~48 B/pixel answers in on new packages).
 
-**Correction (developer challenge 2026-08-11 night):** “escaper currently slower
-than colorer” does **not** match Criterion walls. 1.0× default (this machine,
-`--quick`): CPU escape ~6.1 ms; GPU escape radius-only ~4.5 ms; GPU escape
-**upload** ~11.0 ms; CPU color ~38.7 ms; GPU color ~14.1 ms. So GPU escape is
-still **faster than** GPU color even on the fat upload path; it is “slow” only
-versus **CPU escape**. The right compare for “does GPU help this stage?” is
-same-stage GPU vs CPU, not escape GPU vs color GPU.
+**Correction (developer challenge 2026-08-11 night):** Criterion walls are
+**not** the product truth. Developer reports live HUD **`esc:~15` vs `col:~50`**
+with the real app — that stands. Isolated benches (CPU escape ~6 ms, GPU escape
+upload ~11 ms, GPU color ~14 ms) cannot overturn headed rates.
+
+**Why those HUD numbers can diverge (mechanism, not excuse):**
+
+- `col:` counts colorer **emits** that reach the window (`color_emitted_at`).
+  Colorer **re-paints resident values every content wake** even when escaper has
+  not produced a new screen — so it can sit near content cadence (~50 Hz) while
+  escape is behind.
+- `esc:` only advances when a window-bound frame still carries
+  `escape_emitted_at`. Colorer copies that stamp from the latest values screen,
+  then `clear_emission_stamps()` after a successful send — so later re-colors
+  do **not** re-count escape. Net: **`esc:` ≈ escaper delivery rate into the
+  shade path; `col:` ≈ colorer emit rate.** They are not the same kind of
+  clock.
+- So “escape slower than color in the app” is a real pipeline fact when escape
+  cannot keep the content beat (GPU escape + host round-trip + live device
+  contention with colorer/`shade_ops` and the rest of the process). Criterion
+  without that coupling is insufficient RCA.
+
+Parking: treat live `esc:`/`col:` as authoritative for shade-GPU shipping
+work; do not argue from bench-only escape&lt;color walls again.
 
 **Interview questions (goals first; mechanisms only if you already lean):**
 
@@ -100,3 +118,19 @@ same-stage GPU vs CPU, not escape GPU vs color GPU.
    features, etc.)
 
 Awaiting your answers; parking lot will absorb anything you lock.
+
+---
+
+### Developer
+
+Not true in practice. In the app, the escaper runs ~15fps while the colorer
+runs ~50fps. Real app rates are all that matter.
+
+### Assistant
+
+Accepted. Criterion-based “escape GPU still faster than color GPU” is **withdrawn**
+as product evidence. Live `esc:~15` / `col:~50` is the bar. Documented above:
+those HUD counters measure different things (escape **delivery** vs colorer
+**re-emit**), which is exactly how color can look healthy while escape is the
+shade bottleneck under GPU shipping + in-process GPU coupling. Interview
+questions 1–6 still open when you want to continue on goals.
