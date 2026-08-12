@@ -10,6 +10,7 @@ Append new sessions here; do not overwrite prior transcripts.
 | 2026-08-11 | Naive GPU bar + fullscreen/Stec design | in progress | [2026-08-11-project-interview-continued.md](2026-08-11-project-interview-continued.md) |
 | 2026-08-11 | Actor layout / frame passing / cadence | in progress | [2026-08-11-actor-layout-frame-pacing.md](2026-08-11-actor-layout-frame-pacing.md) |
 | 2026-08-12 | Precision wall / gear switching / C-gen margin | session ended | [2026-08-12-precision-wall-gear-switching.md](2026-08-12-precision-wall-gear-switching.md) |
+| 2026-08-12 | v0.1 product direction (depth quality + color cycling) | in progress | [2026-08-12-v01-product-direction.md](2026-08-12-v01-product-direction.md) |
 
 Related paraphrases (not full transcripts):
 
