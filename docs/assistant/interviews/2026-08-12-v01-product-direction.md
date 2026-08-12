@@ -192,3 +192,46 @@ color-texture-only cap.
 
 Parked (research, not a pick): XaoS hue-map vs palette-spin. Order of the
 three must-ships unnamed; any of them can start when you say go.
+
+---
+
+### Developer
+
+I'd like to continue the interview focusing on the delivery strategy as of yet
+and what's gone wrong and what's the plan for how to do it better.
+
+### Assistant
+
+Delivery-strategy turn. Not re-asking the three must-ships.
+
+**What already went wrong (from prior interviews + quality review — correct
+me if the story is wrong):**
+
+1. **False-fixed.** Assistant lands a pin, says the test caught it, you look,
+   no difference. Dual-device, admit-margin slider, dummy-head ~60 Hz escape
+   are the type: mechanism in tree, **product not verified**. Dummy-head and
+   Criterion are not the window.
+
+2. **Wrong bar for the symptom.** Headed bugs got unit tests aimed at a
+   nearby function. Green ≠ the band / block / rate you see.
+
+3. **Concurrent editors.** Three windows on one tree revert and lose work.
+   Chat then argues about code that is gone.
+
+4. **Grind over product.** PPS loops and gear work absorbed attention while
+   fullscreen feel, depth lies, and cosmetics you actually want for v0.1
+   moved slowly. Quality-slip review already named this: feature grind while
+   the baseline feel was assumed untouched.
+
+5. **Soft-skip history** (DAT): lowering the bar to look green. Doctrine
+   forbids it; the cousin failure now is **claiming green on the wrong
+   check**.
+
+6. **“Fixed” in the issue stack** before you said so. Standing correction
+   exists (precision wall, headed escape) but it keeps happening.
+
+**Candidate plan (proposal, not lock):** one live agent; one must-ship slice
+at a time; RCA from *your* headed observation; change; you look; only then
+pin tests that encode that observation; never write “fixed” until you say
+it. Loops only after the headed failure is named. Xvfb/PNG is a first pass
+for still frames, not a substitute for feel/rates/depth browsing.
