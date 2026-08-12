@@ -200,19 +200,27 @@ pub fn parse_inputs(
         };
 
         if input_state.key_down(egui::Key::S)
-            && !input_state.key_pressed(egui::Key::S) {
+            && !input_state.key_pressed(egui::Key::S)
+            && delta.val != 0
+        {
             returned.0.push(ZoomerCommand::Move { pixels_x: IntExp::from(0), pixels_y: delta.clone() });
         }
         if input_state.key_down(egui::Key::W)
-            && !input_state.key_pressed(egui::Key::W) {
+            && !input_state.key_pressed(egui::Key::W)
+            && delta.val != 0
+        {
             returned.0.push(ZoomerCommand::Move { pixels_x: IntExp::from(0), pixels_y: IntExp::from(0)-delta.clone() });
         }
         if input_state.key_down(egui::Key::A)
-            && !input_state.key_pressed(egui::Key::A) {
+            && !input_state.key_pressed(egui::Key::A)
+            && delta.val != 0
+        {
             returned.0.push(ZoomerCommand::Move { pixels_x: IntExp::from(0)-delta.clone(), pixels_y: IntExp::from(0) });
         }
         if input_state.key_down(egui::Key::D)
-            && !input_state.key_pressed(egui::Key::D) {
+            && !input_state.key_pressed(egui::Key::D)
+            && delta.val != 0
+        {
             returned.0.push(ZoomerCommand::Move { pixels_x: delta.clone(), pixels_y: IntExp::from(0) });
         }
     });

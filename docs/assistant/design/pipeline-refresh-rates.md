@@ -21,15 +21,17 @@ bootstrap until the head learns the display period.
 
 ### Head present (no spin)
 
-Head paces with `request_repaint_after(period)` always — never bare
-`request_repaint()`. Period is Automatic `auto_vsync_hz` when “pace to vsync
-period” is enabled, else `1 / head_max_fps`.
+Head uses `request_repaint_after(period)` always — never bare
+`request_repaint()`. With broken/absent GL vsync, bare repaint spun at hundreds
+of FPS and pins the window actor at 100% CPU. Period is Automatic
+`auto_vsync_hz` when vsync is enabled, else `1 / head_max_fps`.
 
-**GL swap Wait is off** (`NativeOptions.vsync = false`). eframe glow applies one
-`SwapInterval` to *every* viewport surface; with Wait, a deferred settings
-window plus the root each block a full vblank → ~½ FPS (egui#5836 class). Timer
-pacing aims at the monitor period without serializing presents. Settings
-deferred viewport keeps its own `request_repaint_after(100ms)`.
+`NativeOptions.vsync` stays **on** (GL swap Wait). Turning it off to dodge
+deferred-settings dual-Wait caused uncapped presents (~1500 FPS HUD) and a
+stencil/attention storm that kept the screen worker unparked — reverted.
+Deferred settings still uses `request_repaint_after(100ms)` on its own viewport;
+settings dual-Wait FPS coupling remains an open egui/glow issue to solve without
+disabling root Wait.
 
 ### How `auto_vsync_hz` is learned (stable)
 
@@ -58,7 +60,9 @@ every interval. WorkUpdates still arrive densely from the worker; the collector
 worker→collector), then publishes on `resolved_content_period()`.
 
 Only the **screen worker** parks when every seat is delivered. Collector and
-shadergroup stay on the content continuum.
+shadergroup stay on the content continuum. The window must not re-send an
+identical stencil (same location+resolution) — duplicate Replace keeps the
+worker unparked.
 
 ### Shadergroup
 
@@ -78,10 +82,9 @@ swap. Timer = production intent; channel = latest-resident swap.
 
 ## Headgroup
 
-`NativeOptions.vsync` is **false** (DontWait) so deferred settings cannot
-serialize GL Wait presents. Settings: “pace to vsync period” checkbox + max FPS
-when uncapped. Stable `auto_vsync_hz` fans Settings to colorer, escaper, worker,
-and collector.
+`NativeOptions.vsync` defaults on. Settings: vsync checkbox + max FPS when
+uncapped. Stable `auto_vsync_hz` fans Settings to colorer, escaper, worker, and
+collector.
 
 ## HUD
 
@@ -91,6 +94,7 @@ RateCounters; `ips:` / `pps:` unchanged.
 ## Verify
 
 - Content actors share head-reported vsync period (or manual Hz).
-- Head: timer pace to vsync period by default; max FPS when uncapped; GL Wait off.
+- Head: vsync default; max FPS + disable vsync paces present.
 - Escape default stays OG.
 - `auto_vsync_hz` does not track instantaneous present FPS.
+- Idle home: screen worker load drops once seats are delivered (no stencil storm).

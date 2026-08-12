@@ -89,10 +89,7 @@ impl Settings {
         ));
         ui.separator();
         ui.label("Cadence — head present");
-        ui.checkbox(
-            &mut self.head_vsync_enabled,
-            "Pace to vsync period (timer; not GL swap Wait)",
-        );
+        ui.checkbox(&mut self.head_vsync_enabled, "Vsync");
         ui.add_enabled_ui(!self.head_vsync_enabled, |ui| {
             ui.add(
                 egui::DragValue::new(&mut self.head_max_fps)

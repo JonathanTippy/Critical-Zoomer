@@ -32,10 +32,11 @@ Settings cadence knobs (`content_refresh_*`, `head_vsync_enabled`,
 actor skip-send; GPU paint always refreshes from current inputs
 (persistent buffers kept). HUD `pub:/esc:/col:/ctrl:` emission-Instant rates
 already landed. Escape gear stays OG default. Workgroup TTFP / Replace coalesce
-still parked. **Charter note (2026-08-11 settings viewport):** deferred native settings
-viewport kept; GL swap Wait disabled (timer pacing) so dual-viewport Wait cannot
-halve FPS; settings viewport `request_repaint_after(100ms)`; auto_vsync fan
-hysteresis ≥2 Hz. Display timing only — no lighting redesign.
+still parked. **Charter note (2026-08-11 settings viewport):** deferred native
+settings viewport kept; settings viewport `request_repaint_after(100ms)`;
+auto_vsync fan hysteresis ≥2 Hz. **Do not** disable root GL swap Wait to paper
+over dual-viewport Wait (that spun ~1500 FPS and unparked the worker). Display
+timing only — no lighting redesign.
 
 ## True bugs (open)
 
@@ -63,8 +64,10 @@ hysteresis ≥2 Hz. Display timing only — no lighting redesign.
   **Landed (2026-08-11):** manual OG↔GPU color gear + honest f32 wgpu colorer
   with exact `Color32` parity (`gpu_matches_og_*`). Headed: enable Manual color
   gear → GPU to measure fullscreen feel; OG remains default.
-  (B) **workgroup unfinished bands** — Stec deleted; growable Vec → channel +
-  `undeliver_failed_batch`. Headed: bands appear fixed (2026-08-11 retest).
+  (B) **workgroup unfinished bands** — Stec deleted; growable Vec → channel.
+  **2026-08-11 RCA / fix:** undeliver-on-full reopened Dummy (black streaks);
+  replaced by `wait-on-channel-full` (worker waits for collector). Collector
+  speed remains secondary.
   (C) **Parked (revealed after banding):** time-to-first-work and work-update
   post rate degrade past ~1.5× / 1080p — revisit after GPU colorer makes the
   shade path fast enough to expose them cleanly.
@@ -137,8 +140,8 @@ Not bugs; provisional mechanisms that shipped because they beat nothing. None is
 
 - **Delete token accounting** in the screen worker (`workshift.rs` / `screen_worker/mod.rs`): the budget check in the shift loop is commented out, wall-clock is the only law; the token fields and `spent_tokens_today` recomputation are dead code.
 - **`Stec` removed (2026-08-11).** Completion staging is a growable per-shift
-  `Vec` drained LIFO into the collector channel. Channel-full →
-  `undeliver_failed_batch` (no silent drop). Fixed-cap Stec / double-queue
+  `Vec` drained LIFO into the collector channel. Channel-full → worker waits
+  (`wait-on-channel-full`); no Dummy reopen. Fixed-cap Stec / double-queue
   staging deleted per interview.
 - **Delivered-aware attention sampling**: done as the attention square-ring spiral (`cz.craft.attention-spiral+1`).
 - **Incremental WorkContext construction**: done as stencil-only Replace + lazy `ensure_started` (see `cz.craft.stencil-only-replace+2`). Chunked amortization beyond first-start laziness remains optional if install-time shell work ever shows up in play.

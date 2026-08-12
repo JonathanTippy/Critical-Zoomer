@@ -186,6 +186,9 @@ async fn internal_behavior<A: SteadyActor>(
             await_for_any!(
                 actor.wait_periodic(max_sleep),
                 actor.wait_avail(&mut commands_in, 1),
+                actor.wait_avail(&mut attention_in, 1),
+                actor.wait_avail(&mut settings_in, 1),
+                actor.wait_avail(&mut references_in, 1),
             );
         }
 
@@ -297,19 +300,21 @@ async fn internal_behavior<A: SteadyActor>(
                                     iters as u64,
                                     state.pending_controller_emitted_at.take(),
                                 );
-                                match actor.try_send(&mut updates_out, update) {
-                                    SendOutcome::Success => {}
-                                    SendOutcome::Blocked(u)
-                                    | SendOutcome::Timeout(u)
-                                    | SendOutcome::Closed(u) => {
-                                        if let Some(at) = u.controller_emitted_at {
-                                            state.pending_controller_emitted_at = Some(at);
-                                        }
-                                        undeliver_failed_batch(
-                                            &mut live.context,
-                                            &u.completed_points,
-                                        );
+                                // r[impl cz.craft.wait-on-channel-full+1]
+                                if let Err(u) = send_update_waiting(
+                                    &mut actor,
+                                    &mut updates_out,
+                                    update,
+                                )
+                                .await
+                                {
+                                    if let Some(at) = u.controller_emitted_at {
+                                        state.pending_controller_emitted_at = Some(at);
                                     }
+                                    restage_unsent_batch(
+                                        &mut live.context,
+                                        u.completed_points,
+                                    );
                                 }
                             }
                             Some((live.context, old_zoom))
@@ -343,14 +348,16 @@ async fn internal_behavior<A: SteadyActor>(
                             0,
                             ctrl,
                         );
-                        match actor.try_send(&mut updates_out, update) {
-                            SendOutcome::Success => {}
-                            SendOutcome::Blocked(u)
-                            | SendOutcome::Timeout(u)
-                            | SendOutcome::Closed(u) => {
-                                if let Some(at) = u.controller_emitted_at {
-                                    state.pending_controller_emitted_at = Some(at);
-                                }
+                        // r[impl cz.craft.wait-on-channel-full+1]
+                        if let Err(u) = send_update_waiting(
+                            &mut actor,
+                            &mut updates_out,
+                            update,
+                        )
+                        .await
+                        {
+                            if let Some(at) = u.controller_emitted_at {
+                                state.pending_controller_emitted_at = Some(at);
                             }
                         }
                     }
@@ -373,6 +380,14 @@ async fn internal_behavior<A: SteadyActor>(
 
         let mut iters_delta = 0u64;
         if still_working {
+            // r[impl cz.craft.wait-on-channel-full+1]
+            // Calm down: do not invent more completions while the collector is behind.
+            if actor.is_full(&mut updates_out) {
+                if !actor.wait_vacant(&mut updates_out, 1).await {
+                    continue;
+                }
+            }
+
             // Split borrows: take GPU handle, then mutate live context.
             let mut gpu = state.naive_gpu.take();
             if let Some(live) = &mut state.work_context {
@@ -400,7 +415,7 @@ async fn internal_behavior<A: SteadyActor>(
                     if !c.is_empty() || iters_delta > 0 {
                         // r[impl cz.craft.emergent-cadence+1]
                         // r[impl cz.depth.gear-hud+2]
-                        // r[impl cz.craft.undeliver-on-full+1]
+                        // r[impl cz.craft.wait-on-channel-full+1]
                         let update = telemetry_update(
                             None,
                             c,
@@ -408,13 +423,11 @@ async fn internal_behavior<A: SteadyActor>(
                             iters_delta,
                             ctrl,
                         );
-                        match actor.try_send(&mut updates_out, update) {
-                            SendOutcome::Success => {}
-                            SendOutcome::Blocked(u)
-                            | SendOutcome::Timeout(u)
-                            | SendOutcome::Closed(u) => {
+                        match send_update_waiting(&mut actor, &mut updates_out, update).await {
+                            Ok(()) => {}
+                            Err(u) => {
                                 restore_ctrl = u.controller_emitted_at;
-                                undeliver_failed_batch(&mut live.context, &u.completed_points);
+                                restage_unsent_batch(&mut live.context, u.completed_points);
                             }
                         }
                     } else {
@@ -554,31 +567,44 @@ pub(crate) fn work_update<T: Mandelbrotable>(
     returned
 }
 
-/// Channel-full / failed send: seats must not stay "delivered" without a
-/// published snapshot. Clear `delivered` and re-queue finished seats.
-// r[impl cz.craft.undeliver-on-full+1]
-pub(crate) fn undeliver_failed_batch<T: Mandelbrotable>(
-    ctx: &mut WorkContext<T>,
-    batch: &[(CompletedPoint<T>, usize)],
-) {
-    for (answer, index) in batch {
-        if *index >= ctx.points.len() {
-            continue;
-        }
-        // Provisionals never set delivered; finals must be rewound.
-        if ctx.points[*index].delivered {
-            ctx.points[*index].delivered = false;
-            let pos = pos_from_index(*index, ctx.res.0);
-            match answer {
-                CompletedPoint::Repeats { .. } => {
-                    ctx.in_queue.push_front((pos, 0));
+/// Send a WorkUpdate to the collector, waiting when the channel is full.
+/// Returns `Err(update)` only on shutdown interrupt or closed channel — never
+/// clears `delivered` (that painted Dummy holes / black streaks).
+// r[impl cz.craft.wait-on-channel-full+1]
+async fn send_update_waiting<A, T>(
+    actor: &mut A,
+    updates_out: &mut T,
+    mut update: WorkUpdate<f64>,
+) -> Result<(), WorkUpdate<f64>>
+where
+    A: SteadyActor,
+    T: TxCore<MsgOut = WorkUpdate<f64>, MsgSize = usize>,
+    for<'a> T: TxCore<MsgIn<'a> = WorkUpdate<f64>, MsgOut = WorkUpdate<f64>, MsgSize = usize>,
+{
+    loop {
+        match actor.try_send(updates_out, update) {
+            SendOutcome::Success => return Ok(()),
+            SendOutcome::Blocked(u) | SendOutcome::Timeout(u) => {
+                update = u;
+                if !actor.wait_vacant(updates_out, 1).await {
+                    return Err(update);
                 }
-                CompletedPoint::Escapes { .. } => {
-                    ctx.out_queue.push_front((pos, 0));
-                }
-                CompletedPoint::Dummy {} => {}
             }
+            SendOutcome::Closed(u) => return Err(u),
         }
+    }
+}
+
+/// Put an unsent batch back into staging without clearing `delivered`.
+/// Steady full-channel waits retry the same update in place; restage is only
+/// for shutdown interrupt so the next boot (or rare resume) can flush again.
+// r[impl cz.craft.wait-on-channel-full+1]
+pub(crate) fn restage_unsent_batch<T: Mandelbrotable>(
+    ctx: &mut WorkContext<T>,
+    batch: Vec<(CompletedPoint<T>, usize)>,
+) {
+    for item in batch.into_iter().rev() {
+        ctx.completed_points.push(item);
     }
 }
 

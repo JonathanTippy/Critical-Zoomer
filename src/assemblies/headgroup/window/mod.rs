@@ -42,10 +42,7 @@ const RECOVER_EGUI_CRASHES:bool = false;
 // be minimized or not on top, it might bother the user by restarting.
 //const MIN_FRAME_RATE:f64 = 20.0;
 //const MAX_FRAME_TIME:f64 = 1.0 / MIN_FRAME_RATE;
-// GL swap-interval Wait on *every* viewport (eframe glow) serializes deferred
-// settings + root presents → ~1/N FPS (egui#5836 class). Pace with
-// request_repaint_after instead; head_vsync_enabled selects the period source.
-const GL_SWAP_VSYNC: bool = false;
+const VSYNC: bool = true; // GL swap Wait; request_repaint_after also aims the period
 
 
 
@@ -127,6 +124,8 @@ pub struct WindowState {
     // Reuse GPU texture when no new View arrived this frame.
     , pub display_texture: Option<TextureHandle>
     , pub last_attention: Option<(i32, i32)>
+    // Last stencil location+res actually sent (skip duplicate Replace).
+    , pub last_sent_stencil_key: Option<(ObjectivePosAndZoom, (usize, usize))>
 }
 
 /// Entry point for the window actor.
@@ -210,6 +209,7 @@ async fn internal_behavior<A: SteadyActor>(
         , settings_ui_fan_timer: Instant::now()
         , display_texture: None
         , last_attention: None
+        , last_sent_stencil_key: None
     }).await;
 
     {
@@ -241,7 +241,7 @@ async fn internal_behavior<A: SteadyActor>(
 
         })),
         viewport: viewport_options,
-        vsync: GL_SWAP_VSYNC,
+        vsync: VSYNC,
         ..NativeOptions::default()
 
 
@@ -356,7 +356,8 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             );
 
 
-            // Present pacing via timer only (GL swap Wait is off — see GL_SWAP_VSYNC).
+            // Present pacing. Never bare `request_repaint()` — with broken/absent
+            // GL vsync that spins at hundreds of FPS and pins the window thread.
             // Cap to the aimed period (egui/OS vsync Hz, or head_max_fps).
             let period = if state.head_vsync_enabled {
                 let hz = if state.last_fanned_auto_vsync_hz.is_finite()
@@ -427,15 +428,24 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             if state.sampling_context.updated
             {
-                actor.try_send(&mut stencil_out, PointStencil{
-                    location: (state.sampling_context.location.pos.0.clone()
-                    , IntExp::ZERO-state.sampling_context.location.pos.1.clone()
-                    , state.sampling_context.location.zoom_pot.clone()
-                    )
-                    , resolution: (state.size.x as usize, state.size.y as usize)
-                    , serial_number: state.stencil_serial_number_counter
-                });
-                state.stencil_serial_number_counter +=1;
+                let key = (
+                    state.sampling_context.location.clone(),
+                    (state.size.x as usize, state.size.y as usize),
+                );
+                // Duplicate stencils (same loc/res) must not Replace — that kept
+                // the worker unparked (graph.dot: thousands of controller msgs).
+                if state.last_sent_stencil_key.as_ref() != Some(&key) {
+                    actor.try_send(&mut stencil_out, PointStencil{
+                        location: (state.sampling_context.location.pos.0.clone()
+                        , IntExp::ZERO-state.sampling_context.location.pos.1.clone()
+                        , state.sampling_context.location.zoom_pot.clone()
+                        )
+                        , resolution: key.1
+                        , serial_number: state.stencil_serial_number_counter
+                    });
+                    state.stencil_serial_number_counter +=1;
+                    state.last_sent_stencil_key = Some(key);
+                }
                 state.sampling_context.updated = false;
             }
 
@@ -564,37 +574,10 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                         let esc_fps = state.escape_fps_counter.rate(now);
                                         let col_fps = state.color_fps_counter.rate(now);
                                         let ctrl_fps = state.controller_fps_counter.rate(now);
-                                        let hud_fps = r.0.0 as f64 / 1000000000.0;
-                                        if let Ok(path) = std::env::var("CZ_FRAME_LOG") {
-                                            if !path.is_empty() {
-                                                use std::io::Write;
-                                                use std::sync::atomic::{AtomicU64, Ordering};
-                                                static LAST_LOG_MS: AtomicU64 = AtomicU64::new(0);
-                                                let t_ms = std::time::SystemTime::now()
-                                                    .duration_since(std::time::UNIX_EPOCH)
-                                                    .map(|d| d.as_millis() as u64)
-                                                    .unwrap_or(0);
-                                                let prev = LAST_LOG_MS.load(Ordering::Relaxed);
-                                                if t_ms.saturating_sub(prev) >= 100 {
-                                                    LAST_LOG_MS.store(t_ms, Ordering::Relaxed);
-                                                    if let Ok(mut f) = std::fs::OpenOptions::new()
-                                                        .create(true)
-                                                        .append(true)
-                                                        .open(&path)
-                                                    {
-                                                        let _ = writeln!(
-                                                            f,
-                                                            "t_ms={t_ms} fps={hud_fps:.2} settings={}",
-                                                            state.settings_window_open as u8
-                                                        );
-                                                    }
-                                                }
-                                            }
-                                        }
                                         // r[impl cz.depth.gear-hud+2]
                                         response += format!(
                                             "fps:{:.0}  pub:{:.0}  esc:{:.0}  col:{:.0}  ctrl:{:.0}  stack:{}  mode:{}  ref:{}  gear:{}\npps:{:.0}  ips:{:.0}  drop:{}  color:{}  escape:{}  1s:{:.1}",
-                                            hud_fps,
+                                            r.0.0 as f64 / 1000000000.0,
                                             pub_fps,
                                             esc_fps,
                                             col_fps,
@@ -722,12 +705,6 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                         return button_state;
                     }
                 );
-
-                if !state.settings_window_open
-                    && std::env::var("CZ_OPEN_SETTINGS").ok().as_deref() == Some("1")
-                {
-                    state.settings_window_open = true;
-                }
 
                 // Add a home icon button in the top-right corner
                 ui.put(
