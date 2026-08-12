@@ -12,6 +12,11 @@ head/egui** (not hardcoded 60); head vsync-or-max-FPS. Prefer **per-actor
 timers** + channel data swaps. **No code** until a later big plan; keep
 discussing design.
 
+**Ghost (2026-08-12):** parking lot below is **historical**. Content-tier
+code did land later; head present pacing was then reverted to bare
+`request_repaint` (`351afdf`). Do not use “doc’d, not implemented” or
+“no code yet” as current status. Live: `ghost-hunt-2026-08-12.md`.
+
 ---
 
 ## Parking lot (must not forget)

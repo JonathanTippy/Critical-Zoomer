@@ -18,8 +18,15 @@ Not authoritative prose — restatement for implementers.
    (smaller type ⇒ better PPS for that gear).
 
 Blockiness from rescale of prior work is unrelated. If a deeper admitting option
-exists, rectangular precision-blockiness must not appear — that means admit or
-selection failed.
+exists, rectangular precision-blockiness must not appear — that means admit,
+selection, **or a later precision drop** failed.
+
+**Three failure shapes (interview 2026-08-12):** (A) C-gen admits nothing →
+worker stops; (B) C-gen false-admits shallow → rectangular low-res; (C) C-gen
+admits honestly, then code **after** admit uses insufficient precision (e.g.
+an f64 interlayer) → same rectangular look. Naive or pert; do not split the
+theory. Live host completions are f64 (`WorkUpdate<f64>`); treat that as a
+(C) suspect, not as “depth closed.”
 
 ## What C-generator judges
 

@@ -523,3 +523,18 @@ post-v0.0.9 notes is how false-fixed repeats. **Next: ghost hunt** — find
 assistant comments/docs that disagree with live code or with this
 interview; mark or fix the note; do not “fix” the product in the same
 pass unless the ghost *is* the code/doc split (e.g. present pacing).
+
+---
+
+### Developer
+
+go
+
+### Assistant
+
+Ghost hunt pass 1: log `docs/assistant/ghost-hunt-2026-08-12.md`. Corrected
+pipeline-refresh-rates (head pacing not landed), issue-stack (color GPU
+default, VSYNC, unshelve window CPU, depth not “green”), admit-margin
+failure (C), actor-layout parking-lot amendment, honest comments at
+`request_repaint`. Did **not** change present behavior or claim CPU/depth
+fixed.

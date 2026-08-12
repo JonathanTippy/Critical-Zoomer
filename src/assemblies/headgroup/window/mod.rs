@@ -42,7 +42,8 @@ const RECOVER_EGUI_CRASHES:bool = false;
 // be minimized or not on top, it might bother the user by restarting.
 //const MIN_FRAME_RATE:f64 = 20.0;
 //const MAX_FRAME_TIME:f64 = 1.0 / MIN_FRAME_RATE;
-const VSYNC: bool = true; // GL swap Wait; request_repaint_after also aims the period
+const VSYNC: bool = true; // GL swap Wait. Does not by itself stop 100% CPU
+                          // while update() calls bare request_repaint.
 
 
 
@@ -352,6 +353,8 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             );
 
 
+            // Bare request_repaint (351afdf). Head ~100% CPU still open.
+            // Do not treat this as vsync pacing.
             ctx.request_repaint();
 
             let mut got_new_view = false;

@@ -1,0 +1,19 @@
+# Ghost hunt (2026-08-12)
+
+Session: [v0.1 product direction interview](interviews/2026-08-12-v01-product-direction.md).
+Post-v0.0.9 assistant notes that disagree with **live code** or with that
+interview. Correct the note. Do not treat headed bugs as fixed.
+
+| Ghost | Live truth | Action |
+|---|---|---|
+| `pipeline-refresh-rates.md` Status **implemented**; “never bare `request_repaint`” | `window/mod.rs` bare `request_repaint()` since `351afdf` (“preferred vsync code”) | Doc: content-tier cadence landed; **head present pacing not landed**. CPU open. |
+| Issue-stack “OG remains default” under 1080p colorer | `resolved_color_gear()` defaults **GPU** | Strike OG-default line. |
+| Issue-stack pipeline gap: `VSYNC=false` + “no code until big plan” | `VSYNC=true` in window; content timers exist; head still bare repaint | Align with live; head CPU still open. |
+| “Shelved: worker parks so head CPU is fine” | Wrong actor. Window still immediate-repaint. Developer: 100% CPU at vsync rates. | Unshelve as open; worker park ≠ window idle. |
+| Actor-layout interview parking lot “cadence not implemented / no code” | Historical; later code landed then `351afdf` reverted head pacing | Amendment on that interview, do not rewrite the transcript. |
+| Depth “finish-line / precision wall green” | Blockiness + post-admit f64 interlayer still open. Tests **pin** `WorkUpdate<f64>` host. | Do not call depth-trust done. |
+| Dummy-head GPU esc ~60 Hz / “test currently passes” | **Tests fail (2026-08-12 debug):** OG mean esc ~10 (floor 15), GPU ~23 (floor 40). Headed still unchecked. | Honest `testing.md`. Do not ignore or lower floors. GPU grind paused. |
+| Admit-margin “in tree” read as product fix | Mechanism only | Keep “product not verified”; add failure shape (C) post-admit drop. |
+
+GPU compute/escape grind **paused** for v0.1 (interview). This hunt does not
+resume it.

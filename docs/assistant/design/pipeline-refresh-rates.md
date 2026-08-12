@@ -1,6 +1,10 @@
 # Pipeline refresh rates (binding — 2026-08-11)
 
-Status: **implemented** (cadence throughput pass). Charter note in
+Status: **split (ghost-hunt 2026-08-12).** Content-tier cadence (collector /
+escaper / colorer `wait_periodic`, absorb-all publish, HUD emission rates)
+landed. **Head present pacing did not stay landed.** `351afdf` (“preferred
+vsync code”) restored bare `ctx.request_repaint()` every `update`. Do not
+read this file as “window CPU / vsync spin is fixed.” Charter notes in
 `issue-stack.md`. HUD stage rates use emission Instants (successful put only).
 
 ## Goal
@@ -19,12 +23,18 @@ pipe. Actors **never block waiting** on the next stage: each holds an
 Hardcoding “60 FPS” as the long-term content rate is rejected; 60 is only the
 bootstrap until the head learns the display period.
 
-### Head present (no spin)
+### Head present (open — 100% CPU)
 
-Head uses `request_repaint_after(period)` always — never bare
+**Intent (not live):** `request_repaint_after(period)` always — never bare
 `request_repaint()`. With broken/absent GL vsync, bare repaint spun at hundreds
-of FPS and pins the window actor at 100% CPU. Period is Automatic
-`auto_vsync_hz` when vsync is enabled, else `1 / head_max_fps`.
+of FPS and pins the window actor at 100% CPU.
+
+**Live (2026-08-12):** `window/mod.rs` calls bare `ctx.request_repaint()`
+(`351afdf`). `NativeOptions.vsync` is **true**. Settings fields
+`head_vsync_enabled` / `head_max_fps` exist; **settings UI for them was
+removed** and does not pace present. Developer still sees ~100% window CPU
+at “vsync rates.” Profiling the **worker** park after fill is the wrong
+actor. **Not fixed.**
 
 `NativeOptions.vsync` stays **on** (GL swap Wait). Turning it off to dodge
 deferred-settings dual-Wait caused uncapped presents (~1500 FPS HUD) and a
@@ -89,9 +99,10 @@ swap. Timer = production intent; channel = latest-resident swap.
 
 ## Headgroup
 
-`NativeOptions.vsync` defaults on. Settings: vsync checkbox + max FPS when
-uncapped. Stable `auto_vsync_hz` fans Settings to colorer, escaper, worker, and
-collector.
+`NativeOptions.vsync` defaults on. Stable `auto_vsync_hz` fans Settings to
+colorer, escaper, worker, and collector. Head vsync/max-FPS **widgets are
+not in the settings UI**; fields remain on `Settings`. Present loop is
+still immediate `request_repaint` (see Head present).
 
 ## HUD
 
@@ -107,10 +118,9 @@ under motion usually tracks dense publish/remap lag, not a fat Replace payload
 ## Verify
 
 - Content actors share head-reported vsync period (or manual Hz).
-- Head: vsync default; max FPS + disable vsync paces present.
-- Escape default stays OG.
+- Head: `NativeOptions.vsync` on; **present still immediate-repaint**; window
+  CPU open (`issue-stack.md`).
+- Escape default stays OG. Colorer default is GPU (not this section).
 - `auto_vsync_hz` does not track instantaneous present FPS.
-- Idle home: screen worker load drops once seats are delivered (O(1)
-  `seats_need_work`; warm continuum wakes stay cheap).
-- **Shelved:** head window ~100% CPU / vsync Wait vs egui run-loop Poll — see
-  `issue-stack.md`. Not active work.
+- Idle home: screen **worker** load drops once seats are delivered (O(1)
+  `seats_need_work`). That does **not** imply the window thread is idle.

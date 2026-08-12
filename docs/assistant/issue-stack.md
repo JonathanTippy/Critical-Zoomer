@@ -55,16 +55,15 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
   **Code in tree (2026-08-12), product not verified.** Default 10-bit admit
   margin (`space / 2^margin` probe) plus settings `c_generator_margin_bits`
   (0–32) for manual testing. Mechanism pins exist; **do not treat transition
-  blockiness or “gear kaput” as fixed** until the developer says so. Naive
-  **black wrong-interior** remains a periodicity tangent.
-- **Precision wall / gear:F64 at ~pot 43–48 — fix on live path (2026-08-09).** Headed
-  #5: HUD stayed `gear:F64` past the f64 wall. On current `dev`, relative admission
-  already existed, but (1) live `view_gear` was hard-coded F64 so idle
-  `refresh_active_gear` snapped HUD back after fill even when seats were ScaledF64;
-  (2) absolute was preferred until hard collapse, so pot≈43 stayed naive/F64.
-  Fix: ScaledF64 `view_gear` floor when relative or pitch < useful floor; no HUD
-  demotion below that floor; prefer relative admission when absolute pitch < 1e-14.
-  Pin: `deep_view_gear_floor_stays_scaled_after_fill`.
+  blockiness or “gear kaput” as fixed** until the developer says so. Third
+  shape (interview 2026-08-12): C-gen admits honestly, then a **later layer
+  drops precision** (classic: f64 interlayer) → same rectangular look.
+  Naive **black wrong-interior** remains a periodicity tangent.
+- **Precision wall / gear:F64 at ~pot 43–48 — HUD floor on live path (2026-08-09),
+  product blockiness not closed.** Headed #5: HUD stayed `gear:F64` past the
+  f64 wall. Code: ScaledF64 `view_gear` floor; pin
+  `deep_view_gear_floor_stays_scaled_after_fill`. **Do not treat rectangular
+  transitions or post-admit f64 drop as fixed.** See true-bug blockiness item.
 - **B-SCH-3 home banding — fixed by f64 restore (2026-08-07).** Rectangular black columns at home (`1.3359375 + 0.125i mag 2^-2`) were caused by the FloatExp live-actor experiment. Restoring f64 production (worker→collector channel, perturb kernel, workshift, controller gate) eliminates the banding; `tmp/capture_at.sh` reports `black_cols_80=0`, matching known-good `ea27b4f`. The smaller `relative_location_from_index` divisor fix (data_res.0) is kept.
 - Re-verify headed: resize, settings layers, bailout slider. (2026-08-07: home render, scroll zoom, and drag verified normal headed after the kernel-seam + reference-actor wiring.)
 - **Phase-two home render corruption — closed under readiness wait (2026-08-07).** Earlier captures of giant black disk / rectangular discontinuity / flat purple were either pre-ready frames (purple: zero gray holes falsely treated as filled) or superseded by escaped-reference rejection + settled capture. Settled Xvfb home now shows coherent Mandelbrot structure; `e2e_visual.sh` passes with structure+baseline readiness (crop RMSE ~9.5k ≤12k). Keep the readiness gate; do not regress to gray-hole-only completion.
@@ -75,18 +74,20 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
 
 ## Known issues (open)
 
-- **Shelved (2026-08-11): head window ~100% CPU / vsync pacing.** Worker parks at
-  0 after fill (`seats_need_work`). Window present uses plain `request_repaint`
-  (same outcome as the period-forced path here). Head vsync / max-FPS settings
-  UI removed — those controls did not change behavior. Content-refresh cadence
-  UI also removed (same). Revisit display pacing later; not blocking other work.
+- **Open (ghost-hunt 2026-08-12): head window ~100% CPU.** Not shelved.
+  Screen **worker** parks after fill (`seats_need_work`) — that is the wrong
+  actor. Window `update` still does bare `ctx.request_repaint()` (`351afdf`).
+  `NativeOptions.vsync` is true. Head vsync / max-FPS **settings UI** was
+  removed (fields remain; they do not pace present). Developer: ~100% CPU
+  at vsync-looking frame rates. **Not fixed.** See
+  `design/pipeline-refresh-rates.md` and `ghost-hunt-2026-08-12.md`.
 
 - **Resolution / ~1.5× default pixels — revealed issues (2026-08-11).**
   Past ~1.5× `DEFAULT_WINDOW_RES` / at 1080p:
   (A) **shadergroup too slow** — colorer problem child (`shadergroup_fitness`).
   **Landed (2026-08-11):** manual OG↔GPU color gear + honest f32 wgpu colorer
-  with exact `Color32` parity (`gpu_matches_og_*`). Headed: enable Manual color
-  gear → GPU to measure fullscreen feel; OG remains default.
+  with exact `Color32` parity (`gpu_matches_og_*`). **Colorer default is GPU**
+  (`resolved_color_gear`). Escaper stays OG. Headed 1080p feel still open.
   (B) **workgroup unfinished bands** — Stec deleted; growable Vec → channel.
   **2026-08-11 RCA / fix:** undeliver-on-full reopened Dummy (black streaks);
   replaced by `wait-on-channel-full` (worker waits for collector). Collector
@@ -127,11 +128,14 @@ bucket 2 telemetry.
   `series_deep_skip_is_material_on_long_orbit`,
   `live_series_skip_initializes_delta_prefix`, membership pins with SA on.
 - **Deep exterior black/"in" vs blockiness (2026-08-08) — root cause fixed.** Flip-flop from stuffing generator `delta_c` into the zero-orbit δc slot (false interior) vs iterating collapsed f64 absolute `c` without a reference (blocky). Production bug: `workshift` called `perturbation_reference_active()` *after* `latest_reference.take()`, so the held orbit was always dropped and seats iterated zero-orbit with generator `delta_c` → false `repeats` at iters≈2 (flat black) while HUD still showed `mode:pert`/`ref:complete`. Fix: decide publish-orbit use from the held snapshot. Pins (workshift path): `pin_exterior_not_marked_in_at_zoom_52`, `pin_not_blocky_delta_c_at_zoom_49`. Soft-continue still uses absolute `c` in the δc slot.
-- **Depth integration — final gear push (2026-08-07).** **Closed for finish-line gates**
-  including series (live 2026-08-11): live f64 host + F64→ScaledF64→FloatExp compute gears, HUD gear+IPS+PPS, home perturbation parity vs DirectKernel
-  (~357 ms vs ~378 ms Criterion), scaled-f64 ~4.6× vs all-FloatExp microbench,
-  ≥2^3600000 representable, visual suite / hard path / precision wall green.
-  FloatExp-*host* banding root cause remains open but moot on the f64-host path.
+- **Depth integration — finish-line gates (2026-08-07), product trust open.**
+  Representability / series / HUD gear+IPS+PPS / home pert parity vs
+  DirectKernel landed. **Do not read as v0.1 depth-trust done.** Rectangular
+  blockiness still open (admit-none, false-shallow, or **post-admit precision
+  drop**). Live host is f64 (`WorkUpdate<f64>` pinned); that interlayer is
+  a named failure shape. FloatExp-host banding remains open and is **not**
+  moot if f64 host is the drop. Interview:
+  `interviews/2026-08-12-v01-product-direction.md`.
 - **First reference job length still = `MAX_BOUT` (1000); no mid-view extend.** **Closed (2026-08-07):** publish only on period/escape; no length wall. Intermediate snapshots before done remain an open question (see depth-design).
 - **Reference library reuse landing; discard still open.** Greedy keep + per-seat best-ref bind are in; byte-budgeted eviction / unused-ref discard are not.
 - **Display-path latency profiling.** Partially superseded 2026-08-12 for the
@@ -148,14 +152,11 @@ bucket 2 telemetry.
   lineage must stay without full-frame hops; same-res Point buffer reuse on
   worker. Doc: `design/collector-publish-bottleneck.md`. No code until chosen.
   Context closed 2026-08-12 still **not implemented**.
-- **Pipeline refresh rates (design lock 2026-08-11, revised).** **Two tiers:**
-  content (workgroup publish + shadergroup) at **real vsync from head/egui**
-  (hardcoded 60 rejected); head **vsync default** with typed max FPS +
-  disable-vsync. Per-actor timers + latest-wins buffers; publish = work so far.
-  Escape stays OG default. Content smell ≲15 Hz. **No code until big plan.**
-  Docs: `pipeline-refresh-rates.md`, interview
-  `interviews/2026-08-11-actor-layout-frame-pacing.md`. Head today uncapped
-  (`VSYNC=false` + `request_repaint`) — fix in that plan.
+- **Pipeline refresh rates (ghost-hunt 2026-08-12).** Content-tier cadence
+  **did** land (timers, absorb-all, HUD rates). Head present did **not**:
+  live `VSYNC=true` + bare `request_repaint` (`351afdf`). Older note
+  “`VSYNC=false` + no code until big plan” is stale. Window CPU still open.
+  Docs: `pipeline-refresh-rates.md`, `ghost-hunt-2026-08-12.md`.
 - **Color gear (OG ↔ GPU) — landed; GPU default 2026-08-11** (manual still
   forces OG/GPU; HUD `color:`). Escape gear remains OG default (`escape:`).
   Auto gearbox must still never pick GPU shade. Interview on cadence:

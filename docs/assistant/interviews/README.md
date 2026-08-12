@@ -12,6 +12,8 @@ Append new sessions here; do not overwrite prior transcripts.
 | 2026-08-12 | Precision wall / gear switching / C-gen margin | session ended | [2026-08-12-precision-wall-gear-switching.md](2026-08-12-precision-wall-gear-switching.md) |
 | 2026-08-12 | v0.1 product direction (depth quality + color cycling) | in progress | [2026-08-12-v01-product-direction.md](2026-08-12-v01-product-direction.md) |
 
+Ghost hunt (same day): [ghost-hunt-2026-08-12.md](../ghost-hunt-2026-08-12.md).
+
 Related paraphrases (not full transcripts):
 
 - `docs/assistant/paraphrase-authoritative/reference-reuse.md` — from the 2026-08-10 session
