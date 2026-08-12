@@ -3,11 +3,15 @@ use std::ops::{Add, Mul, Sub};
 use crate::constants::PIXELS_PER_UNIT_POT;
 use crate::utils::IntExp;
 
+/// Default C-generator render headroom beyond neighbor distinguishability.
+/// Interview 2026-08-12: ~10 bits at shallow depth; leave fixed unless settings override.
+pub const DEFAULT_C_GENERATOR_MARGIN_BITS: u32 = 10;
+
 /// Numeric host type for CPU Mandelbrot arithmetic.
 ///
 /// `From<IntExp>` rounds to the host type. It may only be used for a screen
 /// grid after `CGenerator::new` has proved that adjacent objective points stay
-/// distinct in that type.
+/// distinct in that type **with** the configured render margin.
 pub trait Mandelbrotable:
     Copy
     + PartialEq
@@ -86,6 +90,9 @@ pub enum AdmittedHostStack {
 /// For live f64, when absolute still admits but pixel pitch is near the f64
 /// ulp wall (~pot 43 at |c|~1), prefer relative-to-center so perturbation is
 /// hard-bumped before absolute collapse (issue #5).
+///
+/// `margin_bits` is render headroom beyond neighbor distinguishability
+/// (`DEFAULT_C_GENERATOR_MARGIN_BITS` in production; settings may override).
 // r[impl cz.depth.c-generator-fails-closed+1]
 pub fn admit_generator<T: Mandelbrotable>(
     compute_loc: &(IntExp, IntExp),
@@ -94,25 +101,49 @@ pub fn admit_generator<T: Mandelbrotable>(
     relative_anchor: Option<&(IntExp, IntExp)>,
     view_center: &(IntExp, IntExp),
 ) -> Option<GeneratorAdmission<T>> {
+    admit_generator_with_margin(
+        compute_loc,
+        zoom_pot,
+        res,
+        relative_anchor,
+        view_center,
+        DEFAULT_C_GENERATOR_MARGIN_BITS,
+    )
+}
+
+/// Same as [`admit_generator`] with an explicit render-margin bit count.
+pub fn admit_generator_with_margin<T: Mandelbrotable>(
+    compute_loc: &(IntExp, IntExp),
+    zoom_pot: i64,
+    res: (u32, u32),
+    relative_anchor: Option<&(IntExp, IntExp)>,
+    view_center: &(IntExp, IntExp),
+    margin_bits: u32,
+) -> Option<GeneratorAdmission<T>> {
     const ABSOLUTE_F64_RISKY_PITCH: f64 = 1e-14;
     let anchor = relative_anchor
         .map(|a| (a.0.clone(), a.1.clone()))
         .unwrap_or_else(|| (view_center.0.clone(), view_center.1.clone()));
-    if let Some(generator) = CGenerator::<T>::new(compute_loc, zoom_pot, res) {
+    if let Some(generator) = CGenerator::<T>::new_with_margin(compute_loc, zoom_pot, res, margin_bits)
+    {
         let (_, space) = generator.origin_and_space();
         let pitch = space.abs().to_f64();
         // Prefer relative when absolute still admits but pitch is near the f64
         // ulp wall (~pot 43 at |c|~1) so live f64 hard-bumps perturbation earlier.
         if pitch > 0.0 && pitch < ABSOLUTE_F64_RISKY_PITCH {
-            if let Some(generator) =
-                CGenerator::<T>::new_relative(compute_loc, &anchor, zoom_pot, res)
-            {
+            if let Some(generator) = CGenerator::<T>::new_relative_with_margin(
+                compute_loc,
+                &anchor,
+                zoom_pot,
+                res,
+                margin_bits,
+            ) {
                 return Some(GeneratorAdmission::Relative { generator, anchor });
             }
         }
         return Some(GeneratorAdmission::Absolute(generator));
     }
-    CGenerator::<T>::new_relative(compute_loc, &anchor, zoom_pot, res)
+    CGenerator::<T>::new_relative_with_margin(compute_loc, &anchor, zoom_pot, res, margin_bits)
         .map(|generator| GeneratorAdmission::Relative { generator, anchor })
 }
 
@@ -124,17 +155,42 @@ pub fn pick_stack_admission(
     relative_anchor: Option<&(IntExp, IntExp)>,
     view_center: &(IntExp, IntExp),
 ) -> Option<AdmittedHostStack> {
-    if let Some(admission) =
-        admit_generator::<f64>(compute_loc, zoom_pot, res, relative_anchor, view_center)
-    {
-        return Some(AdmittedHostStack::F64(admission));
-    }
-    admit_generator::<crate::floatexp::FloatExp>(
+    pick_stack_admission_with_margin(
         compute_loc,
         zoom_pot,
         res,
         relative_anchor,
         view_center,
+        DEFAULT_C_GENERATOR_MARGIN_BITS,
+    )
+}
+
+/// Same as [`pick_stack_admission`] with an explicit render-margin bit count.
+pub fn pick_stack_admission_with_margin(
+    compute_loc: &(IntExp, IntExp),
+    zoom_pot: i64,
+    res: (u32, u32),
+    relative_anchor: Option<&(IntExp, IntExp)>,
+    view_center: &(IntExp, IntExp),
+    margin_bits: u32,
+) -> Option<AdmittedHostStack> {
+    if let Some(admission) = admit_generator_with_margin::<f64>(
+        compute_loc,
+        zoom_pot,
+        res,
+        relative_anchor,
+        view_center,
+        margin_bits,
+    ) {
+        return Some(AdmittedHostStack::F64(admission));
+    }
+    admit_generator_with_margin::<crate::floatexp::FloatExp>(
+        compute_loc,
+        zoom_pot,
+        res,
+        relative_anchor,
+        view_center,
+        margin_bits,
     )
     .map(AdmittedHostStack::FloatExp)
 }
@@ -153,12 +209,35 @@ pub struct CGenerator<T: Mandelbrotable> {
 }
 
 impl<T: Mandelbrotable> CGenerator<T> {
+    /// Admit with [`DEFAULT_C_GENERATOR_MARGIN_BITS`] render headroom.
     // r[impl cz.depth.c-generator-fails-closed+1]
     pub fn new(loc: &(IntExp, IntExp), zoom_pot: i64, res: (u32, u32)) -> Option<Self> {
+        Self::new_with_margin(loc, zoom_pot, res, DEFAULT_C_GENERATOR_MARGIN_BITS)
+    }
+
+    /// Fail-closed admit: neighbors distinct in `T` with `margin_bits` of headroom.
+    ///
+    /// Headroom is checked by probing a pitch of `space / 2^margin_bits`. If
+    /// that finer step is still nonzero at near and far ends, the real pitch
+    /// has that many bits to spare for Mandelbrot dynamics.
+    // r[impl cz.depth.c-generator-fails-closed+1]
+    pub fn new_with_margin(
+        loc: &(IntExp, IntExp),
+        zoom_pot: i64,
+        res: (u32, u32),
+        margin_bits: u32,
+    ) -> Option<Self> {
         let space_objective = IntExp::from(1).shift(-(zoom_pot as i32 + PIXELS_PER_UNIT_POT));
         let generator = Self {
             origin: (T::from(loc.0.clone()), T::from(loc.1.clone())),
             space: T::from(space_objective.clone()),
+        };
+
+        // Probe pitch = real pitch / 2^margin (margin 0 → same as distinguish-only).
+        let probe_space = if margin_bits == 0 {
+            generator.space
+        } else {
+            T::from(space_objective.shift(-(margin_bits as i32)))
         };
 
         // Float ulp grows with magnitude. Prove adjacency at both ends of
@@ -167,13 +246,13 @@ impl<T: Mandelbrotable> CGenerator<T> {
             if count <= 1 {
                 return true;
             }
-            let first_next = origin + sign * generator.space;
+            let first_next = origin + sign * probe_space;
             if first_next == origin {
                 return false;
             }
-            let before_last = origin + sign * generator.space * T::from_u32(count - 2);
             let last = origin + sign * generator.space * T::from_u32(count - 1);
-            before_last != last
+            let last_with_margin_step = last - sign * probe_space;
+            last_with_margin_step != last
         };
 
         (axis_distinct(generator.origin.0, res.0, T::ONE)
@@ -187,11 +266,27 @@ impl<T: Mandelbrotable> CGenerator<T> {
         zoom_pot: i64,
         res: (u32, u32),
     ) -> Option<Self> {
+        Self::new_relative_with_margin(
+            loc,
+            reference,
+            zoom_pot,
+            res,
+            DEFAULT_C_GENERATOR_MARGIN_BITS,
+        )
+    }
+
+    pub fn new_relative_with_margin(
+        loc: &(IntExp, IntExp),
+        reference: &(IntExp, IntExp),
+        zoom_pot: i64,
+        res: (u32, u32),
+        margin_bits: u32,
+    ) -> Option<Self> {
         let relative = (
             loc.0.clone() - reference.0.clone(),
             loc.1.clone() - reference.1.clone(),
         );
-        Self::new(&relative, zoom_pot, res)
+        Self::new_with_margin(&relative, zoom_pot, res, margin_bits)
     }
 
     #[inline]
@@ -297,15 +392,47 @@ mod tests {
     }
 
     #[test]
-    fn home_f64_absolute_wall_at_zoom_43() {
+    fn home_f64_absolute_wall_distinguish_only_at_zoom_43() {
         use crate::constants::{DEFAULT_WINDOW_RES, HOME_POSITION};
         let compute_loc = (
             IntExp::from(HOME_POSITION.0),
             IntExp::ZERO - IntExp::from(HOME_POSITION.1),
         );
         let res = DEFAULT_WINDOW_RES;
-        assert!(CGenerator::<f64>::new(&compute_loc, 43, res).is_some());
-        assert!(!CGenerator::<f64>::new(&compute_loc, 44, res).is_some());
+        // Distinguish-only (margin 0): document the raw ulp wall.
+        assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 43, res, 0).is_some());
+        assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 44, res, 0).is_none());
+    }
+
+    #[test]
+    // r[verify cz.depth.c-generator-fails-closed+1]
+    fn home_f64_absolute_wall_moves_earlier_with_default_margin() {
+        use crate::constants::{DEFAULT_WINDOW_RES, HOME_POSITION};
+        let compute_loc = (
+            IntExp::from(HOME_POSITION.0),
+            IntExp::ZERO - IntExp::from(HOME_POSITION.1),
+        );
+        let res = DEFAULT_WINDOW_RES;
+        // Default ~10-bit margin fails closed ~10 pots before distinguish-only.
+        assert!(CGenerator::<f64>::new(&compute_loc, 33, res).is_some());
+        assert!(CGenerator::<f64>::new(&compute_loc, 34, res).is_none());
+        assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 34, res, 0).is_some());
+    }
+
+    #[test]
+    // r[verify cz.depth.c-generator-fails-closed+1]
+    fn margin_bits_zero_matches_prior_distinguish_only_admit() {
+        use crate::constants::{DEFAULT_WINDOW_RES, HOME_POSITION};
+        let compute_loc = (
+            IntExp::from(HOME_POSITION.0),
+            IntExp::ZERO - IntExp::from(HOME_POSITION.1),
+        );
+        let res = DEFAULT_WINDOW_RES;
+        for zoom in [0i64, 20, 40, 43] {
+            let with0 = CGenerator::<f64>::new_with_margin(&compute_loc, zoom, res, 0);
+            // Old distinguish-only check used space at both ends; margin 0 must match.
+            assert_eq!(with0.is_some(), zoom <= 43);
+        }
     }
 
     #[test]
@@ -322,7 +449,7 @@ mod tests {
         };
         let mut first_relative = None;
         let mut first_abs_collapse = None;
-        for zoom_pot in 30..55i32 {
+        for zoom_pot in 20..55i32 {
             let frame = (
                 ObjectivePosAndZoom {
                     zoom_pot,
@@ -350,14 +477,15 @@ mod tests {
                 first_relative = Some(zoom_pot);
             }
         }
-        // Prefer-relative kicks in when pitch < 1e-14 (before hard absolute collapse).
+        // With default margin, absolute collapses earlier; relative fills the gap
+        // (prefer-relative on risky pitch, or absolute fail → relative fallback).
         assert!(
-            first_relative.is_some_and(|z| z < first_abs_collapse.unwrap_or(i32::MAX)),
-            "relative must be preferred before absolute collapse (rel={first_relative:?} collapse={first_abs_collapse:?})"
+            first_relative.is_some_and(|z| z <= first_abs_collapse.unwrap_or(i32::MAX)),
+            "relative must appear by absolute collapse (rel={first_relative:?} collapse={first_abs_collapse:?})"
         );
         assert!(
-            first_relative.is_some_and(|z| (38..=45).contains(&z)),
-            "seahorse-class prefer-relative window (~pitch 1e-14): got {first_relative:?}"
+            first_abs_collapse.is_some_and(|z| (28..=40).contains(&z)),
+            "seahorse absolute collapse with default margin: got {first_abs_collapse:?}"
         );
     }
 
@@ -370,10 +498,19 @@ mod tests {
         );
         let res = DEFAULT_WINDOW_RES;
         let view_center = view_center_for_test(&compute_loc, HOME_POSITION.2, res);
+        // Distinguish-only hard wall (margin 0) still at 44–45.
         for zoom_pot in 44..46i64 {
             assert!(
-                admit_generator::<f64>(&compute_loc, zoom_pot, res, None, &view_center).is_none(),
-                "home at zoom {zoom_pot}: neither absolute nor relative f64 admits"
+                admit_generator_with_margin::<f64>(
+                    &compute_loc,
+                    zoom_pot,
+                    res,
+                    None,
+                    &view_center,
+                    0
+                )
+                .is_none(),
+                "home at zoom {zoom_pot}: neither absolute nor relative f64 admits (margin 0)"
             );
         }
     }
@@ -388,19 +525,27 @@ mod tests {
         );
         let res = DEFAULT_WINDOW_RES;
         let view_center = view_center_for_test(&compute_loc, HOME_POSITION.2, res);
-        // Shallow: must admit (absolute or relative).
-        for zoom_pot in 0..40i64 {
+        // Shallow: must admit (absolute or relative) under default margin.
+        for zoom_pot in 0..30i64 {
             assert!(
                 admit_generator::<f64>(&compute_loc, zoom_pot, res, None, &view_center).is_some(),
                 "home zoom_pot={zoom_pot} must admit f64 absolute or relative"
             );
         }
-        // Documented hard wall on home: neither absolute nor relative f64 admits
-        // at pot 44–45 — FloatExp host must take over (not silent empty work).
+        // Hard wall with default margin is earlier than distinguish-only; relative
+        // still covers until the relative grid itself fails. Document margin-0 wall.
         for zoom_pot in 44..46i64 {
             assert!(
-                admit_generator::<f64>(&compute_loc, zoom_pot, res, None, &view_center).is_none(),
-                "home zoom_pot={zoom_pot}: f64 must fail closed so FloatExp host can own the view"
+                admit_generator_with_margin::<f64>(
+                    &compute_loc,
+                    zoom_pot,
+                    res,
+                    None,
+                    &view_center,
+                    0
+                )
+                .is_none(),
+                "home zoom_pot={zoom_pot}: f64 must fail closed (margin 0) so FloatExp host can own the view"
             );
         }
     }
@@ -457,20 +602,24 @@ mod tests {
         assert!(!abs.is_relative());
         assert!(matches!(abs, GeneratorAdmission::Absolute(_)));
 
-        // Deep home prefers relative when pitch < 1e-14 (risky absolute).
+        // Deep home: absolute fails under default margin; relative must still admit.
         use crate::constants::{DEFAULT_WINDOW_RES, HOME_POSITION};
         let home = (
             IntExp::from(HOME_POSITION.0),
             IntExp::ZERO - IntExp::from(HOME_POSITION.1),
         );
-        let center = view_center_for_test(&home, 43, DEFAULT_WINDOW_RES);
-        let deep = admit_generator::<f64>(&home, 43, DEFAULT_WINDOW_RES, None, &center)
-            .expect("home zoom 43 must admit");
+        let center = view_center_for_test(&home, 40, DEFAULT_WINDOW_RES);
+        let deep = admit_generator::<f64>(&home, 40, DEFAULT_WINDOW_RES, None, &center)
+            .expect("home zoom 40 must admit under default margin");
         assert!(
             deep.is_relative(),
-            "pitch near ulp wall should prefer Relative"
+            "past absolute+margin wall should be Relative"
         );
         assert_ne!(deep.is_relative(), false);
+
+        // Settings override: margin 0 admits absolute deeper than default.
+        assert!(CGenerator::<f64>::new_with_margin(&home, 40, DEFAULT_WINDOW_RES, 0).is_some());
+        assert!(CGenerator::<f64>::new_with_margin(&home, 40, DEFAULT_WINDOW_RES, 10).is_none());
 
         let picked = pick_stack_admission(&loc, 0, (4, 3), None, &view).unwrap();
         assert!(matches!(picked, AdmittedHostStack::F64(_)));

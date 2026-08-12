@@ -5,7 +5,10 @@ use std::sync::Arc;
 use std::time::Instant;
 use std::collections::*;
 use std::cmp::*;
-use crate::assemblies::workgroup::c_generator::{admit_generator, CGenerator, GeneratorAdmission, Mandelbrotable};
+use crate::assemblies::workgroup::c_generator::{
+    admit_generator, admit_generator_with_margin, CGenerator, GeneratorAdmission, Mandelbrotable,
+    DEFAULT_C_GENERATOR_MARGIN_BITS,
+};
 use crate::assemblies::workgroup::reference_worker::PublishedReference;
 use crate::delta_gear::{ComputeGear, view_gear_from_generators};
 use crate::floatexp::{ComplexFloatExp, FloatExp};
@@ -166,6 +169,8 @@ pub struct WorkContext<T: Mandelbrotable> {
     // Greedy kept references (off-screen still useful). `latest_reference` is
     // the preferred bind for the view generator.
     , pub reference_library: Vec<Arc<PublishedReference>>
+    // C-generator render margin bits (settings-overridable; default 10).
+    , pub c_generator_margin_bits: u32
 }
 
 /// Brief perturbation probe when direct is genuinely stuck (>2s to clear remaining).
@@ -616,8 +621,31 @@ pub fn f64_stencil_admits(
     zoom_pot: i64,
     res: (u32, u32),
 ) -> bool {
+    f64_stencil_admits_with_margin(
+        compute_loc,
+        zoom_pot,
+        res,
+        DEFAULT_C_GENERATOR_MARGIN_BITS,
+    )
+}
+
+/// Same as [`f64_stencil_admits`] with an explicit render-margin bit count.
+pub fn f64_stencil_admits_with_margin(
+    compute_loc: &(IntExp, IntExp),
+    zoom_pot: i64,
+    res: (u32, u32),
+    margin_bits: u32,
+) -> bool {
     let view_center = view_center_compute(compute_loc, zoom_pot as i32, res);
-    admit_generator::<f64>(compute_loc, zoom_pot, res, None, &view_center).is_some()
+    admit_generator_with_margin::<f64>(
+        compute_loc,
+        zoom_pot,
+        res,
+        None,
+        &view_center,
+        margin_bits,
+    )
+    .is_some()
 }
 
 /// Apply admitted generator fields and invalidate undelivered seats on generation bump.
@@ -657,12 +685,13 @@ pub fn rebuild_generator_for_reference<T: Mandelbrotable + From<f32>>(
     published: &PublishedReference,
 ) -> bool {
     let view_center = view_center_compute(compute_loc, zoom_pot as i32, res);
-    let Some(admission) = admit_generator::<T>(
+    let Some(admission) = admit_generator_with_margin::<T>(
         compute_loc,
         zoom_pot,
         res,
         Some(&published.c),
         &view_center,
+        ctx.c_generator_margin_bits,
     ) else {
         return false;
     };
@@ -789,10 +818,24 @@ pub fn from_stencil_relative<T: Mandelbrotable + From<f32> + 'static>(
 /// point/mixmap buffers when present so steady-zoom pivots avoid large reallocs.
 ///
 /// `previous` is `(old_context, old_objective)`.
+/// Uses the previous context's margin bits when present, else the default 10.
 // r[impl cz.craft.stencil-only-replace+2]
 pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
     frame_info: (ObjectivePosAndZoom, (u32, u32)),
     previous: Option<(WorkContext<T>, ObjectivePosAndZoom)>,
+) -> Option<WorkContext<T>> {
+    let margin = previous
+        .as_ref()
+        .map(|(old, _)| old.c_generator_margin_bits)
+        .unwrap_or(DEFAULT_C_GENERATOR_MARGIN_BITS);
+    from_stencil_with_margin(frame_info, previous, margin)
+}
+
+/// Same as [`from_stencil`] with an explicit C-generator render-margin bit count.
+pub fn from_stencil_with_margin<T: Mandelbrotable + From<f32> + 'static>(
+    frame_info: (ObjectivePosAndZoom, (u32, u32)),
+    previous: Option<(WorkContext<T>, ObjectivePosAndZoom)>,
+    margin_bits: u32,
 ) -> Option<WorkContext<T>> {
     let carried_library = previous
         .as_ref()
@@ -821,12 +864,13 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
         .as_ref()
         .map(|r| r.generation)
         .unwrap_or(0);
-    let admission = admit_generator::<T>(
+    let admission = admit_generator_with_margin::<T>(
         &compute_loc,
         obj.zoom_pot as i64,
         res,
         relative_anchor,
         &view_center,
+        margin_bits,
     )?;
     let coords_are_relative = admission.is_relative();
     let c_generator = *admission.generator();
@@ -969,6 +1013,7 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
             }
             lib
         },
+        c_generator_margin_bits: margin_bits,
     };
     if ctx.coords_are_relative && ctx.latest_reference.is_none() {
         let bootstrap = bootstrap_relative_reference(

@@ -1,12 +1,14 @@
 use std::cmp::min;
 use steady_state::*;
 use crate::assemblies::headgroup::window::sampling::{index_from_relative_location, relative_location_i32_row_and_seat, transform_relative_location_i32};
-use crate::assemblies::workgroup::c_generator::Mandelbrotable;
+use crate::assemblies::workgroup::c_generator::{
+    admit_generator_with_margin, Mandelbrotable,
+};
 use crate::assemblies::workgroup::reference_worker::{
     select_reference_request, PublishedReference, ReferenceRequest,
 };
 use crate::delta_gear::ComputeGear;
-use crate::utils::{ObjectivePosAndZoom, pos_from_index};
+use crate::utils::{ObjectivePosAndZoom, pos_from_index, IntExp};
 //use crate::actor::work_collector::*;
 use crate::assemblies::workgroup::work_controller::*;
 use crate::assemblies::workgroup::screen_worker::workshift::*;
@@ -53,6 +55,8 @@ pub struct WorkerState<T: Mandelbrotable> {
     , naive_gpu: Option<naive_gpu::NaiveGpuContext>
     // Latest debug manual-gear override from settings (`None` = auto policy).
     , manual_gear: Option<crate::assemblies::structs::KernelMode>
+    // C-generator render margin bits from settings (default 10).
+    , c_generator_margin_bits: u32
     // Controller Replace emission Instant awaiting the next successful WorkUpdate put.
     , pending_controller_emitted_at: Option<std::time::Instant>
     // O(1) park predicate: avoid scanning ~410k seats on every wake after fill.
@@ -164,6 +168,7 @@ async fn internal_behavior<A: SteadyActor>(
         , pending_reference: None
         , naive_gpu: None
         , manual_gear: None
+        , c_generator_margin_bits: crate::assemblies::workgroup::c_generator::DEFAULT_C_GENERATOR_MARGIN_BITS
         , pending_controller_emitted_at: None
         , seats_need_work: false
     }).await;
@@ -206,9 +211,39 @@ async fn internal_behavior<A: SteadyActor>(
             }
             if let Some(settings) = actor.try_take(&mut settings_in) {
                 state.manual_gear = settings.manual_gear_override();
+                let margin = settings.c_generator_margin_bits.min(48);
+                let margin_changed = state.c_generator_margin_bits != margin;
+                state.c_generator_margin_bits = margin;
                 let gear = state.manual_gear;
                 if let Some(live) = &mut state.work_context {
                     live.context.manual_gear = gear;
+                    if margin_changed {
+                        live.context.c_generator_margin_bits = margin;
+                        let compute_loc = (
+                            live.frame_info.0.pos.0.clone(),
+                            IntExp::ZERO - live.frame_info.0.pos.1.clone(),
+                        );
+                        let zoom_pot = live.frame_info.0.zoom_pot as i64;
+                        let res = live.frame_info.1;
+                        let view_center = view_center_compute(&compute_loc, live.frame_info.0.zoom_pot, res);
+                        let relative_anchor = live.context.latest_reference.as_ref().map(|r| &r.c);
+                        if let Some(admission) = admit_generator_with_margin(
+                            &compute_loc,
+                            zoom_pot,
+                            res,
+                            relative_anchor,
+                            &view_center,
+                            margin,
+                        ) {
+                            let generation = live.context.generator_generation;
+                            apply_generator_admission(
+                                &mut live.context,
+                                admission,
+                                view_center,
+                                generation,
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -330,8 +365,13 @@ async fn internal_behavior<A: SteadyActor>(
                         None => None,
                     };
 
-                    if let Some(mut new_ctx) = from_stencil(frame_info.clone(), previous_for_shell) {
+                    if let Some(mut new_ctx) = from_stencil_with_margin(
+                        frame_info.clone(),
+                        previous_for_shell,
+                        state.c_generator_margin_bits,
+                    ) {
                         new_ctx.manual_gear = state.manual_gear;
+                        new_ctx.c_generator_margin_bits = state.c_generator_margin_bits;
                         if let Some(pending) = state.pending_reference.clone() {
                             // Greedy keep: install pending even when off-screen.
                             new_ctx.remember_reference(pending.clone());

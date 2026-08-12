@@ -66,6 +66,10 @@ impl Settings {
             });
         });
         ui.separator();
+        ui.label("Debug — C-generator admit margin (bits)");
+        ui.add(egui::Slider::new(&mut self.c_generator_margin_bits, 0..=32).text("margin bits"));
+        ui.label("Default 10. Lower = admit shallower types longer; higher = step deeper sooner.");
+        ui.separator();
 
         ui.label("order of coloring steps:");
 

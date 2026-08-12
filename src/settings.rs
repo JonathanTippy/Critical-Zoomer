@@ -136,6 +136,8 @@ impl Settings {
         // Head present: vsync on by default; when off, cap with head_max_fps.
         , head_vsync_enabled: true
         , head_max_fps: 120.0
+        // C-generator render margin (bits). Default 10; vary for manual testing.
+        , c_generator_margin_bits: crate::assemblies::workgroup::c_generator::DEFAULT_C_GENERATOR_MARGIN_BITS
     };
 
     /// Resolved manual gear for the screen worker (`None` = automatic policy).
@@ -282,6 +284,9 @@ pub struct Settings {
     , pub auto_vsync_hz: f64
     , pub head_vsync_enabled: bool
     , pub head_max_fps: f64
+    // Extra bits of C-generator admit headroom beyond neighbor distinguishability.
+    // Default 10; exposed for manual testing of precision / gear transitions.
+    , pub c_generator_margin_bits: u32
 }
 
 

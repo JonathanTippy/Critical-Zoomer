@@ -212,7 +212,9 @@ from the matching grid.
 paths (the numbers actually iterated). **Render margin (2026-08-12):** admission
 must keep ~**10 bits** of headroom beyond neighbor distinguishability on both
 paths — distinguish-only false-admits shallow types and yields rectangular
-transition blockiness. Interview:
+transition blockiness. Implemented as probe pitch `space / 2^margin_bits`
+(`DEFAULT_C_GENERATOR_MARGIN_BITS = 10`; settings `c_generator_margin_bits`).
+Interview:
 `docs/assistant/interviews/2026-08-12-precision-wall-gear-switching.md`;
 paraphrase: `docs/assistant/paraphrase-authoritative/c-generator-admit-margin.md`.
 

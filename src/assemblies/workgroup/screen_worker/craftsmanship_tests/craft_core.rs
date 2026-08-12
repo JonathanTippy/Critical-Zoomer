@@ -139,6 +139,7 @@ fn make_context(workshifts: u32) -> WorkContext<FloatExp> {
         pps_probe_started: Instant::now(),
         pps_probe_samples: Vec::new(),
         reference_library: Vec::new(),
+        c_generator_margin_bits: crate::assemblies::workgroup::c_generator::DEFAULT_C_GENERATOR_MARGIN_BITS,
     }
 }
 
