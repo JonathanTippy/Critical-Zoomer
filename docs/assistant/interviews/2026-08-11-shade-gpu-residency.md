@@ -340,7 +340,32 @@ measure (~62% wall).
 5. **Ruled out as primary:** Criterion FLOPs, shared `shade_ops`, stamp
    visibility without send.
 
-**Next levers (not applied):** cheapen/hoist convert (no per-pixel stencil
-clone); async/non-blocking GPU readback or fuse escape into colorer compartment;
-ensure resident content-beat escape without re-taking every package. Measure
-again with the same RCA print — not Criterion alone.
+**Next levers (ordered after developer preference):** (1) cheapen/hoist convert;
+(2) escaper-local GPU shipping (async/non-blocking readback); (3) escaper-local
+resident content-beat re-emit; (4) cross-actor fuse/residency **only if
+unavoidable**. Measure again with the same RCA print — not Criterion alone.
+
+---
+
+### Developer
+
+Residency is tempting but I prefer to maintain a strong API between the actors
+unless we find that it's really unavoidable. So we should start with other
+options.
+
+### Assistant
+
+**Locked:** keep a strong escaper↔colorer actor API (values channel / stage
+boundary). Cross-actor fuse or end-to-end device residency is **parked** until
+within-actor options are exhausted. Lever order matches virtues. Starting with
+(1) cheap host convert.
+
+**Convert pass (same session):** hoist seat/row (`results_package_from_answers_view`,
+no per-pixel `stencil.clone`). Release cadence re-measure:
+
+| gear | mean esc before → after | convert ms/pkg | body ms/wake | notes |
+|------|-------------------------|----------------|--------------|-------|
+| GPU  | 17.8 → **32.6** (still <40) | ~36 → **~13** | ~21 → ~18 | body now primary |
+| OG   | 26.6 → **65.8** | ~34 → **~11** | ~8 | content-class; send≫packages |
+
+Actor API unchanged. Next within-actor: GPU escape shipping (~18 ms body).

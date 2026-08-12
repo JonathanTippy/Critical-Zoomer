@@ -77,6 +77,72 @@ pub fn take_newest_plan(avail_units: usize) -> (usize, bool) {
     (drops, avail_units > 0)
 }
 
+/// Collector `View<Answer>` → escaper `ResultsPackage` (host convert).
+/// Seat/row from width arithmetic only — never clone `PointStencil` per pixel
+/// (that path was ~35 ms @ 854×480 and capped live `esc:`).
+pub fn results_package_from_answers_view<T>(
+    v: View<Answer>,
+    packages_dropped: u64,
+) -> ResultsPackage<T>
+where
+    T: From<f64> + From<f32>,
+{
+    let location_f64: (f64, f64) = (
+        v.stencil.location.0.clone().into(),
+        v.stencil.location.1.clone().into(),
+    );
+    let space_f64: f64 = IntExp::from(1)
+        .shift(-v.stencil.location.2 - PIXELS_PER_UNIT_POT)
+        .into();
+    let width = v.stencil.resolution.0;
+    let mut hud = v.hud;
+    hud.packages_dropped = packages_dropped;
+    ResultsPackage {
+        results: v
+            .data
+            .into_iter()
+            .enumerate()
+            .map(|(i, x)| -> CompletedPoint<T> {
+                match x.result {
+                    MandelbrotResult::Inside { period } => CompletedPoint::<T>::Repeats {
+                        period: period as u32,
+                        smallness: x.min_magnitude.into(),
+                        small_time: x.min_magnitude_time as u32,
+                    },
+                    MandelbrotResult::Outside {
+                        escape_time_r2,
+                        escape_z,
+                        escape_dc,
+                    } => {
+                        let seat = (i % width) as f64;
+                        let row = (i / width) as f64;
+                        CompletedPoint::<T>::Escapes {
+                            escape_time: escape_time_r2 as u32,
+                            escape_location: (escape_z.0.into(), escape_z.1.into()),
+                            escape_derivative: (escape_dc.0.into(), escape_dc.1.into()),
+                            smallness: x.min_magnitude.into(),
+                            small_time: x.min_magnitude_time as u32,
+                            start_location: (
+                                (location_f64.0 + seat * space_f64).into(),
+                                (location_f64.1 - row * space_f64).into(),
+                            ),
+                        }
+                    }
+                }
+            })
+            .collect(),
+        screen_res: (
+            v.stencil.resolution.0 as u32,
+            v.stencil.resolution.1 as u32,
+        ),
+        location: ObjectivePosAndZoom {
+            pos: (v.stencil.location.0, IntExp::ZERO - v.stencil.location.1),
+            zoom_pot: v.stencil.location.2,
+        },
+        hud,
+    }
+}
+
 /// One full-frame escape pass — the only shade-path body the escaper runs.
 /// Animated bailout uses this same path; only `radius` / settings numbers change.
 /// (`docs/assistant/design/shadergroup-virtues.md`)
@@ -214,64 +280,8 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
                 Some(v) => {
                     crate::debug_agent::esc_rca_package_taken();
                     let t_conv = std::time::Instant::now();
-                    let location_f64: (f64, f64) = (
-                        v.stencil.location.clone().0.into(),
-                        (v.stencil.location.clone().1).into(),
-                    );
-                    let space_f64: f64 = IntExp::from(1)
-                        .shift(-v.stencil.location.2 - PIXELS_PER_UNIT_POT)
-                        .into();
-
-                    let mut hud = v.hud;
-                    hud.packages_dropped = state.packages_dropped;
-                    state.values = Some(ResultsPackage {
-                        results: v
-                            .data
-                            .into_iter()
-                            .enumerate()
-                            .map(|(i, x)| -> CompletedPoint<T> {
-                                match x.result {
-                                    MandelbrotResult::Inside { period } => {
-                                        CompletedPoint::<T>::Repeats {
-                                            period: period as u32,
-                                            smallness: x.min_magnitude.into(),
-                                            small_time: x.min_magnitude_time as u32,
-                                        }
-                                    }
-                                    MandelbrotResult::Outside {
-                                        escape_time_r2,
-                                        escape_z,
-                                        escape_dc,
-                                    } => CompletedPoint::<T>::Escapes {
-                                        escape_time: escape_time_r2 as u32,
-                                        escape_location: (escape_z.0.into(), escape_z.1.into()),
-                                        escape_derivative: (escape_dc.0.into(), escape_dc.1.into()),
-                                        smallness: x.min_magnitude.into(),
-                                        small_time: x.min_magnitude_time as u32,
-                                        start_location: (
-                                            (location_f64.0
-                                                + v.stencil.clone().seat_and_row(i).0 as f64
-                                                    * space_f64)
-                                                .into(),
-                                            (location_f64.1
-                                                - v.stencil.clone().seat_and_row(i).1 as f64
-                                                    * space_f64)
-                                                .into(),
-                                        ),
-                                    },
-                                }
-                            })
-                            .collect(),
-                        screen_res: (
-                            v.stencil.resolution.0 as u32,
-                            v.stencil.resolution.1 as u32,
-                        ),
-                        location: ObjectivePosAndZoom {
-                            pos: (v.stencil.location.0, IntExp::ZERO - v.stencil.location.1),
-                            zoom_pot: v.stencil.location.2,
-                        },
-                        hud,
-                    });
+                    state.values =
+                        Some(results_package_from_answers_view(v, state.packages_dropped));
                     state.answers_need_gpu_upload = true;
                     crate::debug_agent::esc_rca_add_convert_ns(
                         t_conv.elapsed().as_nanos() as u64,
@@ -816,5 +826,60 @@ mod mutant_kill {
         let should_escape = has_resident;
         assert!(should_escape);
         assert!(!answers_need_gpu_upload);
+    }
+
+    #[test]
+    fn results_package_convert_start_location_matches_seat_row() {
+        use crate::assemblies::structs::PointStencil;
+        use crate::constants::HOME_POSITION;
+        let w = 4usize;
+        let h = 3usize;
+        let mut data = Vec::with_capacity(w * h);
+        for i in 0..w * h {
+            data.push(Answer {
+                result: MandelbrotResult::Outside {
+                    escape_time_r2: i as u64,
+                    escape_z: (1.0, 2.0),
+                    escape_dc: (3.0, 4.0),
+                },
+                min_magnitude_time: 0,
+                min_magnitude: 0.5,
+            });
+        }
+        let view = View {
+            stencil: PointStencil {
+                location: (
+                    IntExp::from(HOME_POSITION.0),
+                    IntExp::ZERO - IntExp::from(HOME_POSITION.1),
+                    HOME_POSITION.2,
+                ),
+                resolution: (w, h),
+                serial_number: 0,
+            },
+            data,
+            bitmap: vec![0; w * h],
+            hud: crate::assemblies::structs::ViewHud::default(),
+        };
+        let space: f64 = IntExp::from(1)
+            .shift(-HOME_POSITION.2 - PIXELS_PER_UNIT_POT)
+            .into();
+        let origin_re: f64 = IntExp::from(HOME_POSITION.0).into();
+        let origin_im: f64 = (IntExp::ZERO - IntExp::from(HOME_POSITION.1)).into();
+        let pkg: ResultsPackage<f64> = results_package_from_answers_view(view, 9);
+        assert_eq!(pkg.hud.packages_dropped, 9);
+        assert_eq!(pkg.results.len(), w * h);
+        for (i, p) in pkg.results.iter().enumerate() {
+            let CompletedPoint::Escapes {
+                start_location: (cr, ci),
+                ..
+            } = p
+            else {
+                panic!("expected Outside");
+            };
+            let seat = (i % w) as f64;
+            let row = (i / w) as f64;
+            assert!((cr - (origin_re + seat * space)).abs() < 1e-12);
+            assert!((ci - (origin_im - row * space)).abs() < 1e-12);
+        }
     }
 }

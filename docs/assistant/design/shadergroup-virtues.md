@@ -52,6 +52,18 @@ buffer; radius is a uniform on anim ticks. **Own wgpu device/queue**
 matches an f32 CPU twin; `big_time` matches OG under the same
 `bailout_max_additional_iterations`.
 
+**Actor API stays strong (2026-08-12):** keep escaper ↔ colorer as separate
+actors with a real values channel between them. Do **not** fuse escape+color on
+one device or collapse the stage boundary unless measurement proves every
+within-actor option is exhausted. Preferred order when `esc:` is short:
+
+1. Cheap host work on the escaper (package convert, packing)
+2. Escaper-local GPU shipping (readback / upload) without changing the API
+3. Escaper-local cadence (resident content-beat re-emit)
+4. Cross-actor residency / fusion — last resort only
+
+Live design talk: `docs/assistant/interviews/2026-08-11-shade-gpu-residency.md`.
+
 ## Bailout tail is intentionally tiny (principal)
 
 The separate escaper exists because **continuing past ‖z‖²>4 is almost always
