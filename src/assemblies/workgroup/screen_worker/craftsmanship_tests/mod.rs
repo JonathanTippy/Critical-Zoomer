@@ -5,7 +5,7 @@
 // Seam note: WorkContext's completion buffer is a growable Vec drained LIFO to the collector channel
 // (capacity 100000). Tests that build one still use run_big for headroom.
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use std::collections::VecDeque;
 
 use proptest::prelude::*;

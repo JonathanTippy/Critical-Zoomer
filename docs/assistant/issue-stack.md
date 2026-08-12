@@ -34,9 +34,12 @@ actor skip-send; GPU paint always refreshes from current inputs
 already landed. Escape gear stays OG default. Workgroup TTFP / Replace coalesce
 still parked. **Charter note (2026-08-11 settings viewport):** deferred native
 settings viewport kept; settings viewport `request_repaint_after(100ms)`;
-auto_vsync fan hysteresis ≥2 Hz. **Do not** disable root GL swap Wait to paper
+auto_vsync fan hysteresis ≥2 Hz with multi-present debounce. **Do not** disable root GL swap Wait to paper
 over dual-viewport Wait (that spun ~1500 FPS and unparked the worker). Display
-timing only — no lighting redesign.
+timing only — no lighting redesign. **Charter note (2026-08-11 post-settle
+park):** after fill, attention/settings/size flicker can keep window+worker
+hot for seconds; park wait excludes attention + periodic timer; stencil/attention/
+vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
 
 ## True bugs (open)
 

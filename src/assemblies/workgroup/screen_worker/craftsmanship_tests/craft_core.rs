@@ -43,6 +43,11 @@ fn refresh_test_budget() {
     TEST_BUDGET_START.with(|c| c.set(Some(std::time::Instant::now())));
 }
 
+/// Drop the 1s wall budget for long post-fill settle probes (explicit 10s gates).
+fn suspend_test_budget() {
+    TEST_BUDGET_START.with(|c| c.set(None));
+}
+
 fn make_point(c: (f64, f64)) -> Point<FloatExp> {
     let fe = (FloatExp::from(c.0), FloatExp::from(c.1));
     Point {

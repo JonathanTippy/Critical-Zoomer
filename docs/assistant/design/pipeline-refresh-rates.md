@@ -62,7 +62,13 @@ worker→collector), then publishes on `resolved_content_period()`.
 Only the **screen worker** parks when every seat is delivered. Collector and
 shadergroup stay on the content continuum. The window must not re-send an
 identical stencil (same location+resolution) — duplicate Replace keeps the
-worker unparked.
+worker unparked. Ignore ±1px `available_size` flicker. Attention sends need a
+≥2px step (or None↔Some). Park wait wakes only on Replace / settings /
+references — not attention chatter and not a periodic timer.
+
+Post-fill settle must be checked over ~10 s wall time: short fill-only tests
+missed load climbing a few seconds after the frame looked complete
+(`steady_state_home_stays_parked_for_10s_after_fill`).
 
 ### Shadergroup
 

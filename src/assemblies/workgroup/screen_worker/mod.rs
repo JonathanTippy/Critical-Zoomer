@@ -168,8 +168,6 @@ async fn internal_behavior<A: SteadyActor>(
         state.naive_gpu = naive_gpu.take();
     }
 
-    let max_sleep = Duration::from_millis(50);
-
     while actor.is_running(
         || i!(updates_out.mark_closed())
     ) {
@@ -183,10 +181,12 @@ async fn internal_behavior<A: SteadyActor>(
         };
 
         if !working {
+            // True park: wake only on work that can reopen seats (Replace) or
+            // gear/settings / reference install. Do **not** wait on attention —
+            // pointer chatter kept the actor hot after fill (graph.dot). Do not
+            // wait_periodic either — that forced ~20 empty wakes/sec forever.
             await_for_any!(
-                actor.wait_periodic(max_sleep),
                 actor.wait_avail(&mut commands_in, 1),
-                actor.wait_avail(&mut attention_in, 1),
                 actor.wait_avail(&mut settings_in, 1),
                 actor.wait_avail(&mut references_in, 1),
             );
