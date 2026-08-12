@@ -8,10 +8,12 @@
 
 **Summary (living):** Developer corrects false RCA framing — bailout tail is
 **always** ≤~10 iters by Mandelbrot superpower escape, including large animated
-radius. GPU escape slowness is **data shipping**, not missing FLOPs. Colorer GPU
-wins because CPU color was huge and RGBA readback is thin — not because shipping
-is free. Open: preferred residency / actor-linkage design without forcing a
-dual-view upload tax everywhere. **No code** until goals settle.
+radius. GPU escape slowness is **data shipping** plus, in-app with GPU color,
+**shared `shade_ops` / shared shade device**. Live `esc:~15`/`col:~50` with
+`drop:4` is real. **Goal:** each GPU-using actor compartmentalizes its GPU
+relationship so actors do not fight for GPU time; prove any change with live
+rates. Dual-device is one experiment, not a declared fix. **No code** until
+greenlit / goals settle.
 
 ---
 
@@ -27,6 +29,7 @@ dual-view upload tax everywhere. **No code** until goals settle.
 | `drop:4` does not explain esc undercount | **locked** | this interview |
 | Why `esc:~15` with GPU escape | **RCA** — `shade_ops` lock shared with GPU color | this interview |
 | Separate wgpu devices for escape vs color | **idea** — may remove mutex; not proven; dual-wgpu parked risk | this interview |
+| Per-actor GPU compartmentalization | **goal (developer)** — actors must not fight for GPU time; prove by measure | this interview |
 | Dual parallel CPU/GPU views for all actor linkages | **idea only** — developer wary (upload everywhere) | this interview |
 | Fuse escape+color on device / keep values resident | undiscussed | — |
 | Workgroup answers already GPU-native → shade without host | undiscussed | naive-gpu / publish |
@@ -236,3 +239,26 @@ So: “different device” is a fair **experiment** to test whether the mutex wa
 the live limiter, not a settled design. A deeper fix is still residency/fusion
 so escape output never returns to the host for color to re-upload. No code until
 you say to try the dual-device experiment (or prefer another goal from Q1–6).
+
+---
+
+### Developer
+
+More generally, I think that each actor that uses the GPU should really
+compartmentalize its relationship with the GPU so that they're not fighting for
+time. What you're describing is all of them using the same GPU resources, which
+like, yeah, duh. But I agree that nothing is a fix until we actually see whether
+it fixes it.
+
+### Assistant
+
+**Locked as a goal (not an impl):** each GPU-using actor should
+**compartmentalize** its GPU relationship so actors are not fighting each other
+for GPU time. Shared shade device + `shade_ops` is the opposite of that.
+Physical GPU multiplexing (“yeah duh”) remains; the design aim is isolation at
+the actor/API boundary. **No claim of fixed until live `esc:`/`col:` (and
+related HUD) show it.**
+
+Mechanism left open on purpose — per-actor device/queue/instance are candidates
+to try, not prescriptions. Residency/fusion can still matter inside an actor’s
+compartment. Experiment when you greenlight; measure first.
