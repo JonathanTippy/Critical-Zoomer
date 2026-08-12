@@ -14,6 +14,10 @@ grid caps at 1080p** and the window upsamples. **Pause new GPU compute/
 escape grind** — CPU is enough for v0.1. One thing at a time. Delivery
 gap: capture the *layers* of “works” so assistant checks match what the
 developer sees; assistant may say “looks better” as a candidate only.
+Layer locks: whole answer; worker finishes entire context (redo OK);
+gear fail = admit-none or false-shallow; shade is a pipe; head view =
+window pixels; post-v0.0.9 AI comments are ghost candidates. Head 100%
+CPU: `351afdf` restored bare `request_repaint`; not fixed.
 
 ---
 
@@ -283,3 +287,149 @@ False-fixed = we greened a **lower or adjacent** layer than the one you
 were looking at. Dummy-head vs window is 5 vs 6. Admit slider vs blockiness
 is 3’s mechanism vs 3’s picture. Dual-device vs `esc:` is 5’s lab vs 5’s
 headed HUD.
+
+---
+
+### Developer
+
+Okay, let's go through these one-by-one. For one, answers, membership, period,
+escape. I assume you're talking about the definition of the answer. If the
+assistant has been treating the answer as if the only part of it that matters
+is the Mandelbrot result inside, that is wrong. The entire answer matters
+because it is what results in the rendered outputs. Number two, this one is
+quite difficult because you're talking about browsing around and then watching
+the work group go through several cycles of mixed stencils and work packages
+where it's remapping and combining new work. Now that I think about it,
+actually, no. It's a pretty simple issue because the issue is, the truth is
+that the work, the screen worker, and maybe I wasn't clear enough about this,
+but the screen worker must always complete its entire work context regardless
+of what is thought to be already in the remapped published work if that makes
+sense. Its job is simply to complete its entire context regardless of if it's
+redoing work that was already done. And we could talk about prioritizing the
+work a tiny bit better, but it was designed this way because the waste is not
+catastrophic and it makes the design simple. Gear slash type number three, so
+the blocky transitions are caused by two possible issues. One is that the C
+generator simply admitted no gear and so the worker stopped. That should be
+pretty simple to detect. The other one is that the C generator admitted a gear
+which it should not have admitted and it resulted in these rectangular blocky
+looking, like the entire screen just looks rectangularly low res, like
+rectangular pixels. And so those are kind of the two failure cases for that.
+For shading, I don't feel like that's a real candidate. The cool thing is the
+shader group is basically just a pipe, like what goes in comes out. There's
+literally no way it could change anything. And so it's really helpful to
+basically just ignore it in terms of what's actually going on in the behavior
+and the answers. That's a big part of what makes the assembly design so cool
+is that the business parts of the app are only the work group and the head
+group, really. So that could end up being an issue if we decouple the window
+resolution with the head group view resolution. So I do actually feel pretty
+strongly that the head group view resolution should be the same as the head
+group window resolution. Now, the problem with this is that it's going to be
+quite hard to test because as far as I know, there are no tests yet which test
+this kind of multi-step browsing where you've gone to various places. And
+there are, there's testing. So The main way to test, I don't feel like that's
+actually a possible issue because kind of either it works or it doesn't. This
+is part, this is why the project leans on the steady state philosophy that
+it's like a shader pipeline and everything kind of stays the same and it's why
+there's a lot of what looks like waste but must not be optimized away because
+that's what keeps it steady and keeps it flat. Same stuff goes through, it
+just happens to be different data. And so in reality, I don't foresee those
+becoming an issue a lot. There is also the cases where I see something and I
+want there to be a test that goes to that location and test that location for
+the behavior of the worker usually. And the problem is I want those tests to
+be accurate to the default resolution would be but I also want them to be fast
+so I want them to be like a cut down resolution. But there's a tension there
+because the cut down resolution is way faster. There's also another thing
+which is that the, what resolution you choose actually affects the scale
+because the scale is coupled with the pixels per power of two constant. And
+that is central to the design, I'm not changing that. It's imperfect but we
+just need to handle the powers of two correctly and then it won't be a
+problem. The standard underlying, like the standard that other apps use which
+I wouldn't be unhappy about the app using as a kind of way of reasoning about
+this, like documentation reasoning about this to decide how to use the powers
+of two code which I'm not changing. The way to think about this is that you
+have your location obviously but then you have the width of the side of the
+screen. And so that would be how you could think of a view in terms of what
+actually needs to be tested because that's what would look the same even if
+it's a different resolution. And then the side of the screen is defined as, I
+usually think of that as being like the smaller side so if it's not square
+then it would be whichever side is smaller. So, for what said fixed, no
+difference. The head group was said fixed in terms of the cadence as it
+relates to its CPU usage. For some reason, the head group is spinning at 100%
+CPU usage, even when it's running at v-sync rates, which should be like almost
+no CPU. Now, I honestly have no idea why this is happening, but for some
+reason, profiling seems to have failed to discover it, or there was some
+breakdown when we were trying that. It's all in Git history, so I would
+appreciate a second look to see what actually happened. Anyway, yes, it's
+highly important that we get this comprehensive theory and understanding
+applied, and we chase down all of those ghosts and misleading documentation or
+comments, because those are like a cancer in the code base, and they're just
+going to ruin it. Anything that's been added by an AI agent after v0.0.9 is a
+candidate for that.
+
+### Assistant
+
+**Layer corrections (locked)**
+
+1. **Answers.** The whole `CompletedPoint` / answer payload matters — not
+   membership alone. Shade paints from the entire answer; a “Mandelbrot
+   result only” pin is the wrong bar.
+
+2. **Publish / remap.** Not a multi-cycle mixed-stencil mystery. **Screen
+   worker completes its entire work context** even if remap already published
+   those seats. Redo is allowed; waste is not catastrophic; simplicity is the
+   point. Do not “optimize away” skip-if-already-in-remap. Prioritize a
+   little later if needed.
+
+3. **Gear / type — two failure shapes only.** (A) C-generator admits
+   **nothing** → worker stops (should be easy to detect). (B) C-generator
+   **false-admits** a too-shallow gear → whole screen rectangular low-res
+   pixels. Those are the blocky-transition cases.
+
+4. **Shade — drop as a mismatch candidate.** Shadergroup is a pipe: what
+   goes in comes out. Behavior/answers live in **workgroup + headgroup**.
+   Ignore shade when hunting “why doesn’t it match what I see.”
+
+5. **Head view = window pixels.** Strongly: headgroup view resolution
+   **equals** window resolution. Decoupling those is the present-path
+   footgun. Compatible with the earlier 1080p **compute-grid** cap only if
+   the cap is workgroup (answers), and head still presents 1:1 with the
+   window (upsample in the head, not a smaller head view). Flag if that
+   reading is wrong.
+
+6. **Steady-state / waste.** Same pipeline, different data. Looks like
+   waste; must not be optimized away. Multi-step browse “either works or
+   doesn’t” under that philosophy — don’t invent a special mixed-stencil
+   test theory.
+
+**How to pin a location you saw**
+
+- Test the **worker** at that location.
+- View identity for docs/reasoning (other-app standard, not a code change):
+  **center + width of the smaller screen side.** Same view at another
+  resolution.
+- `PIXELS_PER_UNIT` / power-of-two coupling **stays**. Cut-down test
+  resolution is faster but changes scale; handle POTs correctly rather than
+  decoupling pixels from zoom. Tension named, not solved this turn.
+
+**Ghosts.** Post-v0.0.9 AI comments/docs that disagree with live code or
+with you are cancer. Chase them. Candidate for every assistant-added note.
+
+**Second look: head 100% CPU “said fixed”**
+
+Live code still does **bare** `ctx.request_repaint()` every `update`
+(`window/mod.rs`). Docs (`pipeline-refresh-rates.md`) still say **never**
+do that — it spins hundreds of FPS and pins the window thread when GL
+vsync Wait is absent/broken.
+
+Git: cadence work used `request_repaint_after(period)`. Commit
+`351afdf` **“preferred vsync code”** (you) replaced that with
+`request_repaint()` and the comment “Let Egui handle vsync.” Issue-stack
+then **shelved** 100% CPU: worker parks after fill; vsync/max-FPS **UI**
+did not change behavior; “revisit later.” Profiling that showed worker
+park at 0 after fill was looking at the **wrong actor**. The window
+thread still asks for an immediate repaint every frame. `VSYNC=true` on
+the GL swap is supposed to Wait; if you still see 100% CPU at “vsync
+rates,” either Wait is not actually blocking, or `update` is doing
+full-frame work (e.g. a new `sampler_buffer` every pass) at a high Poll
+rate. **Not declared fixed.** Docs that say present pacing is implemented
+are a ghost relative to `351afdf`.
