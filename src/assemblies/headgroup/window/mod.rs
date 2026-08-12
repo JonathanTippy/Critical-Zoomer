@@ -112,9 +112,6 @@ pub struct WindowState {
     , pub last_color_label: &'static str
     , pub last_escape_label: &'static str
     , pub last_packages_dropped: u64
-    // Cached present pacing (avoid cloning Settings every frame).
-    , pub head_vsync_enabled: bool
-    , pub head_max_fps: f64
     // Last auto_vsync_hz value fanned to content actors.
     , pub last_fanned_auto_vsync_hz: f64
     // Fan Settings only when UI/cadence actually changed.
@@ -202,8 +199,6 @@ async fn internal_behavior<A: SteadyActor>(
         , last_color_label: "OG"
         , last_escape_label: "OG"
         , last_packages_dropped: 0
-        , head_vsync_enabled: Settings::DEFAULT.head_vsync_enabled
-        , head_max_fps: Settings::DEFAULT.head_max_fps
         , last_fanned_auto_vsync_hz: Settings::DEFAULT.auto_vsync_hz
         , settings_fanout_needed: true
         , settings_ui_fan_timer: Instant::now()
@@ -357,29 +352,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             );
 
 
-            // Present pacing. Never bare `request_repaint()` — with broken/absent
-            // GL vsync that spins at hundreds of FPS and pins the window thread.
-            // Cap to the aimed period (egui/OS vsync Hz, or head_max_fps).
-            // (Window ~100% CPU / vsync Wait shelved — see issue-stack.md.)
-            let period = if state.head_vsync_enabled {
-                let hz = if state.last_fanned_auto_vsync_hz.is_finite()
-                    && state.last_fanned_auto_vsync_hz >= 1.0
-                {
-                    state.last_fanned_auto_vsync_hz.min(240.0)
-                } else {
-                    60.0
-                };
-                Duration::from_secs_f64(1.0 / hz)
-            } else {
-                let hz = if state.head_max_fps.is_finite() && state.head_max_fps >= 1.0 {
-                    state.head_max_fps.min(1000.0)
-                } else {
-                    1.0
-                };
-                Duration::from_secs_f64(1.0 / hz)
-            };
-            ctx.request_repaint_after(period);
-
+            ctx.request_repaint();
 
             let mut got_new_view = false;
 
@@ -734,18 +707,6 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 if state.settings_window_open {
                     let closing = settings(&ctx, state.settings_window_context.clone());
                     state.settings_window_open = !closing;
-                    let (head_vsync, head_max) = state
-                        .settings_window_context
-                        .try_lock()
-                        .map(|g| {
-                            (
-                                g.settings.head_vsync_enabled,
-                                g.settings.head_max_fps,
-                            )
-                        })
-                        .unwrap_or((state.head_vsync_enabled, state.head_max_fps));
-                    state.head_vsync_enabled = head_vsync;
-                    state.head_max_fps = head_max;
                     // Preview fan ≤10 Hz while open; always fan on close.
                     if closing
                         || state.settings_ui_fan_timer.elapsed()
@@ -780,8 +741,6 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                     state.settings_fanout_needed = true;
                 }
                 if let Some(snap) = snap_to_fan {
-                    state.head_vsync_enabled = snap.head_vsync_enabled;
-                    state.head_max_fps = snap.head_max_fps;
                     state.last_fanned_auto_vsync_hz = snap.auto_vsync_hz;
                     state.settings_fanout_needed = false;
                     for mut channel in settings_out {
