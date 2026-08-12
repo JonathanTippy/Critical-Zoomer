@@ -57,6 +57,10 @@ Harvested 2026-08-06 during the v0.0.9 revert cleanup. Each entry: the rule, its
   as “needs a large radius to amortize.”
 - **Colorer upgrades:** honest rewrite only — feature parity, same results, no simplifications, tests for every behavior. Settings **color gear** (OG vs GPU), manual like worker gear — not auto (`assembly-boundaries.md`).
 - **Assemblies:** workgroup = answers; shadergroup = bailout tail + coloring; headgroup = present colors (+ stencils). Separation of concerns is what keeps the project workable. Study v0.0.9 for the hundreds of unlisted design decisions.
+- **Stencil touch is O(1) per loop, never O(pixels) (2026-08-12).** `PointStencil`
+  holds two `IntExp` values that grow large at design depth; per-pixel
+  `stencil.clone()` (or equivalent) is a deep-zoom bomb. Hoist origin/space/width
+  once per package, then use index arithmetic (`shadergroup-virtues.md`).
 
 ## Process
 

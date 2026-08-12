@@ -369,3 +369,27 @@ no per-pixel `stencil.clone`). Release cadence re-measure:
 | OG   | 26.6 → **65.8** | ~34 → **~11** | ~8 | content-class; send≫packages |
 
 Actor API unchanged. Next within-actor: GPU escape shipping (~18 ms body).
+---
+
+### Developer
+
+Very good, and in general, stencils should only be touched N per loop not N per
+pixel. …and obv i say that because it has two intexp values, which can get quite
+large and will at design depth. proceed with next escaper opt.
+
+### Assistant
+
+**Locked (stencil discipline):** O(1) stencil touch per loop/package — two
+`IntExp` coords grow large at design depth (virtues + collected-wisdom).
+
+**GPU shipping (lever 2):** convert fills `gpu_answer_pack` in the same pixel
+walk; escape body `write_buffer`s the prepack (no second CompletedPoint→GpuAnswer
+walk). Scratch pack retained as fallback. Actor API unchanged.
+
+**Re-measure (release cadence):** GPU mean esc **32.6 → 60.2** (pin green);
+body **~18 → ~7.1 ms/wake**; send_ok 303 vs packages_taken 150 (resident
+re-emit back). OG still ~64 Hz.
+
+**Session close:** dummy-head GPU cadence pin is green. Fusion still parked.
+Headed `esc:` with `escape:GPU` is the remaining product check. Next within-actor
+if headed is still short: map/`poll(Wait)` shipping, not collapsing the actor API.

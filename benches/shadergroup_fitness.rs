@@ -244,7 +244,7 @@ fn bench_escape_gpu(c: &mut Criterion, name: &str, pixel_scale: f64) {
         "shadergroup escape GPU {name}: res={:?} pixels={pixels} (~{pixel_scale}× default)",
         pkg.screen_res
     );
-    let _ = gpu.escape_frame(pkg, radius, &settings, true);
+    let _ = gpu.escape_frame(pkg, radius, &settings, true, None);
 
     c.bench_function(name, |b| {
         b.iter_custom(|iters| {
@@ -254,7 +254,7 @@ fn bench_escape_gpu(c: &mut Criterion, name: &str, pixel_scale: f64) {
                 let r = if i % 2 == 0 { radius } else { radius * 2.0 };
                 let t0 = Instant::now();
                 let screen = gpu
-                    .escape_frame(pkg, r, &settings, false)
+                    .escape_frame(pkg, r, &settings, false, None)
                     .expect("gpu escape");
                 black_box(screen);
                 total += t0.elapsed();

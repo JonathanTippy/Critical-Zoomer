@@ -15,21 +15,22 @@ const SHADER: &str = include_str!("escape.wgsl");
 
 static SHARED: OnceLock<Option<Arc<GpuEscaper>>> = OnceLock::new();
 
+/// Host-side GPU answer row (upload pack). Public so benches can call `escape_frame`.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct GpuAnswer {
-    kind: u32,
-    escape_time: u32,
-    small_time: u32,
-    loop_period: u32,
-    zr: f32,
-    zi: f32,
-    dcr: f32,
-    dci: f32,
-    cr: f32,
-    ci: f32,
-    smallness: f32,
-    _pad: f32,
+pub struct GpuAnswer {
+    pub kind: u32,
+    pub escape_time: u32,
+    pub small_time: u32,
+    pub loop_period: u32,
+    pub zr: f32,
+    pub zi: f32,
+    pub dcr: f32,
+    pub dci: f32,
+    pub cr: f32,
+    pub ci: f32,
+    pub smallness: f32,
+    pub _pad: f32,
 }
 
 #[repr(C)]
@@ -61,6 +62,8 @@ struct EscapeSession {
     out_buf: wgpu::Buffer,
     staging: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
+    /// Reused only when convert did not supply a prepack.
+    pack_scratch: Vec<GpuAnswer>,
 }
 
 pub struct GpuEscaper {
@@ -248,16 +251,19 @@ impl GpuEscaper {
             out_buf,
             staging,
             bind_group,
+            pack_scratch: Vec::with_capacity(count as usize),
         }
     }
 
     /// Escape a package. `upload_answers` false → resident buffer + radius-only uniform.
+    /// `prepacked_answers` (from convert) skips a second host walk on the upload path.
     pub fn escape_frame<T>(
         &self,
         package: &ResultsPackage<T>,
         radius: f32,
         settings: &Settings,
         upload_answers: bool,
+        prepacked_answers: Option<&[GpuAnswer]>,
     ) -> Option<ZoomerValuesScreen>
     where
         T: Into<f64> + Copy,
@@ -284,10 +290,16 @@ impl GpuEscaper {
         let upload_answers = upload_answers || need_realloc;
 
         if upload_answers {
-            let packed = pack_answers(&package.results);
-            let session = session_guard.as_ref()?;
+            let session = session_guard.as_mut()?;
+            let bytes: &[u8] = match prepacked_answers {
+                Some(pre) if pre.len() == n as usize => bytemuck::cast_slice(pre),
+                _ => {
+                    pack_answers_into(&mut session.pack_scratch, &package.results);
+                    bytemuck::cast_slice(&session.pack_scratch)
+                }
+            };
             self.queue
-                .write_buffer(&session.answer_buf, 0, bytemuck::cast_slice(&packed));
+                .write_buffer(&session.answer_buf, 0, bytes);
         }
 
         let params = GpuParams {
@@ -296,9 +308,11 @@ impl GpuEscaper {
             count: n,
             _pad: 0,
         };
-        let session = session_guard.as_ref()?;
-        self.queue
-            .write_buffer(&session.params_buf, 0, bytemuck::bytes_of(&params));
+        {
+            let session = session_guard.as_ref()?;
+            self.queue
+                .write_buffer(&session.params_buf, 0, bytemuck::bytes_of(&params));
+        }
 
         let out_size = (n as u64) * std::mem::size_of::<GpuOut>() as u64;
         let mut encoder = self
@@ -307,17 +321,21 @@ impl GpuEscaper {
                 label: Some("escaper_enc"),
             });
         {
-            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("escaper_pass"),
-                timestamp_writes: None,
-            });
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &session.bind_group, &[]);
-            pass.dispatch_workgroups((n + 63) / 64, 1, 1);
+            let session = session_guard.as_ref()?;
+            {
+                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("escaper_pass"),
+                    timestamp_writes: None,
+                });
+                pass.set_pipeline(&self.pipeline);
+                pass.set_bind_group(0, &session.bind_group, &[]);
+                pass.dispatch_workgroups((n + 63) / 64, 1, 1);
+            }
+            encoder.copy_buffer_to_buffer(&session.out_buf, 0, &session.staging, 0, out_size);
         }
-        encoder.copy_buffer_to_buffer(&session.out_buf, 0, &session.staging, 0, out_size);
         self.queue.submit(Some(encoder.finish()));
 
+        let session = session_guard.as_mut()?;
         let slice = session.staging.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |r| {
@@ -355,8 +373,9 @@ impl GpuEscaper {
     }
 }
 
-fn pack_answers<T: Into<f64> + Copy>(results: &[CompletedPoint<T>]) -> Vec<GpuAnswer> {
-    let mut out = Vec::with_capacity(results.len());
+fn pack_answers_into<T: Into<f64> + Copy>(out: &mut Vec<GpuAnswer>, results: &[CompletedPoint<T>]) {
+    out.clear();
+    out.reserve(results.len());
     for p in results {
         out.push(match p {
             CompletedPoint::Escapes {
@@ -414,7 +433,6 @@ fn pack_answers<T: Into<f64> + Copy>(results: &[CompletedPoint<T>]) -> Vec<GpuAn
             },
         });
     }
-    out
 }
 
 /// Prefer GPU when requested; else OG `escape_frame`.
@@ -425,6 +443,7 @@ pub fn escape_with_gear<T>(
     want_gpu: bool,
     gpu: &Option<Arc<GpuEscaper>>,
     upload_answers: bool,
+    prepacked_answers: Option<&[GpuAnswer]>,
 ) -> (
     ZoomerValuesScreen,
     crate::assemblies::structs::EscaperHud,
@@ -445,7 +464,9 @@ where
     use crate::assemblies::structs::EscaperHud;
     if want_gpu {
         if let Some(g) = gpu {
-            if let Some(out) = g.escape_frame(package, radius, settings, upload_answers) {
+            if let Some(out) =
+                g.escape_frame(package, radius, settings, upload_answers, prepacked_answers)
+            {
                 return (out, EscaperHud::Gpu);
             }
             return (
@@ -655,7 +676,7 @@ mod tests {
             let pkg = home_package((32, 18));
             let settings = Settings::DEFAULT;
             let (out, hud) =
-                escape_with_gear(&pkg, 2.0, &settings, true, &None, true);
+                escape_with_gear(&pkg, 2.0, &settings, true, &None, true, None);
             assert_eq!(hud, EscaperHud::GpuFallbackOg);
             assert_eq!(out.values.len(), pkg.results.len());
             return;
@@ -666,7 +687,7 @@ mod tests {
             let og = escape_frame(&pkg, radius, &settings);
             let f32_ref = escape_frame_f32_ref(&pkg, radius, &settings);
             let (gpu_out, hud) =
-                escape_with_gear(&pkg, radius, &settings, true, &Some(gpu.clone()), true);
+                escape_with_gear(&pkg, radius, &settings, true, &Some(gpu.clone()), true, None);
             assert_eq!(hud, EscaperHud::Gpu);
             // Exact vs f32 reference (WGSL twin).
             screen_values_match_gpu_f32(&gpu_out, &f32_ref);
@@ -695,13 +716,13 @@ mod tests {
         let pkg = home_package((48, 27));
         let settings = Settings::DEFAULT;
         let first = gpu
-            .escape_frame(&pkg, 2.0, &settings, true)
+            .escape_frame(&pkg, 2.0, &settings, true, None)
             .expect("upload");
         let radius_only = gpu
-            .escape_frame(&pkg, 32.0, &settings, false)
+            .escape_frame(&pkg, 32.0, &settings, false, None)
             .expect("radius");
         let reupload = gpu
-            .escape_frame(&pkg, 32.0, &settings, true)
+            .escape_frame(&pkg, 32.0, &settings, true, None)
             .expect("reupload");
         screen_values_match_gpu_f32(&radius_only, &reupload);
         assert_eq!(first.values.len(), radius_only.values.len());

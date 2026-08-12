@@ -60,6 +60,8 @@ pub struct EscaperState<T> {
     pub gpu: Option<Arc<gpu::GpuEscaper>>,
     /// Private: new answers package → re-upload resident GPU buffer (not actor send skip).
     pub answers_need_gpu_upload: bool,
+    /// Host GPU answer pack filled during convert (same pixel walk); body write_buffers it.
+    pub gpu_answer_pack: Vec<gpu::GpuAnswer>,
 }
 
 /// How many queued inputs to drop when keeping only the newest.
@@ -78,11 +80,13 @@ pub fn take_newest_plan(avail_units: usize) -> (usize, bool) {
 }
 
 /// Collector `View<Answer>` → escaper `ResultsPackage` (host convert).
-/// Seat/row from width arithmetic only — never clone `PointStencil` per pixel
-/// (that path was ~35 ms @ 854×480 and capped live `esc:`).
+/// Stencil discipline: touch `PointStencil` O(1) per package (origin/space/width),
+/// never O(pixels) — its two `IntExp` coords grow large at design depth.
+/// Optional `gpu_pack`: fill upload buffer in the **same** pixel walk (no second pass).
 pub fn results_package_from_answers_view<T>(
     v: View<Answer>,
     packages_dropped: u64,
+    mut gpu_pack: Option<&mut Vec<gpu::GpuAnswer>>,
 ) -> ResultsPackage<T>
 where
     T: From<f64> + From<f32>,
@@ -97,6 +101,10 @@ where
     let width = v.stencil.resolution.0;
     let mut hud = v.hud;
     hud.packages_dropped = packages_dropped;
+    if let Some(pack) = gpu_pack.as_mut() {
+        pack.clear();
+        pack.reserve(v.data.len());
+    }
     ResultsPackage {
         results: v
             .data
@@ -104,11 +112,29 @@ where
             .enumerate()
             .map(|(i, x)| -> CompletedPoint<T> {
                 match x.result {
-                    MandelbrotResult::Inside { period } => CompletedPoint::<T>::Repeats {
-                        period: period as u32,
-                        smallness: x.min_magnitude.into(),
-                        small_time: x.min_magnitude_time as u32,
-                    },
+                    MandelbrotResult::Inside { period } => {
+                        if let Some(pack) = gpu_pack.as_mut() {
+                            pack.push(gpu::GpuAnswer {
+                                kind: 1,
+                                escape_time: 0,
+                                small_time: x.min_magnitude_time as u32,
+                                loop_period: period as u32,
+                                zr: 0.0,
+                                zi: 0.0,
+                                dcr: 0.0,
+                                dci: 0.0,
+                                cr: 0.0,
+                                ci: 0.0,
+                                smallness: x.min_magnitude as f32,
+                                _pad: 0.0,
+                            });
+                        }
+                        CompletedPoint::<T>::Repeats {
+                            period: period as u32,
+                            smallness: x.min_magnitude.into(),
+                            small_time: x.min_magnitude_time as u32,
+                        }
+                    }
                     MandelbrotResult::Outside {
                         escape_time_r2,
                         escape_z,
@@ -116,16 +142,31 @@ where
                     } => {
                         let seat = (i % width) as f64;
                         let row = (i / width) as f64;
+                        let cr = location_f64.0 + seat * space_f64;
+                        let ci = location_f64.1 - row * space_f64;
+                        if let Some(pack) = gpu_pack.as_mut() {
+                            pack.push(gpu::GpuAnswer {
+                                kind: 0,
+                                escape_time: escape_time_r2 as u32,
+                                small_time: x.min_magnitude_time as u32,
+                                loop_period: 0,
+                                zr: escape_z.0,
+                                zi: escape_z.1,
+                                dcr: escape_dc.0,
+                                dci: escape_dc.1,
+                                cr: cr as f32,
+                                ci: ci as f32,
+                                smallness: x.min_magnitude as f32,
+                                _pad: 0.0,
+                            });
+                        }
                         CompletedPoint::<T>::Escapes {
                             escape_time: escape_time_r2 as u32,
                             escape_location: (escape_z.0.into(), escape_z.1.into()),
                             escape_derivative: (escape_dc.0.into(), escape_dc.1.into()),
                             smallness: x.min_magnitude.into(),
                             small_time: x.min_magnitude_time as u32,
-                            start_location: (
-                                (location_f64.0 + seat * space_f64).into(),
-                                (location_f64.1 - row * space_f64).into(),
-                            ),
+                            start_location: (cr.into(), ci.into()),
                         }
                     }
                 }
@@ -221,6 +262,7 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
         packages_dropped: 0,
         gpu: gpu::GpuEscaper::shared(),
         answers_need_gpu_upload: true,
+        gpu_answer_pack: Vec::new(),
     }).await;
 
     // Lock all channels for exclusive access within this actor.
@@ -280,8 +322,20 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
                 Some(v) => {
                     crate::debug_agent::esc_rca_package_taken();
                     let t_conv = std::time::Instant::now();
-                    state.values =
-                        Some(results_package_from_answers_view(v, state.packages_dropped));
+                    let pack_gpu = matches!(
+                        state.settings.resolved_escape_gear(),
+                        EscaperMode::Gpu
+                    ) && state.gpu.is_some();
+                    state.values = Some(results_package_from_answers_view(
+                        v,
+                        state.packages_dropped,
+                        if pack_gpu {
+                            Some(&mut state.gpu_answer_pack)
+                        } else {
+                            state.gpu_answer_pack.clear();
+                            None
+                        },
+                    ));
                     state.answers_need_gpu_upload = true;
                     crate::debug_agent::esc_rca_add_convert_ns(
                         t_conv.elapsed().as_nanos() as u64,
@@ -303,6 +357,11 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
         if let Some(v) = &state.values {
             let upload = state.answers_need_gpu_upload;
             let t_body = std::time::Instant::now();
+            let prepacked = if upload && !state.gpu_answer_pack.is_empty() {
+                Some(state.gpu_answer_pack.as_slice())
+            } else {
+                None
+            };
             let (mut screen, escape_hud) = gpu::escape_with_gear(
                 v,
                 radius as f32,
@@ -310,6 +369,7 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
                 want_gpu,
                 &state.gpu,
                 upload,
+                prepacked,
             );
             crate::debug_agent::esc_rca_add_body_ns(t_body.elapsed().as_nanos() as u64);
             screen.hud.packages_dropped = state.packages_dropped;
@@ -865,7 +925,7 @@ mod mutant_kill {
             .into();
         let origin_re: f64 = IntExp::from(HOME_POSITION.0).into();
         let origin_im: f64 = (IntExp::ZERO - IntExp::from(HOME_POSITION.1)).into();
-        let pkg: ResultsPackage<f64> = results_package_from_answers_view(view, 9);
+        let pkg: ResultsPackage<f64> = results_package_from_answers_view(view, 9, None);
         assert_eq!(pkg.hud.packages_dropped, 9);
         assert_eq!(pkg.results.len(), w * h);
         for (i, p) in pkg.results.iter().enumerate() {

@@ -64,6 +64,12 @@ within-actor option is exhausted. Preferred order when `esc:` is short:
 
 Live design talk: `docs/assistant/interviews/2026-08-11-shade-gpu-residency.md`.
 
+**Stencil discipline (2026-08-12):** a `PointStencil` carries two `IntExp`
+coordinates. Those integers get **large at design depth**, so any per-pixel
+`clone` / touch is not a home-zoom nit — it is a deep-zoom time bomb. Rule:
+touch the stencil **O(1) per actor loop / package** (read width, origin, space
+once), never **O(pixels)**. Seat/row from index+width only after that.
+
 ## Bailout tail is intentionally tiny (principal)
 
 The separate escaper exists because **continuing past ‖z‖²>4 is almost always
@@ -96,11 +102,11 @@ and its **output is display-thin**. The escaper’s CPU alternative was already
 cheap, and its output is still a full values frame the next stage re-consumes.
 
 **Live rates override benches (2026-08-12):** headed HUD with GPU escape showed
-roughly **`esc:~15` / `col:~50`** under the old shared shade device +
-`shade_ops`. **2026-08-12 change:** escaper owns a separate wgpu device; colorer
-keeps its own — actors no longer serialize on one shade lock. Re-measure live
-`esc:`/`col:` before calling the rate gap fixed (physical GPU may still
-multiplex). Shipping/host round-trip remains a separate issue.
+roughly **`esc:~15` then `esc:~9` / `col:~45–50`**. Dual-device did not fix that.
+Dummy-head RCA then convert hoist + same-walk GPU prepack (still a values
+channel between actors) brought dummy-head GPU **esc ~60 Hz** (pin green).
+**Headed HUD not re-checked** after that pass — do not call live rates fixed
+until the window shows it. Shipping/host round-trip (map wait) remains.
 
 Stacking GPU escape + GPU color today makes the middle worse: escape readback
 into `ZoomerValuesScreen`, then colorer re-packs nearly the same layout as
