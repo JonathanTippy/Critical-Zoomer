@@ -121,8 +121,6 @@ pub struct WindowState {
     , pub settings_fanout_needed: bool
     // Cap live settings preview fan-out while the panel is open.
     , pub settings_ui_fan_timer: Instant
-    // One-shot OS monitor refresh when egui still reports the 60 Hz placeholder.
-    , pub probed_monitor_hz: Option<f64>
 }
 
 /// Entry point for the window actor.
@@ -157,7 +155,7 @@ async fn internal_behavior<A: SteadyActor>(
 
     let portable_actor = Arc::new(Mutex::new(actor));
 
-    let mut state = state.lock(|| WindowState{
+    let state = state.lock(|| WindowState{
         size: egui::vec2(DEFAULT_WINDOW_RES.0 as f32, DEFAULT_WINDOW_RES.1 as f32)
         , location: None
         , last_frame_period: None
@@ -204,26 +202,12 @@ async fn internal_behavior<A: SteadyActor>(
         , last_fanned_auto_vsync_hz: Settings::DEFAULT.auto_vsync_hz
         , settings_fanout_needed: true
         , settings_ui_fan_timer: Instant::now()
-        , probed_monitor_hz: None
     }).await;
 
     {
-        let probed = probe_monitor_refresh_hz();
         let mut settings_state = state.settings_window_context.try_lock().unwrap();
         if settings_state.settings.coloring_script.is_none() {
             settings_state.settings.coloring_script = Some(DEFAULT_COLORING_SCRIPT.into());
-        }
-        // Seed Automatic cadence from the OS monitor once. Do not measure present
-        // frame times — those jitter and rewrite content timers every frame.
-        if let Some(hz) = probed {
-            settings_state.settings.auto_vsync_hz = hz;
-            let head_vsync = settings_state.settings.head_vsync_enabled;
-            let head_max = settings_state.settings.head_max_fps;
-            drop(settings_state);
-            state.probed_monitor_hz = Some(hz);
-            state.last_fanned_auto_vsync_hz = hz;
-            state.head_vsync_enabled = head_vsync;
-            state.head_max_fps = head_max;
         }
     }
 
@@ -270,7 +254,7 @@ async fn internal_behavior<A: SteadyActor>(
         "Critical Zoomer",
         options,
         Box::new(|_cc| Ok(Box::new(passthrough)))
-    ).unwrap();
+    )?;
 
 
     let mut actor = portable_actor.lock().unwrap();
@@ -691,10 +675,15 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
 
                 if state.settings_window_open {
-                    // Widgetize mutates the shared Settings in place; do not clone
-                    // the full blob back every main frame (that tanked FPS).
-                    let closing = settings(&ctx, state.settings_window_context.clone()).will_close;
-                    state.settings_window_open = !closing;
+                    // Embedded settings (not a deferred native viewport): a second
+                    // vsync-presenting window on the same GL thread halved FPS.
+                    let was_open = true;
+                    settings(
+                        &ctx,
+                        state.settings_window_context.clone(),
+                        &mut state.settings_window_open,
+                    );
+                    let closing = was_open && !state.settings_window_open;
                     let (head_vsync, head_max) = state
                         .settings_window_context
                         .try_lock()
@@ -707,7 +696,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                         .unwrap_or((state.head_vsync_enabled, state.head_max_fps));
                     state.head_vsync_enabled = head_vsync;
                     state.head_max_fps = head_max;
-                    // Do not fan every main frame while open — that halved FPS.
+                    // Do not fan every main frame while open — that also hurts FPS.
                     // Preview at ≤10 Hz; always fan when the panel closes.
                     if closing
                         || state.settings_ui_fan_timer.elapsed()
@@ -717,16 +706,14 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                         state.settings_ui_fan_timer = Instant::now();
                     }
                 }
-                // Aim Automatic content cadence at egui's predicted vsync period
-                // (plus the one-shot OS probe when egui still reports 1/60).
+                // Aim Automatic content cadence at egui's predicted vsync period.
                 // Never rewrite from measured present FPS — that jittered timers.
+                // Never create a second winit EventLoop to probe the monitor —
+                // that poisons eframe with WinitEventLoop(RecreationAttempt).
                 let mut snap_to_fan = None;
                 let mut mark_fanout = false;
                 let predicted_dt = ctx.input(|i| i.predicted_dt);
-                let egui_hz = Settings::resolve_auto_vsync_hz(
-                    predicted_dt,
-                    state.probed_monitor_hz,
-                );
+                let egui_hz = Settings::resolve_auto_vsync_hz(predicted_dt, None);
                 if let Ok(mut ctx_settings) = state.settings_window_context.try_lock() {
                     let prev = ctx_settings.settings.auto_vsync_hz;
                     if (egui_hz - prev).abs() >= 0.5 {
@@ -759,52 +746,5 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
-}
-
-/// One-shot OS monitor refresh via a short-lived winit ActiveEventLoop.
-/// Used only when egui still reports the 1/60 `predicted_dt` placeholder.
-fn probe_monitor_refresh_hz() -> Option<f64> {
-    use winit::application::ApplicationHandler;
-    use winit::event::WindowEvent;
-    use winit::event_loop::{ActiveEventLoop, EventLoop};
-    use winit::window::WindowId;
-
-    struct Probe(Option<f64>);
-    impl ApplicationHandler for Probe {
-        fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-            let monitor = event_loop
-                .primary_monitor()
-                .or_else(|| event_loop.available_monitors().next());
-            if let Some(m) = monitor {
-                if let Some(milli) = m.refresh_rate_millihertz() {
-                    if milli > 0 {
-                        let hz = f64::from(milli) / 1000.0;
-                        if (1.0..=240.0).contains(&hz) {
-                            self.0 = Some(hz);
-                        }
-                    }
-                }
-            }
-            event_loop.exit();
-        }
-
-        fn window_event(
-            &mut self,
-            _event_loop: &ActiveEventLoop,
-            _id: WindowId,
-            _event: WindowEvent,
-        ) {
-        }
-    }
-
-    let mut builder = EventLoop::builder();
-    #[cfg(target_os = "linux")]
-    {
-        builder.with_any_thread(true);
-    }
-    let event_loop = builder.build().ok()?;
-    let mut probe = Probe(None);
-    let _ = event_loop.run_app(&mut probe);
-    probe.0
 }
 

@@ -5,7 +5,7 @@ use eframe::egui::*;
  // For X11
 //use winit::platform::wayland::EventLoopBuilderExtWayland; // For Wayland
 //use winit::platform::windows::EventLoopBuilderExtWindows; // For Windows
-use egui::{Color32, Vec2, Pos2, ViewportId, WindowLevel};
+use egui::{Color32, Vec2, Pos2};
 use std::sync::{Arc, Mutex};
 
 use egui_dnd::dnd;
@@ -201,10 +201,10 @@ impl Settings {
 
     /// Stable Automatic content Hz from egui's predicted frame period.
     ///
-    /// Uses `1 / predicted_dt` (egui's vsync aim). eframe historically leaves
-    /// `predicted_dt` at the 1/60 placeholder even on other panels — when that
-    /// placeholder is all egui reports, prefer an OS monitor probe instead of
-    /// measuring present frame times (those jitter and destabilize cadence).
+    /// Uses `1 / predicted_dt` (egui's vsync aim). Do **not** invent a second
+    /// winit EventLoop to probe the OS monitor — that fails later
+    /// `eframe::run_native` with `WinitEventLoop(RecreationAttempt)`.
+    /// `probed_monitor_hz` remains for tests / future non-EventLoop sources.
     pub fn resolve_auto_vsync_hz(predicted_dt: f32, probed_monitor_hz: Option<f64>) -> f64 {
         let from_egui = if predicted_dt.is_finite() && predicted_dt > 1e-6 {
             1.0 / f64::from(predicted_dt)
@@ -594,11 +594,6 @@ pub enum ControlsSettings {
     H
 }
 
-pub struct SettingsWindowResult {
-    pub will_close: bool,
-}
-
-
 #[derive(Clone, Debug)]
 pub struct SettingsWindowContext {
     pub settings: Settings
@@ -613,90 +608,26 @@ pub struct SettingsWindowContext {
 pub fn settings (
     ctx: &egui::Context,
     state: Arc<Mutex<SettingsWindowContext>>,
-) -> SettingsWindowResult {
-
-    let state1 = state.clone();
-    let state2 = state.clone();
-
-    let state = state.try_lock().unwrap();
-
-    let viewport_options =
-        egui::ViewportBuilder::default()
-            .with_inner_size(state.size.clone());
-
-    let viewport_options = match state.location {
-        Some(l) => {viewport_options.with_position(l)}
-        None => {viewport_options}
-    };
-
-    drop(state);
-
-    ctx.show_viewport_deferred(
-        ViewportId::from_hash_of("my_viewport"),
-        viewport_options
-            .with_title("Deferred Viewport")
-            .with_window_level(WindowLevel::AlwaysOnTop),
-        move |ctx, class| {
-
-
-            let mut state = state1.try_lock().unwrap();
-
-
-            egui::CentralPanel::default().show(ctx, |ui| {
-
-                ui.visuals_mut().override_text_color = Some(Color32::WHITE);
-
-                let available_size = ui.available_size();
-                //if ui.add(Button::new("Click me")).clicked() {println!("clicked")}
-
-                egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
-                    state.settings.widgetize(ui);
-                });
-
-
-                ctx.request_repaint_after(std::time::Duration::from_millis(100));
-
-            });
-
-
-            ctx.input(|input_state| {
-                match input_state.raw.viewports.get(&ViewportId::from_hash_of("my_viewport")) {
-                    Some(info) => {
-
-                        match info.outer_rect {
-                            Some(r) => { state.location = Some(r.min); }
-                            None => {}
-                        }
-                        match info.inner_rect {
-                            Some(r) => { state.size = r.size();}
-                            None => {}
-                        }
-                        for viewport_event in info.events.clone() {
-                            match viewport_event {
-                                egui::ViewportEvent::Close => {
-                                    //info!("settings window should close");
-                                    state.will_close = true;
-                                }
-                            }
-                        }
-                    }
-                    None => {}
-                }
-            });
-        },
-    );
-
-    let mut state = state2.try_lock().unwrap();
-
-    //info!("will close: {}", state.will_close);
-
-    let will_close = state.will_close.clone();
-
-    state.will_close = false;
-
-    SettingsWindowResult {
-        will_close,
-    }
+    open: &mut bool,
+) {
+    // Embedded in the root viewport on purpose: a second native deferred
+    // window with vsync serializes presents on the same GL thread and halves
+    // main FPS (~60→~30). One present keeps the Mandelbrot pane at vsync.
+    let mut still_open = *open;
+    egui::Window::new("Settings")
+        .default_size([
+            DEFAULT_SETTINGS_WINDOW_RES.0 as f32,
+            DEFAULT_SETTINGS_WINDOW_RES.1 as f32,
+        ])
+        .vscroll(true)
+        .open(&mut still_open)
+        .show(ctx, |ui| {
+            ui.visuals_mut().override_text_color = Some(Color32::WHITE);
+            if let Ok(mut guard) = state.try_lock() {
+                guard.settings.widgetize(ui);
+            }
+        });
+    *open = still_open;
 }
 
 #[cfg(test)]

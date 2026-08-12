@@ -22,13 +22,17 @@ bootstrap until the head learns the display period.
 ### How `auto_vsync_hz` is learned (stable)
 
 **Do not measure present frame times** into `auto_vsync_hz` — that jittered
-content timers. The head aims at egui’s declared vsync period:
+content timers. **Do not create a second winit EventLoop** to probe the
+monitor before `eframe::run_native` — that poisons the process with
+`WinitEventLoop(RecreationAttempt)`.
 
-1. Each present: `Settings::resolve_auto_vsync_hz(ctx.predicted_dt, probed)`.
+The head aims at egui’s declared vsync period:
+
+1. Each present: `Settings::resolve_auto_vsync_hz(ctx.predicted_dt, None)`.
 2. egui’s `predicted_dt` is the integration’s “expected vsync period.”
-3. eframe still often leaves `predicted_dt` at the **1/60 placeholder**; when
-   that is all egui reports, the head uses a **one-shot winit monitor probe**
-   (`ActiveEventLoop` + `refresh_rate_millihertz`) before `run_native`.
+3. eframe often leaves `predicted_dt` at the **1/60 placeholder**; Automatic
+   then stays on that stable rate (manual Hz overrides). A future
+   non-EventLoop monitor source may fill the optional probe argument.
 
 Fan Settings to content actors only when the resolved Hz moves (≥0.5 Hz).
 

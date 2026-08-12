@@ -32,7 +32,10 @@ Settings cadence knobs (`content_refresh_*`, `head_vsync_enabled`,
 actor dirty skip-send; GPU paint always refreshes from current inputs
 (persistent buffers kept). HUD `pub:/esc:/col:/ctrl:` emission-Instant rates
 already landed. Escape gear stays OG default. Workgroup TTFP / Replace coalesce
-still parked.
+still parked. **Charter note (2026-08-11 settings FPS):** settings UI moved from
+a deferred native viewport to an embedded `egui::Window` so a second
+vsync-presenting window cannot serialize presents and halve main FPS; display
+timing only — no lighting redesign.
 
 ## True bugs (open)
 
