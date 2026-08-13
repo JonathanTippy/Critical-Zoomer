@@ -106,5 +106,8 @@ fn assert_gpu(r: &CadenceReport) {
 #[test]
 fn steady_state_pipeline_cadence() {
     assert_og(&run_case(EscaperMode::Og, ColorerMode::Gpu));
+    // Tear down OG colorer GPU work before the GPU-escaper case; back-to-back
+    // graphs on a busy full_check machine otherwise miss the 40 Hz floor.
+    std::thread::sleep(Duration::from_millis(500));
     assert_gpu(&run_case(EscaperMode::Gpu, ColorerMode::Gpu));
 }

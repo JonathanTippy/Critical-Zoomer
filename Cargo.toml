@@ -50,6 +50,9 @@ bench = false
 name = "critical_zoomer"
 path = "src/main.rs"
 bench = false
+# Duplicate of lib modules; do not compile this target under `cargo test`
+# (cadence/full_check was linking the bin and losing GPU esc to that fight).
+test = false
 
 # House tests are `cargo test` (dev/test): overflow checks and
 # debug-assertions stay on. opt-level 3 so cadence/IPS floors see a
