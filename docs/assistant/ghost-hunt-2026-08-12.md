@@ -49,6 +49,6 @@ Commits: `automatic checkpoint` ≈ assistant; `WIP` ≈ developer.
 | 11 | HUD S-F64 past mag 14 on naive | Pitch `< 1e-7` stamped ScaledF64 on **absolute** shells. Iterate was still f64/f32. Floor is relative/pert only. | **~32%** |
 | 12 | Number-stack “~10 bits headroom” + CopyIntExp mul “abs then sign” | Live margin default is **1**. Mul is unsigned `u128` schoolbook. OG naive now uses `CopyIntExp<1>` after absolute f64 (home zoom 42, still on at 49). | **~34%** |
 | 13 | Mag-38 black ⇒ bump CopyIntExp at `1e-14` | Assistant hid a location/period question behind a type switch. Admit is bit count; mag 38 f64 still admits and far-exterior escapes. Pitch prefer-relative is pert/GPU. | **~36%** |
-| 14 | `critical-zoomer-invariants.mdc` | AGENTS and craftsmanship rules name it as the always-on summary. File was missing from `.cursor/rules/`. Restored from the six typed invariants. Ghost-hunt “latest ask only” fought follow-through. | **~38%** |
+| 14 | `critical-zoomer-invariants.mdc` | AGENTS and craftsmanship rules name it as the always-on summary. File was missing from `.cursor/rules/`. Restored from the six typed invariants. | **~38%** |
 
 Not 100%. Implementation ghosts still mostly unknown.
