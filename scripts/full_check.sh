@@ -36,6 +36,12 @@ if [[ "$DRY" -eq 1 ]]; then
   exit 0
 fi
 
+# One full_check at a time. Overlapping stop-hooks used to SIGTERM the
+# other's Criterion `workgroup_fitness` (CLI reaper + cargo lock fights).
+LOCK="${CZ_FULL_CHECK_LOCK:-/tmp/cz_full_check.lock}"
+exec 9>"$LOCK"
+flock 9
+
 : >"$LOG"
 exec > >(tee -a "$LOG") 2>&1
 plan

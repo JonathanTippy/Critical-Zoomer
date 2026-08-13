@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Reap Critical-Zoomer *test* leftovers only. Fail open. Idempotent.
+# workgroup_fitness is not reaped unless CZ_REAP_BENCH=1 (live Criterion).
 #
 # Safe targets (path-scoped to this repo's target/ or cz session dirs):
 #   - target/*/critical_zoomer
@@ -159,9 +160,9 @@ run_cleanup() {
     "$ROOT/target/.*/critical_zoomer" \
     'target/release/critical_zoomer' \
     'target/debug/critical_zoomer'
-  # Never auto-reap workgroup_fitness from hooks: before/after/stop all race
-  # live Criterion (1080p especially). Leftovers: run this script from the CLI.
-  if [[ "$MODE" == "cli" ]]; then
+  # Never auto-reap workgroup_fitness: hooks and full_check race live
+  # Criterion (1080p especially). Leftovers: CZ_REAP_BENCH=1 this script.
+  if [[ "$MODE" == "cli" && "${CZ_REAP_BENCH:-0}" == "1" ]]; then
     reap_matching_pids "bench" \
       "$ROOT/target/.*/workgroup_fitness" \
       'target/release/deps/workgroup_fitness' \
