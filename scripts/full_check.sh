@@ -56,6 +56,19 @@ fail() {
 
 .cursor/hooks/kill-test-zombies.sh >>"$LOG" 2>&1 || true
 
+# Reap a wgpu lockdir left by a killed harness (Drop never ran). Never steal
+# from a live pid — that waiter must wait, not wipe a running cadence graph.
+WGPU_LOCKDIR=/tmp/cz_wgpu_test.lockdir
+if [[ -d "$WGPU_LOCKDIR" ]]; then
+  wpid="$(cat "$WGPU_LOCKDIR/pid" 2>/dev/null || true)"
+  if [[ -z "${wpid}" || ! -d "/proc/${wpid}" ]]; then
+    rm -rf "$WGPU_LOCKDIR"
+    echo "full_check: reaped stale $WGPU_LOCKDIR (pid='${wpid}')"
+  else
+    echo "full_check: wgpu lock held by live pid ${wpid} — tests will wait"
+  fi
+fi
+
 run cargo check --lib || fail "cargo check --lib"
 # Unit first: cheap 1s tests. Fail here before paying for 15s/60s suites.
 run cargo test --release --lib -- \

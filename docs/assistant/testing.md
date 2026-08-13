@@ -30,7 +30,9 @@ Wall clocks that **must fire** (a hung thread is a fail, not an infinite `join`)
 | Integration | ≤10 | 15s | Module `integration_tier` (`cargo test --lib integration_tier`) |
 | E2E | ≤3 | 60s | `e2e_tier` (10s park) + `tests/pipeline_cadence.rs` (OG + GPU) |
 
-Cadence still measures ~5s after first color so settling is real. The old 90s/120s/180s waits were why tests looked hung.
+Cadence still measures ~5s after first color so settling is real. The wgpu dir lock
+waits up to 180s for a **live** holder and reclaims only dead/stale dirs — it must
+not delete a lock out from under dummy-head cadence.
 
 ## Where they live
 

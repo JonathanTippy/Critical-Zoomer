@@ -53,21 +53,36 @@ pub fn log_hud(_hypothesis_id: &str, _location: &str, _message: &str, _data_json
 
 /// Cross-process exclusive lock for wgpu-heavy tests (cadence graph + IPS probe).
 /// `cargo test --all-targets` runs lib and integration harnesses in parallel.
+///
+/// A leftover empty dir (reaped test binary never `Drop`s) is reclaimed.
+/// A live holder is never stolen — waiters wait, then panic with the dir intact.
 pub struct WgpuTestLock {
     path: std::path::PathBuf,
 }
 
 impl WgpuTestLock {
     pub fn acquire() -> Self {
-        let path = std::path::PathBuf::from("/tmp/cz_wgpu_test.lockdir");
-        let deadline = Instant::now() + Duration::from_secs(60);
+        Self::acquire_at(std::path::PathBuf::from("/tmp/cz_wgpu_test.lockdir"))
+    }
+
+    fn acquire_at(path: std::path::PathBuf) -> Self {
+        let deadline = Instant::now() + Duration::from_secs(180);
         loop {
             match std::fs::create_dir(&path) {
-                Ok(()) => return Self { path },
+                Ok(()) => {
+                    let _ = std::fs::write(path.join("pid"), std::process::id().to_string());
+                    return Self { path };
+                }
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if Self::holder_dead(&path) {
+                        let _ = std::fs::remove_dir_all(&path);
+                        continue;
+                    }
                     if Instant::now() > deadline {
-                        let _ = std::fs::remove_dir(&path);
-                        panic!("wgpu test lock timeout ({})", path.display());
+                        panic!(
+                            "wgpu test lock timeout ({}); holder still alive — not stealing",
+                            path.display()
+                        );
                     }
                     std::thread::sleep(Duration::from_millis(20));
                 }
@@ -75,11 +90,53 @@ impl WgpuTestLock {
             }
         }
     }
+
+    fn holder_dead(path: &std::path::Path) -> bool {
+        let pid_path = path.join("pid");
+        match std::fs::read_to_string(&pid_path) {
+            Ok(s) => {
+                let Ok(pid) = s.trim().parse::<u32>() else {
+                    return true;
+                };
+                !std::path::Path::new(&format!("/proc/{pid}")).is_dir()
+            }
+            Err(_) => {
+                // mkdir succeeded but pid not written yet — only treat as leftover
+                // after a short age so we do not steal from a live acquirer.
+                let age = std::fs::metadata(path)
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.elapsed().ok());
+                age.map(|d| d > Duration::from_secs(2)).unwrap_or(false)
+            }
+        }
+    }
 }
 
 impl Drop for WgpuTestLock {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir(&self.path);
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
+}
+
+#[cfg(test)]
+mod wgpu_lock_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn stale_lockdir_without_live_pid_is_reclaimed() {
+        let path = PathBuf::from(format!(
+            "/tmp/cz_wgpu_test.lockdir.stale_test.{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir(&path).expect("stale dir");
+        std::fs::write(path.join("pid"), "999999999").expect("dead pid");
+        let lock = WgpuTestLock::acquire_at(path.clone());
+        assert!(path.join("pid").exists());
+        drop(lock);
+        assert!(!path.exists());
     }
 }
 
