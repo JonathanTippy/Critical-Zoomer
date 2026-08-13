@@ -60,12 +60,13 @@ pub struct WgpuTestLock {
 impl WgpuTestLock {
     pub fn acquire() -> Self {
         let path = std::path::PathBuf::from("/tmp/cz_wgpu_test.lockdir");
-        let deadline = Instant::now() + Duration::from_secs(180);
+        let deadline = Instant::now() + Duration::from_secs(60);
         loop {
             match std::fs::create_dir(&path) {
                 Ok(()) => return Self { path },
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                     if Instant::now() > deadline {
+                        let _ = std::fs::remove_dir(&path);
                         panic!("wgpu test lock timeout ({})", path.display());
                     }
                     std::thread::sleep(Duration::from_millis(20));

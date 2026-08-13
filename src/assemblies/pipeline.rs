@@ -206,14 +206,16 @@ pub fn build_pipeline(graph: &mut Graph, head: HeadKind) {
 }
 
 /// Run the full pipeline under a dummy head until it shuts down; return cadence report.
+/// E2E wall is 60s and **must fire** — do not `join()` a hung graph forever.
 pub fn run_dummy_cadence_pipeline(
     cfg: DummyCadenceConfig,
 ) -> dummy_cadence::CadenceReport {
     let report_slot = cfg.report.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
     let builder = std::thread::Builder::new()
         .name("cz-dummy-cadence".into())
         .stack_size(STACK_SIZE);
-    builder
+    let join = builder
         .spawn(move || {
             let cli_args = crate::arg::MainArg {
                 rate_ms: 2,
@@ -225,11 +227,17 @@ pub fn run_dummy_cadence_pipeline(
                 .build(cli_args);
             build_pipeline(&mut graph, HeadKind::DummyCadence(cfg));
             graph.start();
-            graph.block_until_stopped(Duration::from_secs(120));
+            graph.block_until_stopped(Duration::from_secs(60));
         })
-        .expect("spawn cadence pipeline")
-        .join()
-        .expect("cadence pipeline panicked");
+        .expect("spawn cadence pipeline");
+    std::thread::spawn(move || {
+        let _ = tx.send(join.join());
+    });
+    match rx.recv_timeout(Duration::from_secs(60)) {
+        Ok(Ok(())) => {}
+        Ok(Err(payload)) => std::panic::resume_unwind(payload),
+        Err(_) => panic!("cadence e2e exceeded 60s wall timeout (graph did not stop)"),
+    }
 
     let report = report_slot
         .lock()

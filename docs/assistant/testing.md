@@ -20,6 +20,18 @@ Microbenches and Criterion fitness remain useful for *how fast* trends
 (`docs/assistant/benchmarks.md`). Steady-state **tests** carry smoke floors
 that prove numbers and invariants still flow through the machine.
 
+## Timeout pyramid
+
+Wall clocks that **must fire** (a hung thread is a fail, not an infinite `join`):
+
+| Tier | Cap | Count | Timeout |
+|------|-----|-------|---------|
+| Unit | the rest | 1s | Craftsmanship fills, mutant kills, GPU probes that should be instant |
+| Integration | ≤10 | 15s | The `steady_state_*` worker/GPU/workgroup pins below (not cadence, not 10s park) |
+| E2E | ≤3 | 60s | Dummy-head cadence OG, cadence GPU, `steady_state_home_stays_parked_for_10s_after_fill` |
+
+Cadence still measures ~5s after first color so settling is real. The old 90s/120s/180s waits were why tests looked hung.
+
 ## Where they live
 
 | Layer | Location | Role |

@@ -1548,8 +1548,8 @@ fn home_zero_orbit_floor_pipeline_no_vertical_black_columns() {
 /// Production token budget must still finish home without vertical black bands.
 #[test]
 fn home_production_budget_pipeline_no_vertical_black_columns() {
+    let _gpu_guard = super::naive_gpu::lock_gpu_tests();
     run_big_stack_size(|| {
-        let _gpu_guard = super::naive_gpu::lock_gpu_tests();
         let frame = home_frame();
         let req = select_reference_request::<FloatExp>(None, &frame);
         let mut ctx = from_stencil(frame.clone(), None).expect("home");
@@ -1600,8 +1600,8 @@ fn home_production_budget_pipeline_no_vertical_black_columns() {
 /// Incremental WorkUpdate batches must populate the collector grid (no stuck Dummy).
 #[test]
 fn home_incremental_collector_matches_worker_delivery() {
+    let _gpu_guard = super::naive_gpu::lock_gpu_tests();
     run_big_stack_size(|| {
-        let _gpu_guard = super::naive_gpu::lock_gpu_tests();
         let frame = home_frame();
         let req = select_reference_request::<FloatExp>(None, &frame);
         let orbit = ReferenceOrbit::compute(&req.c, req.precision_bits, 4096);
@@ -1660,8 +1660,8 @@ fn home_pipeline_with_live_series_no_vertical_black_columns() {
     use crate::assemblies::workgroup::reference_worker::PublishedReference;
     use crate::settings::{Settings, DEFAULT_COLORING_SCRIPT};
 
+    let _gpu_guard = super::naive_gpu::lock_gpu_tests();
     run_big_stack_size(|| {
-        let _gpu_guard = super::naive_gpu::lock_gpu_tests();
         let frame = home_frame();
         let req = select_reference_request::<FloatExp>(None, &frame);
         let orbit = ReferenceOrbit::compute(&req.c, req.precision_bits, 4096);

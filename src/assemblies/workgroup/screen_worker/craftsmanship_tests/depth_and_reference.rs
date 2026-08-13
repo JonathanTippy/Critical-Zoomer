@@ -1051,8 +1051,8 @@ fn series_safe_skip_does_not_pass_bailout_for_far_delta() {
 // r[verify cz.math.mandelbrot-real-axis-symmetry+1]
 // r[verify cz.depth.series-approximation+1]
 fn home_package_with_live_series_obeys_real_axis_symmetry() {
+    let _perf_guard = super::naive_gpu::lock_gpu_tests();
     run_big_stack_size(|| {
-        let _perf_guard = super::naive_gpu::lock_gpu_tests();
         // Origin real −2, zoom −2: covers the main cardioid plus |c|≳2 exterior.
         let frame = real_axis_symmetric_shallow_frame(TEST_SCREEN_RES, -2, -2);
         let mut ctx = from_stencil(frame.clone(), None).expect("symmetric shell");
@@ -1117,11 +1117,11 @@ fn home_package_with_live_series_obeys_real_axis_symmetry() {
 // r[verify cz.depth.series-approximation+1]
 // r[verify cz.depth.delta-kernel+1]
 fn home_package_with_live_series_matches_direct_kernel_answers() {
+    let _perf_guard = super::naive_gpu::lock_gpu_tests();
     run_big_stack_size(|| {
         // Serialize against other heavy craftsmanship fills: under cargo's parallel
         // harness this package (two homes + series install) can trip the 1s wall
         // by a few ms without any logic regression.
-        let _perf_guard = super::naive_gpu::lock_gpu_tests();
         let frame = real_axis_symmetric_shallow_frame(TEST_SCREEN_RES, -2, -2);
         let mut direct = from_stencil(frame.clone(), None).expect("direct");
         let mut perturb = from_stencil(frame.clone(), None).expect("perturb");

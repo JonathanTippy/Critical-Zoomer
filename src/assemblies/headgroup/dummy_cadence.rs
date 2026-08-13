@@ -125,7 +125,7 @@ async fn internal_behavior<A: SteadyActor>(
 
     let content_period = cfg.settings.resolved_content_period();
     // Failsafe: never hang the graph if no frames arrive.
-    let absolute_deadline = Instant::now() + cfg.measure_after_first_frame + Duration::from_secs(90);
+    let absolute_deadline = Instant::now() + cfg.measure_after_first_frame + Duration::from_secs(20);
 
     while actor.is_running(|| i!(true)) {
         if state.done {

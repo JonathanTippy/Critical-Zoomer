@@ -1,12 +1,15 @@
-/// Hard wall budget for every craftsmanship test. Shift caps are banned; if the
-/// code under test is wrong a fill may never finish — this is the only halt.
-/// Quiet-machine fills should finish in ~100ms so Minecraft-load still clears
-/// this 1s ceiling with headroom.
-const TEST_WALL_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
+/// Test pyramid wall timeouts. The join *must* fire — a hung fill cannot
+/// sit on `thread::join()` forever. Inner `check_test_budget` is the same
+/// clock; `refresh_test_budget` only skips GPU bring-up, not the join.
+const UNIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
+const INTEGRATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+const E2E_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 thread_local! {
     static TEST_BUDGET_START: std::cell::Cell<Option<std::time::Instant>> =
         std::cell::Cell::new(None);
+    static TEST_BUDGET_LIMIT: std::cell::Cell<std::time::Duration> =
+        std::cell::Cell::new(UNIT_TIMEOUT);
 }
 
 fn check_test_budget() {
@@ -14,27 +17,48 @@ fn check_test_budget() {
         let Some(start) = c.get() else {
             return;
         };
+        let limit = TEST_BUDGET_LIMIT.with(|l| l.get());
         let elapsed = start.elapsed();
         assert!(
-            elapsed <= TEST_WALL_BUDGET,
-            "test exceeded 1s wall budget ({elapsed:?})"
+            elapsed <= limit,
+            "test exceeded {limit:?} wall budget ({elapsed:?})"
         );
     });
 }
 
-fn run_big_stack_size(f: impl FnOnce() + Send + 'static) {
+fn run_with_timeout(limit: std::time::Duration, f: impl FnOnce() + Send + 'static) {
+    let (tx, rx) = std::sync::mpsc::channel();
     let join = std::thread::Builder::new()
         .stack_size(64 << 20)
         .spawn(move || {
+            TEST_BUDGET_LIMIT.with(|c| c.set(limit));
             TEST_BUDGET_START.with(|c| c.set(Some(std::time::Instant::now())));
             f();
             check_test_budget();
         })
         .expect("run_big stack thread");
-    match join.join() {
-        Ok(()) => {}
-        Err(payload) => std::panic::resume_unwind(payload),
+    std::thread::spawn(move || {
+        let _ = tx.send(join.join());
+    });
+    match rx.recv_timeout(limit) {
+        Ok(Ok(())) => {}
+        Ok(Err(payload)) => std::panic::resume_unwind(payload),
+        Err(_) => panic!(
+            "test exceeded {limit:?} wall timeout (hung; join no longer waits forever)"
+        ),
     }
+}
+
+fn run_big_stack_size(f: impl FnOnce() + Send + 'static) {
+    run_with_timeout(UNIT_TIMEOUT, f);
+}
+
+fn run_integration(f: impl FnOnce() + Send + 'static) {
+    run_with_timeout(INTEGRATION_TIMEOUT, f);
+}
+
+fn run_e2e(f: impl FnOnce() + Send + 'static) {
+    run_with_timeout(E2E_TIMEOUT, f);
 }
 
 /// Restart the 1s wall budget after expensive setup (GPU adapter, long orbits)
@@ -648,7 +672,7 @@ fn workshift_always_terminates() {
         let mut ctx = make_context(0);
         let t = Instant::now();
         shift(&mut ctx);
-        assert!(t.elapsed() <= TEST_WALL_BUDGET);
+        assert!(t.elapsed() <= UNIT_TIMEOUT);
 
         // queues full of slow work: bounded by the clock
         let mut ctx = make_context(2);
@@ -656,7 +680,7 @@ fn workshift_always_terminates() {
         let t = Instant::now();
         shift(&mut ctx);
         assert!(
-            t.elapsed() <= TEST_WALL_BUDGET,
+            t.elapsed() <= UNIT_TIMEOUT,
             "the wall clock, not the workload, bounds a shift"
         );
         assert_eq!(ctx.workshifts, 3);
@@ -1948,5 +1972,21 @@ fn zoom_slot0_prefers_attention_over_scredge() {
             "zoom slot0 must start the attention seat"
         );
     });
+}
+
+#[test]
+fn unit_timeout_actually_fires() {
+    let t0 = std::time::Instant::now();
+    let hit = std::panic::catch_unwind(|| {
+        run_big_stack_size(|| {
+            std::thread::sleep(std::time::Duration::from_secs(3));
+        });
+    });
+    assert!(hit.is_err(), "1s unit timeout must panic a hung body");
+    let elapsed = t0.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(2),
+        "timeout must fire near 1s, not hang ({elapsed:?})"
+    );
 }
 

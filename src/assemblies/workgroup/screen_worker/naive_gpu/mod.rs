@@ -905,7 +905,6 @@ mod smoke_tests {
 
     #[test]
     fn naive_gpu_context_init_or_skip() {
-        let _wgpu = crate::debug_agent::WgpuTestLock::acquire();
         let Some(mut shared) = SharedGpu::acquire() else {
             eprintln!("no GPU adapter / CZ_FORCE_CPU_NAIVE — smoke skipped");
             return;
@@ -917,7 +916,6 @@ mod smoke_tests {
 
     #[test]
     fn naive_gpu_home_wave_finishes_some_seats() {
-        let _wgpu = crate::debug_agent::WgpuTestLock::acquire();
         let Some(mut shared) = SharedGpu::acquire() else {
             eprintln!("no GPU — smoke skipped");
             return;

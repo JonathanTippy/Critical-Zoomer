@@ -13,10 +13,10 @@ fn shift_iterations_delta(ctx: &WorkContext<f64>) -> u64 {
 // r[verify cz.perf.min-300m-ips-cpu+2]
 #[test]
 fn steady_state_screen_worker_home_ips_cpu_direct() {
-    run_big_stack_size(|| {
+    let _gpu_guard = super::naive_gpu::lock_gpu_tests();
+    run_integration(|| {
         // Share the GPU test lock: parallel GPU/CPU probes steal cores and trip the
         // home IPS floor without any DirectKernel regression.
-        let _gpu_guard = super::naive_gpu::lock_gpu_tests();
         refresh_test_budget();
         // Home DirectKernel finishes in one short shift (~14k iters). Best fill-only
         // IPS over several frames keeps the 3e6 floor hard under harness noise.
@@ -91,7 +91,7 @@ fn steady_state_screen_worker_home_ips_cpu_direct() {
 // r[verify cz.craft.gpu-host-queue-discovery+1]
 #[test]
 fn steady_state_screen_worker_home_ips_naive_gpu_path() {
-    run_big_stack_size(|| {
+    run_integration(|| {
         use crate::assemblies::structs::KernelMode;
         let mut shared = super::naive_gpu::SharedGpu::acquire();
         refresh_test_budget();
@@ -156,7 +156,7 @@ fn steady_state_screen_worker_home_ips_naive_gpu_path() {
 // r[verify cz.craft.gpu-host-queue-discovery+1]
 #[test]
 fn steady_state_naive_gpu_home_neighbor_queues_grow() {
-    run_big_stack_size(|| {
+    run_integration(|| {
         use crate::assemblies::structs::KernelMode;
         let Some(mut shared) = super::naive_gpu::SharedGpu::acquire() else {
             eprintln!("steady_state_naive_gpu_home_neighbor_queues_grow: no GPU — skipped");
@@ -208,7 +208,7 @@ fn steady_state_naive_gpu_home_neighbor_queues_grow() {
 // r[verify cz.craft.gpu-host-queue-discovery+1]
 #[test]
 fn steady_state_naive_gpu_home_fills_without_cpu_mop() {
-    run_big_stack_size(|| {
+    run_integration(|| {
         let Some(mut shared) = super::naive_gpu::SharedGpu::acquire() else {
             eprintln!("steady_state_naive_gpu_home_fills_without_cpu_mop: no GPU — skipped");
             return;
@@ -245,7 +245,7 @@ fn steady_state_naive_gpu_home_fills_without_cpu_mop() {
 // r[verify cz.craft.gpu-host-queue-discovery+1]
 #[test]
 fn steady_state_naive_gpu_home_no_dummy_holes() {
-    run_big_stack_size(|| {
+    run_integration(|| {
         let Some(mut shared) = super::naive_gpu::SharedGpu::acquire() else {
             eprintln!("steady_state_naive_gpu_home_no_dummy_holes: no GPU — skipped");
             return;
@@ -296,8 +296,8 @@ fn steady_state_naive_gpu_home_no_dummy_holes() {
 #[test]
 fn steady_state_workgroup_ips_delta_reaches_hud_rate_counter() {
     use crate::assemblies::structs::ViewHud;
-    run_big_stack_size(|| {
-        let _gpu_guard = super::naive_gpu::lock_gpu_tests();
+    let _gpu_guard = super::naive_gpu::lock_gpu_tests();
+    run_integration(|| {
         refresh_test_budget();
         let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
         let mut ips = RateCounter::default();
@@ -388,7 +388,7 @@ fn steady_state_workgroup_ips_delta_reaches_hud_rate_counter() {
 /// still progressing (≤50 ms at ~10 ms/shift). r[verify cz.craft.emergent-cadence+1]
 #[test]
 fn steady_state_naive_gpu_home_continuous_outputs() {
-    run_big_stack_size(|| {
+    run_integration(|| {
         let Some(mut shared) = super::naive_gpu::SharedGpu::acquire() else {
             eprintln!("steady_state_naive_gpu_home_continuous_outputs: no GPU — skipped");
             return;
@@ -474,7 +474,7 @@ fn steady_state_ips_delta_sent_without_completions() {
 /// finish/scheduling heavy so the ratio is a progress metric, not the IPS bar.
 #[test]
 fn steady_state_home_pps_gpu_vs_cpu_ratio() {
-    run_big_stack_size(|| {
+    run_integration(|| {
         let Some(mut shared) = super::naive_gpu::SharedGpu::acquire() else {
             eprintln!("steady_state_home_pps_gpu_vs_cpu_ratio: no GPU — skipped");
             return;
@@ -556,7 +556,7 @@ fn steady_state_home_pps_gpu_vs_cpu_ratio() {
 #[test]
 // r[verify cz.craft.kernel-seam+1]
 fn steady_state_naive_gpu_f64_gear_via_faux_user_zoom() {
-    run_big_stack_size(|| {
+    run_integration(|| {
         use crate::assemblies::headgroup::window::coords::{
             commands_from_goto_line, format_location_readout, ul_for_center, viewport_center,
         };
@@ -661,7 +661,7 @@ fn steady_state_naive_gpu_f64_gear_via_faux_user_zoom() {
 // r[verify cz.craft.wall-clock-law+1]
 // r[verify cz.craft.emergent-cadence+1]
 fn steady_state_naive_gpu_deep_cusp_never_stalls() {
-    run_big_stack_size(|| {
+    run_integration(|| {
         use crate::assemblies::headgroup::window::coords::{
             commands_from_goto_line, ul_for_center,
         };
@@ -824,8 +824,8 @@ fn home_workshift_first_publish_within_20pct_of_direct_kernel() {
 // r[verify cz.perf.min-300m-ips-cpu+2]
 #[test]
 fn home_workshift_full_frame_within_20pct_of_direct_kernel() {
+    let _gpu_guard = super::naive_gpu::lock_gpu_tests();
     run_big_stack_size(|| {
-        let _gpu_guard = super::naive_gpu::lock_gpu_tests();
         let fill = |use_workshift: bool| {
             let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
             let t0 = Instant::now();
@@ -995,8 +995,8 @@ fn rca_naive_gpu_vs_cpu_class_parity_home_and_boundary() {
 // r[verify cz.perf.min-300m-ips-cpu+2]
 #[test]
 fn naive_f64_direct_kernel_home_preserves_v009_iteration_budget() {
+    let _gpu_guard = super::naive_gpu::lock_gpu_tests();
     run_big_stack_size(|| {
-        let _gpu_guard = super::naive_gpu::lock_gpu_tests();
         refresh_test_budget();
         let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
         let mut shifts = 0u32;
@@ -1031,8 +1031,8 @@ fn naive_f64_direct_kernel_home_preserves_v009_iteration_budget() {
 // r[verify cz.craft.load-proportional-ignorance+1]
 #[test]
 fn steady_state_home_stays_parked_for_10s_after_fill() {
-    run_big_stack_size(|| {
-        let _gpu_guard = super::naive_gpu::lock_gpu_tests();
+    let _gpu_guard = super::naive_gpu::lock_gpu_tests();
+    run_e2e(|| {
         refresh_test_budget();
         let mut ctx = from_stencil::<f64>(home_frame(), None).expect("home");
         let mut shifts = 0u32;
