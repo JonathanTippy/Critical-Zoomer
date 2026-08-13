@@ -1,0 +1,12 @@
+---
+description: Settings UI is titles and pithy disclaimers, not a tutor
+globs: src/settings.rs
+  src/assemblies/headgroup/window/widgetize.rs
+alwaysApply: true
+---
+
+# Settings page voice
+
+The settings page is **titles/headers**, controls, and **a few pithy disclaimers**. It is not talking to the developer.
+
+Do not add how-to copy, “default N means…”, em-dash essays, or toast/button tutorials. The control’s own label is the instruction. If it needs a warning, one blunt sentence (same voice as “Naive GPU and Perturbation are early-dev and still buggy”).

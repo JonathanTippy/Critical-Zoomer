@@ -39,7 +39,6 @@ impl Settings {
             self.eye_tracking_enabled = true;
             self.request_gaze_calibrate = true;
         }
-        ui.label("Toast per corner; click Yup, doing it when you are looking. No timer.");
         ui.label("Gaze spiral is early-dev and still buggy.");
         ui.separator();
         ui.label("Debug — colorer (gear)");
@@ -78,7 +77,6 @@ impl Settings {
         ui.separator();
         ui.label("Debug — C-generator admit margin (bits)");
         ui.add(egui::Slider::new(&mut self.c_generator_margin_bits, 0..=32).text("margin bits"));
-        ui.label("Default 10. Lower = admit shallower types longer; higher = step deeper sooner.");
         ui.separator();
 
         ui.label("order of coloring steps:");
