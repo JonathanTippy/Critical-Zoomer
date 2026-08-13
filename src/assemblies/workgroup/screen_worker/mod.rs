@@ -167,7 +167,7 @@ async fn internal_behavior<A: SteadyActor>(
         , total_workshifts: 0
         , pending_reference: None
         , naive_gpu: None
-        , manual_gear: None
+        , manual_gear: Some(crate::assemblies::structs::KernelMode::Naive)
         , c_generator_margin_bits: crate::assemblies::workgroup::c_generator::DEFAULT_C_GENERATOR_MARGIN_BITS
         , pending_controller_emitted_at: None
         , seats_need_work: false

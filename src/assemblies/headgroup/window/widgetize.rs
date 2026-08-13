@@ -10,7 +10,7 @@ impl Settings {
         self.bailout_radius.widgetize(ui);
 
         ui.separator();
-        ui.label("Debug — compute kernel (gear)");
+        ui.label("Compute kernel (gear)");
         ui.checkbox(&mut self.manual_gear_enabled, "Manual gear");
         ui.add_enabled_ui(self.manual_gear_enabled, |ui| {
             ui.horizontal(|ui| {

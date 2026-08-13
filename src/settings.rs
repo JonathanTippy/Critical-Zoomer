@@ -120,8 +120,10 @@ impl Settings {
         , estimate_extra_iterations: false
         , id_counter: 7
         , currently_selected_coloring_instruction: 0
-        // Debug: force compute kernel; host type stays auto from depth.
-        , manual_gear_enabled: false
+        // Product default: lock CPU DirectKernel. Auto PPS race can still
+        // pick Naive GPU / Perturbation; those paths are too buggy to run
+        // unattended.
+        , manual_gear_enabled: true
         , manual_gear: crate::assemblies::structs::KernelMode::Naive
         // Debug: force colorer path; default GPU when disabled.
         , manual_color_gear_enabled: false
@@ -265,8 +267,8 @@ pub struct Settings {
     , pub estimate_extra_iterations:bool
     , pub currently_selected_coloring_instruction: u64
     , pub id_counter: u64
-    // When true, `manual_gear` selects the entire compute kernel (debug).
-    // Host stack / type remains automatic from depth admission.
+    // When true, `manual_gear` selects the entire compute kernel.
+    // Default on: Naive (CPU DirectKernel). Uncheck for the PPS race.
     , pub manual_gear_enabled: bool
     , pub manual_gear: crate::assemblies::structs::KernelMode
     // When true, `manual_color_gear` overrides the default GPU colorer.
@@ -790,14 +792,16 @@ mod mutant_kill {
     #[test]
     fn mutant_kill_manual_gear_override_enabled_gate() {
         let mut s = Settings::DEFAULT;
-        assert!(s.manual_gear_override().is_none());
-        s.manual_gear_enabled = true;
+        assert_eq!(s.manual_gear_override(), Some(KernelMode::Naive));
         s.manual_gear = KernelMode::Pert;
         assert_eq!(s.manual_gear_override(), Some(KernelMode::Pert));
         s.manual_gear = KernelMode::Naive;
         assert_eq!(s.manual_gear_override(), Some(KernelMode::Naive));
         s.manual_gear_enabled = false;
         assert!(s.manual_gear_override().is_none());
+        s.manual_gear_enabled = true;
+        s.manual_gear = KernelMode::NaiveGpu;
+        assert_eq!(s.manual_gear_override(), Some(KernelMode::NaiveGpu));
     }
 
     #[test]
