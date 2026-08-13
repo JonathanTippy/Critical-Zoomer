@@ -218,17 +218,11 @@ pub fn sample(
             , relative_pos_in_pixels.1 + shift(1, relative_zoom-1)
         );*/
 
-        let factor:f64;
+        let factor = zoom_from_pot(relative_zoom);
 
-        if relative_zoom > 0 {
-            factor = (1<<relative_zoom) as f64;
-        } else {
-            factor =  1.0 / (1<<-relative_zoom) as f64;
-        }
+        let relative_zoom_recip = ((1.0 / factor) * ((1 << 16) as f64)) as u32;
 
-        let relative_zoom_recip = ((1.0 / factor) * ((1<<16) as f64)) as u32;
-
-        let min_side_recip = (1<<32) / (min_side as i64);
+        let min_side_recip = (1i64 << 32) / (min_side as i64);
         //let res_recip = (     (1<<16) / size.0,    (1<<16) / size.1    );
 
 
@@ -415,6 +409,9 @@ mod mutant_kill {
         assert_eq!(t_neg, (16, 32));
         assert_ne!(t_neg, (4, 8));
         assert_ne!(t_neg, (8, 16));
+        // Deep-view home: large |zoom| used to overflow-panic signed_shift.
+        let t_deep = transform_relative_location_i32((10, 20), (2, 4), 40);
+        assert_eq!(t_deep, (0, 0));
         // optional refuses OOB even when clamp index would be valid.
         assert_eq!(optional_index_from_relative_location((3, 2), res, 12), Some(11));
         assert_eq!(

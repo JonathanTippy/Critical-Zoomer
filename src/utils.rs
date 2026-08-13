@@ -13,21 +13,32 @@ pub fn zoom_from_pot(zoom: i32) -> f64 {
 
 #[inline]
 pub fn signed_shift(input: i32, shift: i64) -> i32 {
-    (input << ((shift + (shift.abs()))>>1)) >> (-((shift - (shift.abs()))>>1))
-    /*if shift >= 0 {
-        input << shift
+    // Old form evaluated both `<<` and `>>` every call; |shift| ≥ 32 overflowed
+    // in debug (home from a deep view). Same arithmetic as wrapping i32 shifts.
+    const BITS: i64 = i32::BITS as i64;
+    if shift >= 0 {
+        if shift >= BITS {
+            0
+        } else {
+            input << (shift as u32)
+        }
     } else {
-        input >> (-shift)
-    }*/
+        let r = -shift;
+        if r >= BITS {
+            if input < 0 {
+                -1
+            } else {
+                0
+            }
+        } else {
+            input >> (r as u32)
+        }
+    }
 }
 
 #[inline]
-pub fn shift(input:i32, shift:i32) -> i32 {
-    if shift >= 0 {
-        input << shift as u32
-    } else {
-        input >> (-shift) as u32
-    }
+pub fn shift(input: i32, shift: i32) -> i32 {
+    signed_shift(input, shift as i64)
 }
 
 /*#[inline]
@@ -441,6 +452,12 @@ mod mutant_kill {
         assert_eq!(signed_shift(-16, 1), -32);
         assert_eq!(signed_shift(-16, -1), -8);
         assert_ne!(signed_shift(8, 2), signed_shift(8, -2));
+        // Home from deep zoom: |shift| ≥ 32 must not overflow-panic.
+        assert_eq!(signed_shift(8, 40), 0);
+        assert_eq!(signed_shift(8, -40), 0);
+        assert_eq!(signed_shift(-8, -40), -1);
+        assert_eq!(shift(1, 32), 0);
+        assert_eq!(shift(-1, -32), -1);
     }
 
     #[test]
