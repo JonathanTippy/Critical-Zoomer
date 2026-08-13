@@ -1,4 +1,3 @@
-use eframe::emath::Rect;
 use egui::{color_picker, Color32, CornerRadius, Margin, Shadow, Stroke, Ui};
 use egui_dnd::dnd;
 use crate::assemblies::structs::{ColorerMode, EscaperMode, KernelMode};
@@ -19,22 +18,79 @@ fn settings_section(ui: &mut Ui, title: &str, body: impl FnOnce(&mut Ui)) {
 }
 
 fn drag_list_frame(ui: &mut Ui, body: impl FnOnce(&mut Ui)) {
+    ui.spacing_mut().item_spacing.y = 10.0;
+    body(ui);
+}
+
+fn paint_grip(ui: &mut Ui) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(16.0, 22.0), egui::Sense::hover());
+    let color = ui.visuals().weak_text_color();
+    let painter = ui.painter();
+    for row in 0..3 {
+        for col in 0..2 {
+            painter.circle_filled(
+                egui::pos2(
+                    rect.center().x - 3.5 + col as f32 * 7.0,
+                    rect.center().y - 7.0 + row as f32 * 7.0,
+                ),
+                1.7,
+                color,
+            );
+        }
+    }
+}
+
+fn layer_card(ui: &mut Ui, item: impl Into<egui::WidgetText>, selected: bool, dragged: bool) {
+    let hover_id = ui.id().with("layer_card_hover");
+    let hovered = ui.ctx().data(|d| d.get_temp::<bool>(hover_id)).unwrap_or(false);
     let vis = ui.visuals().clone();
-    egui::Frame::new()
-        .inner_margin(Margin::same(10))
-        .corner_radius(CornerRadius::same(10))
-        .fill(vis.extreme_bg_color)
-        .stroke(Stroke::new(1.0, vis.widgets.inactive.bg_stroke.color))
-        .shadow(Shadow {
-            offset: [0, 3],
-            blur: 10,
+    let fill = if dragged {
+        vis.widgets.active.weak_bg_fill
+    } else if hovered && !selected {
+        vis.widgets.hovered.weak_bg_fill
+    } else if selected {
+        vis.selection.bg_fill
+    } else {
+        vis.widgets.inactive.weak_bg_fill
+    };
+    let shadow = if dragged {
+        Shadow {
+            offset: [0, 8],
+            blur: 20,
+            spread: 1,
+            color: Color32::from_black_alpha(140),
+        }
+    } else if hovered {
+        Shadow {
+            offset: [0, 4],
+            blur: 12,
             spread: 0,
-            color: Color32::from_black_alpha(90),
-        })
+            color: Color32::from_black_alpha(100),
+        }
+    } else {
+        Shadow {
+            offset: [0, 2],
+            blur: 8,
+            spread: 0,
+            color: Color32::from_black_alpha(70),
+        }
+    };
+    let inner = egui::Frame::new()
+        .inner_margin(Margin::symmetric(10, 8))
+        .corner_radius(CornerRadius::same(8))
+        .fill(fill)
+        .stroke(Stroke::new(1.0, vis.widgets.inactive.bg_stroke.color))
+        .shadow(shadow)
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
-            body(ui);
+            ui.horizontal(|ui| {
+                paint_grip(ui);
+                ui.add_space(6.0);
+                ui.label(item);
+            });
         });
+    ui.ctx()
+        .data_mut(|d| d.insert_temp(hover_id, inner.response.hovered() || dragged));
 }
 
 impl Settings {
@@ -47,17 +103,18 @@ impl Settings {
 
             let mut items = self.coloring_script.clone().unwrap();
 
-            let mut rect = Rect::ZERO;
-
             drag_list_frame(ui, |ui| {
-                dnd(ui, "dnd_example").show_vec(&mut items, |ui, item, handle, state| {
-                    ui.horizontal(|ui| {
-                        handle.ui(ui, |ui| {
-                            let _ = ui.add(egui::Button::new("☰").frame(true));
-                        });
-                        ui.label(*item);
-                        ui.radio_value(&mut self.currently_selected_coloring_instruction, item.id(), "select")
+                dnd(ui, "dnd_example").show_vec(&mut items, |ui, item, handle, dnd_state| {
+                    let selected = self.currently_selected_coloring_instruction == item.id();
+                    let response = handle.sense(egui::Sense::click()).ui(ui, |ui| {
+                        layer_card(ui, *item, selected, dnd_state.dragged);
                     });
+                    if dnd_state.dragged {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                    }
+                    if response.clicked() {
+                        self.currently_selected_coloring_instruction = item.id();
+                    }
                 });
             });
 
