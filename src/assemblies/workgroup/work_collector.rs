@@ -139,7 +139,8 @@ pub(crate) fn absorb_work_update(state: &mut WorkCollectorState<f64>, u: WorkUpd
                 points_delta: 0,
                 iterations_delta: u.iterations_delta,
                 packages_dropped: 0,
-                color: crate::assemblies::structs::ColorerHud::Og,
+                color: completed_work.hud.color,
+                escape: completed_work.hud.escape,
                 ..Default::default()
             };
         } else {
@@ -157,7 +158,8 @@ pub(crate) fn absorb_work_update(state: &mut WorkCollectorState<f64>, u: WorkUpd
                 points_delta: l as u64,
                 iterations_delta: u.iterations_delta,
                 packages_dropped: 0,
-                color: crate::assemblies::structs::ColorerHud::Og,
+                color: completed_work.hud.color,
+                escape: completed_work.hud.escape,
                 ..Default::default()
             };
         }
@@ -177,7 +179,6 @@ pub(crate) fn absorb_work_update(state: &mut WorkCollectorState<f64>, u: WorkUpd
                 points_delta: u.completed_points.len() as u64,
                 iterations_delta: u.iterations_delta,
                 packages_dropped: 0,
-                color: crate::assemblies::structs::ColorerHud::Og,
                 ..Default::default()
             },
         };
@@ -541,5 +542,30 @@ mod mutant_kill {
                 other => panic!("seat {i}: {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn collector_workupdate_does_not_clobber_color_hud() {
+        let loc = ObjectivePosAndZoom {
+            pos: (IntExp::ZERO, IntExp::ZERO),
+            zoom_pot: -2,
+        };
+        let res = (2u32, 2u32);
+        let mut state = WorkCollectorState {
+            completed_work: None,
+            surrounding_work: None,
+            pending_controller_emitted_at: None,
+        };
+        absorb_work_update(
+            &mut state,
+            bare_update(Some((loc, res)), vec![(seat_escape(10), 0)]),
+        );
+        let pkg = state.completed_work.as_mut().expect("package");
+        pkg.hud.color = crate::assemblies::structs::ColorerHud::Gpu;
+        pkg.hud.escape = crate::assemblies::structs::EscaperHud::Og;
+        absorb_work_update(&mut state, bare_update(None, vec![(seat_escape(20), 1)]));
+        let pkg = state.completed_work.expect("package");
+        assert_eq!(pkg.hud.color, crate::assemblies::structs::ColorerHud::Gpu);
+        assert_eq!(pkg.hud.escape, crate::assemblies::structs::EscaperHud::Og);
     }
 }

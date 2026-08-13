@@ -706,6 +706,7 @@ mod tests {
     // r[verify cz.craft.gpu-color-parity+1]
     #[test]
     fn gpu_matches_og_color32_default_script() {
+        let _wgpu = crate::debug_agent::WgpuTestLock::acquire();
         let Some(gpu) = GpuColorer::shared() else {
             // No device — gear must fall back without panic.
             let mut settings = Settings::DEFAULT;
@@ -732,6 +733,7 @@ mod tests {
 
     #[test]
     fn default_gear_is_gpu() {
+        let _wgpu = crate::debug_agent::WgpuTestLock::acquire();
         let mut settings = Settings::DEFAULT;
         settings.coloring_script = Some(DEFAULT_COLORING_SCRIPT.to_vec());
         let screen = tiny_screen();
@@ -751,6 +753,7 @@ mod tests {
 
     #[test]
     fn gpu_matches_og_per_layer_scripts() {
+        let _wgpu = crate::debug_agent::WgpuTestLock::acquire();
         let Some(gpu) = GpuColorer::shared() else {
             return;
         };
@@ -774,6 +777,7 @@ mod tests {
     // r[verify cz.shade.layers-in-script-order+1]
     #[test]
     fn gpu_matches_og_home_escape_frame() {
+        let _wgpu = crate::debug_agent::WgpuTestLock::acquire();
         use crate::assemblies::shadergroup::escaper::escape_frame;
         use crate::assemblies::workgroup::screen_worker::workshift::{
             from_stencil, workshift_with_kernel, CompletedPoint, DirectKernel,
@@ -841,6 +845,7 @@ mod tests {
 
     #[test]
     fn gpu_repeated_paint_is_stable() {
+        let _wgpu = crate::debug_agent::WgpuTestLock::acquire();
         let Some(gpu) = GpuColorer::shared() else {
             return;
         };
@@ -857,6 +862,7 @@ mod tests {
     /// would not force unbounded coalesce drops (mechanical sympathy).
     #[test]
     fn steady_state_gpu_color_anim_keeps_up() {
+        let _wgpu = crate::debug_agent::WgpuTestLock::acquire();
         let Some(gpu) = GpuColorer::shared() else {
             return;
         };

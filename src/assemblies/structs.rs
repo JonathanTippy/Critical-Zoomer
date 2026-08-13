@@ -36,11 +36,11 @@ pub struct ViewHud {
     pub controller_emitted_at: Option<std::time::Instant>,
 }
 
-/// Manual colorer implementation (settings gear; default OG).
+/// Manual colorer implementation (settings gear; product default GPU).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ColorerMode {
-    #[default]
     Og,
+    #[default]
     Gpu,
 }
 
@@ -73,8 +73,8 @@ impl EscaperMode {
 /// What the colorer stamped on the last painted frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ColorerHud {
-    #[default]
     Og,
+    #[default]
     Gpu,
     /// Manual GPU selected but device unavailable — painted with OG.
     GpuFallbackOg,

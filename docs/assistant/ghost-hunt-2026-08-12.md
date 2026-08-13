@@ -32,5 +32,6 @@ Commits: `automatic checkpoint` ≈ assistant; `WIP` ≈ developer.
 |---|---|---|---|
 | 0 (pass 1) | Cadence / color default / VSYNC / depth-closed / dummy-head floors | Table above | ~10% |
 | 1 | Dummy-head GPU esc **~60 Hz** as standing fact | `shadergroup-virtues.md`, shade-gpu interview living notes, issue-stack charter: that Hz was a snapshot; pin is release ≥40; debug can miss; headed still unchecked | **~12%** |
+| 2 | HUD `color:` still OG by default | Window init + `ColorerMode`/`ColorerHud` Default were OG after GPU became product default; collector WorkUpdates wiped shade stamps back to OG. Defaults + preserve stamps. Issue-stack “root cause fixed” retitled so it is not headed blockiness. GPU unit tests now take the same wgpu lock as the IPS probe (parallel GPU tests were starving it). | **~14%** |
 
-Not 100%. Implementation ghosts barely started. Unknowns still dominate.
+Not 100%. Implementation ghosts still mostly unknown.

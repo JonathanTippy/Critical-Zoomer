@@ -127,7 +127,8 @@ bucket 2 telemetry.
   `series_shallow_probe_stays_nearly_free`,
   `series_deep_skip_is_material_on_long_orbit`,
   `live_series_skip_initializes_delta_prefix`, membership pins with SA on.
-- **Deep exterior black/"in" vs blockiness (2026-08-08) — root cause fixed.** Flip-flop from stuffing generator `delta_c` into the zero-orbit δc slot (false interior) vs iterating collapsed f64 absolute `c` without a reference (blocky). Production bug: `workshift` called `perturbation_reference_active()` *after* `latest_reference.take()`, so the held orbit was always dropped and seats iterated zero-orbit with generator `delta_c` → false `repeats` at iters≈2 (flat black) while HUD still showed `mode:pert`/`ref:complete`. Fix: decide publish-orbit use from the held snapshot. Pins (workshift path): `pin_exterior_not_marked_in_at_zoom_52`, `pin_not_blocky_delta_c_at_zoom_49`. Soft-continue still uses absolute `c` in the δc slot.
+- **Deep exterior black/"in" vs stuffed δc (2026-08-08) — that production bug
+  closed.** Flip-flop from stuffing generator `delta_c` into the zero-orbit δc slot (false interior) vs iterating collapsed f64 absolute `c` without a reference (blocky). Production bug: `workshift` called `perturbation_reference_active()` *after* `latest_reference.take()`, so the held orbit was always dropped and seats iterated zero-orbit with generator `delta_c` → false `repeats` at iters≈2 (flat black) while HUD still showed `mode:pert`/`ref:complete`. Fix: decide publish-orbit use from the held snapshot. Pins (workshift path): `pin_exterior_not_marked_in_at_zoom_52`, `pin_not_blocky_delta_c_at_zoom_49`. Soft-continue still uses absolute `c` in the δc slot. **Not** v0.1 headed blockiness/depth-trust.
 - **Depth integration — finish-line gates (2026-08-07), product trust open.**
   Representability / series / HUD gear+IPS+PPS / home pert parity vs
   DirectKernel landed. **Do not read as v0.1 depth-trust done.** Rectangular

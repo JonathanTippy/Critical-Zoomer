@@ -672,6 +672,7 @@ mod tests {
 
     #[test]
     fn gpu_escape_matches_og_home() {
+        let _wgpu = crate::debug_agent::WgpuTestLock::acquire();
         let Some(gpu) = GpuEscaper::shared() else {
             let pkg = home_package((32, 18));
             let settings = Settings::DEFAULT;
@@ -710,6 +711,7 @@ mod tests {
 
     #[test]
     fn gpu_escape_radius_only_matches_reupload() {
+        let _wgpu = crate::debug_agent::WgpuTestLock::acquire();
         let Some(gpu) = GpuEscaper::shared() else {
             return;
         };

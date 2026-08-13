@@ -197,8 +197,8 @@ async fn internal_behavior<A: SteadyActor>(
         , last_stack_label: "f64"
         , last_mode_label: "naive"
         , last_ref_label: "NA"
-        , last_color_label: "OG"
-        , last_escape_label: "OG"
+        , last_color_label: Settings::DEFAULT.resolved_color_gear().manual_gear_label()
+        , last_escape_label: Settings::DEFAULT.resolved_escape_gear().manual_gear_label()
         , last_packages_dropped: 0
         , last_fanned_auto_vsync_hz: Settings::DEFAULT.auto_vsync_hz
         , settings_fanout_needed: true
