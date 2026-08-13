@@ -54,14 +54,13 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
 - **View IPP (2026-08-13).** Mean iterations per seat on the live view. Running
   while filling (`ipp:~N`); final when every seat is delivered (`ipp:N`).
   Difficulty of *this* view, not a rate.
-- **OG naive `CopyIntExp<1>` (`stack:i64`) flat grey (2026-08-13).** Separate
-  from readout. Headed at mag ~44 after f64 wall. Screen worker panicked in
-  `CopyIntExp::from` when viewport `IntExp` mantissa was wider than one word
-  (admit is a bit *count*; the stored mantissa still carries extra low bits).
-  CopyIntExp is only after f64’s bit-count wall (~42), not a mag-38 pitch bump.
-  Headed black at mag 38 with admitted `stack:f64` is an iterate/period
-  regression (location is a latch; mag is global). Picture-sanity latch: north
-  tip / high-heel (`NORTH_TIP_*`). Harder minibrots are compute-health only.
+- **OG naive `CopyIntExp<1>` (`stack:i64`) flat grey (2026-08-13).** Headed
+  `mag 2^43  -0.2067325560057166 + 1.1075689870974698i` (`HEADED_I64_GREY_*`):
+  **black is closed** (developer). Remaining: **flat grey**, HUD `ipp:0` with
+  `pps` still high (`mode:naive`, `stack:i64`, `gear:F64`). Worker panic on
+  fat `From<IntExp>` is a separate closed mechanism (squeeze). CopyIntExp
+  only after f64 bit-count wall (~42), not a mag-38 pitch bump. Pin
+  `og_copy_intexp1_headed_mag_43_not_all_interior`. Do not treat grey as fixed.
 - **Transition rectangular blockiness / shallow false admit (2026-08-12 design RCA).**
   When a deeper gear exists but the image shows rectangular precision blocks,
   suspect **C-generator false-admit of a shallow type**, or a **later precision

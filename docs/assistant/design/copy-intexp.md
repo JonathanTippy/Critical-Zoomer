@@ -50,3 +50,7 @@ and absolute f64 fails the bit-count gate (home ~**42**). One word still covers
 through ~**49–52**. HUD host stack label is `i64`. Not a perturbation compute-gear
 rung. If f64 is admitted, iterate must work; mag-38 black with `stack:f64` is a
 bug, not a reason to bump the host.
+
+Headed 2026-08-13 at mag **43** (`HEADED_I64_GREY_*`, `stack:i64`, `mode:naive`):
+**black is gone.** Remaining product bug is **flat grey** with HUD `ipp:0`
+(pps still high). Pin `og_copy_intexp1_headed_mag_43_not_all_interior`.

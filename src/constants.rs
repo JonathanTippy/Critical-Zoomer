@@ -11,6 +11,10 @@ pub const HOME_POSITION:(i32, i32, i32) = (-2, -2, -2);
 /// structure. Harder minibrots stay for compute-health, not everyday pins.
 pub const NORTH_TIP_RE: &str = "-0.161913425661";
 pub const NORTH_TIP_IM: &str = "1.035546905361";
+/// Headed 2026-08-13 mag 2^43 (`stack:i64`). Black gone; still flat grey; HUD `ipp:0`.
+pub const HEADED_I64_GREY_RE: &str = "-0.2067325560057166";
+pub const HEADED_I64_GREY_IM: &str = "1.1075689870974698";
+pub const HEADED_I64_GREY_MAG: i32 = 43;
 pub const MOVE_SPEED_PPS: i32 = 200;
 pub const MOVE_SPEED_IN_SCREENS: f32 = 0.42;
 pub const PIXELS_PER_UNIT_POT:i32 = 9;
@@ -41,6 +45,9 @@ mod mutant_kill {
         assert_ne!(MOVE_SPEED_IN_SCREENS, 0.0);
         assert_eq!(NORTH_TIP_RE, "-0.161913425661");
         assert_eq!(NORTH_TIP_IM, "1.035546905361");
+        assert_eq!(HEADED_I64_GREY_RE, "-0.2067325560057166");
+        assert_eq!(HEADED_I64_GREY_IM, "1.1075689870974698");
+        assert_eq!(HEADED_I64_GREY_MAG, 43);
         assert_eq!(SCROLL_SPEED, 40.0);
         assert_ne!(SCROLL_SPEED, -40.0);
         assert_ne!(SCROLL_SPEED, 0.0);

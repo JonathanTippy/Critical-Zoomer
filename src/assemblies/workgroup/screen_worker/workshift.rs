@@ -2418,6 +2418,57 @@ mod mutant_kill {
     }
 
     #[test]
+    // r[verify cz.depth.c-generator-fails-closed+1]
+    // r[verify cz.depth.gear-hud+2]
+    fn og_copy_intexp1_headed_mag_43_not_all_interior() {
+        use crate::assemblies::headgroup::window::coords::{decimal_str_to_intexp, ul_for_center};
+        use crate::constants::{
+            HEADED_I64_GREY_IM, HEADED_I64_GREY_MAG, HEADED_I64_GREY_RE, TEST_SCREEN_RES,
+        };
+        use crate::copy_intexp::CopyIntExp1;
+        use crate::assemblies::workgroup::c_generator::CGenerator;
+        use super::{from_stencil_with_margin, workshift_with_kernel, DirectKernel};
+        let loc = ul_for_center(
+            decimal_str_to_intexp(HEADED_I64_GREY_RE).unwrap(),
+            decimal_str_to_intexp(HEADED_I64_GREY_IM).unwrap(),
+            HEADED_I64_GREY_MAG,
+            TEST_SCREEN_RES,
+        );
+        let compute = (
+            loc.pos.0.clone(),
+            crate::utils::IntExp::ZERO - loc.pos.1.clone(),
+        );
+        assert!(
+            CGenerator::<f64>::new_with_margin(&compute, HEADED_I64_GREY_MAG as i64, TEST_SCREEN_RES, 1)
+                .is_none(),
+            "mag 43 must be past absolute f64 (HUD stack:i64)"
+        );
+        let frame = (loc, TEST_SCREEN_RES);
+        let mut ctx = from_stencil_with_margin::<CopyIntExp1>(frame, None, 1, false)
+            .expect("mag 43 CopyIntExp<1> admits");
+        for _ in 0..400 {
+            workshift_with_kernel(16_000_000, 2, 4, 150, &mut ctx, &DirectKernel);
+            if ctx.points.iter().all(|p| p.delivered || p.escapes || p.repeats) {
+                break;
+            }
+        }
+        let escapes = ctx.points.iter().filter(|p| p.escapes).count();
+        let repeats = ctx.points.iter().filter(|p| p.repeats).count();
+        let dummyish = ctx.points.iter().filter(|p| !p.escapes && !p.repeats).count();
+        assert!(
+            escapes > 0,
+            "headed mag 43: black (all-interior) is closed (escapes={escapes} repeats={repeats} unfinished={dummyish})"
+        );
+        // Remaining headed bug is flat grey + HUD ipp:0. Compute must still
+        // accumulate iterations; shade/dummy is the open product gap.
+        assert!(
+            ctx.view_ipp() > 0.0,
+            "seats must iterate (headed HUD showed ipp:0; grey is not 'no work') ipp={}",
+            ctx.view_ipp()
+        );
+    }
+
+    #[test]
     fn naive_absolute_past_mag_14_is_f64_not_scaled() {
         use crate::constants::HOME_POSITION;
         use crate::delta_gear::ComputeGear;

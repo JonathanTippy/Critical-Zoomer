@@ -80,7 +80,8 @@ bulk GPU fill. Completeness is a GPU+host-queue property
    high-heel (`NORTH_TIP_*`). Harder minibrots stay in the pocket for compute
    health (period, sticky-ref, IPS), not as the default picture check. View
    **IPP** (mean iterations/seat) is how hard *this* view actually was; final
-   only when the frame is delivered.
+   only when the frame is delivered. Headed mag 43 `HEADED_I64_GREY_*`: black
+   closed; remaining flat grey + `ipp:0` (`og_copy_intexp1_headed_mag_43_not_all_interior`).
 6. **Proptest regressions stay in tree.** Seeds under `proptest-regressions/`
    (including `copy_intexp.txt`) are re-run before new cases. Check them in.
 
