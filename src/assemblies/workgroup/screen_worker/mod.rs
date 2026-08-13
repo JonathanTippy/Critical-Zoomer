@@ -1073,9 +1073,11 @@ async fn emit_controller_pace<A, T>(
 {
     state.pending_controller_emitted_at = Some(emitted_at);
     let ctrl = state.pending_controller_emitted_at.take();
+    // `frame_info: Some` is the pivot announce (remap). Pace is HUD-only:
+    // same path as a completion write (`None`), empty seats.
     let update = if let Some(live) = state.f32_live.as_mut() {
         work_update_to_f64(telemetry_update(
-            Some(live.frame_info.clone()),
+            None,
             vec![],
             Some(&mut live.context),
             0,
@@ -1083,7 +1085,7 @@ async fn emit_controller_pace<A, T>(
         ))
     } else if let Some(live) = state.cie_live.as_mut() {
         work_update_to_f64(telemetry_update(
-            Some(live.frame_info.clone()),
+            None,
             vec![],
             Some(&mut live.context),
             0,
@@ -1091,7 +1093,7 @@ async fn emit_controller_pace<A, T>(
         ))
     } else if let Some(live) = state.work_context.as_mut() {
         telemetry_update(
-            Some(live.frame_info.clone()),
+            None,
             vec![],
             Some(&mut live.context),
             0,
@@ -1101,9 +1103,14 @@ async fn emit_controller_pace<A, T>(
         state.pending_controller_emitted_at = ctrl;
         return;
     };
-    if let Err(u) = send_update_waiting(actor, updates_out, update).await {
-        if let Some(at) = u.controller_emitted_at {
-            state.pending_controller_emitted_at = Some(at);
+    match actor.try_send(updates_out, update) {
+        SendOutcome::Success => {}
+        SendOutcome::Blocked(u)
+        | SendOutcome::Timeout(u)
+        | SendOutcome::Closed(u) => {
+            if let Some(at) = u.controller_emitted_at {
+                state.pending_controller_emitted_at = Some(at);
+            }
         }
     }
 }

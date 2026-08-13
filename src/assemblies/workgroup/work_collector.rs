@@ -168,9 +168,11 @@ pub(crate) fn absorb_work_update(state: &mut WorkCollectorState<f64>, u: WorkUpd
             };
         }
     } else {
-        let f = u
-            .frame_info
-            .expect("work collector recieved an initial work update without any info");
+        // Stamp-only Pace (frame_info None, no seats) before the first
+        // announce: keep the Instant, do not invent a Dummy package.
+        let Some(f) = u.frame_info else {
+            return;
+        };
         let mut package = ResultsPackage {
             results: vec![CompletedPoint::Dummy {}; (f.1 .0 * f.1 .1) as usize],
             screen_res: f.1,
@@ -575,5 +577,49 @@ mod mutant_kill {
         let pkg = state.completed_work.expect("package");
         assert_eq!(pkg.hud.color, crate::assemblies::structs::ColorerHud::Gpu);
         assert_eq!(pkg.hud.escape, crate::assemblies::structs::EscaperHud::Og);
+    }
+
+    #[test]
+    fn collector_stamp_only_none_does_not_remap_or_panic() {
+        let loc = ObjectivePosAndZoom {
+            pos: (IntExp::ZERO, IntExp::ZERO),
+            zoom_pot: -2,
+        };
+        let res = (2u32, 2u32);
+        let stamp = Instant::now();
+        let mut state = WorkCollectorState {
+            completed_work: None,
+            surrounding_work: None,
+            pending_controller_emitted_at: None,
+        };
+        let mut pace = bare_update(None, vec![]);
+        pace.controller_emitted_at = Some(stamp);
+        absorb_work_update(&mut state, pace);
+        assert!(state.completed_work.is_none());
+        assert_eq!(state.pending_controller_emitted_at, Some(stamp));
+
+        absorb_work_update(
+            &mut state,
+            bare_update(
+                Some((loc, res)),
+                vec![
+                    (seat_escape(10), 0),
+                    (seat_escape(20), 1),
+                    (seat_escape(30), 2),
+                    (seat_escape(40), 3),
+                ],
+            ),
+        );
+        let mut pace = bare_update(None, vec![]);
+        pace.controller_emitted_at = Some(stamp);
+        absorb_work_update(&mut state, pace);
+        let pkg = state.completed_work.expect("package");
+        for (i, expect) in [10u32, 20, 30, 40].into_iter().enumerate() {
+            match &pkg.results[i] {
+                CompletedPoint::Escapes { escape_time, .. } => assert_eq!(*escape_time, expect),
+                other => panic!("seat {i} remapped away: {other:?}"),
+            }
+        }
+        assert_eq!(state.pending_controller_emitted_at, Some(stamp));
     }
 }

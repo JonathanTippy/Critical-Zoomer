@@ -111,8 +111,9 @@ RateCounters; `ips:` / `pps:` unchanged.
 
 **`ctrl:` (2026-08-13):** controller wakes on the content period (same
 `resolved_content_period` as collector/shade). Unchanged stencils send `Pace`
-(HUD stamp only, no remap). `ctrl:` should sit near `pub:` at vsync, not 0
-after fill. Replace stays stencil-only on real view changes.
+(HUD stamp only). Worker forwards that as `frame_info: None` (completion
+write, empty seats) — never `Some` (that remap is the pivot announce and
+wiped the headed picture). Replace stays stencil-only on real view changes.
 
 ## Verify
 

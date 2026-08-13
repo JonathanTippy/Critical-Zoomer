@@ -14,7 +14,8 @@ toward 0 at 1920×1080.
 - `pub:` is collector content-beat publish stamps that reach the window.
 - `ctrl:` is controller Replace/Pace Instants that **ride** a later
   successful collector→shade publish. Since 2026-08-13 the controller also
-  `Pace`s on the content beat so idle `ctrl:` tracks vsync instead of aging to 0.
+  `Pace`s on the content beat. Worker must forward Pace as `frame_info: None`;
+  `Some` is remap and blanked the headed picture.
 
 So `ctrl:` is **not** the work-controller loop rate. The controller is not
 back-pressured by the collector channel in the sense of a slow Replace sender;

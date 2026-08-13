@@ -118,7 +118,9 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
   (D) **Collector / publish / shell O(pixels) — diagnosed 2026-08-12.** Headed
   `pub:`/`ctrl:` ~15 at 854×480 under motion, →0 at 1080p (publish lag).
   Controller is stencil-only (~80 B) on view change; **2026-08-13** it also
-  `Pace`s on the content beat so idle `ctrl:` is vsync-rate, not 0. Release probe: same-res `from_stencil` ~13 ms / ~76 ms;
+  `Pace`s on the content beat (`frame_info: None`, no remap) so idle `ctrl:`
+  can ride publish. A headed black-screen regression used `Some` and remapped
+  every beat. Release probe: same-res `from_stencil` ~13 ms / ~76 ms;
   `sample_old_values` ~24 ms / ~97 ms; publish clone+`view_from_package`
   ~10 ms / ~151 ms. Options (Arc frozen snapshot, sparse integrator for remap
   lineage, shell reuse) in `design/collector-publish-bottleneck.md`. Not
