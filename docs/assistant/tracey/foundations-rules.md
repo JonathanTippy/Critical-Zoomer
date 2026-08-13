@@ -86,8 +86,9 @@ No infinities.
 
 r[cz.math.copy-intexp-mul-schoolbook+1]
 
-**Normative summary.** `CopyIntExp` mul is schoolbook into `2×Words` limbs, then
-the same squeeze as add until the high half is unused. Commutative. Not recursive.
+**Normative summary.** `CopyIntExp` mul is algebraic schoolbook into `2×Words`
+limbs (unsigned 64×64 into `u128`, no sign split), then the same squeeze as add
+until the high half is unused. Commutative. Not recursive.
 
 **Acceptance criteria.**
 - [x] `a * b == b * a`.

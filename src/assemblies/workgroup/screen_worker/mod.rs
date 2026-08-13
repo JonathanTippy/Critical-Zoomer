@@ -9,6 +9,7 @@ use crate::assemblies::workgroup::reference_worker::{
     select_reference_request, PublishedReference, ReferenceRequest,
 };
 use crate::delta_gear::ComputeGear;
+use crate::copy_intexp::CopyIntExp1;
 use crate::utils::{ObjectivePosAndZoom, pos_from_index, IntExp};
 //use crate::actor::work_collector::*;
 use crate::assemblies::workgroup::work_controller::*;
@@ -63,6 +64,8 @@ pub struct WorkerState<T: Mandelbrotable> {
     , c_generator_margin_bits: u32
     // OG naive f32 host when the bit-count gate admits f32 (CPU DirectKernel).
     , f32_live: Option<LiveTarget<f32>>
+    // OG naive one-word CopyIntExp after absolute f64 fails (CPU DirectKernel).
+    , cie_live: Option<LiveTarget<CopyIntExp1>>
     // Controller Replace emission Instant awaiting the next successful WorkUpdate put.
     , pending_controller_emitted_at: Option<std::time::Instant>
     // O(1) park predicate: avoid scanning ~410k seats on every wake after fill.
@@ -92,6 +95,19 @@ fn og_f32_naive_admits(
 ) -> bool {
     gear == Some(KernelMode::Naive)
         && CGenerator::<f32>::new_with_margin(loc, zoom_pot, res, margin).is_some()
+}
+
+fn og_copy_intexp1_naive_admits(
+    gear: Option<KernelMode>,
+    loc: &(IntExp, IntExp),
+    zoom_pot: i64,
+    res: (u32, u32),
+    margin: u32,
+) -> bool {
+    // r[impl cz.depth.c-generator-fails-closed+1]
+    gear == Some(KernelMode::Naive)
+        && CGenerator::<f64>::new_with_margin(loc, zoom_pot, res, margin).is_none()
+        && CGenerator::<CopyIntExp1>::new_with_margin(loc, zoom_pot, res, margin).is_some()
 }
 
 fn ensure_naive_gpu_if_needed(state: &mut WorkerState<f64>) {
@@ -209,6 +225,7 @@ async fn internal_behavior<A: SteadyActor>(
         , pending_controller_emitted_at: None
         , seats_need_work: false
         , f32_live: None
+        , cie_live: None
     }).await;
 
     while actor.is_running(
@@ -293,6 +310,54 @@ async fn internal_behavior<A: SteadyActor>(
                 }
                 if reject_live {
                     state.f32_live = None;
+                    if state.work_context.is_none() && state.cie_live.is_none() {
+                        state.seats_need_work = false;
+                    }
+                    reject_live = false;
+                }
+                if let Some(live) = &mut state.cie_live {
+                    live.context.manual_gear = gear;
+                    if margin_changed {
+                        live.context.c_generator_margin_bits = margin;
+                        let compute_loc = (
+                            live.frame_info.0.pos.0.clone(),
+                            IntExp::ZERO - live.frame_info.0.pos.1.clone(),
+                        );
+                        if og_copy_intexp1_naive_admits(
+                            gear,
+                            &compute_loc,
+                            live.frame_info.0.zoom_pot as i64,
+                            live.frame_info.1,
+                            margin,
+                        ) {
+                            if let Some(g) = CGenerator::<CopyIntExp1>::new_with_margin(
+                                &compute_loc,
+                                live.frame_info.0.zoom_pot as i64,
+                                live.frame_info.1,
+                                margin,
+                            ) {
+                                let view_center = view_center_compute(
+                                    &compute_loc,
+                                    live.frame_info.0.zoom_pot,
+                                    live.frame_info.1,
+                                );
+                                let generation = live.context.generator_generation;
+                                apply_generator_admission(
+                                    &mut live.context,
+                                    crate::assemblies::workgroup::c_generator::GeneratorAdmission::Absolute(g),
+                                    view_center,
+                                    generation,
+                                );
+                            }
+                        } else {
+                            reject_live = true;
+                        }
+                    } else if gear != Some(KernelMode::Naive) {
+                        reject_live = true;
+                    }
+                }
+                if reject_live {
+                    state.cie_live = None;
                     if state.work_context.is_none() {
                         state.seats_need_work = false;
                     }
@@ -353,6 +418,9 @@ async fn internal_behavior<A: SteadyActor>(
             if let Some(live) = &mut state.f32_live {
                 set_attention(&mut live.context, attention.pointer);
                 set_gaze(&mut live.context, attention.gaze);
+            } else if let Some(live) = &mut state.cie_live {
+                set_attention(&mut live.context, attention.pointer);
+                set_gaze(&mut live.context, attention.gaze);
             } else if let Some(live) = &mut state.work_context {
                 set_attention(&mut live.context, attention.pointer);
                 set_gaze(&mut live.context, attention.gaze);
@@ -375,12 +443,36 @@ async fn internal_behavior<A: SteadyActor>(
                     .as_ref()
                     .is_some_and(|live| live.context.coords_are_relative)
                 || state
+                    .cie_live
+                    .as_ref()
+                    .is_some_and(|live| live.context.coords_are_relative)
+                || state
                     .work_context
                     .as_ref()
                     .is_some_and(|live| live.context.coords_are_relative);
             if install {
                 state.pending_reference = Some(newest.clone());
                 if let Some(live) = &mut state.f32_live {
+                    let keep_longer_bootstrap = newest.orbit.escaped
+                        && live.context.coords_are_relative
+                        && live.context.latest_reference.as_ref().is_some_and(|cur| {
+                            cur.orbit.iterates.len() > newest.orbit.iterates.len()
+                        });
+                    if !keep_longer_bootstrap {
+                        live.context.remember_reference(newest.clone());
+                        let compute_loc = (
+                            live.frame_info.0.pos.0.clone(),
+                            crate::utils::IntExp::ZERO - live.frame_info.0.pos.1.clone(),
+                        );
+                        rebuild_generator_for_reference(
+                            &mut live.context,
+                            &compute_loc,
+                            live.frame_info.0.zoom_pot as i64,
+                            live.frame_info.1,
+                            newest.as_ref(),
+                        );
+                    }
+                } else if let Some(live) = &mut state.cie_live {
                     let keep_longer_bootstrap = newest.orbit.escaped
                         && live.context.coords_are_relative
                         && live.context.latest_reference.as_ref().is_some_and(|cur| {
@@ -446,6 +538,11 @@ async fn internal_behavior<A: SteadyActor>(
                             Some((&live.context, &live.frame_info)),
                             &frame_info,
                         )
+                    } else if let Some(live) = state.cie_live.as_ref() {
+                        select_reference_request(
+                            Some((&live.context, &live.frame_info)),
+                            &frame_info,
+                        )
                     } else {
                         select_reference_request(
                             state
@@ -474,7 +571,14 @@ async fn internal_behavior<A: SteadyActor>(
                         frame_info.1,
                         state.c_generator_margin_bits,
                     );
-                    let stencil_ok = want_f32 || if relative_ok {
+                    let want_cie = og_copy_intexp1_naive_admits(
+                        state.manual_gear,
+                        &compute_loc,
+                        frame_info.0.zoom_pot as i64,
+                        frame_info.1,
+                        state.c_generator_margin_bits,
+                    );
+                    let stencil_ok = want_f32 || want_cie || if relative_ok {
                         let relative_anchor = state
                             .work_context
                             .as_ref()
@@ -508,6 +612,31 @@ async fn internal_behavior<A: SteadyActor>(
                     }
 
                     if let Some(mut live) = state.f32_live.take() {
+                        let iters = live.context.total_iterations_today;
+                        let U = work_update(&mut live.context);
+                        if !U.is_empty() {
+                            let update = work_update_to_f64(telemetry_update(
+                                None,
+                                U,
+                                Some(&mut live.context),
+                                iters as u64,
+                                state.pending_controller_emitted_at.take(),
+                            ));
+                            if let Err(u) = send_update_waiting(
+                                &mut actor,
+                                &mut updates_out,
+                                update,
+                            )
+                            .await
+                            {
+                                if let Some(at) = u.controller_emitted_at {
+                                    state.pending_controller_emitted_at = Some(at);
+                                }
+                            }
+                        }
+                    }
+
+                    if let Some(mut live) = state.cie_live.take() {
                         let iters = live.context.total_iterations_today;
                         let U = work_update(&mut live.context);
                         if !U.is_empty() {
@@ -570,6 +699,7 @@ async fn internal_behavior<A: SteadyActor>(
 
                     if want_f32 {
                         state.work_context = None;
+                        state.cie_live = None;
                         if let Some(mut new_ctx) = from_stencil_with_margin::<f32>(
                             frame_info.clone(),
                             None,
@@ -598,6 +728,54 @@ async fn internal_behavior<A: SteadyActor>(
                                 Some(frame_info),
                                 vec!(),
                                 state.f32_live.as_mut().map(|l| &mut l.context),
+                                0,
+                                ctrl,
+                            ));
+                            if let Err(u) = send_update_waiting(
+                                &mut actor,
+                                &mut updates_out,
+                                update,
+                            )
+                            .await
+                            {
+                                if let Some(at) = u.controller_emitted_at {
+                                    state.pending_controller_emitted_at = Some(at);
+                                }
+                            }
+                        } else {
+                            state.seats_need_work = false;
+                        }
+                    } else if want_cie {
+                        state.work_context = None;
+                        state.f32_live = None;
+                        if let Some(mut new_ctx) = from_stencil_with_margin::<CopyIntExp1>(
+                            frame_info.clone(),
+                            None,
+                            state.c_generator_margin_bits,
+                            false,
+                        ) {
+                            new_ctx.manual_gear = state.manual_gear;
+                            new_ctx.c_generator_margin_bits = state.c_generator_margin_bits;
+                            if let Some(pending) = state.pending_reference.clone() {
+                                new_ctx.remember_reference(pending.clone());
+                                rebuild_generator_for_reference(
+                                    &mut new_ctx,
+                                    &compute_loc,
+                                    frame_info.0.zoom_pot as i64,
+                                    frame_info.1,
+                                    pending.as_ref(),
+                                );
+                            }
+                            state.cie_live = Some(LiveTarget {
+                                context: new_ctx,
+                                frame_info: frame_info.clone(),
+                            });
+                            state.seats_need_work = true;
+                            let ctrl = state.pending_controller_emitted_at.take();
+                            let update = work_update_to_f64(telemetry_update(
+                                Some(frame_info),
+                                vec!(),
+                                state.cie_live.as_mut().map(|l| &mut l.context),
                                 0,
                                 ctrl,
                             ));
@@ -705,6 +883,18 @@ async fn internal_behavior<A: SteadyActor>(
                 );
                 iters_delta = live.context.total_iterations_today as u64;
                 state.seats_need_work = live.context.points.iter().any(|p| !p.delivered);
+            } else if let Some(live) = &mut state.cie_live {
+                let _shift_cpu = crate::debug_agent::busy_worker_shift();
+                workshift_with_kernel(
+                    token_budget,
+                    iteration_token_cost,
+                    point_token_cost,
+                    bout_token_cost,
+                    &mut live.context,
+                    &DirectKernel,
+                );
+                iters_delta = live.context.total_iterations_today as u64;
+                state.seats_need_work = live.context.points.iter().any(|p| !p.delivered);
             } else if let Some(live) = &mut state.work_context {
                 // workshift zeros `total_iterations_today` then counts only this shift.
                 // Do not subtract a leftover prior-shift total (that zeroed IPS on the HUD).
@@ -728,6 +918,25 @@ async fn internal_behavior<A: SteadyActor>(
                 let ctrl = state.pending_controller_emitted_at.take();
                 let mut restore_ctrl = None;
                 if let Some(live) = &mut state.f32_live {
+                    let c = work_update(&mut live.context);
+                    if !c.is_empty() || iters_delta > 0 {
+                        let update = work_update_to_f64(telemetry_update(
+                            None,
+                            c,
+                            Some(&mut live.context),
+                            iters_delta,
+                            ctrl,
+                        ));
+                        match send_update_waiting(&mut actor, &mut updates_out, update).await {
+                            Ok(()) => {}
+                            Err(u) => {
+                                restore_ctrl = u.controller_emitted_at;
+                            }
+                        }
+                    } else {
+                        restore_ctrl = ctrl;
+                    }
+                } else if let Some(live) = &mut state.cie_live {
                     let c = work_update(&mut live.context);
                     if !c.is_empty() || iters_delta > 0 {
                         let update = work_update_to_f64(telemetry_update(
@@ -883,6 +1092,8 @@ pub fn host_stack_for_context<T: Mandelbrotable + 'static>() -> crate::assemblie
         HostStack::FloatExp
     } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
         HostStack::F32
+    } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<CopyIntExp1>() {
+        HostStack::CopyI64
     } else {
         HostStack::F64
     }
@@ -1055,6 +1266,10 @@ mod mutant_kill {
         assert_eq!(host_stack_for_context::<f32>(), crate::assemblies::structs::HostStack::F32);
         assert_eq!(host_stack_for_context::<f64>(), crate::assemblies::structs::HostStack::F64);
         assert_eq!(
+            host_stack_for_context::<crate::copy_intexp::CopyIntExp1>(),
+            crate::assemblies::structs::HostStack::CopyI64
+        );
+        assert_eq!(
             host_stack_for_context::<FloatExp>(),
             crate::assemblies::structs::HostStack::FloatExp
         );
@@ -1109,6 +1324,22 @@ mod mutant_kill {
         ctx.points[0].direct_only = true;
         ctx.points[0].delivered = false;
         assert_eq!(classify_reference_status(&ctx), ReferenceStatus::Wip);
+    }
+
+    #[test]
+    // r[verify cz.depth.c-generator-fails-closed+1]
+    fn og_copy_intexp1_naive_flips_on_after_home_f64_wall() {
+        use crate::constants::DEFAULT_WINDOW_RES;
+        let loc = (
+            IntExp::from(HOME_POSITION.0),
+            IntExp::ZERO - IntExp::from(HOME_POSITION.1),
+        );
+        let res = DEFAULT_WINDOW_RES;
+        let naive = Some(KernelMode::Naive);
+        assert!(!og_copy_intexp1_naive_admits(naive, &loc, 41, res, 1));
+        assert!(og_copy_intexp1_naive_admits(naive, &loc, 42, res, 1));
+        assert!(og_copy_intexp1_naive_admits(naive, &loc, 49, res, 1));
+        assert!(!og_copy_intexp1_naive_admits(Some(KernelMode::Pert), &loc, 49, res, 1));
     }
 
     #[test]

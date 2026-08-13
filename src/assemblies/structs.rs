@@ -122,6 +122,8 @@ pub enum HostStack {
     F32,
     #[default]
     F64,
+    /// One-word `CopyIntExp` (OG naive after f64).
+    CopyI64,
     FloatExp,
 }
 
@@ -130,6 +132,7 @@ impl HostStack {
         match self {
             HostStack::F32 => "f32",
             HostStack::F64 => "f64",
+            HostStack::CopyI64 => "i64",
             HostStack::FloatExp => "FE",
         }
     }
@@ -260,7 +263,9 @@ mod mutant_kill {
     fn mutant_kill_structs_hud_and_flags() {
         assert_eq!(HostStack::F32.hud_label(), "f32");
         assert_eq!(HostStack::F64.hud_label(), "f64");
+        assert_eq!(HostStack::CopyI64.hud_label(), "i64");
         assert_eq!(HostStack::FloatExp.hud_label(), "FE");
+        assert_ne!(HostStack::F64.hud_label(), HostStack::CopyI64.hud_label());
         assert_ne!(HostStack::F64.hud_label(), HostStack::FloatExp.hud_label());
         assert_ne!(HostStack::F64.hud_label(), "");
 

@@ -26,6 +26,7 @@ pub mod gearbox;
 pub mod perturb;
 pub mod assemblies;
 pub mod debug_agent;
+mod copy_intexp;
 
 fn main() {
     #[cfg(target_os = "linux")]

@@ -34,7 +34,8 @@ count exceeds 24 while f64 (53) still admits.
 **Implementation.** `src/assemblies/workgroup/c_generator.rs` — `HostPrecision`,
 `Mandelbrotable::PRECISION`, `stencil_bits_needed`, `CGenerator::new_with_margin`.
 Settings slider `c_generator_margin_bits` (default 1). OG naive CPU uses the same
-`DirectKernel` / `Mandelbrotable` iterate as f64 when f32 admits.
+`DirectKernel` / `Mandelbrotable` iterate for f32, f64, then `CopyIntExp<1>`
+when absolute f64 fails and the one-word tape still admits.
 
 **Verification.** `generator_matches_v009_grid_bit_for_bit`,
 `rejects_collapse_at_far_end`, `successful_generator_has_distinct_neighbors`,
@@ -43,6 +44,9 @@ Settings slider `c_generator_margin_bits` (default 1). OG naive CPU uses the sam
 `home_f64_absolute_wall_moves_earlier_with_default_margin`,
 `margin_bits_zero_matches_prior_distinguish_only_admit`,
 `og_naive_f32_uses_same_direct_kernel`,
+`og_naive_copy_intexp1_uses_same_direct_kernel`,
+`home_copy_intexp1_admits_after_f64_wall`,
+`og_copy_intexp1_naive_flips_on_after_home_f64_wall`,
 
 r[cz.depth.relative-coords+1]
 

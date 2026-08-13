@@ -2316,6 +2316,36 @@ mod mutant_kill {
     }
 
     #[test]
+    // r[verify cz.depth.c-generator-fails-closed+1]
+    fn og_naive_copy_intexp1_uses_same_direct_kernel() {
+        use crate::constants::HOME_POSITION;
+        use crate::copy_intexp::CopyIntExp1;
+        use crate::utils::ObjectivePosAndZoom;
+        use super::{from_stencil_with_margin, workshift_with_kernel, DirectKernel};
+        let frame = (
+            ObjectivePosAndZoom {
+                pos: (
+                    crate::utils::IntExp::from(HOME_POSITION.0),
+                    crate::utils::IntExp::from(HOME_POSITION.1),
+                ),
+                zoom_pot: 49,
+            },
+            (32u32, 24u32),
+        );
+        let mut ctx = from_stencil_with_margin::<CopyIntExp1>(frame, None, 1, false)
+            .expect("home CopyIntExp<1> admit at zoom 49");
+        assert_eq!(
+            crate::assemblies::workgroup::screen_worker::host_stack_for_context::<CopyIntExp1>(),
+            crate::assemblies::structs::HostStack::CopyI64
+        );
+        workshift_with_kernel(0, 0, 0, 0, &mut ctx, &DirectKernel);
+        assert!(
+            ctx.points.iter().any(|p| p.initialized || p.delivered),
+            "OG CopyIntExp<1> DirectKernel must start seats"
+        );
+    }
+
+    #[test]
     fn naive_absolute_past_mag_14_is_f64_not_scaled() {
         use crate::constants::HOME_POSITION;
         use crate::delta_gear::ComputeGear;

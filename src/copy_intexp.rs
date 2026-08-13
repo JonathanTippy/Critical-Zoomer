@@ -30,6 +30,9 @@ pub(crate) struct CopyIntExp<const Words: usize> {
     value: [i64; Words],
     exp: i32,
 }
+
+/// One-word tape for OG naive after f64 absolute admit fails.
+pub(crate) type CopyIntExp1 = CopyIntExp<1>;
 impl<const Words: usize> CopyIntExp<Words> {
     // r[impl cz.math.copy-intexp-from-tape+1]
     pub(crate) fn from(value: IntExp) -> CopyIntExp<Words> {

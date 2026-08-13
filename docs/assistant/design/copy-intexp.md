@@ -8,21 +8,28 @@ only works with an infinite tape.
 the stack. The tape cannot grow. When a result would need more bits, **squeeze**:
 drop low bits, keep high bits, raise `exp`.
 
+Limbs stay `i64` in memory. Multi-limb two’s complement uses **unsigned 64-bit
+patterns** and a widening carry. Sign-extending a limb into `i128` wrecks carry.
+Add widens with `as u64 as i128`. Mul schoolbook uses `u128` for 64×64 products
+(`(2^64-1)²` does not fit in `i128`). No per-sign abs/restore on the iterate path.
+
+`PRECISION.significand_bits` is `Words * 64`. `min_exponent` is `i32::MIN`.
+
 ## Add
 
 1. Align to the **coarser** exp (the larger one). Right-shift the finer mantissa.
-2. Add as two’s-complement limbs (unsigned carry). If same-sign overflow produces
-   an extra carry word, shift one word right and add 64 to `exp`. Mixed-sign wrap
-   that lands in range stays as-is (`a + (-a)` is zero).
+2. Add limbs with unsigned carry. If the extra carry word is used, shift one
+   word right and add 64 to `exp`. Mixed-sign wrap that lands in range stays
+   as-is (`a + (-a)` is zero).
 
 Never left-shift to keep extra precision. That would throw away high bits or
 need a longer tape.
 
 ## Mul
 
-Schoolbook into `2×Words` limbs (unsigned magnitude, then sign). While the high
-half is used, shift one word right and add 64 to `exp`. Same squeeze as add;
-not Karatsuba.
+Schoolbook into `2×Words` limbs (unsigned limb products, algebraic). While the
+high half is used, shift one word right and add 64 to `exp`. Same squeeze as
+add; not Karatsuba.
 
 ## Finite
 
@@ -33,3 +40,11 @@ No infinities, same as `IntExp`. Overflow is a scale bump, not NaN/Inf.
 
 Digit copy into the limb window (panic if it does not fit), then two’s-complement
 if the source is negative.
+
+## OG naive (`Words = 1`)
+
+Manual Naive CPU uses `DirectKernel` on `CopyIntExp<1>` when f32 does not admit,
+absolute f64 `CGenerator::new_with_margin` fails, and the one-word tape still
+covers the stencil. Home, default margin 1: f64 dies at zoom **42**; one word
+still admits through zoom **49** (and until bits exceed 64, about **52**). HUD
+host stack label is `i64`. Not a perturbation compute-gear rung.

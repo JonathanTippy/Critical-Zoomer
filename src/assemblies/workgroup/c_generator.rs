@@ -212,6 +212,7 @@ impl<T: Mandelbrotable> GeneratorAdmission<T> {
 pub enum AdmittedHostStack {
     F32(GeneratorAdmission<f32>),
     F64(GeneratorAdmission<f64>),
+    CopyIntExp1(GeneratorAdmission<crate::copy_intexp::CopyIntExp1>),
     FloatExp(GeneratorAdmission<crate::floatexp::FloatExp>),
 }
 
@@ -326,6 +327,16 @@ pub fn pick_stack_admission_with_margin(
         margin_bits,
     ) {
         return Some(AdmittedHostStack::F64(admission));
+    }
+    if let Some(admission) = admit_generator_with_margin::<crate::copy_intexp::CopyIntExp1>(
+        compute_loc,
+        zoom_pot,
+        res,
+        relative_anchor,
+        view_center,
+        margin_bits,
+    ) {
+        return Some(AdmittedHostStack::CopyIntExp1(admission));
     }
     admit_generator_with_margin::<crate::floatexp::FloatExp>(
         compute_loc,
@@ -555,6 +566,24 @@ mod tests {
         assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 22, res, 20).is_some());
         assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 23, res, 20).is_none());
         assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 23, res, 10).is_some());
+    }
+
+    #[test]
+    // r[verify cz.depth.c-generator-fails-closed+1]
+    fn home_copy_intexp1_admits_after_f64_wall() {
+        use crate::constants::{DEFAULT_WINDOW_RES, HOME_POSITION};
+        use crate::copy_intexp::CopyIntExp1;
+        let compute_loc = (
+            IntExp::from(HOME_POSITION.0),
+            IntExp::ZERO - IntExp::from(HOME_POSITION.1),
+        );
+        let res = DEFAULT_WINDOW_RES;
+        // Default margin 1: f64 none at 42; one-word tape still covers 42 and 49.
+        assert!(CGenerator::<f64>::new(&compute_loc, 42, res).is_none());
+        assert!(CGenerator::<CopyIntExp1>::new(&compute_loc, 42, res).is_some());
+        assert!(CGenerator::<CopyIntExp1>::new(&compute_loc, 49, res).is_some());
+        assert!(CGenerator::<CopyIntExp1>::new(&compute_loc, 52, res).is_some());
+        assert!(CGenerator::<CopyIntExp1>::new(&compute_loc, 53, res).is_none());
     }
 
     #[test]

@@ -6,7 +6,9 @@ No authoritative unit file (homothety validity only). Non-authoritative.
 
 Fixed `[i64; Words]` + `i32` exp for iterate. Same quantity as `IntExp`, but the
 tape cannot grow: add/mul **squeeze** (coarser exp, drop low bits) instead of
-expanding. No infinities. See `docs/assistant/design/copy-intexp.md`.
+expanding. Limb arithmetic is unsigned 64-bit patterns with `u128` products.
+No infinities. OG naive CPU uses `CopyIntExp<1>` after absolute f64 fails.
+See `docs/assistant/design/copy-intexp.md`.
 
 ## IntExp (UD-NUM-INT-1) — inferred
 
