@@ -14,7 +14,7 @@ see `.cursor/rules/no-approval-during-loops.mdc`. To pause `/loop` sleepers use
 Cleanup is automatic:
 
 - `.cursor/hooks.json` runs `.cursor/hooks/kill-test-zombies.sh` before/after
-  `cargo test`, `cargo bench`, and `xvfb_screenshot_check`, and on agent `stop`
+  `cargo test`, `cargo bench`, and `screenshot_check`, and on agent `stop`
 - `.cursor/hooks/guard-raw-kill.sh` **blocks every raw kill/pkill/killall** and
   runs the safe reaper instead
 

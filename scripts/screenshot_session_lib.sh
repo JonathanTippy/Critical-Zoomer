@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Control helpers for Critical Zoomer under xvfb (support for xvfb_screenshot_check.sh only).
-# Policy: scripts/README.md — do not grow a shell e2e suite here.
+# Helpers for screenshot_session.sh / screenshot_check.sh.
+# Do not grow a shell e2e suite here.
 #
 # Frozen command surface: wait focus pointer click key keydown keyup hold scroll
 # zoomin zoomout goto navigate capture settle home quit|exit|stop

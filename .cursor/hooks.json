@@ -9,14 +9,14 @@
       },
       {
         "command": ".cursor/hooks/kill-test-zombies.sh --hook-before",
-        "matcher": "cargo test|cargo bench|xvfb_screenshot_check",
+        "matcher": "cargo test|cargo bench|screenshot_check",
         "timeout": 15
       }
     ],
     "afterShellExecution": [
       {
         "command": ".cursor/hooks/kill-test-zombies.sh --hook-after",
-        "matcher": "cargo test|cargo bench|xvfb_screenshot_check",
+        "matcher": "cargo test|cargo bench|screenshot_check",
         "timeout": 15
       }
     ],

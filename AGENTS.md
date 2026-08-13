@@ -32,7 +32,7 @@ Five layers, cheapest-first:
    `screen_worker/` or `colorer/`; it injects that file's rule summaries as agent
    context at the moment of the edit. Fails open.
 3. **Test leftover reaper** — `.cursor/hooks/kill-test-zombies.sh` runs before/after
-   shell commands matching `cargo test|cargo bench|xvfb_screenshot_check`, and on
+   shell commands matching `cargo test|cargo bench|screenshot_check`, and on
    agent `stop`. Reaps repo `target/` app/bench binaries and `/tmp/cz_*` Xvfb
    sessions only (never headed `/usr/bin` or Cursor sandboxes). Log:
    `/tmp/cz_zombie_kill.log`. Fails open.
@@ -50,7 +50,7 @@ Five layers, cheapest-first:
    and status). Stop hook `.cursor/hooks/full_check_on_stop.sh` runs it when the
    turn touched code/benches/tracey and follow-ups the agent if red. Log:
    `/tmp/cz_full_check.log`. Skip with `CZ_FULL_CHECK=0`. Fail-closed Tracey (no
-   soft-skip). `scripts/` also holds the Xvfb screenshot check.
+   soft-skip). `scripts/` also holds `screenshot_check.sh`, coverage, and mutants.
 
 ## Two rules that prevent most regressions
 
@@ -93,7 +93,7 @@ in micro probes or Criterion.
 
 For any change that can affect rendered output, also follow
 `docs/assistant/manual-testing.md`. This is assistant-owned work: build the
-current release, run `scripts/xvfb_screenshot_check.sh`, and inspect the PNG
+current release, run `scripts/screenshot_check.sh`, and inspect the PNG
 directly. Never capture the developer's desktop and never hand the procedure to
 the developer.
 

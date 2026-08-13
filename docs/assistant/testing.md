@@ -49,7 +49,7 @@ bulk GPU fill. Completeness is a GPU+host-queue property
 2. **Many small steady-state tests beat one giant e2e shell.** Keep them in
    Rust next to the code; pin with Tracey where they guard a rule.
 3. **Screenshots remain assistant-owned visual corroboration**
-   (`scripts/xvfb_screenshot_check.sh` only) — not a substitute for these.
+   (`scripts/screenshot_check.sh` only) — not a substitute for these.
 4. **When adding a performance-sensitive path** (naive GPU, gear switch,
    telemetry), add or extend a steady-state test in the same change.
 

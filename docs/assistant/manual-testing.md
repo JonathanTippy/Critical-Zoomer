@@ -5,9 +5,9 @@ classification, navigation, scheduling, shaders, or display timing. “Manual”
 means the assistant runs and inspects it. The developer is never expected to do
 these steps.
 
-**Scripts policy:** `scripts/` holds only the Xvfb screenshot check (see
-`scripts/README.md`). Correctness and performance live in `cargo test` and
-`cargo bench`. Do not add new shell e2e suites.
+**Scripts policy:** `scripts/` holds `full_check.sh`, `screenshot_check.sh`,
+coverage, and mutants (see `scripts/README.md`). Correctness and performance
+live in `cargo test` and `cargo bench`. Do not add new shell e2e suites.
 
 ## 1. First look: build, capture, inspect
 
@@ -25,7 +25,7 @@ these steps.
 
    ```bash
    CZ_CPUSET=4-11 taskset -c 4-11 nice -n 15 \
-     scripts/xvfb_screenshot_check.sh /tmp/cz_manual_home
+     scripts/screenshot_check.sh /tmp/cz_manual_home
    ```
 
 3. Read the generated PNG directly and inspect it as an image. Confirm that it
@@ -44,7 +44,7 @@ these steps.
 ## 2. Targeted interaction (when navigation/depth changed)
 
 Prefer Rust tests for numerical truth. When a headed frame is still needed,
-use `cz_ctl` only as support for `xvfb_screenshot_check.sh` (or the same
+use `screenshot_session.sh` only as support for `screenshot_check.sh` (or the same
 harness with an explicit out dir under `/tmp`), capture home / one zoom / one
 pan as needed, and inspect those PNGs. Do not revive deleted `e2e_*.sh`
 suites.
@@ -54,5 +54,5 @@ suites.
 Stop the session, confirm no leftover `critical_zoomer` / `Xvfb` processes, and
 leave no capture junk in the repo tree. Agent sessions also run
 `.cursor/hooks/kill-test-zombies.sh` automatically before/after `cargo test`,
-`cargo bench`, and `xvfb_screenshot_check`, and on agent stop (see
+`cargo bench`, and `screenshot_check`, and on agent stop (see
 `.cursor/hooks.json`). Manual sweep: `.cursor/hooks/kill-test-zombies.sh`.

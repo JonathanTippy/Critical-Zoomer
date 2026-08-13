@@ -19,8 +19,8 @@ need_stdout = true
 command = ["bash", "-lc", "./scripts/coverage.sh"]
 need_stdout = true
 
-[jobs.mutants-core]
-command = ["bash", "-lc", "./scripts/mutants_core.sh"]
+[jobs.mutants]
+command = ["bash", "-lc", "./scripts/mutants.sh"]
 need_stdout = true
 
 [jobs.tracey]

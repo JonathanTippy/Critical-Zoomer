@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Scoped cargo-mutants for core modules (V2V Mutants drive).
-# Excludes main/GUI shells; skips slow release hard-bars.
-# Usage: taskset -c 3-8 scripts/mutants_core.sh [file-glob...]
+# Scoped cargo-mutants. Excludes main/GUI shells; skips slow release hard-bars.
+# Usage: taskset -c 3-8 scripts/mutants.sh [file-glob...]
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -26,7 +25,7 @@ for f in "${FILES[@]}"; do
   FILE_ARGS+=(--file "$f")
 done
 
-echo "mutants_core: cpuset=${CZ_CPUSET} files=${FILES[*]}"
+echo "mutants: cpuset=${CZ_CPUSET} files=${FILES[*]}"
 # Pass test filters after `--` so each mutant runs a fast lib subset.
 exec taskset -c "${CZ_CPUSET}" cargo mutants \
   --exclude 'src/main.rs' \

@@ -4,7 +4,7 @@
 # Safe targets (path-scoped to this repo's target/ or cz session dirs):
 #   - target/*/critical_zoomer
 #   - target/*/deps/workgroup_fitness-*
-#   - cz_ctl sessions under /tmp/cz_* (via scripts/cz_ctl.sh stop)
+#   - screenshot_session under /tmp/cz_* (via scripts/screenshot_session.sh stop)
 #   - Xvfb / xvfb-run clearly tied to those sessions
 #
 # Never touches: /usr/bin/critical_zoomer, or Cursor cursorsandbox parents.
@@ -113,15 +113,15 @@ reap_matching_pids() {
 }
 
 stop_cz_sessions() {
-  local ctl="$ROOT/scripts/cz_ctl.sh"
+  local ctl="$ROOT/scripts/screenshot_session.sh"
   [[ -x "$ctl" ]] || return 0
-  # Default harness session (xvfb_screenshot_check without CZ_SESSION_PREFIX).
+  # Default harness session (screenshot_check without CZ_SESSION_PREFIX).
   "$ctl" stop >>"$LOG" 2>&1 || true
   local d
   for d in /tmp/cz_*; do
     [[ -d "$d" ]] || continue
     if [[ -f "$d/app.pid" || -f "$d/ctl.pid" || -f "$d/daemon.pid" || -f "$d/xvfb_wrapper.pid" ]]; then
-      log "cz_ctl stop session=$d"
+      log "screenshot_session stop session=$d"
       CZ_SESSION_PREFIX="$d" "$ctl" stop >>"$LOG" 2>&1 || true
     fi
   done

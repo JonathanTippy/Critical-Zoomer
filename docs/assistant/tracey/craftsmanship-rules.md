@@ -29,7 +29,7 @@ accident:
   injects that file's rule summaries (below) as agent context at the moment of the edit —
   the forcing function the docs alone cannot provide. It fails open (never blocks an edit).
 - **Test leftover reaper.** `.cursor/hooks/kill-test-zombies.sh` (before/after
-  `cargo test|cargo bench|xvfb_screenshot_check`, and on agent `stop`) reaps repo-scoped
+  `cargo test|cargo bench|screenshot_check`, and on agent `stop`) reaps repo-scoped
   app/bench orphans and `/tmp/cz_*` Xvfb sessions so cleanup does not depend on ad-hoc
   `pkill` approvals. Fails open; log `/tmp/cz_zombie_kill.log`.
   `.cursor/hooks/guard-raw-kill.sh` **denies** raw `kill`/`pkill` aimed at those

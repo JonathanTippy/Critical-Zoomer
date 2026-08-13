@@ -5,13 +5,11 @@ text: `docs/authoritative/requirements.md` (including E2E Addendum). Unit and
 integration verifies in Rust are the primary gate; the isolated Xvfb screenshot
 check corroborates that truth reaches the display.
 
-> **2026-08-08 scripts policy.** `scripts/` may contain only the Xvfb screenshot
-> entry point and its private ctl harness (`scripts/README.md`). The former
-> `e2e_*.sh` / harness-selftest / checked-in PNG zoo was moved to
-> `docs/assistant/Trash/scripts-sprawl-2026-08-08/`. Do not reintroduce it.
-> Acceptance below that cited those scripts is **historical**; live headed bar is
-> the screenshot check + assistant image inspection
-> (`docs/assistant/manual-testing.md`).
+> **2026-08-08 scripts policy.** Do not reintroduce the former `e2e_*.sh` /
+> harness-selftest / checked-in PNG zoo (`docs/assistant/Trash/scripts-sprawl-2026-08-08/`).
+> Live headed bar is `scripts/screenshot_check.sh` + assistant image inspection
+> (`docs/assistant/manual-testing.md`). `full_check.sh` / `coverage.sh` /
+> `mutants.sh` are allowed wrappers, not a second e2e suite.
 
 r[cz.e2e.harness-stack+1]
 
@@ -19,7 +17,7 @@ r[cz.e2e.harness-stack+1]
 available for the single screenshot check.
 
 **Acceptance criteria.**
-- [x] `scripts/xvfb_screenshot_check.sh` (+ `cz_ctl.sh` / `cz_ctl_lib.sh`) can
+- [x] `scripts/screenshot_check.sh` (+ `screenshot_session.sh` / `screenshot_session_lib.sh`) can
   start the release binary under Xvfb, settle, and write a PNG under `/tmp`.
 - ~~`scripts/harness_selftest.sh`~~ **Retired** (scripts policy 2026-08-08).
 
@@ -59,7 +57,7 @@ quickly (fitness ceiling — product target is much faster). Rule id keeps the
 historical “tile” token; the live machine is a single view.
 
 **Acceptance criteria.**
-- [ ] Headed: settled PNG from `xvfb_screenshot_check.sh` shows structure
+- [ ] Headed: settled PNG from `screenshot_check.sh` shows structure
   (assistant inspects; mean/stdev floors are helpers only).
 - ~~`scripts/e2e_home_fill_fitness.sh`~~ **Retired**.
 
@@ -99,7 +97,7 @@ known-good code, prove with tests, compare live captures against them when neede
 
 **Acceptance criteria.**
 - [ ] Oracle proving unit tests in Rust (v0.0.9 / restored code is the known-good).
-- [ ] Headed: `xvfb_screenshot_check.sh` + assistant Read of PNG
+- [ ] Headed: `screenshot_check.sh` + assistant Read of PNG
   (`docs/assistant/manual-testing.md`).
 - ~~`scripts/e2e_visual.sh`~~ **Retired**.
 

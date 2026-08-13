@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Interactive control for a running critical_zoomer session (Xvfb screenshot harness only).
-# See scripts/README.md — do not hang new e2e/perf suites off this tool.
+# Start / send / stop an isolated app session for screenshot_check.sh.
+# Do not hang new e2e/perf suites off this tool.
 #
-#   taskset -c 4-11 xvfb-run -a -s "-screen 0 900x500x24" scripts/cz_ctl.sh start [out_dir]
-#   scripts/cz_ctl.sh send 'capture a.png'
-#   scripts/cz_ctl.sh stop
+#   taskset -c 4-11 xvfb-run -a -s "-screen 0 900x500x24" scripts/screenshot_session.sh start [out_dir]
+#   scripts/screenshot_session.sh send 'capture a.png'
+#   scripts/screenshot_session.sh stop
 #
 # Session isolation: set CZ_SESSION_PREFIX or individual CZ_OUT/CZ_FIFO/… before start.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-# shellcheck source=scripts/cz_ctl_lib.sh
-source "$ROOT/scripts/cz_ctl_lib.sh"
+# shellcheck source=scripts/screenshot_session_lib.sh
+source "$ROOT/scripts/screenshot_session_lib.sh"
 
 usage() {
   echo "usage: $0 start [out_dir] | send 'CMD ...' | stop | status" >&2
@@ -28,14 +28,14 @@ cz_ctl_daemon() {
   # Wait until the X display is actually accepting connections (xvfb-run -a
   # can still be bringing the server up when this daemon is backgrounded).
   if [ -z "${DISPLAY:-}" ]; then
-    echo "cz_ctl start requires DISPLAY (run under xvfb-run)" >&2
+    echo "screenshot_session start requires DISPLAY (run under xvfb-run)" >&2
     exit 1
   fi
   # Never pop a window on the developer's real display unless explicitly allowed.
   case "${DISPLAY}" in
     :0|:0.*)
       if [ "${CZ_ALLOW_REAL_DISPLAY:-0}" != "1" ]; then
-        echo "cz_ctl refuses DISPLAY=${DISPLAY} (would appear on your screen)." >&2
+        echo "screenshot_session refuses DISPLAY=${DISPLAY} (would appear on your screen)." >&2
         echo "Use xvfb-run, or set CZ_ALLOW_REAL_DISPLAY=1 to override." >&2
         exit 1
       fi
@@ -61,12 +61,12 @@ cz_ctl_daemon() {
     *)
       if [ -z "${__EGL_VENDOR_LIBRARY_FILENAMES:-}" ] && [ -f /usr/share/glvnd/egl_vendor.d/50_mesa.json ]; then
         export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json
-        echo "cz_ctl: Mesa EGL for DISPLAY=$DISPLAY" >&2
+        echo "screenshot_session: Mesa EGL for DISPLAY=$DISPLAY" >&2
       fi
       # Product default is GPU-preferred (resident bouts). Keep
       # CZ_FORCE_CPU_BOUTS=1 as an explicit escape hatch for starved Xvfb hosts.
       if [ "${CZ_FORCE_CPU_BOUTS:-}" = "1" ]; then
-        echo "cz_ctl: CZ_FORCE_CPU_BOUTS=1 (explicit) for DISPLAY=$DISPLAY" >&2
+        echo "screenshot_session: CZ_FORCE_CPU_BOUTS=1 (explicit) for DISPLAY=$DISPLAY" >&2
       fi
       ;;
   esac
@@ -98,7 +98,7 @@ cz_ctl_daemon() {
         break
       fi
       # Keep serving the fifo: settle/capture asserts may fail without killing the session.
-      echo "cz_ctl: command failed code=$code: $line" >&2
+      echo "screenshot_session: command failed code=$code: $line" >&2
     }
   done <&3
   exec 3<&-
@@ -114,7 +114,7 @@ cmd_start() {
   fi
   cz_ctl_init
   if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-    echo "cz_ctl already running pid=$(cat "$PIDFILE")" >&2
+    echo "screenshot_session already running pid=$(cat "$PIDFILE")" >&2
     exit 1
   fi
   cz_ctl_daemon "$out_dir"
@@ -146,12 +146,12 @@ cmd_send() {
     source "$ENVFILE"
   fi
   if [ ! -p "$FIFO" ]; then
-    echo "cz_ctl not running (no fifo at $FIFO)" >&2
+    echo "screenshot_session not running (no fifo at $FIFO)" >&2
     exit 1
   fi
   if command -v timeout >/dev/null 2>&1; then
     timeout 2 bash -c "printf '%s\n' \"\$1\" >>\"\$2\"" _ "$*" "$FIFO" || {
-      echo "cz_ctl send timed out writing fifo $FIFO" >&2
+      echo "screenshot_session send timed out writing fifo $FIFO" >&2
       exit 1
     }
   else
