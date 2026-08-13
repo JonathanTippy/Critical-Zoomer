@@ -36,6 +36,7 @@ pub mod sampling;
 pub mod transforms;
 pub mod coords;
 pub mod snip;
+pub mod gaze;
 
 const RECOVER_EGUI_CRASHES:bool = false;
 // ^ half implimented; in cases where the window is supposed to
@@ -121,7 +122,8 @@ pub struct WindowState {
     , pub settings_ui_fan_timer: Instant
     // Reuse GPU texture when no new View arrived this frame.
     , pub display_texture: Option<TextureHandle>
-    , pub last_attention: Option<(i32, i32)>
+    , pub last_attention: AttentionFocus
+    , pub gaze: gaze::GazeSession
     // Last stencil location+res actually sent (skip duplicate Replace).
     , pub last_sent_stencil_key: Option<(ObjectivePosAndZoom, (usize, usize))>
 }
@@ -132,7 +134,7 @@ pub async fn run(
     pixels_in: SteadyRx<View<Color32>>,
     stencil_out: SteadyTx<(PointStencil)>,
     settings_out: SteadyTxBundle<Settings,4>,
-    attention_out: SteadyTx<Option<(i32, i32)>>,
+    attention_out: SteadyTx<AttentionFocus>,
     state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
     internal_behavior(
@@ -152,7 +154,7 @@ async fn internal_behavior<A: SteadyActor>(
     pixels_in: SteadyRx<View<Color32>>,
     stencil_out: SteadyTx<(PointStencil)>,
     settings_out: SteadyTxBundle<Settings, 4>,
-    attention_out: SteadyTx<Option<(i32, i32)>>,
+    attention_out: SteadyTx<AttentionFocus>,
     state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
 
@@ -204,7 +206,8 @@ async fn internal_behavior<A: SteadyActor>(
         , settings_fanout_needed: true
         , settings_ui_fan_timer: Instant::now()
         , display_texture: None
-        , last_attention: None
+        , last_attention: AttentionFocus::default()
+        , gaze: gaze::GazeSession::new()
         , last_sent_stencil_key: None
     }).await;
 
@@ -290,7 +293,7 @@ struct EguiWindowPassthrough<'a, A> {
     pixels_in: SteadyRx<View<Color32>>,
     stencil_out: SteadyTx<(PointStencil)>,
     settings_out: SteadyTxBundle<Settings, 4>,
-    attention_out: SteadyTx<Option<(i32, i32)>>,
+    attention_out: SteadyTx<AttentionFocus>,
     portable_state:Arc<Mutex<StateGuard<'a, WindowState>>>
 }
 
@@ -430,7 +433,29 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
 
             // sample
 
-            let (mut command_package, attention) = parse_inputs(&ctx, &mut state, size);
+            let (eye_on, request_cal) = if let Ok(mut ctx_settings) =
+                state.settings_window_context.try_lock()
+            {
+                let on = ctx_settings.settings.eye_tracking_enabled;
+                let req = ctx_settings.settings.request_gaze_calibrate;
+                if req {
+                    ctx_settings.settings.request_gaze_calibrate = false;
+                }
+                (on, req)
+            } else {
+                (false, false)
+            };
+            state.gaze.set_enabled(eye_on);
+            if eye_on {
+                let need_cal = request_cal || matches!(state.gaze.phase, gaze::GazePhase::Idle);
+                if need_cal {
+                    state.gaze.begin_calibrate();
+                }
+            }
+
+            let (mut command_package, pointer) = parse_inputs(&ctx, &mut state, size);
+            let gaze = state.gaze.tick((size.0 as f32, size.1 as f32));
+            let attention = AttentionFocus { pointer, gaze };
             // Same attention value need not resend; changing attention still flows.
             if attention != state.last_attention {
                 actor.try_send(&mut attention_out, attention);
@@ -555,7 +580,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                         let ctrl_fps = state.controller_fps_counter.rate(now);
                                         // r[impl cz.depth.gear-hud+2]
                                         response += format!(
-                                            "fps:{:.0}  pub:{:.0}  esc:{:.0}  col:{:.0}  ctrl:{:.0}  stack:{}  mode:{}  ref:{}  gear:{}\npps:{:.0}  ips:{:.0}  drop:{}  color:{}  escape:{}  1s:{:.1}",
+                                            "fps:{:.0}  pub:{:.0}  esc:{:.0}  col:{:.0}  ctrl:{:.0}  stack:{}  mode:{}  ref:{}  gear:{}\npps:{:.0}  ips:{:.0}  drop:{}  color:{}  escape:{}  gaze:{}  1s:{:.1}",
                                             r.0.0 as f64 / 1000000000.0,
                                             pub_fps,
                                             esc_fps,
@@ -570,6 +595,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                             state.last_packages_dropped,
                                             state.last_color_label,
                                             state.last_escape_label,
+                                            state.gaze.hud_short(),
                                             1.0 / r.1.0.as_secs_f64()
                                         ).as_str();
 
@@ -598,6 +624,27 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                         }).inner
                     }
                 );
+
+                if let Some(toast) = state.gaze.toast_text() {
+                    egui::Area::new(egui::Id::new("gaze_toast"))
+                        .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 12.0))
+                        .order(egui::Order::Foreground)
+                        .show(ctx, |ui| {
+                            egui::Frame::popup(ui.style())
+                                .inner_margin(egui::Margin::symmetric(10, 6))
+                                .show(ui, |ui| {
+                                    ui.label(toast);
+                                });
+                        });
+                }
+                if let Some(corner) = state.gaze.active_corner() {
+                    let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), state.size);
+                    let painter = ctx.layer_painter(egui::LayerId::new(
+                        egui::Order::Foreground,
+                        egui::Id::new("gaze_corner"),
+                    ));
+                    paint_gaze_corner_mark(&painter, rect, corner);
+                }
 
                 egui::Area::new(egui::Id::new("coord_bar"))
                     .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-8.0, -8.0))
@@ -760,5 +807,34 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
+}
+
+fn paint_gaze_corner_mark(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    corner: gaze::GazeCorner,
+) {
+    let len = 18.0;
+    let stroke = egui::Stroke::new(2.0, Color32::from_rgb(255, 220, 80));
+    let (h0, h1, v0, v1) = match corner {
+        gaze::GazeCorner::TopLeft => {
+            let p = rect.left_top();
+            (p, p + egui::vec2(len, 0.0), p, p + egui::vec2(0.0, len))
+        }
+        gaze::GazeCorner::TopRight => {
+            let p = rect.right_top();
+            (p, p + egui::vec2(-len, 0.0), p, p + egui::vec2(0.0, len))
+        }
+        gaze::GazeCorner::BottomRight => {
+            let p = rect.right_bottom();
+            (p, p + egui::vec2(-len, 0.0), p, p + egui::vec2(0.0, -len))
+        }
+        gaze::GazeCorner::BottomLeft => {
+            let p = rect.left_bottom();
+            (p, p + egui::vec2(len, 0.0), p, p + egui::vec2(0.0, -len))
+        }
+    };
+    painter.line_segment([h0, h1], stroke);
+    painter.line_segment([v0, v1], stroke);
 }
 

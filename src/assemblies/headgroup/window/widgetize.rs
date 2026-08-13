@@ -32,6 +32,14 @@ impl Settings {
             });
         });
         ui.separator();
+        ui.label("Eye tracking");
+        ui.checkbox(&mut self.eye_tracking_enabled, "Enable gaze spiral");
+        if ui.button("Calibrate gaze").clicked() {
+            self.eye_tracking_enabled = true;
+            self.request_gaze_calibrate = true;
+        }
+        ui.label("Toast: look at each window corner. No full-screen dots.");
+        ui.separator();
         ui.label("Debug — colorer (gear)");
         ui.checkbox(&mut self.manual_color_gear_enabled, "Manual color gear");
         ui.add_enabled_ui(self.manual_color_gear_enabled, |ui| {

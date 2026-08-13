@@ -59,7 +59,7 @@ pub async fn run(
     pixels_in: SteadyRx<View<Color32>>,
     stencil_out: SteadyTx<PointStencil>,
     settings_out: SteadyTxBundle<Settings, 4>,
-    attention_out: SteadyTx<Option<(i32, i32)>>,
+    attention_out: SteadyTx<AttentionFocus>,
     state: SteadyState<DummyCadenceState>,
     cfg: DummyCadenceConfig,
 ) -> Result<(), Box<dyn Error>> {
@@ -90,7 +90,7 @@ async fn internal_behavior<A: SteadyActor>(
     pixels_in: SteadyRx<View<Color32>>,
     stencil_out: SteadyTx<PointStencil>,
     settings_out: SteadyTxBundle<Settings, 4>,
-    attention_out: SteadyTx<Option<(i32, i32)>>,
+    attention_out: SteadyTx<AttentionFocus>,
     state: SteadyState<DummyCadenceState>,
     cfg: DummyCadenceConfig,
 ) -> Result<(), Box<dyn Error>> {
@@ -167,7 +167,7 @@ async fn internal_behavior<A: SteadyActor>(
                 );
             }
             if !actor.is_full(&mut attention_out) {
-                let _ = actor.try_send(&mut attention_out, None);
+                let _ = actor.try_send(&mut attention_out, AttentionFocus::default());
             }
             state.bootstrapped = true;
         }

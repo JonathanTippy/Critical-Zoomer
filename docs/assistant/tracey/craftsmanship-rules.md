@@ -197,17 +197,18 @@ shift 1.
 
 r[cz.craft.attention-spiral+1]
 
-**Normative summary.** Slot 0 of the five-slot rotation is the attention phase when motion is
+**Normative summary.** Slot 0 of the five-slot rotation is the pointer attention phase when motion is
 `Zoomed` or `Neither` (see `pan-zoom-slot0`). It walks a square-ring spiral from the live
-attention seat (`Some`) or screen center (`None`, pointer off-screen), skipping delivered /
-off-screen seats. Tenacity is *state*, not call depth: the seat under work is held in
-`attention_current`, and every bout is bounded by `BoutCap` (see `bout-cap`). When the held
+pointer seat (`Some`) or screen center (`None`, pointer off-screen), skipping delivered /
+off-screen seats. When gaze is calibrated, slot 3 walks a second spiral from the gaze seat;
+`set_gaze(None)` turns that spiral off and does not fall back to center. Tenacity is *state*, not call depth: the seat under work is held in
+`attention_current` / `gaze_current`, and every bout is bounded by `BoutCap` (see `bout-cap`). When the held
 seat completes (or is found delivered), the hold is released and the next bout advances the
 spiral. Exhaustion falls through to the queue priorities.
 
-**Code site.** `workshift.rs` — `next_attention_spiral_pos`, `set_attention`,
-`attention_current` hold/release, slot 0 of `workshifts % 5`; `screen_worker/mod.rs`
-attention drain; `inputs.rs` sends `Option`.
+**Code site.** `workshift.rs` — `next_attention_spiral_pos`, `next_gaze_spiral_pos`, `set_attention`,
+`set_gaze`, hold/release, slots 0 and 3 of `workshifts % 5`; `screen_worker/mod.rs`
+attention drain; `inputs.rs` sends pointer; window merges `AttentionFocus`.
 
 **Acceptance criteria.**
 - [ ] Fresh shells default the spiral anchor to screen center with `attention: None`.
@@ -216,6 +217,8 @@ attention drain; `inputs.rs` sends `Option`.
 - [ ] A held seat is reworked on the next attention bout until it completes, then released.
 - [ ] A held seat found delivered is released so the bout cannot spin on it.
 - [ ] `set_attention(None)` restores the center anchor, restarts the index, drops the hold.
+- [ ] `set_gaze(None)` does not install a center spiral.
+- [ ] When gaze is `Some`, slot 3 prefers the gaze spiral over queued edge work.
 
 **Test.** `from_stencil_defaults_attention_anchor_to_center`,
 `square_ring_spiral_is_nondecreasing_chebyshev`,
@@ -225,7 +228,9 @@ attention drain; `inputs.rs` sends `Option`.
 `attention_releases_held_seat_delivered_elsewhere`,
 `spiral_skips_delivered_and_falls_through_when_exhausted`,
 `spiral_skips_offscreen_seats`,
-`set_attention_none_restores_center_anchor`.
+`set_attention_none_restores_center_anchor`,
+`set_gaze_none_does_not_center`,
+`gaze_slot_picks_spiral_before_queues`.
 
 r[cz.craft.bout-cap+1]
 

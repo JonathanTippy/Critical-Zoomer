@@ -19,7 +19,7 @@ violation until justified or reverted.
 | `headgroup/window/rolling.rs` | +76 (PPS / rates) | **Yes** — HUD |
 | `headgroup/window/mod.rs` | HUD wiring | **Yes** — HUD |
 | `headgroup/window/snip.rs` | +72 in-app PPM | Borderline — faux-user / assistant visual; keep |
-| `headgroup/window/inputs.rs` | pointer → `Option` attention | **Yes** — location / attention for spiral |
+| `headgroup/window/gaze.rs` | eye-tracking toast calib + second spiral | **Yes** — attention (same bucket as pointer spiral) |
 | `headgroup/window/sampling.rs` | `SetPos` via coords + HUD pass-through | **Yes** — goto + HUD |
 | `headgroup/window/transforms.rs` | +12 command-only apply | **Yes** — goto / tests (no pixel path) |
 | `shadergroup/colorer/color.rs` | +319 filament / period edges | **Bucket 3** — shade rules; headed verify required |

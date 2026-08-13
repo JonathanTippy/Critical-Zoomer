@@ -140,6 +140,8 @@ impl Settings {
         , head_max_fps: 120.0
         // C-generator render margin (bits). Default 10; vary for manual testing.
         , c_generator_margin_bits: crate::assemblies::workgroup::c_generator::DEFAULT_C_GENERATOR_MARGIN_BITS
+        , eye_tracking_enabled: false
+        , request_gaze_calibrate: false
     };
 
     /// Resolved manual gear for the screen worker (`None` = automatic policy).
@@ -289,6 +291,10 @@ pub struct Settings {
     // Extra bits of C-generator admit headroom beyond neighbor distinguishability.
     // Default 10; exposed for manual testing of precision / gear transitions.
     , pub c_generator_margin_bits: u32
+    // Webcam gaze → extra attention spiral. Off until calibrated.
+    , pub eye_tracking_enabled: bool
+    // One-shot: window consumes this and starts the four-corner toast.
+    , pub request_gaze_calibrate: bool
 }
 
 

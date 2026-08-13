@@ -20,7 +20,7 @@ pub const NUMBER_OF_LOOP_CHECK_POINTS: usize = 5;
 pub const MAX_PIXELS:usize = 1920*1080*4;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Step {Scredge, In, Out, Edge, Attention}
+pub enum Step {Scredge, In, Out, Edge, Attention, Gaze}
 
 
 pub trait Floaty: Sub<Output=Self> + Add<Output=Self> + Mul<Output=Self> + Into<f64> + PartialOrd + Finite + Gt + Abs + From<f32> + Into<f64> + Copy {}
@@ -126,6 +126,10 @@ pub struct WorkContext<T: Mandelbrotable> {
     , pub attention_index: u64
     // Seat the attention phase is tenaciously working; cleared on completion.
     , pub attention_current: Option<(i32, i32)>
+    , pub gaze: Option<(i32, i32)>
+    , pub gaze_anchor: (i32, i32)
+    , pub gaze_index: u64
+    , pub gaze_current: Option<(i32, i32)>
     , pub c_generator: CGenerator<T>
     , pub pitch_epsilon: T
     // Newest published reference for the live shell. Shared so the clone-happy
@@ -982,6 +986,10 @@ pub fn from_stencil_with_margin<T: Mandelbrotable + From<f32> + 'static>(
         attention_anchor: center,
         attention_index: 0,
         attention_current: None,
+        gaze: None,
+        gaze_anchor: center,
+        gaze_index: 0,
+        gaze_current: None,
         c_generator,
         pitch_epsilon: seat_pitch_epsilon,
         coord_anchor,
@@ -1119,6 +1127,25 @@ pub fn set_attention<T: Mandelbrotable>(ctx: &mut WorkContext<T>, attention: Opt
     }
 }
 
+/// Gaze spiral. `None` turns the extra spiral off — it does **not** fall back
+/// to screen center (pointer attention already owns that).
+// r[impl cz.craft.attention-spiral+1]
+pub fn set_gaze<T: Mandelbrotable>(ctx: &mut WorkContext<T>, gaze: Option<(i32, i32)>) {
+    ctx.gaze = gaze;
+    match gaze {
+        Some(pos) => {
+            if pos != ctx.gaze_anchor {
+                ctx.gaze_anchor = pos;
+                ctx.gaze_index = 0;
+                ctx.gaze_current = None;
+            }
+        }
+        None => {
+            ctx.gaze_current = None;
+        }
+    }
+}
+
 /// Integer floor sqrt for the square-ring index.
 #[inline]
 fn isqrt_u64(n: u64) -> u64 {
@@ -1168,27 +1195,42 @@ const ATTENTION_SCAN_CAP: u32 = 64;
 pub fn next_attention_spiral_pos<T: Mandelbrotable>(
     ctx: &mut WorkContext<T>,
 ) -> Option<(i32, i32)> {
-    let max_ring = max(ctx.res.0, ctx.res.1) as u64;
-    // Indices past (2*max_ring+1)^2 lie outside every on-screen ring.
+    next_spiral_pos(
+        ctx.res,
+        &ctx.points,
+        ctx.attention_anchor,
+        &mut ctx.attention_index,
+    )
+}
+
+/// Same square-ring walk as pointer attention, from the gaze anchor.
+// r[impl cz.craft.attention-spiral+1]
+pub fn next_gaze_spiral_pos<T: Mandelbrotable>(ctx: &mut WorkContext<T>) -> Option<(i32, i32)> {
+    next_spiral_pos(ctx.res, &ctx.points, ctx.gaze_anchor, &mut ctx.gaze_index)
+}
+
+fn next_spiral_pos<T: Mandelbrotable>(
+    res: (u32, u32),
+    points: &[Point<T>],
+    anchor: (i32, i32),
+    index: &mut u64,
+) -> Option<(i32, i32)> {
+    let max_ring = max(res.0, res.1) as u64;
     let max_index = (2 * max_ring + 1).saturating_mul(2 * max_ring + 1);
-    let (ax, ay) = ctx.attention_anchor;
+    let (ax, ay) = anchor;
     for _ in 0..ATTENTION_SCAN_CAP {
-        let k = ctx.attention_index;
+        let k = *index;
         if k >= max_index {
             return None;
         }
         let (dx, dy) = square_ring_offset(k);
-        ctx.attention_index = k + 1;
+        *index = k + 1;
         let pos = (ax + dx, ay + dy);
-        if pos.0 < 0
-            || pos.1 < 0
-            || pos.0 >= ctx.res.0 as i32
-            || pos.1 >= ctx.res.1 as i32
-        {
+        if pos.0 < 0 || pos.1 < 0 || pos.0 >= res.0 as i32 || pos.1 >= res.1 as i32 {
             continue;
         }
-        let index = index_from_pos(&pos, ctx.res.0);
-        if !ctx.points[index].delivered {
+        let seat = index_from_pos(&pos, res.0);
+        if !points[seat].delivered {
             return Some(pos);
         }
     }
@@ -1520,7 +1562,18 @@ where
                 }
             }
             3 => {
-                if let Some(p) = queue_fallback_pos(context, false) {
+                if context.gaze.is_some() {
+                    if let Some(pos) = context.gaze_current {
+                        (pos, Step::Gaze)
+                    } else if let Some(pos) = next_gaze_spiral_pos(context) {
+                        context.gaze_current = Some(pos);
+                        (pos, Step::Gaze)
+                    } else if let Some(p) = queue_fallback_pos(context, false) {
+                        p
+                    } else {
+                        context.index = total_points-1; break;
+                    }
+                } else if let Some(p) = queue_fallback_pos(context, false) {
                     p
                 } else {
                     context.index = total_points-1; break;
@@ -1557,6 +1610,9 @@ where
                     // Held seat got delivered elsewhere; release it so the
                     // next bout advances the spiral instead of spinning.
                     context.attention_current = None;
+                }
+                Step::Gaze => {
+                    context.gaze_current = None;
                 }
             }
             continue;
@@ -1654,6 +1710,9 @@ where
                     // Held seat finished: release it so the next attention
                     // bout advances the spiral to the next undelivered seat.
                     context.attention_current = None;
+                }
+                Step::Gaze => {
+                    context.gaze_current = None;
                 }
             }
 

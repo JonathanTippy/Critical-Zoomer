@@ -13,6 +13,13 @@ pub struct PointStencil {
     , pub serial_number: u64
 }
 
+/// Pointer and optional gaze seats in sampling pixels (head → worker).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AttentionFocus {
+    pub pointer: Option<(i32, i32)>,
+    pub gaze: Option<(i32, i32)>,
+}
+
 /// Worker → display telemetry for HUD (stack, mode, ref, gear + rate counters).
 // r[impl cz.depth.gear-hud+2]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]

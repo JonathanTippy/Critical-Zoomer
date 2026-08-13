@@ -10,6 +10,7 @@ use crate::assemblies::workgroup::reference_worker::{
 use crate::delta_gear::ComputeGear;
 use crate::utils::{ObjectivePosAndZoom, pos_from_index, IntExp};
 //use crate::actor::work_collector::*;
+use crate::assemblies::structs::AttentionFocus;
 use crate::assemblies::workgroup::work_controller::*;
 use crate::assemblies::workgroup::screen_worker::workshift::*;
 
@@ -101,7 +102,7 @@ pub async fn run(
     actor: SteadyActorShadow,
     commands_in: SteadyRx<WorkerCommand>,
     updates_out: SteadyTx<WorkUpdate<f64>>,
-    attention_in: SteadyRx<Option<(i32, i32)>>,
+    attention_in: SteadyRx<AttentionFocus>,
     reference_requests_out: SteadyTx<ReferenceRequest>,
     references_in: SteadyRx<PublishedReference>,
     settings_in: SteadyRx<crate::settings::Settings>,
@@ -128,7 +129,7 @@ async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
     commands_in: SteadyRx<WorkerCommand>,
     updates_out: SteadyTx<WorkUpdate<f64>>,
-    attention_in: SteadyRx<Option<(i32, i32)>>,
+    attention_in: SteadyRx<AttentionFocus>,
     reference_requests_out: SteadyTx<ReferenceRequest>,
     references_in: SteadyRx<PublishedReference>,
     settings_in: SteadyRx<crate::settings::Settings>,
@@ -255,7 +256,8 @@ async fn internal_behavior<A: SteadyActor>(
             };
             let attention = actor.try_take(&mut attention_in).expect("internal error");
             if let Some(live) = &mut state.work_context {
-                set_attention(&mut live.context, attention);
+                set_attention(&mut live.context, attention.pointer);
+                set_gaze(&mut live.context, attention.gaze);
             }
         }
 

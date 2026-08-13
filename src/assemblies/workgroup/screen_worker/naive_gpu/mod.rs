@@ -98,6 +98,12 @@ pub fn claim_next_undelivered_seat(
                 }
                 return None;
             }
+            if matches!(step, Step::Gaze) && context.gaze_current == Some(pos) {
+                if let Some(p) = scan_undelivered_seat(context, skip) {
+                    return Some(p);
+                }
+                return None;
+            }
             if !from_scan {
                 advance_past(context, step);
             }
@@ -105,7 +111,7 @@ pub fn claim_next_undelivered_seat(
         }
         if !from_scan {
             claim(context, step, pos);
-        } else if matches!(step, Step::Attention) {
+        } else if matches!(step, Step::Attention | Step::Gaze) {
             // Spiral/hold path only.
             claim(context, step, pos);
         }
@@ -187,9 +193,28 @@ fn select_candidate(
                 )
             }
         }
-        3 => crate::assemblies::workgroup::screen_worker::workshift::queue_fallback_pos_pub(
-            context, false,
-        ),
+        3 => {
+            if context.gaze.is_some() {
+                if let Some(pos) = context.gaze_current {
+                    let index = index_from_pos(&pos, context.res.0);
+                    if context.points[index].delivered {
+                        context.gaze_current = None;
+                    } else if !skip.contains(index) {
+                        return Some((pos, Step::Gaze));
+                    }
+                }
+                if context.gaze_current.is_none() {
+                    if let Some(pos) = crate::assemblies::workgroup::screen_worker::workshift::next_gaze_spiral_pos(
+                        context,
+                    ) {
+                        return Some((pos, Step::Gaze));
+                    }
+                }
+            }
+            crate::assemblies::workgroup::screen_worker::workshift::queue_fallback_pos_pub(
+                context, false,
+            )
+        }
         4 => crate::assemblies::workgroup::screen_worker::workshift::queue_fallback_pos_pub(
             context, true,
         ),
@@ -214,6 +239,9 @@ fn advance_past(context: &mut WorkContext<f64>, step: Step) {
         Step::Attention => {
             context.attention_current = None;
         }
+        Step::Gaze => {
+            context.gaze_current = None;
+        }
     }
 }
 
@@ -233,6 +261,9 @@ fn claim(context: &mut WorkContext<f64>, step: Step, pos: (i32, i32)) {
         }
         Step::Attention => {
             context.attention_current = Some(pos);
+        }
+        Step::Gaze => {
+            context.gaze_current = Some(pos);
         }
     }
 }
@@ -641,6 +672,9 @@ fn publish_gpu_finishes(
     let attention_idx = context
         .attention_current
         .map(|p| index_from_pos(&p, context.res.0));
+    let gaze_idx = context
+        .gaze_current
+        .map(|p| index_from_pos(&p, context.res.0));
     let mut need_reupload = false;
     let mut published_batch = 0u32;
     for fin in finishes {
@@ -675,6 +709,9 @@ fn publish_gpu_finishes(
         }
         if attention_idx == Some(index) {
             context.attention_current = None;
+        }
+        if gaze_idx == Some(index) {
+            context.gaze_current = None;
         }
         // Bulk floods may skip period twin-test (period unknown / IPS path);
         // neighbor discovery always runs — flood fill must announce itself.

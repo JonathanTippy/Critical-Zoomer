@@ -140,6 +140,10 @@ fn make_context(workshifts: u32) -> WorkContext<FloatExp> {
         // Force queue fallthrough unless a test exercises the spiral.
         attention_index: u64::MAX,
         attention_current: None,
+        gaze: None,
+        gaze_anchor: center,
+        gaze_index: 0,
+        gaze_current: None,
         c_generator,
         pitch_epsilon: FloatExp::from(1e-9 * (1.0 / 256.0)),
         coord_anchor: (IntExp::ZERO, IntExp::ZERO),
@@ -859,6 +863,8 @@ fn from_stencil_defaults_attention_anchor_to_center() {
             ((TEST_SCREEN_RES.0 / 2) as i32, (TEST_SCREEN_RES.1 / 2) as i32)
         );
         assert_eq!(ctx.attention_index, 0);
+        assert_eq!(ctx.gaze, None);
+        assert!(ctx.gaze_current.is_none());
     });
 }
 
@@ -988,6 +994,38 @@ fn set_attention_none_restores_center_anchor() {
         );
         assert_eq!(ctx.attention_index, 0, "anchor change restarts the spiral");
         assert_eq!(ctx.attention_current, None, "anchor change drops the hold");
+    });
+}
+
+// r[verify cz.craft.attention-spiral+1]
+#[test]
+fn set_gaze_none_does_not_center() {
+    run_big_stack_size(|| {
+        let mut ctx = make_context(0);
+        set_gaze(&mut ctx, Some((3, 1)));
+        assert_eq!(ctx.gaze, Some((3, 1)));
+        assert_eq!(ctx.gaze_anchor, (3, 1));
+        ctx.gaze_index = 9;
+        ctx.gaze_current = Some((3, 1));
+        set_gaze(&mut ctx, None);
+        assert_eq!(ctx.gaze, None);
+        assert_eq!(ctx.gaze_anchor, (3, 1), "gaze off does not move the pointer center");
+        assert_eq!(ctx.gaze_current, None);
+        assert_eq!(ctx.gaze_index, 9, "clearing gaze does not restart a center spiral");
+    });
+}
+
+// r[verify cz.craft.attention-spiral+1]
+#[test]
+fn gaze_slot_picks_spiral_before_queues() {
+    run_big_stack_size(|| {
+        let mut ctx = make_context(3);
+        ctx.gaze_index = 0;
+        set_gaze(&mut ctx, Some((1, 0)));
+        ctx.edge_queue.push_back(((3, 1), 0));
+        let pos = next_gaze_spiral_pos(&mut ctx).unwrap();
+        assert_eq!(pos, (1, 0));
+        assert_eq!(ctx.gaze_index, 1);
     });
 }
 

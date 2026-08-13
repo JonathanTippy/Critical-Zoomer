@@ -24,7 +24,7 @@ num-traits = "0.2.19"
 proptest = "1.11.0"
 arboard = "3.6"
 wgpu = "25.0.2"
-pollster = "0.4"
+v4l = "0.14"
 bytemuck = { version = "1.22", features = ["derive"] }
 
 [dev-dependencies]

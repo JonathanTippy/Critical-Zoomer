@@ -219,10 +219,11 @@ When a bout does *not* finish its seat:
 ### Attention: the user's gaze as a fifth queue
 
 Slot 0 runs an **attention spiral**: a square-ring walk outward from the live
-cursor (`Option<(i32,i32)>` on the attention channel). `Some` restarts the spiral
+cursor (`AttentionFocus.pointer` on the attention channel). `Some` restarts the spiral
 at that seat; `None` (pointer off the fractal screen) anchors at screen center.
-Tenacity is *state*, not call depth: the seat under work is held in
-`attention_current`, and each attention bout is bounded by `BoutCap` like every
+When gaze is mapped, slot 3 runs a second spiral from `AttentionFocus.gaze`;
+absent gaze does not fall back to center. Tenacity is *state*, not call depth: the seat under work is held in
+`attention_current` / `gaze_current`, and each attention bout is bounded by `BoutCap` like every
 other phase — the worker may never make an unbounded call. When the held seat
 completes (or is found delivered), the hold releases and the spiral advances,
 skipping delivered and off-screen seats, so the fovea fills deterministically
