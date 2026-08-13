@@ -1,0 +1,19 @@
+---
+description: Frequent recovery checkpoints on the current branch
+alwaysApply: true
+---
+
+# Checkpoint commits
+
+Frequent recovery commits with message:
+
+```
+automatic checkpoint <datetime>
+```
+
+Commit on **whatever branch is already checked out**. Do not create a new
+branch unless the developer asked. Do not merge, rebase, squash, or force-push
+main unless directed.
+
+This is the same policy as AGENTS.md (same-workspace checkpoints) and the
+user rule. Redundant on purpose.

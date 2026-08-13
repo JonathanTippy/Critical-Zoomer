@@ -1,0 +1,23 @@
+---
+description: Follow through on docs, Tracey, and proptests; product code is developer-driven
+alwaysApply: true
+---
+
+# Follow through (docs and tests)
+
+Keep up with **everything** the developer said in the thread. Code changes
+are single-head and developer-driven. Assistant follow-through is:
+
+- design / issue-stack / ghost-hunt notes matching **live** truth
+- Tracey: `tracey query validate` when docs or `r[…]` markers move; do not
+  let links rot
+- tests and proptests (including `proptest-regressions/` when they appear)
+- checkpoints: `automatic checkpoint <datetime>` on the **already checked-out**
+  branch (never invent a new branch)
+
+Do not drop a doc or test obligation because the last compile was green.
+The full-check hook does not own this list.
+
+Cargo isolation (same as `.cursor/rules/cargo-target-isolation.mdc`):
+`CARGO_TARGET_DIR=/tmp/cz_cursor_cargo_target`. Hook:
+`/tmp/cz_full_check_cargo_target`. Never start `scripts/full_check.sh`.

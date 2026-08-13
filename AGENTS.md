@@ -49,10 +49,13 @@ Five layers, cheapest-first:
    pyramid order on the **dev** profile with opt-level 3: unit, then
    `integration_tier`, then e2e park + cadence +
    all Criterion benches + `tracey query validate`
-   and status). Stop hook `.cursor/hooks/full_check_on_stop.sh` runs it when the
-   turn touched code/benches/tracey and follow-ups the agent if red. Log:
-   `/tmp/cz_full_check.log`. Skip with `CZ_FULL_CHECK=0`. Fail-closed Tracey (no
-   soft-skip). `scripts/` also holds `screenshot_check.sh`, coverage, and mutants.
+   and status). Builds in `/tmp/cz_full_check_cargo_target`. Agents use
+   `/tmp/cz_cursor_cargo_target`. Stop hook `.cursor/hooks/full_check_on_stop.sh`
+   runs it when the turn touched code/benches/tracey and follow-ups the agent
+   if red. Log: `/tmp/cz_full_check.log`. Skip with `CZ_FULL_CHECK=0`.
+   Fail-closed Tracey (no soft-skip). **Green hook is a gate, not a stop** —
+   keep ghost hunt / docs / Tracey / proptests moving.
+   `scripts/` also holds `screenshot_check.sh`, coverage, and mutants.
 
 ## Two rules that prevent most regressions
 
@@ -104,11 +107,11 @@ the developer.
 ## Same-workspace checkpoint commits (recoverable delegated work)
 
 The developer keeps control of permanent / main history. Agents may still create
-**checkpoint commits on the current non-main feature branch** in this same
+**checkpoint commits on whatever branch is already checked out** in this same
 workspace so interruptions and whole-file mishaps are recoverable:
 
-1. Work on a non-main branch in the current workspace (visible; no parallel
-   worktree required for ordinary delegated work).
+1. Do not create a new branch unless asked. Visible workspace; no parallel
+   worktree required for ordinary delegated work.
 2. Before risky delegated edits, commit a clearly labeled recovery checkpoint
    (`checkpoint: ...`) even if some gates are still red.
 3. One foreground agent at a time; no parent+child concurrent edits of the same

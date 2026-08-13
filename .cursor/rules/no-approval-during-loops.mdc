@@ -27,7 +27,7 @@ or any multi-step plan, only use paths that never need approval.
 | Recurring ticks | Arm a **fixed** `while true; do sleep; echo sentinel; done` **once** at loop start (Cursor `/loop` skill), or rely on an already-running sleeper — do not invent approval-gated re-arms |
 | Pause / stop a loop | `.cursor/hooks/stop-agent-loops.sh` only (never raw `kill`) |
 | Test leftover cleanup | `.cursor/hooks/kill-test-zombies.sh` only |
-| Builds / tests | `taskset` + `nice` + `cargo` as usual |
+| Builds / tests | `taskset` + `nice` + `cargo` with `CARGO_TARGET_DIR=/tmp/cz_cursor_cargo_target` (never workspace `target/`; never start `scripts/full_check.sh`) |
 | Checkpoints | Normal `git commit` on the feature branch per AGENTS.md |
 | Docs status lines | Edit tools or skip — never worth an approval risk |
 | Anything blocked by Auto-review | Stop that mechanism; pick another path. **Never** wait on the developer |

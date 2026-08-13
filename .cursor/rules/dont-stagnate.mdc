@@ -1,0 +1,25 @@
+---
+description: Hook green is not a stop; keep working (ghost hunt, docs, tests)
+alwaysApply: true
+---
+
+# Do not go dead
+
+The stop hook (`scripts/full_check.sh`) is a **gate**, not a substitute for
+follow-through. It might find nothing. That is not permission to idle.
+
+- After a user ask is handled, **keep going**: ghost hunt, Tracey health,
+  proptests, issue-stack honesty. Do not wait to be told.
+- After a hook follow-up, **do not assume the next hook will save you**.
+  Fix the real cause, then continue other open work in this thread.
+- “FULL CHECK OK” is not 100% ghosts caught. Headed bugs stay open until
+  the developer says otherwise.
+- Product code stays developer-driven. Assistant work is docs, Tracey,
+  tests/proptests, rules, and recovery checkpoints.
+
+Same hunt: `docs/assistant/ghost-grind-loop-prompt.md` and
+`.cursor/rules/ghost-hunt-continue.mdc`.
+
+Cargo: `export CARGO_TARGET_DIR=/tmp/cz_cursor_cargo_target` before any
+agent `cargo`. Hook uses `/tmp/cz_full_check_cargo_target`. Checkpoints:
+`automatic checkpoint <datetime>` on the current branch.

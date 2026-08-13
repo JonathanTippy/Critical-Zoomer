@@ -10,3 +10,7 @@ While `docs/assistant/ghost-hunt-2026-08-12.md` is not marked done (caught-guess
 After finishing whatever the developer most recently asked, **and** after the required checks for that work pass, **resume the ghost hunt** without waiting to be told. Interruptions are expected; pick up again when they leave.
 
 Follow `docs/assistant/ghost-grind-loop-prompt.md`. Do not declare headed bugs fixed. Do not claim 100% because the last swath was clean.
+
+A green `scripts/full_check.sh` does **not** end this hunt. Do not go dead
+waiting for the hook. Cargo: `CARGO_TARGET_DIR=/tmp/cz_cursor_cargo_target`
+(hook: `/tmp/cz_full_check_cargo_target`). Never start full_check yourself.

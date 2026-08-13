@@ -25,6 +25,9 @@ If you need an explicit sweep, run **only**:
 ```
 
 Log: `/tmp/cz_zombie_kill.log`. Never invent ad-hoc kill/pkill one-liners.
+Agent `cargo` still uses `/tmp/cz_cursor_cargo_target` (see
+`.cursor/rules/cargo-target-isolation.mdc`). The reaper still only touches
+repo `target/` app binaries and `/tmp/cz_*` Xvfb — that is fine.
 
 Headed runs of the **repo** binary may get reaped too. That is accepted
 (developer 2026-08-12): slightly annoying, less assistant confusion. Do not

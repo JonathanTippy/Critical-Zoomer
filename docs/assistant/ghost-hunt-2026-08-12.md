@@ -51,5 +51,6 @@ Commits: `automatic checkpoint` ≈ assistant; `WIP` ≈ developer.
 | 13 | Mag-38 black ⇒ bump CopyIntExp at `1e-14` | Assistant hid a location/period question behind a type switch. Admit is bit count; mag 38 f64 still admits and far-exterior escapes. Pitch prefer-relative is pert/GPU. | **~36%** |
 | 14 | `critical-zoomer-invariants.mdc` | AGENTS and craftsmanship rules name it as the always-on summary. File was missing from `.cursor/rules/`. Restored from the six typed invariants. | **~38%** |
 | 15 | Mag-38 black as i64 / pitch | HUD `gear:F64` `mode:naive` is OG DirectKernel, not the i64 tape. `stack:` is the host. Assistant CopyIntExp bump was the OG regression. Mag-43 grey is i64→f64 collector narrow. | **~40%** |
+| 16 | `full_check` still “on repo `target/`” in the isolation rule; AGENTS checkpoints “non-main only” | Hook builds `/tmp/cz_full_check_cargo_target`; agents `/tmp/cz_cursor_cargo_target`. Checkpoints go on the **checked-out** branch (often main). Hook green ≠ hunt done; redundant always-on rules for don’t-stagnate / follow-through / checkpoints. | **~42%** |
 
-Not 100%. Implementation ghosts still mostly unknown.
+Not 100%. Implementation ghosts still mostly unknown. Headed grey / head CPU still open.
