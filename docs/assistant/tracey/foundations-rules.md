@@ -85,13 +85,14 @@ No infinities.
 **Verification.** `add_commutative`, `add_matches_squeezed_intexp`,
 `add_squeezes_to_coarser_exp`, `sub_is_add_of_neg`, `neg_is_involution`,
 `add_two_negatives_keeps_word_and_exp`,
+`add_negative_plus_small_positive_keeps_word`,
 `headed_mag_43_get_c_unique_count_at_window_res`.
 
 r[cz.math.copy-intexp-mul-schoolbook+1]
 
-**Normative summary.** `CopyIntExp` mul is algebraic schoolbook into `2×Words`
-limbs (unsigned 64×64 into `u128`, no sign split), then the same squeeze as add
-until the high half is unused. Commutative. Not recursive.
+**Normative summary.** `Words = 1` mul is a signed `i128` product, then squeeze
+until it fits an `i64` limb. Wider tapes stay schoolbook into `2×Words` limbs.
+Commutative. Not recursive.
 
 **Acceptance criteria.**
 - [x] `a * b == b * a`.
@@ -104,23 +105,21 @@ until the high half is unused. Commutative. Not recursive.
 
 r[cz.math.copy-intexp-from-tape+1]
 
-**Normative summary.** `From<IntExp>` copies LSF digits into the fixed window.
-If the mantissa is wider than the tape, squeeze (drop low bits, raise `exp`)
-until it fits — same as add/mul. Then two’s-complement when the source is
-negative. Never panic on a too-wide source. Limbs are **signed** `i64`: a
-64-bit magnitude uses the sign bit. That conversion is still wrong on the
-live path (headed UL imag flips sign). Round-trip pins use small mantissas
-only (`±10_000`).
+**Normative summary.** `From<IntExp>` copies the absolute mantissa into the
+fixed window. Squeeze until `significant_bits ≤ Words×64 − 1` (signed limb),
+then two’s-complement if the source is negative. Never panic on a too-wide
+source. A 64-bit magnitude must not be stored with `u64 as i64`.
 
 **Acceptance criteria.**
 - [x] Values that fit in 63 magnitude bits round-trip through `CopyIntExp`.
 - [x] A mantissa wider than `Words×64` bits still converts (squeeze, no panic).
-- [ ] 64-bit positive magnitude must not become a negative limb.
+- [x] 64-bit positive magnitude stays a positive limb (`2^63 × 2^{-63}` → `+1`).
 
 **Implementation.** `CopyIntExp::from`.
 **Verification.** `from_intexp_roundtrips_when_it_fits`,
 `from_squeezes_mantissa_wider_than_tape`,
-`rca_from_64bit_positive_mantissa_sets_sign_bit` (witness of the open hole).
+`from_64bit_positive_mantissa_stays_positive`,
+`headed_mag_43_get_c_unique_count_at_window_res`.
 
 r[cz.math.copy-intexp-no-infinity+1]
 

@@ -9,29 +9,31 @@ the stack. The tape cannot grow. When a result would need more bits, **squeeze**
 drop low bits, keep high bits, raise `exp`.
 
 Limbs stay `i64` in memory. Multi-limb two’s complement uses **unsigned 64-bit
-patterns** and a widening carry. Sign-extending a limb into `i128` wrecks carry.
-Add widens with `as u64 as i128`. Mul schoolbook uses `u128` for 64×64 products
-(`(2^64-1)²` does not fit in `i128`). No per-sign abs/restore on the iterate path.
+patterns** on *lower* limbs; the **high** limb is sign-extended into the carry
+word. `pack_add` keeps the sum when that high word is `0` or `-1` (fits);
+otherwise it shifts one word and adds 64 to `exp`.
 
-`PRECISION.significand_bits` is `Words * 64`. `min_exponent` is `i32::MIN`.
+`PRECISION.significand_bits` is `Words * 64` (admit). `From` squeezes to
+`Words*64 − 1` magnitude bits so bit 63 stays the sign. `min_exponent` is
+`i32::MIN`.
 
 ## Add
 
 1. Align to the **coarser** exp (the larger one). Right-shift the finer mantissa.
-2. Add limbs with unsigned carry. Carry 1 and a negative high limb is two’s
-   complement sign extension — keep the word, do not bump `exp`. A real extra
-   word still shifts one word right and adds 64 to `exp`. Mixed-sign wrap that
-   lands in range stays as-is (`a + (-a)` is zero). Headed mag-43 `get_c` imag
-   used to jump to 4096 (`1` at `exp+64`) on row 1.
+2. Add limbs. High limb is signed; keep the word when the extra high word is
+   sign extension (`0` or `-1`). A real extra word still shifts one word right
+   and adds 64 to `exp`. Mixed-sign wrap that lands in range stays as-is
+   (`a + (-a)` is zero). Unsigned-only carry used to turn `origin − pitch`
+   into `1 × 2^12` (headed imag 4096) or collapse every real seat.
 
 Never left-shift to keep extra precision. That would throw away high bits or
 need a longer tape.
 
 ## Mul
 
-Schoolbook into `2×Words` limbs (unsigned limb products, algebraic). While the
-high half is used, shift one word right and add 64 to `exp`. Same squeeze as
-add; not Karatsuba.
+Schoolbook into `2×Words` limbs for `Words > 1`. **`Words = 1` is signed
+`i128` product**, then squeeze until it fits an `i64` limb (shift 64, add 64
+to `exp`). Unsigned 64×64 on a negative limb is not `z²`. Not Karatsuba.
 
 ## Finite
 
@@ -40,10 +42,11 @@ No infinities, same as `IntExp`. Overflow is a scale bump, not NaN/Inf.
 
 ## From IntExp
 
-Digit copy into the limb window. If the source mantissa is wider than the tape,
-squeeze (drop low bits, raise `exp`) until it fits — same as add/mul. Then
-two’s-complement if the source is negative. Viewport `IntExp` often keeps extra
-low bits past the admit count; panicking there killed the screen worker.
+Digit copy of the **absolute** mantissa into the limb window. Squeeze until
+`significant_bits ≤ Words×64 − 1`, then two’s-complement if the source is
+negative. A 64-bit magnitude in a signed `i64` stole the sign (headed UL imag
++ → −). Viewport `IntExp` often keeps extra low bits past the admit count;
+panicking there killed the screen worker.
 
 ## OG naive (`Words = 1`)
 
@@ -56,10 +59,7 @@ bug, not a reason to bump the host.
 Headed 2026-08-13: **black on OG naive f64 was an assistant regression** (CopyIntExp
 wire-up / `From` panic / illegal `1e-14` host bump). HUD `gear:F64` reports the
 OG naive compute-gear stamp, not the i64 tape — mag 43 `stack:i64` still shows
-`gear:F64`. **Grey RCA (proven):** `pack_add` used to treat sign-extension carry
-as a new word (imag → 4096 for row ≥ 1, `ipp:0`, glued to the window). Live
-add keeps that carry. **Still live:** `From` writes 64 magnitude bits into a
-signed limb (bit 63 = sign). Admit is correct. Not WorkUpdate `c`. Handoff:
-`docs/assistant/recontinuation-i64-grey.md`. RCA:
-`docs/assistant/rca-i64-flat-grey-2026-08-13.md`. 16×17 pin
-`og_copy_intexp1_headed_mag_43_not_all_interior` does not check origin sign.
+`gear:F64`. Grey was `From` sign-bit plus unsigned `pack_add`/`mul` on negative
+limbs. Pins: `from_64bit_positive_mantissa_stays_positive`,
+`headed_mag_43_get_c_unique_count_at_window_res`. Admit is correct. Not
+WorkUpdate `c`. Do not treat headed as fixed until the developer says so.

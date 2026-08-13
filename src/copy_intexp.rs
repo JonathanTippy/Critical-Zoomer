@@ -36,13 +36,17 @@ pub(crate) type CopyIntExp1 = CopyIntExp<1>;
 impl<const Words: usize> CopyIntExp<Words> {
     // r[impl cz.math.copy-intexp-from-tape+1]
     pub(crate) fn from(value: IntExp) -> CopyIntExp<Words> {
-        let cap = (Words * WORDSIZE) as u32;
+        // Signed two's-complement tape: high bit of the last limb is sign.
+        // `Words*64` magnitude bits do not fit (`u64 as i64` steals the sign).
+        let cap = (Words * WORDSIZE - 1) as u32;
         let mut value = value;
         while value.val.significant_bits() > cap {
             let extra = (value.val.significant_bits() - cap) as usize;
             value = value.round(extra.max(1));
         }
-        let digits = value.val.to_digits::<u64>(Order::Lsf);
+        let neg = value.val.is_negative();
+        let mag = value.val.abs();
+        let digits = mag.to_digits::<u64>(Order::Lsf);
         let mut words = [0i64; Words];
         for (i, d) in digits.into_iter().take(Words).enumerate() {
             words[i] = d as i64;
@@ -52,7 +56,7 @@ impl<const Words: usize> CopyIntExp<Words> {
             exp: value.exp,
         };
         // JFT: good job assistant, happy with this block.
-        if value.val.is_negative() {
+        if neg {
             out.value = neg_limbs(out.value);
         }
         out
@@ -111,11 +115,13 @@ impl<const Words: usize> Add for CopyIntExp<Words> {
 fn add_limbs<const Words: usize>(a: [i64; Words], b: [i64; Words]) -> ([i64; Words], i64) {
     let mut out = [0i64; Words];
     let mut carry = 0i128;
-    for (dst, (&av, &bv)) in out.iter_mut().zip(a.iter().zip(b.iter())) {
-        // Zero-extend the 64-bit pattern. `av as i128` sign-extends and
-        // destroys carry when a low limb has the high bit set.
-        let sum = (av as u64 as i128) + (bv as u64 as i128) + carry;
-        *dst = sum as i64;
+    for i in 0..Words {
+        let last = i + 1 == Words;
+        // Lower limbs: unsigned 64-bit digits. High limb: sign-extended.
+        let av = if last { a[i] as i128 } else { a[i] as u64 as i128 };
+        let bv = if last { b[i] as i128 } else { b[i] as u64 as i128 };
+        let sum = av + bv + carry;
+        out[i] = sum as i64;
         carry = sum >> 64;
     }
     (out, carry as i64)
@@ -123,11 +129,9 @@ fn add_limbs<const Words: usize>(a: [i64; Words], b: [i64; Words]) -> ([i64; Wor
 
 fn pack_add<const Words: usize>(sum: ([i64; Words], i64), exp: i32) -> CopyIntExp<Words> {
     let (limbs, extra) = sum;
-    // Limb add is unsigned. Carry 1 with a negative high limb is two's-complement
-    // sign extension, not a new word. Treating it as extra used to replace the
-    // mantissa with `1` and add 64 to `exp` (headed mag-43 imag → 4096).
-    let sign_ext = i64::from(limbs[Words - 1] < 0);
-    if extra == sign_ext {
+    // High word of a signed 2×width add is 0 or -1 when the sum fits.
+    let expected = if limbs[Words - 1] < 0 { -1i64 } else { 0 };
+    if extra == expected {
         CopyIntExp {
             value: limbs,
             exp,
@@ -185,6 +189,17 @@ impl<const Words: usize> Mul for CopyIntExp<Words> {
     type Output = Self;
     fn mul(self, other: Self) -> Self {
         // r[impl cz.math.copy-intexp-mul-schoolbook+1]
+        if Words == 1 {
+            let mut p = (self.value[0] as i128) * (other.value[0] as i128);
+            let mut exp = self.exp + other.exp;
+            while p > i64::MAX as i128 || p < i64::MIN as i128 {
+                p >>= WORDSIZE as u32;
+                exp += WORDSIZE as i32;
+            }
+            let mut value = [0i64; Words];
+            value[0] = p as i64;
+            return Self { value, exp };
+        }
         let (lo, hi) = mul_limbs_full(self.value, other.value);
         let exp = self.exp + other.exp;
         if hi.iter().all(|&w| w == 0) {
@@ -549,17 +564,20 @@ mod tests {
             compute_im_f > 0.0,
             "UL imag IntExp is + (~1.09), got {compute_im_f}"
         );
-        // Remaining From hole: 64-bit magnitude into a signed limb.
         assert!(
-            from_im_f < 0.0,
-            "RCA witness: From still flips headed imag ({from_im_f})"
+            from_im_f > 0.0,
+            "From must keep headed UL imag positive ({from_im_f})"
+        );
+        let rel = (from_im_f - compute_im_f).abs() / compute_im_f.abs();
+        assert!(
+            rel < 1e-12,
+            "From imag {from_im_f} vs IntExp {compute_im_f} rel={rel}"
         );
     }
 
-    /// `From` copies 64 magnitude bits into signed `i64`. Bit 63 is the sign.
     #[test]
     // r[verify cz.math.copy-intexp-from-tape+1]
-    fn rca_from_64bit_positive_mantissa_sets_sign_bit() {
+    fn from_64bit_positive_mantissa_stays_positive() {
         let src = IntExp {
             val: Integer::from(1) << 63,
             exp: -63,
@@ -568,8 +586,19 @@ mod tests {
         assert_eq!(src.val.significant_bits(), 64);
         assert!((f64::from(src.clone()) - 1.0).abs() < 1e-15);
         let c = CopyIntExp::<1>::from(src);
-        assert!(c.value[0] < 0, "2^63 as u64→i64 is negative ({})", c.value[0]);
-        assert!(c.to_f64() < 0.0, "+1.0 From became {}", c.to_f64());
+        assert!(c.value[0] > 0, "2^63 must squeeze into a positive limb ({})", c.value[0]);
+        assert!((c.to_f64() - 1.0).abs() < 1e-15, "+1.0 From became {}", c.to_f64());
+        let neg = IntExp {
+            val: {
+                let mut v = Integer::from(1);
+                v <<= 63;
+                -v
+            },
+            exp: -63,
+        };
+        let n = CopyIntExp::<1>::from(neg);
+        assert!(n.value[0] < 0);
+        assert!((n.to_f64() + 1.0).abs() < 1e-15);
     }
 
     #[test]
@@ -586,6 +615,23 @@ mod tests {
         let s = a + b;
         assert_eq!(s.exp, -52);
         assert_eq!(s.value[0], -101);
+    }
+
+    #[test]
+    // r[verify cz.math.copy-intexp-add-squeeze+1]
+    fn add_negative_plus_small_positive_keeps_word() {
+        let a = CopyIntExp::<1> {
+            value: [i64::MIN / 2],
+            exp: -60,
+        };
+        let b = CopyIntExp::<1> {
+            value: [1],
+            exp: -52,
+        };
+        let s0 = a;
+        let s1 = a + b;
+        assert_ne!(s0, s1);
+        assert!(s1.exp < 0);
     }
 
     #[test]
