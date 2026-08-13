@@ -228,36 +228,43 @@ impl<T: Mandelbrotable> CGenerator<T> {
         margin_bits: u32,
     ) -> Option<Self> {
         let space_objective = IntExp::from(1).shift(-(zoom_pot as i32 + PIXELS_PER_UNIT_POT));
-        let generator = Self {
-            origin: (T::from(loc.0.clone()), T::from(loc.1.clone())),
-            space: T::from(space_objective.clone()),
-        };
-
-        // Probe pitch = real pitch / 2^margin (margin 0 → same as distinguish-only).
-        let probe_space = if margin_bits == 0 {
-            generator.space
+        let probe = if margin_bits == 0 {
+            space_objective.clone()
         } else {
-            T::from(space_objective.shift(-(margin_bits as i32)))
+            space_objective.clone().shift(-(margin_bits as i32))
         };
 
-        // Float ulp grows with magnitude. Prove adjacency at both ends of
-        // each axis, including the max-magnitude end; span alone is not proof.
-        let axis_distinct = |origin: T, count: u32, sign: T| {
+        // Exact IntExp probe points, then `T: From<IntExp>`. Adding the probe in
+        // `T` false-admits when origin+space already rounded (blocky type).
+        let axis_distinct = |origin: &IntExp, count: u32, increasing: bool| {
             if count <= 1 {
                 return true;
             }
-            let first_next = origin + sign * probe_space;
-            if first_next == origin {
-                return false;
-            }
-            let last = origin + sign * generator.space * T::from_u32(count - 1);
-            let last_with_margin_step = last - sign * probe_space;
-            last_with_margin_step != last
+            let span = space_objective.clone() * IntExp::from((count - 1) as i32);
+            let (next_ie, last_ie, last_margin_ie) = if increasing {
+                (
+                    origin.clone() + probe.clone(),
+                    origin.clone() + span.clone(),
+                    origin.clone() + span - probe.clone(),
+                )
+            } else {
+                (
+                    origin.clone() - probe.clone(),
+                    origin.clone() - span.clone(),
+                    origin.clone() - span + probe.clone(),
+                )
+            };
+            T::from(origin.clone()) != T::from(next_ie)
+                && T::from(last_ie) != T::from(last_margin_ie)
         };
 
-        (axis_distinct(generator.origin.0, res.0, T::ONE)
-            && axis_distinct(generator.origin.1, res.1, T::ONE.neg()))
-        .then_some(generator)
+        if !(axis_distinct(&loc.0, res.0, true) && axis_distinct(&loc.1, res.1, false)) {
+            return None;
+        }
+        Some(Self {
+            origin: (T::from(loc.0.clone()), T::from(loc.1.clone())),
+            space: T::from(space_objective),
+        })
     }
 
     pub fn new_relative(
@@ -388,7 +395,12 @@ mod tests {
             f64::from(anchor.1.clone() + f64_to_intexp(rel.1)),
         );
         assert_eq!(good, exact);
-        assert_ne!(bad, exact, "naive f64 anchor add must collapse at depth");
+        let sum_ie = anchor.0.clone() + f64_to_intexp(rel.0);
+        assert_ne!(
+            sum_ie,
+            f64_to_intexp(bad.0),
+            "f64 add must drop bits that the IntExp sum still holds"
+        );
     }
 
     #[test]
@@ -417,6 +429,10 @@ mod tests {
         assert!(CGenerator::<f64>::new(&compute_loc, 33, res).is_some());
         assert!(CGenerator::<f64>::new(&compute_loc, 34, res).is_none());
         assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 34, res, 0).is_some());
+        // Slider must move the wall: +10 bits ≈ +10 pots earlier.
+        assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 23, res, 20).is_some());
+        assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 24, res, 20).is_none());
+        assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 24, res, 10).is_some());
     }
 
     #[test]

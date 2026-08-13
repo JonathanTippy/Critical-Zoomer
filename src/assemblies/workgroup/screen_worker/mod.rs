@@ -231,6 +231,7 @@ async fn internal_behavior<A: SteadyActor>(
                 let margin_changed = state.c_generator_margin_bits != margin;
                 state.c_generator_margin_bits = margin;
                 let gear = state.manual_gear;
+                let mut reject_live = false;
                 if let Some(live) = &mut state.work_context {
                     live.context.manual_gear = gear;
                     if margin_changed {
@@ -258,8 +259,15 @@ async fn internal_behavior<A: SteadyActor>(
                                 view_center,
                                 generation,
                             );
+                        } else {
+                            // New margin does not admit this stencil in the live type.
+                            reject_live = true;
                         }
                     }
+                }
+                if reject_live {
+                    state.work_context = None;
+                    state.seats_need_work = false;
                 }
             }
         }
@@ -342,6 +350,34 @@ async fn internal_behavior<A: SteadyActor>(
                         &frame_info,
                     );
                     actor.try_send(&mut reference_requests_out, request);
+
+                    let compute_loc = (
+                        frame_info.0.pos.0.clone(),
+                        IntExp::ZERO - frame_info.0.pos.1.clone(),
+                    );
+                    let view_center = view_center_compute(
+                        &compute_loc,
+                        frame_info.0.zoom_pot,
+                        frame_info.1,
+                    );
+                    let relative_anchor = state
+                        .work_context
+                        .as_ref()
+                        .and_then(|l| l.context.latest_reference.as_ref().map(|r| r.c.clone()));
+                    if admit_generator_with_margin::<f64>(
+                        &compute_loc,
+                        frame_info.0.zoom_pot as i64,
+                        frame_info.1,
+                        relative_anchor.as_ref(),
+                        &view_center,
+                        state.c_generator_margin_bits,
+                    )
+                    .is_none()
+                    {
+                        // Fail closed: keep the last legal generator; do not
+                        // install a type the margin rejects.
+                        continue;
+                    }
 
                     let previous = state.work_context.take();
                     if let Some(gpu) = state.naive_gpu.as_mut() {

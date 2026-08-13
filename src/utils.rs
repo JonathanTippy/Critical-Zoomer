@@ -297,8 +297,17 @@ impl Into<i32> for IntExp {
     }
 }
 impl From<IntExp> for f64 {
-    fn from(a:IntExp) -> f64 {
-        a.val.to_f64() * 2.0f64.powf(a.exp as f64)
+    fn from(a: IntExp) -> f64 {
+        // Round `val * 2^exp` as one binary value. `val.to_f64() * 2^exp`
+        // rounds the integer first and invents ulps — C-generator then
+        // false-admits f64 when adjacent seats are not distinct.
+        let mut x = rug::Float::with_val(53, &a.val);
+        if a.exp >= 0 {
+            x <<= a.exp as u32;
+        } else {
+            x >>= (-a.exp) as u32;
+        }
+        x.to_f64()
     }
 }
 
@@ -729,6 +738,11 @@ mod mutant_kill {
         assert_ne!(fd, 3.0 + 4.0);
         // * not /: 3 / 4 != 12.
         assert_ne!(fd, 3.0 / 4.0);
+
+        // Adjacent seats at |c|~2, pitch 2^-53 must not become distinct f64s.
+        let origin = IntExp::from(-2i32);
+        let next = origin.clone() + IntExp::from(1i32).shift(-53);
+        assert_eq!(f64::from(origin), f64::from(next));
     }
 
     /// Thought-killed pin: `From<usize>` uses exp:1 (vs `From<i32>` exp:0).

@@ -2,7 +2,6 @@ use steady_state::*;
 
 use crate::assemblies::headgroup::window::sampling::*;
 use crate::assemblies::structs::*;
-use crate::assemblies::workgroup::c_generator::admit_generator;
 use crate::assemblies::workgroup::screen_worker::*;
 use crate::assemblies::workgroup::screen_worker::workshift::*;
 use crate::constants::*;
@@ -183,9 +182,8 @@ pub fn get_points<
     out
 }
 
-/// Stencil admission gate: unchanged views are suppressed; views whose f64
-/// grid would collapse are suppressed. The worker builds the world from the
-/// stencil alone.
+/// Stencil gate: unchanged views are suppressed. Admission lives on the
+/// worker with the live C-generator margin, not a default-10 f64 probe here.
 fn should_send_replace(
     state: &mut WorkControllerState,
     frame_info: &(ObjectivePosAndZoom, (u32, u32)),
@@ -197,22 +195,6 @@ fn should_send_replace(
         if !((*obj != *loc) || res != state.worker_res) {
             return false;
         }
-    }
-
-    // Compute-grid loc matches get_points / CGenerator: frame_info imag is
-    // already display-flipped once; flip again for the arithmetic origin.
-    let compute_loc = (obj.pos.0.clone(), IntExp::ZERO - obj.pos.1.clone());
-    let view_center = view_center_compute(&compute_loc, obj.zoom_pot, res);
-    if admit_generator::<f64>(
-        &compute_loc,
-        obj.zoom_pot as i64,
-        res,
-        None,
-        &view_center,
-    )
-    .is_none()
-    {
-        return false;
     }
 
     state.worker_res = res;
