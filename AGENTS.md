@@ -87,7 +87,7 @@ Headgroup/shadergroup edits outside location bar + HUD need an explicit note
 
 **Steady-state Rust integration tests are the lifeblood of testing** (see
 `docs/assistant/testing.md`). When changing scheduling, naive GPU, or HUD
-telemetry, extend `steady_state_*` tests in `craftsmanship_tests.rs` so IPS and
+telemetry, extend `steady_state_*` tests in `craftsmanship_tests/` so IPS and
 completions are proven through screen-worker and workgroup chains — not only
 in micro probes or Criterion.
 

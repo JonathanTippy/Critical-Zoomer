@@ -58,7 +58,7 @@ current form and stand until such a form exists.
 - [ ] Epsilon scales with the frame's pixel pitch: two frames at different zoom produce
   proportionally different epsilons; no absolute constant is used.
 
-**Test.** `epsilon_scales_with_pixel_pitch` (`src/assemblies/workgroup/screen_worker/craftsmanship_tests.rs`) — doubling the pitch doubles epsilon.
+**Test.** `epsilon_scales_with_pixel_pitch` (`src/assemblies/workgroup/screen_worker/craftsmanship_tests/`) — doubling the pitch doubles epsilon.
 
 r[cz.craft.period-derivative-test+1]
 
@@ -102,7 +102,7 @@ completion in `workshift` tries partials ascending with the tail iterate as Newt
 `main_cardioid_points_detect_as_period_one`, `period_two_bulb_detects_as_period_two`, and
 `child_bulb_interiors_are_period_constant`,
 `neck_zoom_classifies_correctly_at_arbitrary_depth`, plus the real scheduling-path test
-`provisional_answer_never_marks_delivered` (`craftsmanship_tests.rs`) and renderer tests
+`provisional_answer_never_marks_delivered` (`craftsmanship_tests/`) and renderer tests
 `unknown_period_never_creates_out_filament` /
 `differing_verified_periods_still_create_out_filament` (`shadergroup/colorer/color.rs`).
 
@@ -117,7 +117,7 @@ multiplies plus checks; smallness and small-time are collected as free side effe
 - [ ] The iterate path performs no redundant squaring; smallness/small_time update inside the
   same per-iteration function, not a separate pass.
 
-**Test.** `cached_products_match_z` (proptest, craftsmanship_tests.rs) — cached products equal
+**Test.** `cached_products_match_z` (proptest, craftsmanship_tests/) — cached products equal
 z-products for arbitrary z; smallness/small_time collected in the same call.
 
 r[cz.craft.lifo-drain+1]
@@ -132,7 +132,7 @@ growable `completed_points` Vec.
 - [ ] Property: drain order is exactly reverse push order.
 
 **Test.** `completion_drain_is_lifo` / `mutant_kill_completion_lifo_and_struggling_to_clear`
-(craftsmanship_tests.rs).
+(craftsmanship_tests/).
 
 r[cz.craft.edge-push-front+1]
 
@@ -145,7 +145,7 @@ edge queue — edges jump their own line.
 - [ ] Newly discovered edge work is scheduled before older queued edge work (queue head
   observation or equivalent unit).
 
-**Test.** `edge_neighbors_jump_queue_front` (craftsmanship_tests.rs) — new entries precede a
+**Test.** `edge_neighbors_jump_queue_front` (craftsmanship_tests/) — new entries precede a
 pre-existing entry; delivered neighbors excluded.
 
 r[cz.craft.cost-metadata+1]
@@ -160,7 +160,7 @@ tag entries with the completer's iterations/period.
 - [ ] Every queue entry's metadata equals the spawning point's measured cost (no recompute, no
   placeholder constants).
 
-**Test.** `queue_entries_carry_source_cost` (craftsmanship_tests.rs) — out entries carry the
+**Test.** `queue_entries_carry_source_cost` (craftsmanship_tests/) — out entries carry the
 source's iterations, in entries its period.
 
 r[cz.craft.mixmap-shuffle+1]
@@ -175,7 +175,7 @@ called from `from_stencil` on resolution change; `random_map` field of the conte
 - [ ] The mixmap is a true permutation (no duplicates, full coverage); identical res keeps the
   same map; changed res rebuilds.
 
-**Test.** `mixmap_is_permutation` (proptest, craftsmanship_tests.rs) covers the permutation
+**Test.** `mixmap_is_permutation` (proptest, craftsmanship_tests/) covers the permutation
 half; the rebuild-on-resolution-change half is acceptance by code review (`from_stencil`) plus
 `replace_reuses_points_capacity_and_resets_initialized`.
 
@@ -191,7 +191,7 @@ lives in slot 4 of the rotation.
 - [ ] First-shift fallthrough draws scredge seats before edge; later fallthrough / slot 1 prefer
   edge over scredge.
 
-**Test.** `scredge_first_only_on_shift_zero` (craftsmanship_tests.rs) — first buffered
+**Test.** `scredge_first_only_on_shift_zero` (craftsmanship_tests/) — first buffered
 completion belongs to the scredge seat on shift 0 (spiral exhausted), to the edge seat on
 shift 1.
 
@@ -282,7 +282,7 @@ wants depth). The asymmetry is intentional.
 - [ ] An out seat that fails to finish within its bout is re-queued behind all pending out
   seats; an in seat is retried without rotation.
 
-**Test.** `out_rotates_without_loss` (craftsmanship_tests.rs) — Out seats survive a shift
+**Test.** `out_rotates_without_loss` (craftsmanship_tests/) — Out seats survive a shift
 undropped and undelivered; In likewise. Note: the In rotation is currently commented out, so
 the asymmetry is latent; the test pins "no loss" for both and the rotate branch for Out.
 
@@ -300,7 +300,7 @@ finish it. Guesses never block truth.
 - [ ] Provisional pushes never set `delivered` — now type-enforced: only `Delivery::Final`
   may flip the flag, and only inside `push_delivery`.
 
-**Test.** `provisional_answer_never_marks_delivered` (craftsmanship_tests.rs) — after a shift
+**Test.** `provisional_answer_never_marks_delivered` (craftsmanship_tests/) — after a shift
 of scredge work on a slow seat: provisional answers exist, `delivered` is still false.
 
 r[cz.craft.wait-on-channel-full+1]
@@ -322,7 +322,7 @@ collector bottleneck; speeding the collector is secondary.
 - [ ] `push_delivery` still owns buffer slot + `delivered` atomically for stage.
 
 **Test.** `channel_full_restages_without_clearing_delivered`,
-`mutant_kill_push_delivery_provisional_not_final` (craftsmanship_tests.rs).
+`mutant_kill_push_delivery_provisional_not_final` (craftsmanship_tests/).
 
 r[cz.craft.clamped-remap-smear+1]
 
@@ -337,7 +337,7 @@ path.
 - [ ] A pan that exposes a strip fills it with edge values (not black/Dummy) before new work
   lands.
 
-**Test.** `remap_index_clamps_to_border` (proptest, craftsmanship_tests.rs) — out-of-range
+**Test.** `remap_index_clamps_to_border` (proptest, craftsmanship_tests/) — out-of-range
 relative locations resolve to exactly the clamped border seat.
 
 r[cz.craft.shared-remap-transform+1]
@@ -352,7 +352,7 @@ transform functions, so work and color can never disagree about where a pixel we
 **Acceptance criteria.**
 - [ ] Both call sites resolve to the same functions (no duplicated transform logic).
 
-**Test.** `remap_onto_same_view_is_fixed_point` (craftsmanship_tests.rs) — remapping a package
+**Test.** `remap_onto_same_view_is_fixed_point` (craftsmanship_tests/) — remapping a package
 onto its own view reproduces it exactly through the shared transform.
 
 r[cz.craft.screen-space-derivative-edges+1]
@@ -434,7 +434,7 @@ commented out beside it).
 **Acceptance criteria.**
 - [ ] Shifts terminate within ~10ms + one bout under all load classes (timed verify).
 
-**Test.** `workshift_always_terminates` (craftsmanship_tests.rs) — structural: shifts return
+**Test.** `workshift_always_terminates` (craftsmanship_tests/) — structural: shifts return
 with empty queues and under non-completing load. Never-stall: `unfinished_synthetic_workshift_never_stalls`,
 `unfinished_home_workshift_never_stalls`, `reference_install_mid_fill_keeps_shift_progress`.
 The 10ms constant itself stays code-reviewed (timing is not meaningfully unit-testable).
@@ -463,7 +463,7 @@ multi-bout amortize only when finals are sparse.
 - Home/shallow GPU fill: after the first completion, ≤5 consecutive shifts without a
   completion while fill is still progressing (≤50 ms at 10 ms/shift).
 
-**Test.** Never-stall suite in craftsmanship_tests.rs (same three tests as wall-clock-law);
+**Test.** Never-stall suite in craftsmanship_tests/ (same three tests as wall-clock-law);
 `steady_state_naive_gpu_home_continuous_outputs`;
 `steady_state_naive_gpu_deep_cusp_never_stalls` (missed resume/empty-queue feed, not tenacity);
 `steady_state_naive_gpu_f64_gear_via_faux_user_zoom` (generator-plane F32→F64 escalate).
@@ -544,7 +544,7 @@ the compatibility `workshift` wrapper, and generic `workshift_with_kernel`;
 - [ ] Kernel dispatch does not regress first-publish or full-frame fitness.
 
 **Test.** `direct_kernel_preserves_scheduler_results`
-(`craftsmanship_tests.rs`) compares the compatibility path with explicit
+(`craftsmanship_tests/`) compares the compatibility path with explicit
 `DirectKernel` dispatch; the full craftsmanship suite pins all scheduler
 policies.
 
@@ -575,7 +575,7 @@ queues neighbors; `workshift_naive_gpu` has no percent-based DirectKernel mop.
 `steady_state_naive_gpu_home_fills_without_cpu_mop`,
 `steady_state_naive_gpu_home_no_dummy_holes`,
 `steady_state_screen_worker_home_ips_naive_gpu_path`
-(craftsmanship_tests.rs).
+(craftsmanship_tests/).
 
 r[cz.craft.shade-single-path+1]
 

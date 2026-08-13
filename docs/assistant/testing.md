@@ -38,9 +38,9 @@ not delete a lock out from under dummy-head cadence.
 
 | Layer | Location | Role |
 |---|---|---|
-| Screen worker alone | `craftsmanship_tests.rs` (`steady_state_screen_worker_*`) | Fill + IPS floors on DirectKernel / naive-GPU path |
+| Screen worker alone | `craftsmanship_tests/integration_tier.rs` (`steady_state_screen_worker_*`) | Fill + IPS floors on DirectKernel / naive-GPU path |
 | Post-fill park settle | `steady_state_home_stays_parked_for_10s_after_fill` | 10s wall idle after home fill: seats stay delivered, 0 iters |
-| Workgroup chain | `craftsmanship_tests.rs` (`steady_state_workgroup_*`) | `iterations_delta` / `points_delta` survive into HUD `RateCounter` |
+| Workgroup chain | `craftsmanship_tests/integration_tier.rs` (`steady_state_workgroup_*`) | `iterations_delta` / `points_delta` survive into HUD `RateCounter` |
 | **Pipeline cadence (dummy head)** | `tests/pipeline_cadence.rs` | One harness (not lib+bin duplicate). Cross-process lock. Floors: OG esc ≥15, GPU esc ≥40, **release**. `full_check.sh` runs this last among tests. Headed HUD is still the product check. |
 | Home PPS ratio | `steady_state_home_pps_gpu_vs_cpu_ratio` | GPU vs CPU wall PPS (climb toward ~FLOP ratio) |
 | GPU host queues | `steady_state_naive_gpu_home_neighbor_queues_grow` | Finals grow out/in/edge queues (no bulk skip) |
