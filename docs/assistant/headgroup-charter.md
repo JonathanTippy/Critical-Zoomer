@@ -25,7 +25,7 @@ violation until justified or reverted.
 | `shadergroup/colorer/color.rs` | +319 filament / period edges | **Bucket 3** — shade rules; headed verify required |
 | `shadergroup/escaper.rs` | escape-continues / ring; **2026-08-11:** `escape_frame` + drop count | Tied to shade; keep with shade rules |
 | `shadergroup/colorer/` | **2026-08-11:** drop count + Criterion; **GPU f32 colorer + manual color gear** | Bucket 3 — shade + bucket 2 `color:` HUD |
-| `headgroup/window/mod.rs` | HUD `drop:` + `color:` | **Yes** — HUD telemetry |
+| `headgroup/window/mod.rs` | HUD rows: rates / gears / PPS·IPS·IPP; no drop/gaze/mode | **Yes** — HUD |
 | `headgroup/window/mod.rs` / `settings.rs` | **2026-08-11:** embedded Settings window (no deferred viewport dual-vsync) | Bucket 3 — display timing / settings UI |
 
 ## Enforcement

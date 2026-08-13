@@ -360,19 +360,15 @@ Aggregate HUD gear may be MIXED when seats disagree.
 
 r[cz.depth.gear-hud+2]
 
-**Rule.** The HUD displays host stack, kernel mode (`naive`|`pert`), reference status
-(`wip`|`complete`), effective active compute gear, rolling IPS and PPS, and view **IPP**
-(mean iterations per seat). IPP is a property of the live view: it is known only as seats
-iterate, and is final when every seat is delivered. It is not a rate (that is IPS).
-Mode names which production kernel runs: **`naive`** = `DirectKernel`; **`pert`** =
-`PerturbationKernel`. Gear applies under **`mode:pert`** only (delta ladder); naive
-absolute stamps `F64` even when the host stack is `i64` (`CopyIntExp<1>`).
-Read `stack:` for the tape, not `gear:`. Ref is a running snapshot:
-`wip` when no usable published reference exists yet or any seat is in `direct_only` glitch
-recovery awaiting a newer reference generation; `complete` when a usable reference is
-installed and no seats are glitched. Mixed-seat views surface MIXED rather than a false
-single gear. No user setting selects the gear. Metrics overlay stays top-left;
-location/goto panel bottom-right (`r[cz.ui.coords-parse+2]`, `r[cz.ui.location-readout+2]`).
+**Rule.** The HUD is three rows, top-left: **rates** (`fps`, `1s`, `10s low`,
+`pub`/`esc`/`col`/`ctrl`), then **gears** (compute `gear:`, `color:`, `escape:`)
+plus **type** (host tape) and **ref**, then **PPS / IPS / IPP**. No `mode`,
+`stack`, `drop`, or `gaze` on the overlay. Gear is which kernel runs (compute
+stamps `F64` on absolute naive even when type is `i64`). Type is the numeric
+host (`f64` / `i64` / …). IPP is mean iterations per seat, final only when
+every seat is delivered — not a rate (that is IPS). Ref is `wip` / `complete`
+(or `NA`). Mixed-seat views surface MIXED rather than a false single gear.
+No user setting selects the gear. Location/goto stays bottom-right.
 
 **Implementation.** `WorkUpdate` telemetry → collector → window HUD overlay;
 `PpsCounter` / iteration accounting in `rolling.rs`.

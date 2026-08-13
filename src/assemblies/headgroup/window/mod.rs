@@ -552,7 +552,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 ui.put(
                     egui::Rect::from_min_size(
                         egui::pos2(10.0, 10.0),
-                        egui::vec2(720.0, 72.0)
+                        egui::vec2(560.0, 96.0)
                     ),
                     |ui: &mut egui::Ui| {
                         // Set transparent background
@@ -586,36 +586,28 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                         } else {
                                             format!("ipp:~{}", state.last_ipp)
                                         };
+                                        let ten_s = rolling_frame_result.0.map(|r| {
+                                            1.0 / r.1.0.as_secs_f64()
+                                        });
                                         // r[impl cz.depth.gear-hud+2]
-                                        response += format!(
-                                            "fps:{:.0}  pub:{:.0}  esc:{:.0}  col:{:.0}  ctrl:{:.0}  stack:{}  mode:{}  ref:{}  gear:{}\npps:{:.0}  ips:{:.0}  {}  drop:{}  color:{}  escape:{}  gaze:{}  1s:{:.1}",
-                                            r.0.0 as f64 / 1000000000.0,
+                                        response += format_hud_overlay(
+                                            r.0.0 as f64 / 1_000_000_000.0,
+                                            1.0 / r.1.0.as_secs_f64(),
+                                            ten_s,
                                             pub_fps,
                                             esc_fps,
                                             col_fps,
                                             ctrl_fps,
-                                            state.last_stack_label,
-                                            state.last_mode_label,
-                                            state.last_ref_label,
                                             state.last_gear_label,
-                                            pps,
-                                            ips,
-                                            ipp_txt,
-                                            state.last_packages_dropped,
                                             state.last_color_label,
                                             state.last_escape_label,
-                                            state.gaze.hud_short(),
-                                            1.0 / r.1.0.as_secs_f64()
-                                        ).as_str();
-
-                                    }
-                                    None => {}
-                                }
-
-                                match rolling_frame_result.0 {
-                                    Some(r) => {
-
-                                        response += format!("  10s low:{:.1}", 1.0 / r.1.0.as_secs_f64()).as_str();
+                                            state.last_stack_label,
+                                            state.last_ref_label,
+                                            pps,
+                                            ips,
+                                            &ipp_txt,
+                                        )
+                                        .as_str();
                                     }
                                     None => {}
                                 }

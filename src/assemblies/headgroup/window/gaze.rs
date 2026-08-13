@@ -234,6 +234,7 @@ impl GazeSession {
         }
     }
 
+    #[allow(dead_code)]
     pub fn hud_short(&self) -> &'static str {
         match &self.phase {
             GazePhase::Idle => "off",

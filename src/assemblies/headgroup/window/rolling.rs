@@ -153,6 +153,34 @@ fn window_stats(
     Some((average, worst))
 }
 
+/// Overlay copy: rates, then gears, then PPS/IPS/IPP. No mode/stack/drop/gaze.
+// r[impl cz.depth.gear-hud+2]
+pub fn format_hud_overlay(
+    fps: f64,
+    one_s: f64,
+    ten_s_low: Option<f64>,
+    pub_fps: f64,
+    esc_fps: f64,
+    col_fps: f64,
+    ctrl_fps: f64,
+    gear: &str,
+    color: &str,
+    escape: &str,
+    type_label: &str,
+    ref_label: &str,
+    pps: f64,
+    ips: f64,
+    ipp_txt: &str,
+) -> String {
+    let ten = match ten_s_low {
+        Some(v) => format!("  10s low:{v:.1}"),
+        None => String::new(),
+    };
+    format!(
+        "fps:{fps:.0}  1s:{one_s:.1}{ten}  pub:{pub_fps:.0}  esc:{esc_fps:.0}  col:{col_fps:.0}  ctrl:{ctrl_fps:.0}\ngear:{gear}  color:{color}  escape:{escape}  type:{type_label}  ref:{ref_label}\npps:{pps:.0}  ips:{ips:.0}  {ipp_txt}"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,6 +223,37 @@ mod tests {
         ips.record(hud.iterations_delta, now);
         assert!((pps.rate(now) - 3.0).abs() < 1e-9);
         assert!((ips.rate(now) - 1000.0).abs() < 1e-9);
+        let overlay = format_hud_overlay(
+            65.0,
+            36.7,
+            Some(13.0),
+            21.0,
+            25.0,
+            56.0,
+            0.0,
+            "F64",
+            "GPU",
+            "OG",
+            "i64",
+            "NA",
+            28784.0,
+            546896.0,
+            "ipp:19",
+        );
+        let lines: Vec<&str> = overlay.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].contains("fps:65"));
+        assert!(lines[0].contains("1s:36.7"));
+        assert!(lines[0].contains("10s low:13.0"));
+        assert!(lines[1].starts_with("gear:"));
+        assert!(lines[1].contains("type:i64"));
+        assert!(lines[2].contains("pps:"));
+        assert!(lines[2].contains("ips:"));
+        assert!(lines[2].contains("ipp:19"));
+        assert!(!overlay.contains("mode:"));
+        assert!(!overlay.contains("stack:"));
+        assert!(!overlay.contains("drop:"));
+        assert!(!overlay.contains("gaze:"));
     }
 
     /// Thought-killed pins for HUD RateCounter (zero skip, 1s prune window).

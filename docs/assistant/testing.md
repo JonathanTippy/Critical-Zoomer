@@ -84,7 +84,7 @@ bulk GPU fill. Completeness is a GPU+host-queue property
    remaining i64 grey: lib `From`/signed add-mul pins green; headed not
    declared fixed (`docs/assistant/recontinuation-i64-grey.md`,
    `docs/assistant/rca-i64-flat-grey-2026-08-13.md`).
-   HUD `gear:F64` on naive is the OG kernel stamp, not the i64 tape — read `stack:`.
+   HUD `gear:F64` on naive is the compute-gear stamp, not the i64 tape — read `type:`.
 6. **Proptest regressions stay in tree.** Seeds under `proptest-regressions/`
    (including `copy_intexp.txt`) are re-run before new cases. Check them in.
 
