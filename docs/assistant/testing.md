@@ -38,9 +38,10 @@ not delete a lock out from under dummy-head cadence.
 
 House tests are **`cargo test`** (dev/test): `debug-assertions` and overflow
 checks stay on; `opt-level = 3` in `Cargo.toml` so Hz/IPS floors see a fast
-compile. `--release` is the wrong gate — it drops those checks. Criterion
+binary. `--release` is the wrong gate — it drops those checks. Criterion
 benches still use the release profile. Headed screenshot builds stay
-`--release`.
+`--release`. `cargo mutants` uses `[profile.mutants]` (`opt-level = 0`, no
+debuginfo) via `.cargo/mutants.toml` — do not compile mutants at opt 3.
 
 ## Where they live
 

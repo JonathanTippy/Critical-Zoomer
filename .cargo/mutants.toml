@@ -18,3 +18,5 @@ additional_cargo_test_args = [
 ]
 timeout_multiplier = 2.0
 minimum_test_timeout = 20
+# House `profile.test` is opt-level 3; mutants must not use it.
+profile = "mutants"

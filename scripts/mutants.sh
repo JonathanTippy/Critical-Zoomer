@@ -24,7 +24,7 @@ for f in "${FILES[@]}"; do
 done
 
 echo "mutants: cpuset=${CZ_CPUSET} files=${FILES[*]}"
-# Test filter is in .cargo/mutants.toml (`--lib`, skip 15s/60s tiers).
+# Test filter + cheap compile profile are in .cargo/mutants.toml.
 exec taskset -c "${CZ_CPUSET}" cargo mutants \
   --exclude 'src/main.rs' \
   --exclude 'src/assemblies/headgroup/window/mod.rs' \
