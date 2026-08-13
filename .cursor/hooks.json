@@ -24,6 +24,11 @@
       {
         "command": ".cursor/hooks/kill-test-zombies.sh --hook-stop",
         "timeout": 15
+      },
+      {
+        "command": ".cursor/hooks/hygiene-on-stop.sh",
+        "timeout": 2400,
+        "loop_limit": 3
       }
     ],
     "postToolUse": [

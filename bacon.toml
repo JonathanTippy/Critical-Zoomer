@@ -26,6 +26,10 @@ need_stdout = true
 [jobs.tracey]
 command = [
   "bash", "-lc",
-  "if command -v tracey >/dev/null 2>&1; then echo 'tracey: fail-closed validate'; tracey query validate; else echo 'tracey binary not installed; soft-skip (install to enable fail-closed bacon gate)'; exit 0; fi"
+  "if command -v tracey >/dev/null 2>&1; then echo 'tracey: fail-closed validate'; tracey query validate; else echo 'tracey binary not installed; fail-closed'; exit 1; fi"
 ]
+need_stdout = true
+
+[jobs.hygiene]
+command = ["bash", "-lc", "./.cursor/hooks/hygiene-gate.sh"]
 need_stdout = true
