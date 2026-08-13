@@ -63,9 +63,11 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
   periodicity tangent.
 - **Precision wall / gear:F64 at ~pot 43–48 — HUD floor on live path (2026-08-09),
   product blockiness not closed.** Headed #5: HUD stayed `gear:F64` past the
-  f64 wall. Code: ScaledF64 `view_gear` floor; pin
-  `deep_view_gear_floor_stays_scaled_after_fill`. **Do not treat rectangular
-  transitions or post-admit f64 drop as fixed.** See true-bug blockiness item.
+  f64 wall. ScaledF64 `view_gear` is **relative/pert only** — not a naive
+  type. Absolute naive must HUD F32/F64 matching the host (pitch must not
+  stamp S-F64 past mag 14). Pin `deep_view_gear_floor_stays_scaled_after_fill`
+  (relative) and `naive_absolute_past_mag_14_is_f64_not_scaled`. **Do not treat
+  rectangular transitions as fixed.**
 - **B-SCH-3 home banding — fixed by f64 restore (2026-08-07).** Rectangular black columns at home (`1.3359375 + 0.125i mag 2^-2`) were caused by the FloatExp live-actor experiment. Restoring f64 production (worker→collector channel, perturb kernel, workshift, controller gate) eliminates the banding; `tmp/capture_at.sh` reports `black_cols_80=0`, matching known-good `ea27b4f`. The smaller `relative_location_from_index` divisor fix (data_res.0) is kept.
 - Re-verify headed: resize, settings layers, bailout slider. (2026-08-07: home render, scroll zoom, and drag verified normal headed after the kernel-seam + reference-actor wiring.)
 - **Phase-two home render corruption — closed under readiness wait (2026-08-07).** Earlier captures of giant black disk / rectangular discontinuity / flat purple were either pre-ready frames (purple: zero gray holes falsely treated as filled) or superseded by escaped-reference rejection + settled capture. Settled Xvfb home now shows coherent Mandelbrot structure; `e2e_visual.sh` passes with structure+baseline readiness (crop RMSE ~9.5k ≤12k). Keep the readiness gate; do not regress to gray-hole-only completion.

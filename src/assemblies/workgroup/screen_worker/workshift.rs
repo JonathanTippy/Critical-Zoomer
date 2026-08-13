@@ -10,7 +10,7 @@ use crate::assemblies::workgroup::c_generator::{
     DEFAULT_C_GENERATOR_MARGIN_BITS,
 };
 use crate::assemblies::workgroup::reference_worker::PublishedReference;
-use crate::delta_gear::{ComputeGear, view_gear_from_generators};
+use crate::delta_gear::ComputeGear;
 use crate::floatexp::{ComplexFloatExp, FloatExp};
 use crate::constants::PIXELS_PER_UNIT_POT;
 use crate::reference::{bits_for_zoom, ReferenceOrbit};
@@ -917,20 +917,12 @@ pub fn from_stencil_with_margin<T: Mandelbrotable + 'static>(
         ComputeGear::FloatExp
     } else if use_f32_host {
         ComputeGear::F32
+    } else if coords_are_relative {
+        // Perturbation δc shells: ScaledF64 is the delta recurrence floor.
+        // Absolute naive is f64 iterate — never advertise S-F64 from pixel pitch.
+        ComputeGear::ScaledF64
     } else {
-        // Live f64: naive/direct is F64, but deep / relative shells need the
-        // compute-gear floor so completed frames do not snap HUD back to F64
-        // after refresh_active_gear (issue #5).
-        // r[impl cz.depth.gear-hud+2]
-        // r[impl cz.depth.compute-gear+1]
-        let pitch = seat_pitch_epsilon.to_f64() * 256.0;
-        if coords_are_relative
-            || (pitch > 0.0 && pitch < crate::delta_gear::F64_PERTURB_USEFUL_FLOOR)
-        {
-            ComputeGear::ScaledF64
-        } else {
-            ComputeGear::F64
-        }
+        ComputeGear::F64
     };
 
     // r[impl cz.craft.pan-zoom-slot0+1]
@@ -2321,6 +2313,33 @@ mod mutant_kill {
             ctx.points.iter().any(|p| p.initialized || p.delivered),
             "OG f32 DirectKernel must start seats"
         );
+    }
+
+    #[test]
+    fn naive_absolute_past_mag_14_is_f64_not_scaled() {
+        use crate::constants::HOME_POSITION;
+        use crate::delta_gear::ComputeGear;
+        use crate::utils::ObjectivePosAndZoom;
+        use super::from_stencil_with_margin;
+        let frame = (
+            ObjectivePosAndZoom {
+                pos: (
+                    crate::utils::IntExp::from(HOME_POSITION.0),
+                    crate::utils::IntExp::from(HOME_POSITION.1),
+                ),
+                zoom_pot: 16,
+            },
+            (32u32, 24u32),
+        );
+        let ctx = from_stencil_with_margin::<f64>(frame, None, 1, false)
+            .expect("naive f64 still admits at mag 16");
+        assert!(!ctx.coords_are_relative);
+        assert_eq!(
+            ctx.view_gear,
+            ComputeGear::F64,
+            "absolute naive must not HUD S-F64 from pixel pitch"
+        );
+        assert_ne!(ctx.view_gear, ComputeGear::ScaledF64);
     }
 
     #[test]
