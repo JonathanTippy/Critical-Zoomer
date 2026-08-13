@@ -66,7 +66,9 @@ Five layers, cheapest-first:
 
 Run the **full** test suite after workgroup/colorer edits — not a hand-picked
 subset. Prefer `scripts/full_check.sh` (check + unit then integration then
-e2e + all three Criterion benches + Tracey). Keep tracey links intact
+e2e + all three Criterion benches + Tracey). Agents must set
+`CARGO_TARGET_DIR=/tmp/cz_cursor_cargo_target` so they do not share repo
+`target/` with that hook (lld empty-note compile fails). Keep tracey links intact
 (every `r[impl ...]` resolves to a rule; every rule's tests exist); run
 `tracey query validate` when docs/markers move (there is no `tracey validate`
 CLI). Prefer `cargo test` and `cargo bench` over shell. After workgroup/headgroup

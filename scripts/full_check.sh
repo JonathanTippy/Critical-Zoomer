@@ -93,7 +93,8 @@ for unit_try in 1 2; do
     unit_ok=1
     break
   fi
-  echo "full_check: unit try ${unit_try} missed (compile/link or test); retry"
+  echo "full_check: unit try ${unit_try} missed (compile/link or test); wait and retry"
+  sleep 8
 done
 [[ "$unit_ok" -eq 1 ]] || fail "cargo test unit (--lib, skip integration/e2e)"
 run cargo test --lib integration_tier \

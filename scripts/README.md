@@ -4,7 +4,7 @@ Assistant-owned helpers. Not a second test suite. No checked-in PNGs.
 
 | File | Role |
 |------|------|
-| `full_check.sh` | Lock-step: cargo check, tests in pyramid order (unit → integration → e2e) on debug+opt-3, all Criterion benches, Tracey. Unit and cadence each retry once (shared-`target/` link fights). Log `/tmp/cz_full_check.log`. |
+| `full_check.sh` | Lock-step: cargo check, tests in pyramid order (unit → integration → e2e) on debug+opt-3, all Criterion benches, Tracey. Unit retries once after 8s (shared-`target/` lld fights). Cadence retries once. Log `/tmp/cz_full_check.log`. Agents use `/tmp/cz_cursor_cargo_target`. |
 | `screenshot_check.sh` | Isolated Xvfb → settled home PNG under `/tmp`. |
 | `screenshot_session.sh` / `screenshot_session_lib.sh` | Private start/send/stop for that screenshot check. |
 | `coverage.sh` | llvm-cov region report. |
