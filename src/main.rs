@@ -32,6 +32,14 @@ fn main() {
     if std::env::var("WINIT_X11_SCALE_FACTOR").is_err() {
         std::env::set_var("WINIT_X11_SCALE_FACTOR", "1");
     }
+    // eframe's wgpu instance uses InstanceFlags::from_build_config().with_env();
+    // debug builds otherwise enable VALIDATION and spam Vulkan loader INFO.
+    if std::env::var_os("WGPU_VALIDATION").is_none() {
+        std::env::set_var("WGPU_VALIDATION", "0");
+    }
+    if std::env::var_os("WGPU_DEBUG").is_none() {
+        std::env::set_var("WGPU_DEBUG", "0");
+    }
 
     debug_agent::init_cpu_profile_from_env();
 
@@ -42,7 +50,8 @@ fn main() {
     let handler = builder
         .spawn(|| {
             let cli_args = MainArg::parse();
-            init_logging(LogLevel::Info, None);
+            // Warn: wgpu-hal dumps Vulkan loader INFO at Info (hundreds of lines per device).
+            init_logging(LogLevel::Warn, None);
             let mut graph = GraphBuilder::default()
                 .with_telemtry_production_rate_ms(40)
                 .with_default_actor_stack_size(STACK_SIZE)

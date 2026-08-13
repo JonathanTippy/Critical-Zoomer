@@ -361,7 +361,9 @@ pub fn workshift_naive_gpu(
                 }
             };
             gpu.clear_finish_accumulators();
-            context.total_iterations_today += iter_delta;
+            context.total_iterations_today = context
+                .total_iterations_today
+                .saturating_add(iter_delta);
             context.total_iterations = context.total_iterations.saturating_add(iter_delta);
             let gpu_final_n = finishes.iter().filter(|f| (f.flags & 6) != 0).count();
             let wip_n = prev_wip.len().max(1);
@@ -562,7 +564,9 @@ pub fn workshift_naive_gpu(
     if let Some((slot, prev_wip, gpu_n)) = pending.take() {
         if let Ok((finishes, iter_delta)) = gpu.harvest_sparse_slot(slot) {
             gpu.clear_finish_accumulators();
-            context.total_iterations_today += iter_delta;
+            context.total_iterations_today = context
+                .total_iterations_today
+                .saturating_add(iter_delta);
             context.total_iterations = context.total_iterations.saturating_add(iter_delta);
             let outcome = publish_gpu_finishes(
                 context,

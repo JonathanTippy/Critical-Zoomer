@@ -87,6 +87,9 @@ impl NaiveGpuContext {
         for backends in backend_attempts {
             let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
                 backends,
+                // Debug default turns on VALIDATION; that hunts Khronos layers and
+                // dumps Vulkan loader INFO for every instance (worker + restart).
+                flags: wgpu::InstanceFlags::empty(),
                 ..Default::default()
             });
             match instance

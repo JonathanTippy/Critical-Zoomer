@@ -1621,16 +1621,19 @@ where
 
 
 
-        context.total_iterations_today += context.points[index]
-            .iterations
-            .saturating_sub(old_iterations);
+        context.total_iterations_today = context.total_iterations_today.saturating_add(
+            context.points[index]
+                .iterations
+                .saturating_sub(old_iterations),
+        );
 
 
         if context.points[index].repeats || context.points[index].escapes {
 
             //context.already_done.push(context.index);
             //context.already_done_hashset.insert(context.index);
-            context.total_iterations += context.points[index].iterations;
+            context.total_iterations = context.total_iterations
+                .saturating_add(context.points[index].iterations);
 
 
 
@@ -1673,7 +1676,7 @@ where
             let _ = context.push_delivery(Delivery::Final(completed_point), index);
 
 
-            context.total_points_today += 1;
+            context.total_points_today = context.total_points_today.saturating_add(1);
             context.record_hud_completion_batch(1);
         } else {
             match step {
@@ -1705,11 +1708,15 @@ where
             }
         }
 
-        context.total_bouts_today += 1;
-        context.spent_tokens_today = context.total_bouts_today * bout_token_cost + context.total_points_today * point_token_cost + context.total_iterations_today * point_token_cost;
+        context.total_bouts_today = context.total_bouts_today.saturating_add(1);
+        context.spent_tokens_today = context
+            .total_bouts_today
+            .saturating_mul(bout_token_cost)
+            .saturating_add(context.total_points_today.saturating_mul(point_token_cost))
+            .saturating_add(context.total_iterations_today.saturating_mul(point_token_cost));
     }
 
-    context.workshifts += 1;
+    context.workshifts = context.workshifts.saturating_add(1);
     // r[impl cz.craft.load-proportional-ignorance+1]
     // Idle metric is delivered fraction, not the empty-queue break index.
     let delivered = context.points.iter().filter(|p| p.delivered).count();

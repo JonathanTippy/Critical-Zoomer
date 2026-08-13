@@ -687,6 +687,39 @@ fn workshift_always_terminates() {
     });
 }
 
+#[test]
+fn lifetime_iteration_counters_saturate_instead_of_overflow() {
+    run_big_stack_size(|| {
+        let mut ctx = make_context(0);
+        ctx.total_iterations = u32::MAX;
+        ctx.total_iterations_today = u32::MAX;
+        ctx.total_points_today = u32::MAX;
+        ctx.total_bouts_today = u32::MAX;
+        ctx.workshifts = u32::MAX;
+        ctx.points[2].iterations = u32::MAX;
+        ctx.total_iterations = ctx
+            .total_iterations
+            .saturating_add(ctx.points[2].iterations);
+        ctx.total_iterations_today = ctx
+            .total_iterations_today
+            .saturating_add(ctx.points[2].iterations);
+        ctx.total_points_today = ctx.total_points_today.saturating_add(1);
+        ctx.total_bouts_today = ctx.total_bouts_today.saturating_add(1);
+        ctx.workshifts = ctx.workshifts.saturating_add(1);
+        ctx.spent_tokens_today = ctx
+            .total_bouts_today
+            .saturating_mul(4)
+            .saturating_add(ctx.total_points_today.saturating_mul(150))
+            .saturating_add(ctx.total_iterations_today.saturating_mul(150));
+        assert_eq!(ctx.total_iterations, u32::MAX);
+        assert_eq!(ctx.total_iterations_today, u32::MAX);
+        assert_eq!(ctx.total_points_today, u32::MAX);
+        assert_eq!(ctx.total_bouts_today, u32::MAX);
+        assert_eq!(ctx.workshifts, u32::MAX);
+        assert_eq!(ctx.spent_tokens_today, u32::MAX);
+    });
+}
+
 // r[verify cz.craft.stencil-only-replace+2]
 #[test]
 fn fresh_shell_leaves_seats_uninitialized() {
