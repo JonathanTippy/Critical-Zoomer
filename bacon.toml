@@ -11,7 +11,7 @@ need_stdout = true
 [jobs.test-lib]
 command = [
   "bash", "-lc",
-  "NPROC=$(nproc); START=$((NPROC/4)); END=$((NPROC*3/4-1)); taskset -c ${START}-${END} cargo test --lib -- --test-threads=1 --skip home_800x480 --skip gpu_ips --skip standards_perf::"
+  "NPROC=$(nproc); START=$((NPROC/4)); END=$((NPROC*3/4-1)); taskset -c ${START}-${END} cargo test --lib -- --test-threads=1 --skip integration_tier --skip e2e_tier"
 ]
 need_stdout = true
 
