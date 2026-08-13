@@ -34,6 +34,14 @@ Cadence still measures ~5s after first color so settling is real. The wgpu dir l
 waits up to 180s for a **live** holder and reclaims only dead/stale dirs — it must
 not delete a lock out from under dummy-head cadence.
 
+## Compile profile
+
+House tests are **`cargo test`** (dev/test): `debug-assertions` and overflow
+checks stay on; `opt-level = 3` in `Cargo.toml` so Hz/IPS floors see a fast
+compile. `--release` is the wrong gate — it drops those checks. Criterion
+benches still use the release profile. Headed screenshot builds stay
+`--release`.
+
 ## Where they live
 
 | Layer | Location | Role |
@@ -41,7 +49,7 @@ not delete a lock out from under dummy-head cadence.
 | Screen worker alone | `craftsmanship_tests/integration_tier.rs` (`steady_state_screen_worker_*`) | Fill + IPS floors on DirectKernel / naive-GPU path |
 | Post-fill park settle | `steady_state_home_stays_parked_for_10s_after_fill` | 10s wall idle after home fill: seats stay delivered, 0 iters |
 | Workgroup chain | `craftsmanship_tests/integration_tier.rs` (`steady_state_workgroup_*`) | `iterations_delta` / `points_delta` survive into HUD `RateCounter` |
-| **Pipeline cadence (dummy head)** | `tests/pipeline_cadence.rs` | One harness (not lib+bin duplicate). Cross-process lock. Floors: OG esc ≥15, GPU esc ≥40, **release**. `full_check.sh` runs this last among tests. Headed HUD is still the product check. |
+| **Pipeline cadence (dummy head)** | `tests/pipeline_cadence.rs` | One harness (not lib+bin duplicate). Cross-process lock. Floors: OG esc ≥15, GPU esc ≥40. House compile is **debug + opt-level 3** (`profile.dev` / `profile.test`), not `--release` (that drops overflow checks). `full_check.sh` runs this last among tests. Headed HUD is still the product check. |
 | Home PPS ratio | `steady_state_home_pps_gpu_vs_cpu_ratio` | GPU vs CPU wall PPS (climb toward ~FLOP ratio) |
 | GPU host queues | `steady_state_naive_gpu_home_neighbor_queues_grow` | Finals grow out/in/edge queues (no bulk skip) |
 | GPU no CPU mop | `steady_state_naive_gpu_home_fills_without_cpu_mop` | Home closes on GPU; no ≥N% DirectKernel mop |
@@ -73,10 +81,10 @@ bulk GPU fill. Completeness is a GPU+host-queue property
 wait on 15s/60s suites:
 
 ```bash
-taskset -c 4-11 nice -n 15 cargo test --release --lib -- --skip integration_tier --skip e2e_tier
-taskset -c 4-11 nice -n 15 cargo test --release --lib integration_tier -- --nocapture
-taskset -c 4-11 nice -n 15 cargo test --release --lib e2e_tier -- --nocapture
-taskset -c 4-11 nice -n 15 cargo test --release --test pipeline_cadence -- --nocapture
+taskset -c 4-11 nice -n 15 cargo test --lib -- --skip integration_tier --skip e2e_tier
+taskset -c 4-11 nice -n 15 cargo test --lib integration_tier -- --nocapture
+taskset -c 4-11 nice -n 15 cargo test --lib e2e_tier -- --nocapture
+taskset -c 4-11 nice -n 15 cargo test --test pipeline_cadence -- --nocapture
 ```
 
 Pipeline cadence lives in `tests/pipeline_cadence.rs` (one harness; dir lock).

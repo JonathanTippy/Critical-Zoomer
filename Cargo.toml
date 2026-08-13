@@ -49,3 +49,13 @@ bench = false
 name = "critical_zoomer"
 path = "src/main.rs"
 bench = false
+
+# House tests are `cargo test` (dev/test): overflow checks and
+# debug-assertions stay on. opt-level 3 so cadence/IPS floors see a
+# product-speed compile. `cargo test --release` turns those checks off —
+# do not use it as the gate. Criterion benches still use profile.release.
+[profile.dev]
+opt-level = 3
+
+[profile.test]
+opt-level = 3

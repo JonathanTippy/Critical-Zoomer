@@ -5,7 +5,9 @@
 //! Cross-process dir lock (`WgpuTestLock`): an ad-hoc `--all-targets` can still
 //! overlap this harness with the lib IPS probe. `full_check.sh` runs cadence
 //! after unit/integration. In-process GPU unit tests use `lock_gpu_tests()`
-//! (a mutex), not this dir lock. Floors are **release** bars.
+//! (a mutex), not this dir lock. Floors assume **opt-level 3** (house
+//! `profile.dev` / `profile.test`). Do not gate on `--release` (overflow
+//! checks off). Unoptimized debug will miss the Hz bars.
 
 use critical_zoomer::assemblies::headgroup::dummy_cadence::{
     cadence_lab_settings, CadenceReport, DummyCadenceConfig,

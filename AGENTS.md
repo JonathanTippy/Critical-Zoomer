@@ -45,8 +45,9 @@ Five layers, cheapest-first:
    agent until the developer returns. Never run approval-gated commands, never
    set `request_smart_mode_approval`, and never retry a block "with approval."
    Always-on rule: `.cursor/rules/no-approval-during-loops.mdc`.
-5. **Full check** — `scripts/full_check.sh` (cargo check + release tests in
-   pyramid order: unit, then `integration_tier`, then e2e park + cadence +
+5. **Full check** — `scripts/full_check.sh` (cargo check + tests in
+   pyramid order on the **dev** profile with opt-level 3: unit, then
+   `integration_tier`, then e2e park + cadence +
    all Criterion benches + `tracey query validate`
    and status). Stop hook `.cursor/hooks/full_check_on_stop.sh` runs it when the
    turn touched code/benches/tracey and follow-ups the agent if red. Log:

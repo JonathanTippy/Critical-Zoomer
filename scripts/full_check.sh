@@ -22,10 +22,10 @@ PIN=(taskset -c "${START}-${END}" nice -n 10)
 plan() {
   echo "full_check: pin ${START}-${END}  log $LOG"
   echo "  1. cargo check --lib"
-  echo "  2. cargo test --release --lib  (unit; skip integration_tier, e2e_tier)"
-  echo "  3. cargo test --release --lib integration_tier   (≤10, 15s)"
-  echo "  4. cargo test --release --lib e2e_tier            (park, 60s)"
-  echo "  5. cargo test --release --test pipeline_cadence   (OG + GPU, 60s)"
+  echo "  2. cargo test --lib  (unit; skip integration_tier, e2e_tier; debug+opt-3)"
+  echo "  3. cargo test --lib integration_tier   (≤10, 15s)"
+  echo "  4. cargo test --lib e2e_tier            (park, 60s)"
+  echo "  5. cargo test --test pipeline_cadence   (OG + GPU, 60s)"
   echo "  6. cargo bench workgroup_fitness shadergroup_fitness my_bench"
   echo "  7. tracey query validate      (fail-closed)"
   echo "  8. tracey query status        (dump; does not fail the check)"
@@ -71,14 +71,14 @@ fi
 
 run cargo check --lib || fail "cargo check --lib"
 # Unit first: cheap 1s tests. Fail here before paying for 15s/60s suites.
-run cargo test --release --lib -- \
+run cargo test --lib -- \
   --skip integration_tier --skip e2e_tier \
   || fail "cargo test unit (--lib, skip integration/e2e)"
-run cargo test --release --lib integration_tier \
+run cargo test --lib integration_tier \
   || fail "cargo test integration_tier"
-run cargo test --release --lib e2e_tier \
+run cargo test --lib e2e_tier \
   || fail "cargo test e2e_tier"
-run cargo test --release --test pipeline_cadence \
+run cargo test --test pipeline_cadence \
   || fail "cargo test pipeline_cadence"
 run cargo bench --bench workgroup_fitness --bench shadergroup_fitness --bench my_bench \
   || fail "cargo bench (workgroup_fitness + shadergroup_fitness + my_bench)"
