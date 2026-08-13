@@ -302,9 +302,9 @@ fn faux_user_zoom_to_hard_minibrot_matches_direct() {
         for pot in [0, 4, 8, 12, 16, 20] {
             let step = format!(
                 "{} {}i mag 2^{}"
-                , crate::assemblies::headgroup::window::coords::format_intexp_readout(&dre)
+                , crate::assemblies::headgroup::window::coords::format_intexp_readout(&dre, pot)
                 , {
-                    let s = crate::assemblies::headgroup::window::coords::format_intexp_readout(&dim);
+                    let s = crate::assemblies::headgroup::window::coords::format_intexp_readout(&dim, pot);
                     if s.starts_with('-') { s } else { format!("+ {s}") }
                 }
                 , pot

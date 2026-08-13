@@ -1,5 +1,6 @@
 // read delivery.md for project context
-use rug::Integer;
+use rug::ops::Pow;
+use rug::{Float, Integer, Rational};
 use crate::assemblies::headgroup::window::sampling::ZoomerCommand;
 use crate::constants::PIXELS_PER_UNIT_POT;
 use crate::utils::{IntExp, ObjectivePosAndZoom};
@@ -27,8 +28,133 @@ pub fn f64_to_intexp(v: f64) -> IntExp {
 }
 
 pub fn decimal_str_to_intexp(s: &str) -> Option<IntExp> {
-    let v: f64 = s.trim().parse().ok()?;
-    Some(f64_to_intexp(v))
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let (mant, exp10) = split_decimal_pow10(s)?;
+    let (mut digits, frac_len, neg) = parse_decimal_mantissa(mant)?;
+    if digits == 0 {
+        return Some(IntExp::ZERO);
+    }
+    let scale = frac_len as i32 - exp10;
+    if scale >= 0 {
+        intexp_from_decimal_digits(digits, scale as u32, neg)
+    } else {
+        digits *= Integer::from(10).pow((-scale) as u32);
+        intexp_from_decimal_digits(digits, 0, neg)
+    }
+}
+
+fn split_decimal_pow10(s: &str) -> Option<(&str, i32)> {
+    let bytes = s.as_bytes();
+    let mut e_at = None;
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'e' || b == b'E' {
+            if i == 0 {
+                return None;
+            }
+            e_at = Some(i);
+            break;
+        }
+    }
+    match e_at {
+        None => Some((s, 0)),
+        Some(i) => {
+            let exp: i32 = s[i + 1..].parse().ok()?;
+            Some((&s[..i], exp))
+        }
+    }
+}
+
+fn parse_decimal_mantissa(s: &str) -> Option<(Integer, u32, bool)> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let (neg, rest) = match s.as_bytes()[0] {
+        b'+' => (false, &s[1..]),
+        b'-' => (true, &s[1..]),
+        _ => (false, s),
+    };
+    if rest.is_empty() {
+        return None;
+    }
+    let mut int_digits = String::new();
+    let mut frac_digits = String::new();
+    let mut seen_dot = false;
+    for c in rest.chars() {
+        if c == '.' {
+            if seen_dot {
+                return None;
+            }
+            seen_dot = true;
+            continue;
+        }
+        if !c.is_ascii_digit() {
+            return None;
+        }
+        if seen_dot {
+            frac_digits.push(c);
+        } else {
+            int_digits.push(c);
+        }
+    }
+    if int_digits.is_empty() && frac_digits.is_empty() {
+        return None;
+    }
+    let combined = format!(
+        "{}{}",
+        if int_digits.is_empty() { "0" } else { &int_digits },
+        frac_digits
+    );
+    let digits = Integer::from_str_radix(&combined, 10).ok()?;
+    Some((digits, frac_digits.len() as u32, neg))
+}
+
+fn intexp_from_decimal_digits(mut num: Integer, k: u32, neg: bool) -> Option<IntExp> {
+    if num == 0 {
+        return Some(IntExp::ZERO);
+    }
+    let mut twos = k;
+    let mut fives = k;
+    while fives > 0 && num.is_divisible_u(5) {
+        num /= 5;
+        fives -= 1;
+    }
+    while twos > 0 && num.is_divisible_u(2) {
+        num /= 2;
+        twos -= 1;
+    }
+    let mut extra = 0i32;
+    while num != 0 && num.is_divisible_u(2) {
+        num /= 2;
+        extra += 1;
+    }
+    if fives == 0 {
+        return Some(signed_intexp(num, extra - twos as i32, neg));
+    }
+    let den = Integer::from(5).pow(fives);
+    let r = Rational::from((num, den));
+    let prec = (r.numer().significant_bits() + r.denom().significant_bits() + 64).max(128);
+    let mut f = Float::with_val(prec, r);
+    let sh = extra - twos as i32;
+    if sh >= 0 {
+        f <<= sh as u32;
+    } else {
+        f >>= (-sh) as u32;
+    }
+    let (m, e) = f.to_integer_exp()?;
+    Some(signed_intexp(m, e, neg))
+}
+
+fn signed_intexp(val: Integer, exp: i32, neg: bool) -> IntExp {
+    let x = IntExp { val, exp };
+    if neg {
+        IntExp::ZERO - x
+    } else {
+        x
+    }
 }
 
 /// UL location so viewport center is at (center_re, center_im) in math coords.
@@ -75,29 +201,83 @@ pub fn viewport_center(loc: &ObjectivePosAndZoom, screen: (u32, u32)) -> (IntExp
     (re, im)
 }
 
-/// Compact decimal for the location HUD (avoid IntExp Display's "n...." truncation).
-// r[impl cz.ui.location-readout+2]
-pub fn format_intexp_readout(v: &IntExp) -> String {
-    let f = f64::from(v.clone());
-    if !f.is_finite() {
-        return "nan".to_string();
+/// Fractional decimal places that match pixel pitch `2^-(zoom+PIXELS_PER_UNIT_POT)`.
+/// `ceil(p × log10(2))` — last digit rounds; no extra trailing junk.
+pub fn decimal_places_for_zoom(zoom_pot: i32) -> u32 {
+    let p = zoom_pot.saturating_add(PIXELS_PER_UNIT_POT);
+    if p <= 0 {
+        return 0;
     }
-    if f == 0.0 {
+    (p as f64 * std::f64::consts::LOG10_2).ceil() as u32
+}
+
+fn round_half_even_mul_pow2(mag: Integer, exp: i32) -> Integer {
+    if exp >= 0 {
+        return mag << (exp as u32);
+    }
+    let r = (-exp) as u32;
+    let rest = mag.clone() >> r;
+    let rem = mag - (rest.clone() << r);
+    let half = Integer::from(1) << (r - 1);
+    let mut out = rest;
+    if rem > half || (rem == half && out.is_odd()) {
+        out += 1;
+    }
+    out
+}
+
+/// Decimal of `v` with enough places for `zoom_pot` pixel pitch, rounded half-even.
+// r[impl cz.ui.location-readout+2]
+pub fn format_intexp_readout(v: &IntExp, zoom_pot: i32) -> String {
+    if v.val.is_zero() {
         return "0".to_string();
     }
-    let abs = f.abs();
-    if abs >= 1e6 || abs < 1e-4 {
-        format!("{f:.6e}")
+    let neg = v.val.cmp0() == std::cmp::Ordering::Less;
+    let mag = if neg {
+        Integer::from(-&v.val)
     } else {
-        let s = format!("{f:.12}");
-        s.trim_end_matches('0').trim_end_matches('.').to_string()
+        v.val.clone()
+    };
+    let places = decimal_places_for_zoom(zoom_pot);
+    let rounded = if places == 0 {
+        round_half_even_mul_pow2(mag, v.exp)
+    } else {
+        round_half_even_mul_pow2(mag * Integer::from(5).pow(places), v.exp + places as i32)
+    };
+    if rounded.is_zero() {
+        return "0".to_string();
+    }
+    let mut s = rounded.to_string();
+    let body = if places == 0 {
+        s
+    } else {
+        let places = places as usize;
+        while s.len() < places {
+            s.insert(0, '0');
+        }
+        if s.len() == places {
+            s.insert(0, '0');
+        }
+        let split = s.len() - places;
+        let int_part = &s[..split];
+        let frac = s[split..].trim_end_matches('0');
+        if frac.is_empty() {
+            int_part.to_string()
+        } else {
+            format!("{int_part}.{frac}")
+        }
+    };
+    if neg {
+        format!("-{body}")
+    } else {
+        body
     }
 }
 
 /// Read-only location field: center re/im + magnification pot (requirements).
 // r[impl cz.ui.location-readout+2]
 pub fn format_location_readout(re: &IntExp, im: &IntExp, zoom_pot: i32) -> String {
-    let im_s = format_intexp_readout(im);
+    let im_s = format_intexp_readout(im, zoom_pot);
     let im_part = if im_s.starts_with('-') {
         format!("{im_s}i")
     } else {
@@ -105,7 +285,7 @@ pub fn format_location_readout(re: &IntExp, im: &IntExp, zoom_pot: i32) -> Strin
     };
     format!(
         "{} {}  mag 2^{}"
-        , format_intexp_readout(re)
+        , format_intexp_readout(re, zoom_pot)
         , im_part
         , zoom_pot
     )
@@ -436,9 +616,51 @@ mod tests {
     #[test]
     fn format_intexp_readout_avoids_ellipsis_truncation() {
         let v = f64_to_intexp(0.5);
-        let s = format_intexp_readout(&v);
+        let s = format_intexp_readout(&v, 0);
         assert!(!s.contains("..."), "got {s}");
         assert!(s.contains('5') || s.contains("0.5") || s.starts_with('5'), "got {s}");
+    }
+
+    // r[verify cz.ui.location-readout+2]
+    #[test]
+    fn format_intexp_readout_distinguishes_pixel_at_mag_44() {
+        assert_eq!(decimal_places_for_zoom(44), 16);
+        assert_eq!(decimal_places_for_zoom(-2), 3);
+        let exp = -(44 + PIXELS_PER_UNIT_POT);
+        let a = IntExp {
+            val: Integer::from(123456789012345i64),
+            exp,
+        };
+        let b = IntExp {
+            val: Integer::from(123456789012346i64),
+            exp,
+        };
+        let sa = format_intexp_readout(&a, 44);
+        let sb = format_intexp_readout(&b, 44);
+        assert_ne!(sa, sb, "neighbors at mag 44 must print differently");
+        let frac_a = sa.split('.').nth(1).map(|f| f.len()).unwrap_or(0);
+        assert!(frac_a <= 16, "got {sa}");
+        let twelve = format!("{:.12}", f64::from(a.clone()));
+        let twelve_b = format!("{:.12}", f64::from(b.clone()));
+        assert_eq!(
+            twelve, twelve_b,
+            "pin: f64 12-place would collide; readout must not"
+        );
+    }
+
+    // r[verify cz.ui.goto-accepts-readout+1]
+    #[test]
+    fn decimal_parse_roundtrips_exact_dyadic() {
+        let v = IntExp {
+            val: Integer::from(-13),
+            exp: -6,
+        };
+        let s = format_intexp_readout(&v, 8);
+        assert_eq!(decimal_str_to_intexp(&s).expect("roundtrip"), v);
+        assert_eq!(format_intexp_readout(&f64_to_intexp(0.125), 0), "0.125");
+        let tenth = decimal_str_to_intexp("0.1").expect("0.1");
+        assert!((f64::from(tenth) - 0.1).abs() < 1e-12);
+        assert_eq!(decimal_str_to_intexp("1e-2").expect("sci"), decimal_str_to_intexp("0.01").unwrap());
     }
 
     #[test]
@@ -735,8 +957,8 @@ mod tests {
         let line = format_location_readout(&cre, &cim, -2);
         assert!(line.contains("mag 2^-2"));
         assert!(line.contains('i'));
-        assert_ne!(format_intexp_readout(&IntExp::ZERO), "nan");
-        assert_eq!(format_intexp_readout(&IntExp::ZERO), "0");
+        assert_ne!(format_intexp_readout(&IntExp::ZERO, 0), "nan");
+        assert_eq!(format_intexp_readout(&IntExp::ZERO, 0), "0");
 
         // Negative imag uses leading '-' (not "+ -…i").
         let neg_im = format_location_readout(&cre, &f64_to_intexp(-0.5), 3);
@@ -817,18 +1039,17 @@ mod tests {
         assert!(split_mag_suffix("nimag 2^1").1.is_none());
         assert_eq!(split_mag_suffix("mag 2^7").1, Some(7));
 
-        assert_eq!(format_intexp_readout(&IntExp::ZERO), "0");
-        assert_eq!(format_intexp_readout(&f64_to_intexp(1.5)), "1.5");
-        // Sci thresholds: |x|>=1e6 or |x|<1e-4.
-        let big = format_intexp_readout(&f64_to_intexp(1e6));
-        assert!(big.contains('e') || big.contains('E'), "got {big}");
-        let tiny = format_intexp_readout(&f64_to_intexp(1e-5));
-        assert!(tiny.contains('e') || tiny.contains('E'), "got {tiny}");
-        let mid = format_intexp_readout(&f64_to_intexp(0.001));
-        assert!(!mid.contains('e') && !mid.contains('E'), "got {mid}");
-        // Trim trailing zeros / trailing dot.
-        assert_eq!(format_intexp_readout(&f64_to_intexp(2.0)), "2");
-        assert_ne!(format_intexp_readout(&f64_to_intexp(2.0)), "2.000000000000");
+        assert_eq!(format_intexp_readout(&IntExp::ZERO, 0), "0");
+        assert_eq!(format_intexp_readout(&f64_to_intexp(1.5), 0), "1.5");
+        assert_eq!(decimal_places_for_zoom(0), 3);
+        let big = format_intexp_readout(&f64_to_intexp(1e6), 0);
+        assert_eq!(big, "1000000");
+        let tiny = format_intexp_readout(&f64_to_intexp(1e-5), 0);
+        assert_eq!(tiny, "0");
+        let mid = format_intexp_readout(&f64_to_intexp(0.001), 0);
+        assert_eq!(mid, "0.001");
+        assert_eq!(format_intexp_readout(&f64_to_intexp(2.0), 0), "2");
+        assert_ne!(format_intexp_readout(&f64_to_intexp(2.0), 0), "2.000000000000");
 
         let d = decimal_str_to_intexp(" -1.25 ").expect("parse");
         assert!((f64::from(d) + 1.25).abs() < 1e-9);

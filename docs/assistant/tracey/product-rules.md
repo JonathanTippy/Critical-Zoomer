@@ -188,11 +188,14 @@ already at that location); applying moves viewport center; field is not cleared.
 Defined in requirements.md: r[cz.ui.location-readout+2]
 
 **Normative summary.** Read-only location field in the bottom-right panel (with
-goto) shows viewport center with copy; always includes magnification.
+goto) shows viewport center with copy; always includes magnification. Decimal
+places are `ceil((zoom+9)×log10(2))` with half-even rounding — enough for a
+pixel, not an f64 12-place dump.
 
 **Acceptance criteria.**
 - Location HUD string includes `mag 2^N`, Copy button, center (not UL); panel
-  anchored bottom-right.
+  anchored bottom-right. Digit count follows pixel pitch (`decimal_places_for_zoom`).
+  `format_intexp_readout_distinguishes_pixel_at_mag_44`.
 
 r[cz.ui.goto-accepts-readout+1]
 

@@ -47,6 +47,13 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
 
 ## True bugs (open)
 
+- **Location readout digits (display only, 2026-08-13).** HUD used f64 to 12
+  decimals (~40 bits). Pixel pitch is `2^-(zoom+9)`; places are
+  `ceil((zoom+9)×log10(2))` with half-even rounding (16 at mag 44). Not a
+  workgroup compute bug.
+- **OG naive `CopyIntExp<1>` (`stack:i64`) flat grey (2026-08-13).** Separate
+  from readout. Headed at mag ~44 after f64 wall: HUD `i64` / `mode:naive`,
+  large flat field. Workgroup iterate/color path — do not blame the decimal HUD.
 - **Transition rectangular blockiness / shallow false admit (2026-08-12 design RCA).**
   When a deeper gear exists but the image shows rectangular precision blocks,
   suspect **C-generator false-admit of a shallow type**, or a **later precision
