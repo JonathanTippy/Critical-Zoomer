@@ -63,13 +63,11 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
   black is closed. Do not re-break OG naive to chase i64.
 - **OG naive `CopyIntExp<1>` (`stack:i64`) four-quadrant grey (2026-08-13).**
   Separate from OG-black. Headed mag 43–44 (e.g. `HEADED_I64_GREY_*`):
-  **four axis-aligned grey rectangles, one slightly lighter** — not one flat
-  field, not Mandelbrot. HUD `ipp:0` `pps` high `stack:i64` `gear:F64` (lie).
-  Screen worker: `get_c` CopyIntExp add drops pixel index to ~1 bit/axis.
-  Retracted: collector `to_f64(c)`. Write-up:
-  `docs/assistant/rca-i64-flat-grey-2026-08-13.md`. Pin
-  `og_copy_intexp1_headed_mag_43_not_all_interior` is 16×17 and does not
-  see the 2×2. **Do not treat as fixed.**
+  **four axis-aligned grey rectangles, one slightly lighter.** Admit of i64 is
+  correct (significand count). Suspects: CopyIntExp add/mul (new), or an
+  accidental f64 on the iterate/`c` path. Not WorkUpdate `c`. Write-up:
+  `docs/assistant/rca-i64-flat-grey-2026-08-13.md`. 16×17 pin does not see
+  the 2×2. **Do not treat as fixed.**
 - **Transition rectangular blockiness / shallow false admit (2026-08-12 design RCA).**
   When a deeper gear exists but the image shows rectangular precision blocks,
   suspect **C-generator false-admit of a shallow type**, or a **later precision
