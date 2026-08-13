@@ -1,5 +1,5 @@
 use eframe::emath::Rect;
-use egui::{color_picker, Ui};
+use egui::{color_picker, Color32, CornerRadius, Margin, Shadow, Stroke, Ui};
 use egui_dnd::dnd;
 use crate::assemblies::structs::{ColorerMode, EscaperMode, KernelMode};
 use crate::settings::*;
@@ -8,10 +8,31 @@ fn settings_section(ui: &mut Ui, title: &str, body: impl FnOnce(&mut Ui)) {
     ui.add_space(8.0);
     ui.heading(title);
     ui.add_space(6.0);
+    let width = ui.available_width();
     egui::Frame::group(ui.style())
-        .inner_margin(egui::Margin::symmetric(10, 8))
+        .inner_margin(Margin::symmetric(10, 8))
         .show(ui, |ui| {
+            ui.set_min_width(width - 4.0);
             ui.spacing_mut().item_spacing.y = 8.0;
+            body(ui);
+        });
+}
+
+fn drag_list_frame(ui: &mut Ui, body: impl FnOnce(&mut Ui)) {
+    let vis = ui.visuals().clone();
+    egui::Frame::new()
+        .inner_margin(Margin::same(10))
+        .corner_radius(CornerRadius::same(10))
+        .fill(vis.extreme_bg_color)
+        .stroke(Stroke::new(1.0, vis.widgets.inactive.bg_stroke.color))
+        .shadow(Shadow {
+            offset: [0, 3],
+            blur: 10,
+            spread: 0,
+            color: Color32::from_black_alpha(90),
+        })
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
             body(ui);
         });
 }
@@ -20,8 +41,6 @@ impl Settings {
     pub fn widgetize(&mut self, ui:&mut Ui) {
 
         settings_section(ui, "Coloring", |ui| {
-            ui.label("Steps");
-
             if self.coloring_script.is_none() {
                 self.coloring_script = Some(DEFAULT_COLORING_SCRIPT.into());
             }
@@ -30,13 +49,15 @@ impl Settings {
 
             let mut rect = Rect::ZERO;
 
-            dnd(ui, "dnd_example").show_vec(&mut items, |ui, item, handle, state| {
-                ui.horizontal(|ui| {
-                    handle.ui(ui, |ui| {
-                        ui.label("|☰☰|");
+            drag_list_frame(ui, |ui| {
+                dnd(ui, "dnd_example").show_vec(&mut items, |ui, item, handle, state| {
+                    ui.horizontal(|ui| {
+                        handle.ui(ui, |ui| {
+                            let _ = ui.add(egui::Button::new("☰").frame(true));
+                        });
+                        ui.label(*item);
+                        ui.radio_value(&mut self.currently_selected_coloring_instruction, item.id(), "select")
                     });
-                    ui.label(*item);
-                    ui.radio_value(&mut self.currently_selected_coloring_instruction, item.id(), "select")
                 });
             });
 
@@ -56,6 +77,11 @@ impl Settings {
             ui.label("Bailout radius");
             self.bailout_radius.widgetize(ui);
             ui.add_space(4.0);
+            ui.label("C-generator");
+            ui.add(egui::Slider::new(&mut self.c_generator_margin_bits, 0..=32).text("margin bits"));
+        });
+
+        settings_section(ui, "Gearbox", |ui| {
             ui.label("Kernel");
             ui.checkbox(&mut self.manual_gear_enabled, "Manual gear");
             ui.add_enabled_ui(self.manual_gear_enabled, |ui| {
@@ -78,9 +104,7 @@ impl Settings {
                 });
             });
             ui.label("Naive GPU and Perturbation are early-dev and still buggy.");
-        });
-
-        settings_section(ui, "Shade", |ui| {
+            ui.add_space(4.0);
             ui.label("Colorer");
             ui.checkbox(&mut self.manual_color_gear_enabled, "Manual color gear");
             ui.add_enabled_ui(self.manual_color_gear_enabled, |ui| {
@@ -114,9 +138,6 @@ impl Settings {
                     );
                 });
             });
-            ui.add_space(4.0);
-            ui.label("C-generator");
-            ui.add(egui::Slider::new(&mut self.c_generator_margin_bits, 0..=32).text("margin bits"));
         });
 
         settings_section(ui, "Eye tracking", |ui| {
@@ -268,8 +289,10 @@ impl ShadingInstruction {
 
 impl Shading {
     pub fn widgetize(&mut self, ui:&mut Ui) {
-        ui.radio_value(self, Shading::Modular{}, "Modular");
-        ui.radio_value(self, Shading::Sinus{},"Sinus");
+        ui.horizontal_wrapped(|ui| {
+            ui.radio_value(self, Shading::Modular{}, "Modular");
+            ui.radio_value(self, Shading::Sinus{},"Sinus");
+        });
         /*ui.radio_value(self, Shading::Linear{},"Linear");
         ui.radio_value(self, Shading::Histogram{},"Histogram");*/
     }
@@ -305,12 +328,12 @@ impl Animable {
 
 impl Normalizing {
     pub fn widgetize(&mut self, ui:&mut Ui) {
-
-        ui.radio_value(self, Normalizing::None{},"None");
-        ui.radio_value(self, Normalizing::LnLn{},"LnLn");
-        ui.radio_value(self, Normalizing::Ln{},"Ln");
-        ui.radio_value(self, Normalizing::RecipLn{},"Reciprocal + Ln");
-        ui.radio_value(self, Normalizing::Reciprocal{},"Reciprocal");
-
+        ui.horizontal_wrapped(|ui| {
+            ui.radio_value(self, Normalizing::None{},"None");
+            ui.radio_value(self, Normalizing::LnLn{},"LnLn");
+            ui.radio_value(self, Normalizing::Ln{},"Ln");
+            ui.radio_value(self, Normalizing::RecipLn{},"Reciprocal + Ln");
+            ui.radio_value(self, Normalizing::Reciprocal{},"Reciprocal");
+        });
     }
 }
