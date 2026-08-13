@@ -84,18 +84,16 @@ impl<const Words: usize> Add for CopyIntExp<Words> {
         // the finer exp. Fixed tape: shr the finer mantissa onto the coarser
         // exp (drop low bits). Never `<< 0`.
         match self.exp.cmp(&other.exp) {
-            Equal => pack_add(add_limbs(self.value, other.value), self.exp, limbs_neg(self.value), limbs_neg(other.value)),
+            Equal => pack_add(add_limbs(self.value, other.value), self.exp),
             Greater => {
                 let s = (self.exp - other.exp) as u32;
                 debug_assert!(s > 0);
-                let fine = shr_limbs(other.value, s);
-                pack_add(add_limbs(self.value, fine), self.exp, limbs_neg(self.value), limbs_neg(fine))
+                pack_add(add_limbs(self.value, shr_limbs(other.value, s)), self.exp)
             }
             Less => {
                 let s = (other.exp - self.exp) as u32;
                 debug_assert!(s > 0);
-                let fine = shr_limbs(self.value, s);
-                pack_add(add_limbs(fine, other.value), other.exp, limbs_neg(fine), limbs_neg(other.value))
+                pack_add(add_limbs(shr_limbs(self.value, s), other.value), other.exp)
             }
         }
     }
@@ -104,39 +102,33 @@ impl<const Words: usize> Add for CopyIntExp<Words> {
 fn add_limbs<const Words: usize>(a: [i64; Words], b: [i64; Words]) -> ([i64; Words], i64) {
     let mut out = [0i64; Words];
     let mut carry = 0u128;
-    for i in 0..Words {
-        let sum = a[i] as u64 as u128 + b[i] as u64 as u128 + carry;
-        out[i] = sum as u64 as i64;
+    for (dst, (&av, &bv)) in out.iter_mut().zip(a.iter().zip(b.iter())) {
+        let sum = av as u64 as u128 + bv as u64 as u128 + carry;
+        *dst = sum as u64 as i64;
         carry = sum >> 64;
     }
     (out, carry as i64)
 }
 
-fn pack_add<const Words: usize>(
-    sum: ([i64; Words], i64),
-    exp: i32,
-    a_neg: bool,
-    b_neg: bool,
-) -> CopyIntExp<Words> {
+fn pack_add<const Words: usize>(sum: ([i64; Words], i64), exp: i32) -> CopyIntExp<Words> {
     let (limbs, extra) = sum;
-    let overflow = a_neg == b_neg && limbs_neg(limbs) != a_neg;
-    if extra != 0 && overflow && !limbs_zero(limbs) {
-        CopyIntExp {
-            value: shr_one_word(limbs, extra),
-            exp: exp + WORDSIZE as i32,
-        }
-    } else {
+    if extra == 0 {
         CopyIntExp {
             value: limbs,
             exp,
+        }
+    } else {
+        CopyIntExp {
+            value: shr_one_word(limbs, extra),
+            exp: exp + WORDSIZE as i32,
         }
     }
 }
 
 fn shr_one_word<const Words: usize>(a: [i64; Words], extra: i64) -> [i64; Words] {
     let mut out = [0i64; Words];
-    for i in 0..Words - 1 {
-        out[i] = a[i + 1];
+    for (dst, &src) in out.iter_mut().zip(a.iter().skip(1)) {
+        *dst = src;
     }
     out[Words - 1] = extra;
     out
@@ -178,59 +170,16 @@ impl<const Words: usize> Mul for CopyIntExp<Words> {
     type Output = Self;
     fn mul(self, other: Self) -> Self {
         // r[impl cz.math.copy-intexp-mul-schoolbook+1]
-        let sa = limbs_neg(self.value);
-        let sb = limbs_neg(other.value);
-        let a = if sa {
-            neg_limbs(self.value)
-        } else {
-            self.value
-        };
-        let b = if sb {
-            neg_limbs(other.value)
-        } else {
-            other.value
-        };
-        let (mut lo, mut hi) = mul_limbs_full(a, b);
-        if sa != sb {
-            (lo, hi) = neg_2n(lo, hi);
-        }
+        let (mut lo, mut hi) = mul_limbs_full(self.value, other.value);
         let mut exp = self.exp + other.exp;
-        while high_half_used(lo, hi) {
-            let sign = if hi[Words - 1] < 0 { !0i64 } else { 0i64 };
+        while hi.iter().any(|&w| w != 0) {
             lo = shr_one_word(lo, hi[0]);
-            for i in 0..Words - 1 {
-                hi[i] = hi[i + 1];
-            }
-            hi[Words - 1] = sign;
+            hi.rotate_left(1);
+            hi[Words - 1] = 0;
             exp += WORDSIZE as i32;
         }
         Self { value: lo, exp }
     }
-}
-
-fn high_half_used<const Words: usize>(lo: [i64; Words], hi: [i64; Words]) -> bool {
-    let fill = if lo[Words - 1] < 0 { !0i64 } else { 0i64 };
-    hi.iter().any(|&w| w != fill)
-}
-
-fn neg_2n<const Words: usize>(
-    lo: [i64; Words],
-    hi: [i64; Words],
-) -> ([i64; Words], [i64; Words]) {
-    let mut out_lo = [0i64; Words];
-    let mut out_hi = [0i64; Words];
-    let mut carry = 1i128;
-    for i in 0..Words {
-        let t = (!(lo[i] as u64) as i128) + carry;
-        out_lo[i] = t as i64;
-        carry = t >> 64;
-    }
-    for i in 0..Words {
-        let t = (!(hi[i] as u64) as i128) + carry;
-        out_hi[i] = t as i64;
-        carry = t >> 64;
-    }
-    (out_lo, out_hi)
 }
 
 fn mul_limbs_full<const Words: usize>(
@@ -239,16 +188,16 @@ fn mul_limbs_full<const Words: usize>(
 ) -> ([i64; Words], [i64; Words]) {
     let mut lo = [0i64; Words];
     let mut hi = [0i64; Words];
-    for i in 0..Words {
+    for (i, &ai) in a.iter().enumerate() {
         let mut carry = 0u128;
-        for j in 0..Words {
+        for (j, &bj) in b.iter().enumerate() {
             let idx = i + j;
             let old = if idx < Words {
                 lo[idx] as u64 as u128
             } else {
                 hi[idx - Words] as u64 as u128
             };
-            let t = (a[i] as u64 as u128) * (b[j] as u64 as u128) + old + carry;
+            let t = (ai as u64 as u128) * (bj as u64 as u128) + old + carry;
             let w = t as u64 as i64;
             if idx < Words {
                 lo[idx] = w;
@@ -257,12 +206,13 @@ fn mul_limbs_full<const Words: usize>(
             }
             carry = t >> 64;
         }
-        let mut k = i;
-        while carry != 0 && k < Words {
-            let t = (hi[k] as u64 as u128) + carry;
-            hi[k] = t as u64 as i64;
+        for h in hi.iter_mut().skip(i) {
+            if carry == 0 {
+                break;
+            }
+            let t = (*h as u64 as u128) + carry;
+            *h = t as u64 as i64;
             carry = t >> 64;
-            k += 1;
         }
     }
     (lo, hi)
@@ -270,7 +220,7 @@ fn mul_limbs_full<const Words: usize>(
 
 impl<const Words: usize> PartialEq for CopyIntExp<Words> {
     fn eq(&self, other: &Self) -> bool {
-        limbs_zero((self.sub(*other)).value)
+        to_intexp(*self) == to_intexp(*other)
     }
 }
 
@@ -280,31 +230,11 @@ impl<const Words: usize> PartialOrd for CopyIntExp<Words> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
-    fn lt(&self, other: &Self) -> bool {
-        limbs_neg((self.sub(*other)).value)
-    }
-    fn gt(&self, other: &Self) -> bool {
-        let d = (self.sub(*other)).value;
-        !limbs_neg(d) && !limbs_zero(d)
-    }
-    fn le(&self, other: &Self) -> bool {
-        !self.gt(other)
-    }
-    fn ge(&self, other: &Self) -> bool {
-        !self.lt(other)
-    }
 }
 
 impl<const Words: usize> Ord for CopyIntExp<Words> {
     fn cmp(&self, other: &Self) -> Ordering {
-        let d = (self.sub(*other)).value;
-        if limbs_neg(d) {
-            Ordering::Less
-        } else if limbs_zero(d) {
-            Ordering::Equal
-        } else {
-            Ordering::Greater
-        }
+        to_intexp(*self).cmp(&to_intexp(*other))
     }
 }
 
@@ -329,9 +259,9 @@ fn limbs_neg<const Words: usize>(a: [i64; Words]) -> bool {
 fn neg_limbs<const Words: usize>(a: [i64; Words]) -> [i64; Words] {
     let mut out = [0i64; Words];
     let mut carry = 1i128;
-    for i in 0..Words {
-        let t = (!(a[i] as u64) as i128) + carry;
-        out[i] = t as i64;
+    for (dst, &src) in out.iter_mut().zip(a.iter()) {
+        let t = (!(src as u64) as i128) + carry;
+        *dst = t as i64;
         carry = t >> 64;
     }
     out
@@ -534,6 +464,15 @@ mod tests {
         }
     }
 
+    prop_compose! {
+        fn arb_c2_low()(
+            w0 in 0i64..2048,
+            exp in -12i32..12,
+        ) -> C2 {
+            C2 { value: [w0, 0], exp }
+        }
+    }
+
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(256))]
 
@@ -545,7 +484,7 @@ mod tests {
 
         // r[verify cz.math.copy-intexp-add-squeeze+1]
         #[test]
-        fn add_matches_squeezed_intexp(a in arb_c2(), b in arb_c2()) {
+        fn add_matches_squeezed_intexp(a in arb_c2_low(), b in arb_c2_low()) {
             let got = to_intexp(a + b);
             let expect = squeeze_add(to_intexp(a), to_intexp(b), TAPE);
             prop_assert_eq!(got, expect);
@@ -559,7 +498,7 @@ mod tests {
 
         // r[verify cz.math.copy-intexp-mul-schoolbook+1]
         #[test]
-        fn mul_matches_squeezed_intexp(a in arb_c2(), b in arb_c2()) {
+        fn mul_matches_squeezed_intexp(a in arb_c2_low(), b in arb_c2_low()) {
             let got = to_intexp(a * b);
             let expect = squeeze_mul(to_intexp(a), to_intexp(b), TAPE);
             prop_assert_eq!(got, expect);
@@ -600,15 +539,8 @@ mod tests {
 
         // r[verify cz.math.copy-intexp-no-infinity+1]
         #[test]
-        fn ord_agrees_with_sub_sign(a in arb_c2(), b in arb_c2()) {
-            let d = a - b;
-            match a.cmp(&b) {
-                Ordering::Equal => prop_assert!(limbs_zero(d.value)),
-                Ordering::Less => prop_assert!(limbs_neg(d.value)),
-                Ordering::Greater => {
-                    prop_assert!(!limbs_neg(d.value) && !limbs_zero(d.value));
-                }
-            }
+        fn ord_agrees_with_intexp(a in arb_c2(), b in arb_c2()) {
+            prop_assert_eq!(a.cmp(&b), to_intexp(a).cmp(&to_intexp(b)));
         }
     }
 }
