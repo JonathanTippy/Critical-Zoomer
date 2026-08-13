@@ -1,0 +1,24 @@
+---
+description: v0.0.9 workgroup invariants — always on when editing
+alwaysApply: true
+---
+
+# Workgroup invariants
+
+Restored v0.0.9 mechanisms. Prefer a type over a comment. A redesign updates
+the Tracey rule, virtues doc, and pinned test together.
+
+- **No unbounded calls** — `BoutCap` clamps every iterate bout (`MAX_BOUT`).
+- **One live target** — `LiveTarget` pairs context + frame; not two independent
+  Option fields.
+- **Whole-snapshot publishes** — collector/resident package, not piecemeal
+  “this pixel is the view.”
+- **Pivot order** — flush old completions (`frame_info: None`) then announce
+  the new stencil. Never the reverse.
+- **Provisional is not final** — `Delivery` / period-0 edge answers cannot set
+  `delivered`.
+- **Small interruptible bouts** — ~10 ms wall, tokens, queues; never one
+  uncapped seat.
+
+Workgroup and colorer edits: virtues + craftsmanship rules. Do not re-break
+these to paper over a headed picture bug.

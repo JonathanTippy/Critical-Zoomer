@@ -22,7 +22,7 @@ Ghost grind. A ghost is an assistant misunderstanding in comments, docs, names, 
 Per tick (mandatory order):
 1. Estimate, best effort, what fraction of remaining ghosts this hunt has caught relative to all ghosts you still believe exist. If that guess is 100%, stop and say so. Do not claim 100% because the last swath was clean.
 2. Choose one well-scoped swath (one directory, one mechanism, or one contradiction class). Name it. Do not boil the ocean.
-3. Catch those ghosts: make the note/name/code match live truth and the v0.1 interview. Do not declare headed bugs fixed. Do not soften tests. Do not resurrect Trash spec as binding. Prefer types over comments. v0.0.9 golden mechanisms stay.
+3. Catch those ghosts: make the note/name/code match live truth and the v0.1 interview. Do not declare headed bugs fixed. Do not soften tests. Do not resurrect Trash spec as binding. Prefer types over comments. v0.0.9 golden mechanisms stay. Finish the whole user thread before hunting.
 4. If the tick touched src/, benches, Cargo, or Tracey rules, `scripts/full_check.sh` is the gate (optimized-debug tests + benches + tracey). Docs-only ticks skip the suite. Checkpoint: automatic checkpoint <datetime>.
 5. Update docs/assistant/ghost-hunt-2026-08-12.md with the swath, what was caught, and the new % guess.
 6. Do not re-arm wakes. No request_smart_mode_approval. Cleanup only via .cursor/hooks/kill-test-zombies.sh.
