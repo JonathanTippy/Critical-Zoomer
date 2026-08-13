@@ -93,7 +93,7 @@ r[cz.ctrl.zoom-in-homothety+1]
 - [ ] STANDS. `inputs.rs` shifts by zoom_pot around the pointer. Re-verify the
   complex-under-pointer invariant per bump, zoom-out inverse.
 
-r[cz.ctrl.scroll-up-zooms-in+1]
+Defined in requirements.md: r[cz.ctrl.scroll-up-zooms-in+1]
 
 **Normative summary.** Scroll up ⇒ zoom in ⇒ magnification pot +1.
 

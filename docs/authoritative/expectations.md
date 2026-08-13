@@ -34,6 +34,8 @@ Critical Zoomer must be Seamless, Deep, Tenacious, Hoarding, Fast, and Calibrate
 
 ### Seamless
 
+r[cz.expect.seamless+1]
+
 There must be no "increase the max iteration count" wall which asks the bewildered user 
 to somehow just know to increase this setting if they wish to continue. This results in incorrect and damaging misonceptions about the Mandelbrot set: limited iteration count make it appear limited in depth and smooth, which is completely incorrect.
 
@@ -46,14 +48,20 @@ The app must deliver a real time speed browsing experience.
 
 ### Deep
 
+r[cz.expect.deep+1]
+
 The user must be allowed to go as deep as he would care to go. At comfortable zooming speed, this is much deeper than one might expect. Advanced algorithms are mandatory.
 
 ### Tenacious
+
+r[cz.expect.tenacious+1]
 
 The app must discard the concept of a "max iteration count" and instead always 
 attempt to eventually finish its work, as long as its still visible.
 
 ### Hoarding
+
+r[cz.expect.hoarding+1]
 
 There must only be one possible answer per view, obviating any need to redo work.
 Once done, work must be stored in a buffer, so its never re-done owing to a cosmetic settings change.
@@ -61,6 +69,8 @@ When moving the screen, this buffer must be consulted to continue displaying the
 When moving the screen, this buffer or its equivalent must be consulted in preventing the recomputation of already done and hoarded work.
 
 ### Fast
+
+r[cz.expect.fast+1]
 
 The user must be allowed to zoom in as fast as he would care to go. 
 To this aim, the app must not be stingy with zooming speed. 
@@ -71,6 +81,8 @@ All settings must apply instantly and not trigger a re-compute;
 there must be no computational settings.
 
 ### Calibrated
+
+r[cz.expect.calibrated+1]
 
 The results must be reasonably believed to be correct and known.
 The app must not present work not finished yet as if it is known, 

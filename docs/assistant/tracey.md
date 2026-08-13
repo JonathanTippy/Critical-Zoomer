@@ -30,10 +30,11 @@ Bacon job `jobs.tracey` already calls `tracey query validate`.
 
 ## Config that actually loads rules
 
-Do **not** point `include` at `docs/requirements.md` / `docs/design/*.md` —
-those paths are empty/missing and Tracey reports “no requirement definitions /
-cannot infer marker prefix.” Live includes are the eight files under
-`docs/assistant/tracey/`.
+Spec `include` starts with the three cardinal files
+(`docs/authoritative/expectations.md`, `requirements.md`, `architecture.md`)
+so the web view opens on owner spec, then the assistant Tracey mapping files.
+IDs must be unique in the spec: product/e2e/foundations notes that repeat a
+requirements ID use an inline mention, not a second definition.
 
 `test_include` must **not** be all of `src/**/*.rs` (that flags every `r[impl]`
 as ImplInTestFile). Dedicated test trees only (`craftsmanship_tests`).

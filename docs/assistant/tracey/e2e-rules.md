@@ -11,7 +11,7 @@ check corroborates that truth reaches the display.
 > (`docs/assistant/manual-testing.md`). `full_check.sh` / `coverage.sh` /
 > `mutants.sh` are allowed wrappers, not a second e2e suite.
 
-r[cz.e2e.harness-stack+1]
+Defined in requirements.md: r[cz.e2e.harness-stack+1]
 
 **Normative summary.** Input/screenshot stack (xvfb, fifo, capture/settle) is
 available for the single screenshot check.
@@ -21,7 +21,7 @@ available for the single screenshot check.
   start the release binary under Xvfb, settle, and write a PNG under `/tmp`.
 - ~~`scripts/harness_selftest.sh`~~ **Retired** (scripts policy 2026-08-08).
 
-r[cz.e2e.controls-bindings+1]
+Defined in requirements.md: r[cz.e2e.controls-bindings+1]
 
 **Normative summary.** Scroll (hover origin), Shift/Space (center origin), pan/drag bindings
 match requirements; scroll-up zooms in.
@@ -31,7 +31,7 @@ match requirements; scroll-up zooms in.
   screenshot check after control-affecting edits (assistant inspects PNG).
 - ~~`scripts/e2e_controls.sh`~~ **Retired**.
 
-r[cz.e2e.controls-no-jump+1]
+Defined in requirements.md: r[cz.e2e.controls-no-jump+1]
 
 **Normative summary.** Controls do not jump or do weird things: 2× per bump, no tick
 backlog under 10 bumps/300ms, opposite Shift vs Space, hover-fixed scroll.
@@ -40,7 +40,7 @@ backlog under 10 bumps/300ms, opposite Shift vs Space, hover-fixed scroll.
 - [ ] Same as bindings: Rust first; optional headed PNG inspect after edits.
 - ~~`e2e_controls.sh`~~ **Retired**.
 
-r[cz.e2e.perf-home-fill+1]
+Defined in requirements.md: r[cz.e2e.perf-home-fill+1]
 
 **Normative summary.** Home screen fills within &lt;5s (oracle-quality settle), without
 flat-black empty panes mid-wait.
@@ -72,7 +72,7 @@ fills are one view with Dummy placeholders for unfinished seats.
   seats are Dummy placeholders (no tile NORES pack).
 - ~~`scripts/e2e_home_fill_fitness.sh`~~ **Retired**.
 
-r[cz.e2e.perf-zoom-simple+1]
+Defined in requirements.md: r[cz.e2e.perf-zoom-simple+1]
 
 **Normative summary.** Zooming into simpler areas stays apparently perfect: keeps pace
 and full/oracle quality (no sustained low-res lag).
@@ -81,7 +81,7 @@ and full/oracle quality (no sustained low-res lag).
 - [ ] Rust / bench where possible; optional headed PNG after zoom edits.
 - ~~`e2e_performance.sh`~~ **Retired**.
 
-r[cz.e2e.perf-zoom-hard+1]
+Defined in requirements.md: r[cz.e2e.perf-zoom-hard+1]
 
 **Normative summary.** Zooming into less-simple areas may go lower-res but must still
 keep pace (continuity; not stalled empty panes).
@@ -90,7 +90,7 @@ keep pace (continuity; not stalled empty panes).
 - [ ] Same as simple zoom; hard-path unit pins remain in Rust craftsmanship tests.
 - ~~`e2e_performance.sh`~~ **Retired**.
 
-r[cz.e2e.visual-oracle+1]
+Defined in requirements.md: r[cz.e2e.visual-oracle+1]
 
 **Normative summary.** No visual artifacts vs known-good oracles: compute oracles from
 known-good code, prove with tests, compare live captures against them when needed.
@@ -101,7 +101,7 @@ known-good code, prove with tests, compare live captures against them when neede
   (`docs/assistant/manual-testing.md`).
 - ~~`scripts/e2e_visual.sh`~~ **Retired**.
 
-r[cz.e2e.visual-assistant-review+1]
+Defined in requirements.md: r[cz.e2e.visual-assistant-review+1]
 
 **Normative summary.** Assistant views screenshots as required corroboration (fallible;
 never sole pass/fail).

@@ -18,7 +18,7 @@ r[cz.math.intexp-mul-associative+1]
 **Acceptance criteria.**
 - [x] For arbitrary `a`, `b`, `c` within test bounds, `(a * b) * c == a * (b * c)`.
 
-r[cz.math.mandelbrot-real-axis-symmetry+1]
+Defined in requirements.md: r[cz.math.mandelbrot-real-axis-symmetry+1]
 
 **Normative summary.** Mandelbrot membership / escape classification is symmetric across the real axis for conjugate `c`.
 
@@ -36,7 +36,7 @@ r[cz.range.guess-biased-nearest+1]
 - [ ] Do **not** recreate `guess_biased` as a standing requirement. Unfinished seats stay `Dummy` (outside-looking), never invented Inside.
 - Revert note: `src/range.rs` at v0.0.9 has `Range` but no `guess_biased`. That method was tile-machine. Skip it: bias would feel better on a slow pipe, but the benefit is too small to justify the complexity; when PPS is flowing it would not be noticed.
 
-r[cz.display.nores-when-no-proximate+1]
+Defined in requirements.md: r[cz.display.nores-when-no-proximate+1]
 
 **Normative summary.** Missing proximate work must surface as an outside-flavored
 placeholder (escape after ~1 iteration, infinitely far), never as flat set-black.
@@ -48,7 +48,7 @@ placeholder (escape after ~1 iteration, infinitely far), never as flat set-black
   (`shadergroup/escaper.rs`) paints as outside-looking. Principle unchanged; see
   `docs/assistant/collected-wisdom.md` ("Unknown is NORES, never black").
 
-r[cz.display.window-default-800x480+1]
+Defined in requirements.md: r[cz.display.window-default-800x480+1]
 
 **Normative summary.** App defaults to 800×480 on startup and does not restore a customized size on launch.
 
@@ -57,7 +57,7 @@ r[cz.display.window-default-800x480+1]
 - Revert note: **discrepancy flagged** — v0.0.9 `constants.rs` has `(854, 480)`, this rule
   says 800×480. Resolve with developer (code change vs rule text change) before re-checking.
 
-r[cz.display.offscreen-r2-circle+1]
+Defined in requirements.md: r[cz.display.offscreen-r2-circle+1]
 
 **Normative summary.** Off-screen guidance uses the r=2 circle: fully off, mostly off (within 10% of fully off), too small (≤1px), mostly too small (<10% of screen).
 

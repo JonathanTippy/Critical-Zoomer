@@ -2,6 +2,9 @@ specs (
   {
     name critical-zoomer
     include (
+      docs/authoritative/expectations.md
+      docs/authoritative/requirements.md
+      docs/authoritative/architecture.md
       docs/assistant/tracey/craftsmanship-rules.md
       docs/assistant/tracey/depth-rules.md
       docs/assistant/tracey/standards-rules.md
