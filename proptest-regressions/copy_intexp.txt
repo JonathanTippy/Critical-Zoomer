@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 9ca7913b64b62cd6b4c826a861c9e9fe694bb02f565b9fb93b4a1227b6604ff2 # shrinks to a = CopyIntExp { value: [-1, -1], exp: 0 }, b = CopyIntExp { value: [-1, -1], exp: 0 }
+cc 725fcc9cc70dea1d1fc9ee61ce152fe4011ab3b38ddee5ad17ce812498154ff5 # shrinks to a = CopyIntExp { value: [0, -1], exp: 0 }, b = CopyIntExp { value: [0, 1], exp: 1 }
+cc 5a9db048ce6a345307408ac2ce5acf0d0a8ae41b5becb356ebf2d3059f0241d4 # shrinks to a = CopyIntExp { value: [-1, -4], exp: 11 }, b = CopyIntExp { value: [0, -4], exp: 11 }

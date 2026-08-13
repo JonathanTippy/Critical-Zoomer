@@ -377,4 +377,5 @@ location/goto panel bottom-right (`r[cz.ui.coords-parse+2]`, `r[cz.ui.location-r
 **Verification.** `hud_telemetry_carries_gear_and_rates`,
 `pps_counter_counts_completions_not_wip`, `telemetry_mode_naive_then_pert`,
 `reference_complete_with_reused_ref`, `reference_wip_while_started_seats_await_ref`,
-`reference_wip_after_glitch_until_new_generation`.
+`reference_wip_after_glitch_until_new_generation`,
+`naive_f64_north_tip_mag_38_still_escapes`,

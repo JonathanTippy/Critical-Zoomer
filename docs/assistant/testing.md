@@ -81,6 +81,8 @@ bulk GPU fill. Completeness is a GPU+host-queue property
    health (period, sticky-ref, IPS), not as the default picture check. View
    **IPP** (mean iterations/seat) is how hard *this* view actually was; final
    only when the frame is delivered.
+6. **Proptest regressions stay in tree.** Seeds under `proptest-regressions/`
+   (including `copy_intexp.txt`) are re-run before new cases. Check them in.
 
 ## House run
 

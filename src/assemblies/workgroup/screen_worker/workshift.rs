@@ -2362,6 +2362,7 @@ mod mutant_kill {
     }
 
     #[test]
+    // r[verify cz.depth.gear-hud+2]
     fn naive_f64_north_tip_mag_38_still_escapes() {
         use crate::assemblies::headgroup::window::coords::{north_tip_ul, ul_for_center};
         use crate::assemblies::headgroup::window::coords::{decimal_str_to_intexp};

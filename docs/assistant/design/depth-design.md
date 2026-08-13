@@ -120,7 +120,8 @@ handed off, never flushed to zero.
    cannot narrow safely, or after scaled-f64 cannot continue (deep needle).
 
 Seats may promote mid-orbit independently. The HUD reports the aggregate
-active gear (`F64` / `S-F64` / `FE` / `MIXED`) plus rolling IPS and PPS
+active gear (`F64` / `S-F64` / `FE` / `MIXED`) plus rolling IPS, PPS, and view
+IPP (mean iterations per seat; `~` until the view is fully delivered)
 (`r[cz.depth.gear-hud+2]`). f32 remains a typed extension point, deferred.
 
 **Three HUD layers (stack / mode / ref / gear).** Stack is the view-global host type
