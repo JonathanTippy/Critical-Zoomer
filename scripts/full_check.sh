@@ -65,6 +65,12 @@ fail() {
   exit 1
 }
 
+# Never share workspace `target/` with rust-analyzer or agent cargo.
+# Concurrent rustc there dies in lld (empty `= note:`, `rustcXXXX` scratch).
+export CARGO_TARGET_DIR="${CZ_FULL_CHECK_TARGET_DIR:-/tmp/cz_full_check_cargo_target}"
+mkdir -p "$CARGO_TARGET_DIR"
+echo "full_check: CARGO_TARGET_DIR=$CARGO_TARGET_DIR"
+
 .cursor/hooks/kill-test-zombies.sh >>"$LOG" 2>&1 || true
 
 # Reap a wgpu lockdir left by a killed harness (Drop never ran). Never steal
@@ -81,12 +87,11 @@ if [[ -d "$WGPU_LOCKDIR" ]]; then
 fi
 
 run cargo check --lib || fail "cargo check --lib"
-# Unit first. One retry: concurrent `cargo` on shared `target/` (agent + this
-# hook) dies in lld with an empty `= note:` and `rustcXXXX` scratch dirs — not
-# a red test. A real unit fail still fails the second try.
+# Unit first. Retries are for leftover rustc scratch in this target dir, not
+# a skipped assertion. A real unit fail still fails the last try.
 unit_ok=0
-for unit_try in 1 2; do
-  echo "======== cargo test --lib unit (try ${unit_try}/2) ========"
+for unit_try in 1 2 3; do
+  echo "======== cargo test --lib unit (try ${unit_try}/3) ========"
   if taskset -c "${START}-${END}" nice -n 10 -- \
     cargo test --lib -- --skip integration_tier --skip e2e_tier
   then
@@ -94,6 +99,7 @@ for unit_try in 1 2; do
     break
   fi
   echo "full_check: unit try ${unit_try} missed (compile/link or test); wait and retry"
+  find "$CARGO_TARGET_DIR" -maxdepth 4 -type d -name 'rustc*' -prune -exec rm -rf {} + 2>/dev/null || true
   sleep 8
 done
 [[ "$unit_ok" -eq 1 ]] || fail "cargo test unit (--lib, skip integration/e2e)"

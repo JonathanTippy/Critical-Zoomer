@@ -15,5 +15,6 @@ Before any `cargo` / `rustc` this session:
 export CARGO_TARGET_DIR=/tmp/cz_cursor_cargo_target
 ```
 
-Never write agent builds into the workspace `target/`. Do not start
-`scripts/full_check.sh` yourself; stop and let the hook run it.
+Never write agent builds into the workspace `target/`. The stop hook uses
+`/tmp/cz_full_check_cargo_target`. Do not start `scripts/full_check.sh`
+yourself; stop and let the hook run it.
