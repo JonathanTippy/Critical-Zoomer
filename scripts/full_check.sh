@@ -59,6 +59,11 @@ fail() {
   echo "FULL CHECK FAIL: $*"
   date -Iseconds >"$STAMP_FAIL"
   echo "$*" >>"$STAMP_FAIL"
+  # Snapshot before we drop the flock — a waiting full_check truncates $LOG.
+  {
+    echo "FULL CHECK FAIL: $*"
+    tail -c 8000 "$LOG" 2>/dev/null || true
+  } >/tmp/cz_full_check_last_fail_excerpt 2>/dev/null || true
   exit 1
 }
 

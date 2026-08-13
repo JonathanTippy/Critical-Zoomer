@@ -58,7 +58,10 @@ if [[ -z "$RELEVANT" && ! -f /tmp/cz_full_check_last_fail ]]; then
 fi
 
 if ! "$ROOT/scripts/full_check.sh"; then
-  TAIL="$(tail -c 6000 "$LOG" 2>/dev/null || echo '(no full_check log)')"
+  TAIL="$(cat /tmp/cz_full_check_last_fail_excerpt 2>/dev/null || true)"
+  if [[ -z "$TAIL" ]]; then
+    TAIL="$(tail -c 6000 "$LOG" 2>/dev/null || echo '(no full_check log)')"
+  fi
   MSG="$(printf '%s\n' \
     "scripts/full_check.sh failed. Do not ignore or soft-skip. Fix it, then stop so this hook re-runs." \
     "Full log: $LOG" \
