@@ -57,7 +57,7 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
   `paraphrase-authoritative/c-generator-admit-margin.md`.
   **Code (2026-08-13):** admit is bit counting against `HostPrecision` on the
   type (f64=53, f32 GPU=24, FloatExp=53 with unbounded exponent). Default
-  margin is 0. Naive GPU F32 uses **absolute** `c` bit count (not relative
+  margin is 1. Naive GPU F32 uses **absolute** `c` bit count (not relative
   δc). Mag 2^38 prefer-relative must not flip F32 back on. **Do not treat
   headed Naive GPU as fixed** until the developer says so. Naive **black wrong-interior** remains a
   periodicity tangent.

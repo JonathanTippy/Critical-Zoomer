@@ -200,13 +200,14 @@ then, seats use the zero-orbit floor.
 
 Per frame, once, in O(1): count bits from `|c|` magnitude down to pixel pitch;
 admit type `T` when `T::PRECISION.significand_bits` covers that count (plus
-optional slider margin, default **0**). Store `(origin, space)` as `T`;
-`get_c` is pure `T` multiply-add. Stack order: f64 absolute → f64 relative →
-FloatExp absolute → FloatExp relative. Relative subtracts in exact `IntExp`
+optional slider margin, default **1**). Store `(origin, space)` as `T`;
+`get_c` is pure `T` multiply-add. Stack order: f32 → f64 → FloatExp (absolute
+then relative per type). Relative subtracts in exact `IntExp`
 before the same count. Naive GPU F32 is 24-bit precision on the same count.
+OG naive CPU uses the same iterate via `Mandelbrotable` when f32 admits.
 
 **Values gated:** absolute seat `c` on naive paths; `delta_c` on perturbation
-paths. Headed: margin 0 walls square when conversion is exact; the slider stays
+paths. Headed: default margin 1 is slightly better at type walls than 0.
 for debugging. `From<IntExp> for f64` rounds `val×2^exp` as one binary value.
 
 **Perturbation admit order:** nearest kept ref to the screen → δc stencil →

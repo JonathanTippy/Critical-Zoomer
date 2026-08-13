@@ -206,7 +206,7 @@ fn frame_at_center(re: f64, im: f64, pot: i32, res: (u32, u32)) -> (ObjectivePos
 
 fn fill_until_delivered<T, K>(ctx: &mut WorkContext<T>, kernel: &K)
 where
-    T: Mandelbrotable + std::fmt::Debug + Finite + Gt + Abs + From<f32> + Into<f64> + 'static,
+    T: Mandelbrotable + 'static,
     K: SeatKernel<T>,
 {
     while !ctx.points.iter().all(|p| p.delivered) {
@@ -220,7 +220,7 @@ where
 /// Partial fill for deep fixtures that cannot finish inside the 1s wall budget.
 fn fill_until_percent<T, K>(ctx: &mut WorkContext<T>, kernel: &K, pct: f64)
 where
-    T: Mandelbrotable + std::fmt::Debug + Finite + Gt + Abs + From<f32> + Into<f64> + 'static,
+    T: Mandelbrotable + 'static,
     K: SeatKernel<T>,
 {
     while ctx.percent_completed < pct && !ctx.points.iter().all(|p| p.delivered) {
@@ -233,7 +233,7 @@ where
 
 fn disagree_rate<T>(a: &WorkContext<T>, b: &WorkContext<T>) -> (usize, usize)
 where
-    T: Mandelbrotable + std::fmt::Debug + Finite + Gt + Abs + From<f32> + Into<f64>,
+    T: Mandelbrotable,
 {
     let n = a.points.len().min(b.points.len());
     let mut disagree = 0usize;

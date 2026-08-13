@@ -4,9 +4,8 @@ use crate::constants::PIXELS_PER_UNIT_POT;
 use crate::utils::IntExp;
 
 /// Default C-generator render headroom beyond neighbor distinguishability.
-/// Headed: distinguish-only (0) already walls square when bit conversion is
-/// exact; extra bits were over-design. Slider remains for debugging.
-pub const DEFAULT_C_GENERATOR_MARGIN_BITS: u32 = 0;
+/// Headed: 1 bit looks marginally better at type walls than 0; slider stays.
+pub const DEFAULT_C_GENERATOR_MARGIN_BITS: u32 = 1;
 
 /// IEEE binary32 significand (23 stored + implicit 1). Naive GPU F32 must
 /// not run when [`stencil_bits_needed`] exceeds this.
@@ -111,6 +110,7 @@ pub trait Mandelbrotable:
     + Sub<Output = Self>
     + Mul<Output = Self>
     + From<IntExp>
+    + std::fmt::Debug
 {
     const ZERO: Self;
     const ONE: Self;
@@ -118,10 +118,12 @@ pub trait Mandelbrotable:
     const PRECISION: HostPrecision;
 
     fn from_u32(value: u32) -> Self;
+    fn from_f32(value: f32) -> Self;
     fn to_f64(self) -> f64;
     fn abs(self) -> Self;
     fn neg(self) -> Self;
     fn max_value() -> Self;
+    fn is_finite(self) -> bool;
 }
 
 impl Mandelbrotable for f64 {
@@ -131,6 +133,9 @@ impl Mandelbrotable for f64 {
     const PRECISION: HostPrecision = HostPrecision::F64;
 
     fn from_u32(value: u32) -> Self {
+        value as f64
+    }
+    fn from_f32(value: f32) -> Self {
         value as f64
     }
     fn to_f64(self) -> f64 {
@@ -144,6 +149,38 @@ impl Mandelbrotable for f64 {
     }
     fn max_value() -> Self {
         f64::MAX
+    }
+    fn is_finite(self) -> bool {
+        self.is_finite()
+    }
+}
+
+impl Mandelbrotable for f32 {
+    const ZERO: Self = 0.0;
+    const ONE: Self = 1.0;
+    const TWO: Self = 2.0;
+    const PRECISION: HostPrecision = HostPrecision::F32;
+
+    fn from_u32(value: u32) -> Self {
+        value as f32
+    }
+    fn from_f32(value: f32) -> Self {
+        value
+    }
+    fn to_f64(self) -> f64 {
+        self as f64
+    }
+    fn abs(self) -> Self {
+        self.abs()
+    }
+    fn neg(self) -> Self {
+        -self
+    }
+    fn max_value() -> Self {
+        f32::MAX
+    }
+    fn is_finite(self) -> bool {
+        self.is_finite()
     }
 }
 
@@ -173,6 +210,7 @@ impl<T: Mandelbrotable> GeneratorAdmission<T> {
 /// Shallowest host stack whose generator admits this stencil.
 #[derive(Clone, Debug)]
 pub enum AdmittedHostStack {
+    F32(GeneratorAdmission<f32>),
     F64(GeneratorAdmission<f64>),
     FloatExp(GeneratorAdmission<crate::floatexp::FloatExp>),
 }
@@ -269,6 +307,16 @@ pub fn pick_stack_admission_with_margin(
     view_center: &(IntExp, IntExp),
     margin_bits: u32,
 ) -> Option<AdmittedHostStack> {
+    if let Some(admission) = admit_generator_with_margin::<f32>(
+        compute_loc,
+        zoom_pot,
+        res,
+        relative_anchor,
+        view_center,
+        margin_bits,
+    ) {
+        return Some(AdmittedHostStack::F32(admission));
+    }
     if let Some(admission) = admit_generator_with_margin::<f64>(
         compute_loc,
         zoom_pot,
@@ -422,7 +470,7 @@ mod tests {
     }
 
     #[test]
-    fn stack_picker_f64_before_floatexp() {
+    fn stack_picker_f32_then_f64_then_floatexp() {
         let loc = (IntExp::from(-2), IntExp::from(1));
         let res = TEST_SCREEN_RES;
         let view_center = (
@@ -430,7 +478,7 @@ mod tests {
             loc.1.clone() - IntExp::from(5),
         );
         let picked = pick_stack_admission(&loc, 0, res, None, &view_center).unwrap();
-        assert!(matches!(picked, AdmittedHostStack::F64(_)));
+        assert!(matches!(picked, AdmittedHostStack::F32(_)));
     }
 
     #[test]
@@ -487,6 +535,8 @@ mod tests {
         );
         assert!(stencil_bits_needed(&compute_loc, 17, res, 0) > F32_SIGNIFICAND_BITS);
         assert!(stencil_bits_needed(&compute_loc, 17, res, 0) <= HostPrecision::F64.significand_bits);
+        assert!(CGenerator::<f32>::new_with_margin(&compute_loc, 12, res, 1).is_some());
+        assert!(CGenerator::<f32>::new_with_margin(&compute_loc, 13, res, 1).is_none());
     }
 
     #[test]
@@ -498,10 +548,10 @@ mod tests {
             IntExp::ZERO - IntExp::from(HOME_POSITION.1),
         );
         let res = DEFAULT_WINDOW_RES;
-        // Default is distinguish-only (margin 0). Slider still adds bits.
-        assert!(CGenerator::<f64>::new(&compute_loc, 42, res).is_some());
-        assert!(CGenerator::<f64>::new(&compute_loc, 43, res).is_none());
-        assert_eq!(DEFAULT_C_GENERATOR_MARGIN_BITS, 0);
+        // Default margin 1: home wall is one zoom earlier than distinguish-only.
+        assert!(CGenerator::<f64>::new(&compute_loc, 41, res).is_some());
+        assert!(CGenerator::<f64>::new(&compute_loc, 42, res).is_none());
+        assert_eq!(DEFAULT_C_GENERATOR_MARGIN_BITS, 1);
         assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 22, res, 20).is_some());
         assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 23, res, 20).is_none());
         assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 23, res, 10).is_some());
@@ -707,9 +757,9 @@ mod tests {
             IntExp::from(HOME_POSITION.0),
             IntExp::ZERO - IntExp::from(HOME_POSITION.1),
         );
-        let center = view_center_for_test(&home, 40, DEFAULT_WINDOW_RES);
-        let deep = admit_generator::<f64>(&home, 40, DEFAULT_WINDOW_RES, None, &center)
-            .expect("home zoom 40 must admit under default margin");
+        let center = view_center_for_test(&home, 42, DEFAULT_WINDOW_RES);
+        let deep = admit_generator::<f64>(&home, 42, DEFAULT_WINDOW_RES, None, &center)
+            .expect("home zoom 42 must admit under default margin");
         assert!(
             deep.is_relative(),
             "past absolute+margin wall should be Relative"
@@ -721,6 +771,6 @@ mod tests {
         assert!(CGenerator::<f64>::new_with_margin(&home, 40, DEFAULT_WINDOW_RES, 10).is_none());
 
         let picked = pick_stack_admission(&loc, 0, (4, 3), None, &view).unwrap();
-        assert!(matches!(picked, AdmittedHostStack::F64(_)));
+        assert!(matches!(picked, AdmittedHostStack::F32(_)));
     }
 }

@@ -24,7 +24,7 @@ r[cz.depth.c-generator-fails-closed+1]
 
 **Rule.** Each host type carries [`HostPrecision`] (significand bit count and
 exponent floor). The C-generator admits that type when the bit count covers
-`|c|` magnitude down to pixel pitch (plus optional slider margin, default **0**).
+`|c|` magnitude down to pixel pitch (plus optional slider margin, default **1**).
 No near/far `T` probe — the gate is the count. On success store `origin` and
 `space` as `T`; hot `get_c` is pure `T` multiply-add. Grid is v0.0.9 top-left,
 no-half-pixel. Relative subtracts the anchor in exact `IntExp` before the same
@@ -33,7 +33,8 @@ count exceeds 24 while f64 (53) still admits.
 
 **Implementation.** `src/assemblies/workgroup/c_generator.rs` — `HostPrecision`,
 `Mandelbrotable::PRECISION`, `stencil_bits_needed`, `CGenerator::new_with_margin`.
-Settings slider `c_generator_margin_bits` (default 0, debugging only).
+Settings slider `c_generator_margin_bits` (default 1). OG naive CPU uses the same
+`DirectKernel` / `Mandelbrotable` iterate as f64 when f32 admits.
 
 **Verification.** `generator_matches_v009_grid_bit_for_bit`,
 `rejects_collapse_at_far_end`, `successful_generator_has_distinct_neighbors`,
@@ -41,7 +42,7 @@ Settings slider `c_generator_margin_bits` (default 0, debugging only).
 `reference_install_rebuilds_c_generator`,
 `home_f64_absolute_wall_moves_earlier_with_default_margin`,
 `margin_bits_zero_matches_prior_distinguish_only_admit`,
-`mutant_kill_f32_collapses_and_scan_undelivered` (mag 17 > f32, ≤ f64).
+`og_naive_f32_uses_same_direct_kernel`,
 
 r[cz.depth.relative-coords+1]
 

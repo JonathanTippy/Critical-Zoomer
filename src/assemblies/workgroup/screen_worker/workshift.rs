@@ -585,27 +585,27 @@ impl Gt for f64 {
 
 
 // r[impl cz.craft.epsilon-pixel-pitch+1]
-pub fn pitch_epsilon<T:Sub<Output=T> + Abs + From<f32> + Mul<Output=T> + Copy>(points: &Vec<Point<T>>) -> T {
-    (points[0].delta_c.0 - points[1].delta_c.0).abs() * (T::from(1.0 * (1.0/256.0)))
+pub fn pitch_epsilon<T: Mandelbrotable>(points: &Vec<Point<T>>) -> T {
+    (points[0].delta_c.0 - points[1].delta_c.0).abs() * T::from_f32(1.0 / 256.0)
 }
 
-pub fn placeholder_point<T: From<f32> + Copy>() -> Point<T> {
+pub fn placeholder_point<T: Mandelbrotable>() -> Point<T> {
     Point {
-        delta_c: (0.0.into(), 0.0.into()),
-        c: (0.0.into(), 0.0.into()),
-        z: (0.0.into(), 0.0.into()),
-        dc: (1.0.into(), 0.0.into()),
-        real_squared: 0.0.into(),
-        imag_squared: 0.0.into(),
-        real_imag: 0.0.into(),
+        delta_c: (T::ZERO, T::ZERO),
+        c: (T::ZERO, T::ZERO),
+        z: (T::ZERO, T::ZERO),
+        dc: (T::ONE, T::ZERO),
+        real_squared: T::ZERO,
+        imag_squared: T::ZERO,
+        real_imag: T::ZERO,
         iterations: 0,
-        loop_detection_point: ((0.0.into(), 0.0.into()), 0),
+        loop_detection_point: ((T::ZERO, T::ZERO), 0),
         escapes: false,
         repeats: false,
         delivered: false,
         initialized: false,
         period: 0,
-        smallness_squared: 100.0.into(),
+        smallness_squared: T::from_f32(100.0),
         small_time: 0,
         delta: None,
         direct_only: false,
@@ -655,7 +655,7 @@ pub fn f64_stencil_admits_with_margin(
 }
 
 /// Apply admitted generator fields and invalidate undelivered seats on generation bump.
-pub fn apply_generator_admission<T: Mandelbrotable + From<f32>>(
+pub fn apply_generator_admission<T: Mandelbrotable>(
     ctx: &mut WorkContext<T>,
     admission: GeneratorAdmission<T>,
     view_center: (IntExp, IntExp),
@@ -677,13 +677,13 @@ pub fn apply_generator_admission<T: Mandelbrotable + From<f32>>(
     ctx.coord_anchor = coord_anchor;
     ctx.coords_are_relative = coords_are_relative;
     let (_, space) = c_generator.origin_and_space();
-    ctx.pitch_epsilon = space.abs() * T::from(1.0 / 256.0);
+    ctx.pitch_epsilon = space.abs() * T::from_f32(1.0 / 256.0);
     ctx.generator_generation = generation;
 }
 
 /// Rebuild `c_generator` relative to a published reference anchor.
 // r[impl cz.depth.c-generator-fails-closed+1]
-pub fn rebuild_generator_for_reference<T: Mandelbrotable + From<f32>>(
+pub fn rebuild_generator_for_reference<T: Mandelbrotable>(
     ctx: &mut WorkContext<T>,
     compute_loc: &(IntExp, IntExp),
     zoom_pot: i64,
@@ -813,7 +813,7 @@ fn bootstrap_relative_reference<T: Mandelbrotable>(
 }
 
 /// Alias for tests / depth fixtures — always-relative stencil build.
-pub fn from_stencil_relative<T: Mandelbrotable + From<f32> + 'static>(
+pub fn from_stencil_relative<T: Mandelbrotable + 'static>(
     frame_info: (ObjectivePosAndZoom, (u32, u32)),
     previous: Option<(WorkContext<T>, ObjectivePosAndZoom)>,
 ) -> Option<WorkContext<T>> {
@@ -826,7 +826,7 @@ pub fn from_stencil_relative<T: Mandelbrotable + From<f32> + 'static>(
 /// `previous` is `(old_context, old_objective)`.
 /// Uses the previous context's margin bits when present, else the default.
 // r[impl cz.craft.stencil-only-replace+2]
-pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
+pub fn from_stencil<T: Mandelbrotable + 'static>(
     frame_info: (ObjectivePosAndZoom, (u32, u32)),
     previous: Option<(WorkContext<T>, ObjectivePosAndZoom)>,
 ) -> Option<WorkContext<T>> {
@@ -842,7 +842,7 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
 /// `relative_ok`: perturbation may use a relative/`delta_c` shell when absolute
 /// `c` fails the margin. Naive must pass `false` — otherwise relative-to-center
 /// (or a carried ref) keeps f64 alive until mag 2^47 with rectangular collapse.
-pub fn from_stencil_with_margin<T: Mandelbrotable + From<f32> + 'static>(
+pub fn from_stencil_with_margin<T: Mandelbrotable + 'static>(
     frame_info: (ObjectivePosAndZoom, (u32, u32)),
     previous: Option<(WorkContext<T>, ObjectivePosAndZoom)>,
     margin_bits: u32,
@@ -909,11 +909,14 @@ pub fn from_stencil_with_margin<T: Mandelbrotable + From<f32> + 'static>(
         margin_bits,
     );
     let (_, space) = c_generator.origin_and_space();
-    let seat_pitch_epsilon = space.abs() * T::from(1.0 / 256.0);
+    let seat_pitch_epsilon = space.abs() * T::from_f32(1.0 / 256.0);
     let use_floatexp_host = std::any::TypeId::of::<T>()
         == std::any::TypeId::of::<crate::floatexp::FloatExp>();
+    let use_f32_host = std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>();
     let view_gear = if use_floatexp_host {
         ComputeGear::FloatExp
+    } else if use_f32_host {
+        ComputeGear::F32
     } else {
         // Live f64: naive/direct is F64, but deep / relative shells need the
         // compute-gear floor so completed frames do not snap HUD back to F64
@@ -1305,7 +1308,7 @@ fn queue_fallback_pos<T: Mandelbrotable>(
 // r[impl cz.craft.kernel-seam+1]
 pub trait SeatKernel<T>
 where
-    T: Mandelbrotable + std::fmt::Debug + Finite + Gt + Abs + From<f32> + Into<f64>,
+    T: Mandelbrotable,
 {
     fn start_seat(&self, context: &mut WorkContext<T>, pos: (i32, i32));
     fn iterate_bout(
@@ -1326,7 +1329,7 @@ pub struct DirectKernel;
 
 impl<T> SeatKernel<T> for DirectKernel
 where
-    T: Mandelbrotable + std::fmt::Debug + Finite + Gt + Abs + From<f32> + Into<f64>,
+    T: Mandelbrotable,
 {
     #[inline]
     fn start_seat(&self, context: &mut WorkContext<T>, pos: (i32, i32)) {
@@ -1336,7 +1339,7 @@ where
             let point = &mut context.points[index];
             let delta_c = point.delta_c;
             let c = c_from_delta_c_f64(
-                (delta_c.0.into(), delta_c.1.into()),
+                (delta_c.0.to_f64(), delta_c.1.to_f64()),
                 &context.coord_anchor,
             );
             point.c = (
@@ -1368,7 +1371,7 @@ where
 /// Shared period / escape completion used by both kernels.
 pub fn direct_completion<T>(point: &mut Point<T>) -> CompletedPoint<T>
 where
-    T: Mandelbrotable + Into<f64> + Copy,
+    T: Mandelbrotable,
 {
     direct_completion_with_c(point, point.c)
 }
@@ -1378,10 +1381,10 @@ pub fn direct_completion_with_c<T>(
     c: (T, T),
 ) -> CompletedPoint<T>
 where
-    T: Mandelbrotable + Into<f64> + Copy,
+    T: Mandelbrotable,
 {
     if point.repeats {
-        let c64 = (c.0.into(), c.1.into());
+        let c64 = (c.0.to_f64(), c.1.to_f64());
         let (partials, tail) = period_partials(c64, point.iterations);
         point.period = partials
             .into_iter()
@@ -1506,7 +1509,7 @@ pub fn workshift_with_kernel<T, K>(
     kernel: &K,
 )
 where
-    T: Mandelbrotable + Sub<Output=T> + std::fmt::Debug + Add<Output=T> + Mul<Output=T> + Into<f64> + PartialOrd + Finite + Gt + Abs + From<f32> + Copy,
+    T: Mandelbrotable,
     K: SeatKernel<T>,
 {
 
@@ -1693,7 +1696,7 @@ where
         kernel.iterate_bout(
             &mut context.points[index],
             orbit,
-            4.0f32.into(),
+            T::from_f32(4.0),
             episilon,
             BoutCap::STANDARD,
         );
@@ -1832,7 +1835,7 @@ impl BoutCap {
 }
 
 #[inline]
-pub fn iterate_max_n_times<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Into<f64>+ PartialOrd + Gt +From<f32>+ Copy> (point: &mut Point<T>, r_squared:T, epsilon:T, cap: BoutCap) {
+pub fn iterate_max_n_times<T: Mandelbrotable>(point: &mut Point<T>, r_squared:T, epsilon:T, cap: BoutCap) {
     for _ in 0..cap.get() {
         update_point_results(point);
         point.escapes = bailout_point(point, r_squared);// || (!point.real_squared.is_finite()) || (!point.imag_squared.is_finite());
@@ -1880,25 +1883,25 @@ impl Abs for FloatExp {
 use std::ops::*;
 
 #[inline(always)]
-pub fn iterate<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + From<f32> + Copy> (point: &mut Point<T>) {
+pub fn iterate<T: Mandelbrotable>(point: &mut Point<T>) {
     iterate_with_c(point, point.c);
 }
 
 #[inline(always)]
-pub fn iterate_with_c<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + From<f32> + Copy> (
+pub fn iterate_with_c<T: Mandelbrotable>(
     point: &mut Point<T>,
     c: (T, T),
 ) {
     // r[impl cz.craft.screen-space-derivative-edges+1]
     // d_z/d_c recurrence: (d z)/(d c)_{n+1} = 2 z_n (d z)/(d c)_n + 1.
     let d_z_d_c = (
-        T::from(2.0) * (point.z.0 * point.dc.0 - point.z.1 * point.dc.1) + T::from(1.0),
-        T::from(2.0) * (point.z.0 * point.dc.1 + point.z.1 * point.dc.0),
+        T::TWO * (point.z.0 * point.dc.0 - point.z.1 * point.dc.1) + T::ONE,
+        T::TWO * (point.z.0 * point.dc.1 + point.z.1 * point.dc.0),
     );
     // move z
     point.z = (
         point.real_squared - point.imag_squared + c.0
-        , T::from(2.0f32.into()) * point.real_imag + c.1
+        , T::TWO * point.real_imag + c.1
     );
     point.dc = d_z_d_c;
     point.iterations+=1;
@@ -1906,7 +1909,7 @@ pub fn iterate_with_c<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + From<f32
 
 use std::cmp::*;
 #[inline(always)]
-pub fn bailout_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T> + Gt + PartialOrd + Copy> (point: & Point<T>, r_squared:T) -> bool {
+pub fn bailout_point<T: Mandelbrotable>(point: & Point<T>, r_squared:T) -> bool {
     // checks
 
     point.real_squared + point.imag_squared > r_squared
@@ -2073,13 +2076,13 @@ pub fn verified_period_from(
 
 #[inline]
 // r[impl cz.craft.cached-products+1]
-pub fn update_point_results<T:Sub<Output=T> + Add<Output=T> + Into<f64> + Gt + Mul<Output=T> + Copy>(point: &mut Point<T>) {
+pub fn update_point_results<T: Mandelbrotable>(point: &mut Point<T>) {
     // update values
     point.real_squared = point.z.0 * point.z.0;
     point.imag_squared = point.z.1 * point.z.1;
     point.real_imag = point.z.0 * point.z.1;
     let rad = point.real_squared + point.imag_squared;
-    if rad.into() < point.smallness_squared.into() {point.smallness_squared =rad;point.small_time=point.iterations}
+    if rad.to_f64() < point.smallness_squared.to_f64() {point.smallness_squared =rad;point.small_time=point.iterations}
 
 }
 
@@ -2293,6 +2296,31 @@ mod mutant_kill {
         assert!(!points_near(z, (1.0, 1.0 + 1e-9), e));
         // Strict < / > would reject the boundary.
         assert_ne!(points_near(z, (1.0, 0.0), e), false);
+    }
+
+    #[test]
+    fn og_naive_f32_uses_same_direct_kernel() {
+        use crate::constants::HOME_POSITION;
+        use crate::utils::ObjectivePosAndZoom;
+        use super::{from_stencil_with_margin, workshift_with_kernel, DirectKernel};
+        let frame = (
+            ObjectivePosAndZoom {
+                pos: (
+                    crate::utils::IntExp::from(HOME_POSITION.0),
+                    crate::utils::IntExp::from(HOME_POSITION.1),
+                ),
+                zoom_pot: -2,
+            },
+            (32u32, 24u32),
+        );
+        let mut ctx = from_stencil_with_margin::<f32>(frame, None, 1, false)
+            .expect("home f32 admit");
+        assert_eq!(ctx.view_gear, crate::delta_gear::ComputeGear::F32);
+        workshift_with_kernel(0, 0, 0, 0, &mut ctx, &DirectKernel);
+        assert!(
+            ctx.points.iter().any(|p| p.initialized || p.delivered),
+            "OG f32 DirectKernel must start seats"
+        );
     }
 
     #[test]

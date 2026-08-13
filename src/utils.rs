@@ -316,9 +316,15 @@ impl From<IntExp> for f64 {
         self.val.to_f64() * 2.0f64.powf(self.exp as f64)
     }
 }*/
-impl Into<f32> for IntExp {
-    fn into(self) -> f32 {
-        self.val.to_f32() * 2.0f32.powf(self.exp as f32)
+impl From<IntExp> for f32 {
+    fn from(a: IntExp) -> f32 {
+        let mut x = rug::Float::with_val(24, &a.val);
+        if a.exp >= 0 {
+            x <<= a.exp as u32;
+        } else {
+            x >>= (-a.exp) as u32;
+        }
+        x.to_f32()
     }
 }
 

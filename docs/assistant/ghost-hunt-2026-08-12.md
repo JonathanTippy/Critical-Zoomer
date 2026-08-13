@@ -1,5 +1,11 @@
 # Ghost hunt (2026-08-12)
 
+**Standing (developer 2026-08-13):** while this hunt is not done, after the
+latest user ask is finished and its checks pass, **continue this hunt**
+without waiting to be asked. Interruptions are expected. Rule:
+`.cursor/rules/ghost-hunt-continue.mdc`. Loop body:
+`ghost-grind-loop-prompt.md`.
+
 Session: [v0.1 product direction interview](interviews/2026-08-12-v01-product-direction.md).
 Post-v0.0.9 assistant notes that disagree with **live code** or with that
 interview. Correct the note. Do not treat headed bugs as fixed.
@@ -38,5 +44,6 @@ Commits: `automatic checkpoint` ≈ assistant; `WIP` ≈ developer.
 | 5 | bacon `test-lib` skip list | Skipped dead names (`home_800x480`, `standards_perf::`) and **`gpu_ips`**, which still matches `naive_gpu_ips_ratio_probe` — lightning was silently omitting the IPS probe. Now skips `integration_tier` / `e2e_tier` only. | **~20%** |
 | 6 | coverage/mutants skip lists | Same dead filters as bacon, including `gpu_ips` matching `naive_gpu_ips_ratio_probe`. Both scripts now skip `integration_tier` / `e2e_tier` only. | **~22%** |
 | 8 | mutants default `--file` list | Defaulted to missing `intexp.rs` + tile-era `tile_manager`/`tile_publisher`. Now `utils.rs` / `range.rs` / `floatexp.rs`. Issue-stack charter still said “release pin / debug can miss.” | **~26%** |
+| 9 | Admit-margin docs still said “neighbor-only, omits 10 bits” | Live admit (2026-08-13) converts IntExp probe points through `T`, f64 `From<IntExp>` rounds as one value, slider fail-closes. Issue-stack + depth-design caught up. **Headed blockiness still not product-fixed.** | **~28%** |
 
 Not 100%. Implementation ghosts still mostly unknown.

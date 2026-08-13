@@ -298,6 +298,9 @@ impl Mandelbrotable for FloatExp {
     fn from_u32(value: u32) -> Self {
         Self::from(value as f64)
     }
+    fn from_f32(value: f32) -> Self {
+        Self::from(value)
+    }
     fn to_f64(self) -> f64 {
         self.to_f64()
     }
@@ -312,6 +315,9 @@ impl Mandelbrotable for FloatExp {
             mantissa: 1.9999999999999998,
             exponent: i64::MAX,
         }
+    }
+    fn is_finite(self) -> bool {
+        self.mantissa.is_finite()
     }
 }
 

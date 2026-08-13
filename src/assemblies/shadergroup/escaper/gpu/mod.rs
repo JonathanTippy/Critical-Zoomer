@@ -449,16 +449,7 @@ pub fn escape_with_gear<T>(
     crate::assemblies::structs::EscaperHud,
 )
 where
-    T: std::ops::Sub<Output = T>
-        + std::ops::Add<Output = T>
-        + std::ops::Mul<Output = T>
-        + Into<f64>
-        + PartialOrd
-        + crate::assemblies::workgroup::screen_worker::workshift::Finite
-        + crate::assemblies::workgroup::screen_worker::workshift::Gt
-        + crate::assemblies::workgroup::screen_worker::workshift::Abs
-        + From<f32>
-        + Copy,
+    T: crate::assemblies::workgroup::c_generator::Mandelbrotable + Into<f64>,
 {
     use crate::assemblies::shadergroup::escaper::escape_frame;
     use crate::assemblies::structs::EscaperHud;

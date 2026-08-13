@@ -119,6 +119,7 @@ impl EscaperHud {
 /// Host numeric stack for the view shell (`f64` vs FloatExp).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum HostStack {
+    F32,
     #[default]
     F64,
     FloatExp,
@@ -127,6 +128,7 @@ pub enum HostStack {
 impl HostStack {
     pub fn hud_label(self) -> &'static str {
         match self {
+            HostStack::F32 => "f32",
             HostStack::F64 => "f64",
             HostStack::FloatExp => "FE",
         }
@@ -256,6 +258,7 @@ mod mutant_kill {
     /// Thought-killed pins for HUD labels / ref NA / bitmap flag bits.
     #[test]
     fn mutant_kill_structs_hud_and_flags() {
+        assert_eq!(HostStack::F32.hud_label(), "f32");
         assert_eq!(HostStack::F64.hud_label(), "f64");
         assert_eq!(HostStack::FloatExp.hud_label(), "FE");
         assert_ne!(HostStack::F64.hud_label(), HostStack::FloatExp.hud_label());

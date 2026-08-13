@@ -194,16 +194,7 @@ pub fn escape_frame<T>(
     settings: &Settings,
 ) -> ZoomerValuesScreen
 where
-    T: Sub<Output = T>
-        + Add<Output = T>
-        + Mul<Output = T>
-        + Into<f64>
-        + PartialOrd
-        + Finite
-        + Gt
-        + Abs
-        + From<f32>
-        + Copy,
+    T: crate::assemblies::workgroup::c_generator::Mandelbrotable,
 {
     let r = &package.results;
     let mut output = Vec::with_capacity(r.len());
@@ -245,7 +236,7 @@ pub async fn run(
         .await
 }
 
-async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f64> + PartialOrd + From<f64> + Into<f64> + Finite + Gt + Abs + From<f32> + Into<f64> + Copy + Send>(
+async fn internal_behavior<A: SteadyActor, T: crate::assemblies::workgroup::c_generator::Mandelbrotable + Into<f64> + From<f64> + From<f32> + Send>(
     mut actor: A,
     answers_in: SteadyRx<View<Answer>>,
     settings_in: SteadyRx<Settings>,
@@ -403,8 +394,8 @@ async fn internal_behavior<A: SteadyActor, T:Sub<Output=T> + Add<Output=T> + Mul
     Ok(())
 }
 
-pub fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Into<f64> + PartialOrd + Finite + Gt + Abs + From<f32> + Into<f64> + Copy>
-    (p: &CompletedPoint<T>, r: f32, pos:(i32, i32), points: &Vec<CompletedPoint<T>>, res: (u32, u32), settings:&Settings) -> ScreenValue {
+pub fn get_value_from_point<T: crate::assemblies::workgroup::c_generator::Mandelbrotable>(
+    p: &CompletedPoint<T>, r: f32, pos:(i32, i32), points: &Vec<CompletedPoint<T>>, res: (u32, u32), settings:&Settings) -> ScreenValue {
     match p {
         CompletedPoint::Escapes{escape_time: t, escape_location: z, escape_derivative: escape_dc, start_location: c , smallness:s, small_time:st} => {
 
@@ -463,7 +454,7 @@ pub fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Int
                 , imag_squared: z.1 * z.1
                 , iterations: t.clone()
                 , real_imag: z.0 * z.1
-                , loop_detection_point: ((0.0.into(), 0.0.into()), 0)
+                , loop_detection_point: ((T::ZERO, T::ZERO), 0)
                 , escapes: false
                 , repeats: false
                 , delivered: false
@@ -479,7 +470,7 @@ pub fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Int
             let max = settings.bailout_max_additional_iterations;
             let mut c = 0;
             let og_count= p.iterations;
-            while !bailout_point(&p, r_squared.into()) {
+            while !bailout_point(&p, T::from_f32(r_squared)) {
                 if c<max {} else {
                     /*if settings.estimate_extra_iterations {
                         /*let real_squared:f64 = p.real_squared.into();
@@ -501,15 +492,15 @@ pub fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Int
                 c+=1;
             }
 
-            let zr: f64 = p.z.0.into();
-            let zi: f64 = p.z.1.into();
-            let dr: f64 = p.delta_c.0.into();
-            let di: f64 = p.delta_c.1.into();
+            let zr: f64 = p.z.0.to_f64();
+            let zi: f64 = p.z.1.to_f64();
+            let dr: f64 = p.delta_c.0.to_f64();
+            let di: f64 = p.delta_c.1.to_f64();
             // arg(z / dc), reflected because screen y grows downward.
             let gradient_angle = (-(zi * dr - zr * di)).atan2(zr * dr + zi * di) as f32;
             ScreenValue::Outside{
                 big_time: p.iterations,
-                smallness:<T as Into<f64>>::into(*s),
+                smallness: s.to_f64(),
                 small_time:*st,
                 gradient_angle,
             }
@@ -549,9 +540,9 @@ pub fn get_value_from_point<T:Sub<Output=T> + Add<Output=T> + Mul<Output=T>+ Int
 
 
             if diff_sum < 0 {
-                ScreenValue::Inside{loop_period:*p, smallness:<T as Into<f64>>::into(*s), small_time:*st}
+                ScreenValue::Inside{loop_period:*p, smallness:s.to_f64(), small_time:*st}
             } else {
-                ScreenValue::Inside{loop_period:*p, smallness:<T as Into<f64>>::into(*s), small_time:*st}
+                ScreenValue::Inside{loop_period:*p, smallness:s.to_f64(), small_time:*st}
             }
 
         }
