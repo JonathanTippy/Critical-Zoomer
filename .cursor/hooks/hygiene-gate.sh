@@ -23,13 +23,12 @@ END=$((nproc_now * 3 / 4 - 1))
 [[ "$END" -lt "$START" ]] && END="$START"
 PIN=(taskset -c "${START}-${END}" nice -n 10)
 
-TEST_FLAGS=(--all-targets)
-[[ "${CZ_HYGIENE_RELEASE:-0}" == "1" ]] && TEST_FLAGS=(--release --all-targets)
+TEST_FLAGS=(--release --all-targets)
 
 plan() {
   echo "hygiene-gate: pin ${START}-${END}  log $LOG"
   echo "  1. cargo check --lib          (bacon jobs.check)"
-  echo "  2. cargo test ${TEST_FLAGS[*]}"
+  echo "  2. cargo test --release --all-targets  (cadence floors are release bars)"
   echo "  3. cargo bench workgroup_fitness shadergroup_fitness my_bench"
   echo "  4. tracey query validate      (fail-closed; no soft-skip)"
   echo "  5. tracey query status        (feedback dump; does not fail the gate)"

@@ -51,6 +51,37 @@ pub fn should_sample(_every: u64) -> bool {
 #[inline(always)]
 pub fn log_hud(_hypothesis_id: &str, _location: &str, _message: &str, _data_json: &str) {}
 
+/// Cross-process exclusive lock for wgpu-heavy tests (cadence graph + IPS probe).
+/// `cargo test --all-targets` runs lib and integration harnesses in parallel.
+pub struct WgpuTestLock {
+    path: std::path::PathBuf,
+}
+
+impl WgpuTestLock {
+    pub fn acquire() -> Self {
+        let path = std::path::PathBuf::from("/tmp/cz_wgpu_test.lockdir");
+        let deadline = Instant::now() + Duration::from_secs(180);
+        loop {
+            match std::fs::create_dir(&path) {
+                Ok(()) => return Self { path },
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if Instant::now() > deadline {
+                        panic!("wgpu test lock timeout ({})", path.display());
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                Err(e) => panic!("wgpu test lock: {e}"),
+            }
+        }
+    }
+}
+
+impl Drop for WgpuTestLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir(&self.path);
+    }
+}
+
 /// Enable in-process busy-time profiling when `CZ_PROFILE_CPU` is set.
 pub fn init_cpu_profile_from_env() {
     let on = std::env::var_os("CZ_PROFILE_CPU").is_some();

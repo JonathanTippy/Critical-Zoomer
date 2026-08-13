@@ -945,6 +945,7 @@ mod smoke_tests {
         };
         use std::time::Instant;
 
+        let _wgpu = crate::debug_agent::WgpuTestLock::acquire();
         let Some(mut shared) = SharedGpu::acquire() else {
             eprintln!("naive_gpu_ips_ratio_probe: no adapter — skipped");
             return;
