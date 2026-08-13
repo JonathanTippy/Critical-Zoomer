@@ -1,12 +1,6 @@
 # Recontinuation — i64 four-quadrant grey
 
-Paste into a new chat. Do not revive retracted theories.
-
-## Job
-
-Headed **mag 43–44**, `stack:i64` `mode:naive`. Lib `get_c` / `From` / signed
-add-mul pins are green. **Do not declare headed fixed** until the developer
-says so. Shade is a pipe.
+**Closed** (developer 2026-08-13). See `docs/assistant/rca-i64-flat-grey-2026-08-13.md`.
 
 Loci: `HEADED_I64_GREY_*` and the nearby mag 43/44 points in
 `docs/assistant/rca-i64-flat-grey-2026-08-13.md`.

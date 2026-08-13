@@ -62,4 +62,5 @@ OG naive compute-gear stamp, not the i64 tape — mag 43 `stack:i64` still shows
 `gear:F64`. Grey was `From` sign-bit plus unsigned `pack_add`/`mul` on negative
 limbs. Pins: `from_64bit_positive_mantissa_stays_positive`,
 `headed_mag_43_get_c_unique_count_at_window_res`. Admit is correct. Not
-WorkUpdate `c`. Do not treat headed as fixed until the developer says so.
+WorkUpdate `c`. Headed mag-44 grey closed (developer 2026-08-13): relative `c`
+in T, then `Words=1` mul bit-squeeze.

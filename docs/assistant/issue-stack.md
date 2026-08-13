@@ -61,12 +61,10 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
   is the pert delta ladder / absolute-naive stamp and stays `F64` even when
   `stack:i64`. Do not read `gear:F64` as “this is f64 iterate.” Developer:
   black is closed. Do not re-break OG naive to chase i64.
-- **OG naive `CopyIntExp<1>` (`stack:i64`) four-quadrant grey (2026-08-13).**
-  Lib: `From` now squeezes to 63 magnitude bits; add/mul are signed on the high
-  limb (`get_c` 854×480 distinct; origin imag stays +). **Do not treat headed
-  as fixed** until the developer says so. Handoff:
-  `docs/assistant/recontinuation-i64-grey.md`. RCA:
-  `docs/assistant/rca-i64-flat-grey-2026-08-13.md`.
+- **OG naive `CopyIntExp<1>` (`stack:i64`) four-quadrant / mag-44 grey
+  (2026-08-13) — closed.** `From` 63-bit squeeze; signed add; relative `c` in
+  T not f64; `Words=1` mul bit-squeezes (not `>>64`). Developer confirmed
+  headed. RCA: `docs/assistant/rca-i64-flat-grey-2026-08-13.md`.
 - **Transition rectangular blockiness / shallow false admit (2026-08-12 design RCA).**
   When a deeper gear exists but the image shows rectangular precision blocks,
   suspect **C-generator false-admit of a shallow type**, or a **later precision
