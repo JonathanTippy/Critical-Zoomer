@@ -552,3 +552,37 @@ like it because it means I'm less likely to confuse the assistant.
 **Locked:** reaper stays. Headed repo-binary kills are an accepted tradeoff
 — do not spare them to be nice. Installed `/usr/bin` and Cursor sandboxes
 still out of scope.
+
+---
+
+### Developer
+
+proposed loop script:
+1. Give an estimate of percentage of ghosts caught relative to all the
+ghosts, best guess, best effort guess, educated guess. guess is 100%? stop.
+2. Choose a well-scoped target for a swath of ghosts to catch
+3. catch those ghosts
+
+sound good? Any questions?
+I like this ghosts idea I'll keep using it; ghosts are assistant
+misunderstandings which slipped into comments, docs, or perhaps even names
+or behavior, since the project became assisted at v0.0.9.
+I suppose I should also mention that developer ideas which have since
+changed and evolved can also be considered candidate ghosts, but exercise
+caution and deference because as cranfsmanship says there is a lot of
+hard-won design-via-iteration in the hand coded stuff. there was a bit of a
+dictator-phase (dev-by-spec) as well which should still be in the trash.
+Informative for how the dev tends to think / was thinking at the time but
+things like this need to be taken more gently and with an agile mindset.
+Because of the automated checkpoint commit rule, it should be easy to
+distinguish assistant commits from dev commits in almost all cases, at
+least since it was implemented. Before that point, the dev tends to just
+put WIP when cant be bothered to write a message. im referring to myself
+in the third person, weird.
+
+### Assistant
+
+Loop is good. Ghost definition locked (comments/docs/names/behavior;
+evolved-dev ideas are candidates with deference; Trash spec is history).
+Prompt: `docs/assistant/ghost-grind-loop-prompt.md`. 100% means the
+honest guess, not a clean swath. Pass 1 is nowhere near 100%.
