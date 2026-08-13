@@ -8,13 +8,15 @@
 //! (a mutex), not this dir lock. Floors assume **opt-level 3** (house
 //! `profile.dev` / `profile.test`). Do not gate on `--release` (overflow
 //! checks off). Unoptimized debug will miss the Hz bars.
+//!
+//! One `#[test]` so rustc cannot run OG and GPU pipelines in parallel
+//! (they share the GPU and starve `esc:`).
 
 use critical_zoomer::assemblies::headgroup::dummy_cadence::{
     cadence_lab_settings, CadenceReport, DummyCadenceConfig,
 };
 use critical_zoomer::assemblies::pipeline::{new_report_slot, run_dummy_cadence_pipeline};
 use critical_zoomer::assemblies::structs::{ColorerMode, EscaperMode};
-use std::sync::Mutex;
 use std::time::Duration;
 
 const HEALTHY_COL_HZ: f64 = 40.0;
@@ -22,12 +24,7 @@ const HEALTHY_OG_ESC_HZ: f64 = 15.0;
 const HEALTHY_GPU_ESC_HZ: f64 = 40.0;
 const MEASURE: Duration = Duration::from_secs(5);
 
-/// One dummy-head pipeline at a time. The dir lock covers other harnesses;
-/// this mutex covers the two cases in this file (default rustc is parallel).
-static CADENCE_CASE: Mutex<()> = Mutex::new(());
-
 fn run_case(escape: EscaperMode, color: ColorerMode) -> CadenceReport {
-    let _serial = CADENCE_CASE.lock().unwrap_or_else(|e| e.into_inner());
     let _lock = critical_zoomer::debug_agent::WgpuTestLock::acquire();
     critical_zoomer::debug_agent::init_cpu_profile_from_env();
     critical_zoomer::debug_agent::enable_escape_rca();
@@ -60,10 +57,8 @@ fn print_hud(r: &CadenceReport) {
     );
 }
 
-#[test]
-fn steady_state_pipeline_cadence_og_escape() {
-    let r = run_case(EscaperMode::Og, ColorerMode::Gpu);
-    print_hud(&r);
+fn assert_og(r: &CadenceReport) {
+    print_hud(r);
     let mean_esc = r.esc_total as f64 / r.measure_secs.max(0.001);
     let mean_col = r.col_total as f64 / r.measure_secs.max(0.001);
     assert!(
@@ -85,10 +80,8 @@ fn steady_state_pipeline_cadence_og_escape() {
     assert_eq!(r.escape_label, "OG");
 }
 
-#[test]
-fn steady_state_pipeline_cadence_gpu_escape() {
-    let r = run_case(EscaperMode::Gpu, ColorerMode::Gpu);
-    print_hud(&r);
+fn assert_gpu(r: &CadenceReport) {
+    print_hud(r);
     let mean_esc = r.esc_total as f64 / r.measure_secs.max(0.001);
     let mean_col = r.col_total as f64 / r.measure_secs.max(0.001);
     assert!(
@@ -108,4 +101,10 @@ fn steady_state_pipeline_cadence_gpu_escape() {
         mean_esc,
         r.esc_hz
     );
+}
+
+#[test]
+fn steady_state_pipeline_cadence() {
+    assert_og(&run_case(EscaperMode::Og, ColorerMode::Gpu));
+    assert_gpu(&run_case(EscaperMode::Gpu, ColorerMode::Gpu));
 }

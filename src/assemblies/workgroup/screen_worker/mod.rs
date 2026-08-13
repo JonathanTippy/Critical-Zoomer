@@ -54,6 +54,9 @@ pub struct WorkerState<T: Mandelbrotable> {
     , pending_reference: Option<std::sync::Arc<PublishedReference>>
     // Optional Naive GPU compute island; None → CPU DirectKernel for naive.
     , naive_gpu: Option<naive_gpu::NaiveGpuContext>
+    // True after the first lazy init attempt (success or miss) so we do not
+    // respawn wgpu every workshift when the adapter is absent.
+    , naive_gpu_init_tried: bool
     // Latest debug manual-gear override from settings (`None` = auto policy).
     , manual_gear: Option<crate::assemblies::structs::KernelMode>
     // C-generator render margin bits from settings (default 10).
@@ -72,6 +75,34 @@ pub struct WorkerState<T: Mandelbrotable> {
 pub struct LiveTarget<T: Mandelbrotable> {
     pub context: WorkContext<T>,
     pub frame_info: (ObjectivePosAndZoom, (u32, u32)),
+}
+
+fn ensure_naive_gpu_if_needed(state: &mut WorkerState<f64>) {
+    use crate::assemblies::structs::KernelMode;
+    if state.naive_gpu.is_some() || state.naive_gpu_init_tried {
+        return;
+    }
+    let need = match state.manual_gear {
+        Some(KernelMode::NaiveGpu) | None => true,
+        Some(_) => false,
+    };
+    if !need {
+        return;
+    }
+    state.naive_gpu_init_tried = true;
+    // Init wgpu off the async executor — pollster::block_on nested in async can fail.
+    let created = std::thread::Builder::new()
+        .name("cz-naive-gpu-init".into())
+        .spawn(|| naive_gpu::NaiveGpuContext::try_new())
+        .ok()
+        .and_then(|h| h.join().ok())
+        .flatten();
+    if created.is_some() {
+        eprintln!("screen_worker: NaiveGpuContext ready");
+    } else {
+        eprintln!("screen_worker: NaiveGpu unavailable; CPU DirectKernel for naive");
+    }
+    state.naive_gpu = created;
 }
 
 /// Reopen seats delivered against an older reference generation (craftsmanship tests).
@@ -145,19 +176,6 @@ async fn internal_behavior<A: SteadyActor>(
     let mut references_in = references_in.lock().await;
     let mut settings_in = settings_in.lock().await;
 
-    // Init wgpu off the async executor — pollster::block_on nested in async can fail.
-    let mut naive_gpu = std::thread::Builder::new()
-        .name("cz-naive-gpu-init".into())
-        .spawn(|| naive_gpu::NaiveGpuContext::try_new())
-        .ok()
-        .and_then(|h| h.join().ok())
-        .flatten();
-    if naive_gpu.is_some() {
-        eprintln!("screen_worker: NaiveGpuContext ready");
-    } else {
-        eprintln!("screen_worker: NaiveGpu unavailable; CPU DirectKernel for naive");
-    }
-
     let mut state = state.lock(|| WorkerState {
         work_context: None
         , workshift_token_budget: 16000000
@@ -168,15 +186,12 @@ async fn internal_behavior<A: SteadyActor>(
         , total_workshifts: 0
         , pending_reference: None
         , naive_gpu: None
+        , naive_gpu_init_tried: false
         , manual_gear: Some(crate::assemblies::structs::KernelMode::Naive)
         , c_generator_margin_bits: crate::assemblies::workgroup::c_generator::DEFAULT_C_GENERATOR_MARGIN_BITS
         , pending_controller_emitted_at: None
         , seats_need_work: false
     }).await;
-    // Inject after lock so a pre-existing empty SteadyState cannot drop the device.
-    if state.naive_gpu.is_none() {
-        state.naive_gpu = naive_gpu.take();
-    }
 
     while actor.is_running(
         || i!(updates_out.mark_closed())
@@ -440,6 +455,9 @@ async fn internal_behavior<A: SteadyActor>(
             }
 
             // Split borrows: take GPU handle, then mutate live context.
+            // Compute wgpu stays off until Naive GPU or the PPS race needs it —
+            // a resident compute device starves shade (colorer/escaper) cadence.
+            ensure_naive_gpu_if_needed(&mut state);
             let mut gpu = state.naive_gpu.take();
             if let Some(live) = &mut state.work_context {
                 // workshift zeros `total_iterations_today` then counts only this shift.

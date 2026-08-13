@@ -446,11 +446,8 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 (false, false)
             };
             state.gaze.set_enabled(eye_on);
-            if eye_on {
-                let need_cal = request_cal || matches!(state.gaze.phase, gaze::GazePhase::Idle);
-                if need_cal {
-                    state.gaze.begin_calibrate();
-                }
+            if eye_on && request_cal {
+                state.gaze.begin_calibrate();
             }
 
             let (mut command_package, pointer) = parse_inputs(&ctx, &mut state, size);

@@ -190,7 +190,9 @@ impl GazeSession {
         }
         self.enabled = on;
         if on {
-            self.cam.start();
+            if matches!(self.phase, GazePhase::Ready(_)) {
+                self.cam.start();
+            }
         } else {
             self.cam.stop();
             self.phase = GazePhase::Idle;
@@ -199,7 +201,8 @@ impl GazeSession {
     }
 
     pub fn begin_calibrate(&mut self) {
-        self.set_enabled(true);
+        self.enabled = true;
+        self.cam.start();
         self.collected.clear();
         self.phase = GazePhase::Calibrating { corner: 0 };
     }
@@ -292,6 +295,7 @@ impl GazeSession {
 struct GazeCamera {
     latest: Arc<Mutex<Option<Vec<f32>>>>,
     run: Arc<AtomicBool>,
+    join: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
 }
 
 impl GazeCamera {
@@ -305,17 +309,38 @@ impl GazeCamera {
         self.run.store(true, Ordering::Relaxed);
         let latest = self.latest.clone();
         let run = self.run.clone();
-        let _ = thread::Builder::new()
+        let handle = thread::Builder::new()
             .name("cz-gaze-cam".into())
             .spawn(move || camera_loop(latest, run));
+        if let Ok(h) = handle {
+            if let Ok(mut g) = self.join.lock() {
+                *g = Some(h);
+            }
+        }
     }
 
     fn stop(&mut self) {
         self.run.store(false, Ordering::Relaxed);
+        if let Ok(mut g) = self.join.lock() {
+            if let Some(h) = g.take() {
+                let _ = h.join();
+            }
+        }
+        if let Ok(mut latest) = self.latest.lock() {
+            *latest = None;
+        }
     }
 
     fn latest(&self) -> Option<Vec<f32>> {
         self.latest.lock().ok().and_then(|g| g.clone())
+    }
+}
+
+impl Drop for GazeCamera {
+    fn drop(&mut self) {
+        if Arc::strong_count(&self.run) == 1 {
+            self.stop();
+        }
     }
 }
 
@@ -348,15 +373,17 @@ fn camera_loop_v4l(
     let h = fmt.height;
     let mut stream =
         MmapStream::with_buffers(&mut dev, Type::VideoCapture, 4).map_err(|e| format!("mmap: {e}"))?;
+    stream.set_timeout(Duration::from_millis(100));
     while run.load(Ordering::Relaxed) {
-        let (buf, _meta) = stream.next().map_err(|e| format!("frame: {e}"))?;
+        let Ok((buf, _meta)) = stream.next() else {
+            continue;
+        };
         let luma = yuyv_to_luma(w, h, buf).unwrap_or_else(|| buf.to_vec());
         if let Some(feat) = downsample_gray(w, h, &luma) {
             if let Ok(mut g) = latest.lock() {
                 *g = Some(feat);
             }
         }
-        thread::sleep(Duration::from_millis(20));
     }
     Ok(())
 }
