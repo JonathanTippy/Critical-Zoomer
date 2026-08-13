@@ -17,7 +17,7 @@ interview. Correct the note. Do not treat headed bugs as fixed.
 | Issue-stack pipeline gap: `VSYNC=false` + “no code until big plan” | `VSYNC=true` in window; content timers exist; head still bare repaint | Align with live; head CPU still open. |
 | “Shelved: worker parks so head CPU is fine” | Wrong actor. Window still immediate-repaint. Developer: 100% CPU at vsync rates. | Unshelve as open; worker park ≠ window idle. |
 | Actor-layout interview parking lot “cadence not implemented / no code” | Historical; later code landed then `351afdf` reverted head pacing | Amendment on that interview, do not rewrite the transcript. |
-| Depth “finish-line / precision wall green” | Blockiness + post-admit f64 interlayer still open. Tests **pin** `WorkUpdate<f64>` host. | Do not call depth-trust done. |
+| Depth “finish-line / precision wall green” | Blockiness + post-admit interlayer still open. Collector channel is still `WorkUpdate<f64>`; OG naive may iterate f32 then convert. | Do not call depth-trust done. |
 | Dummy-head GPU esc ~60 Hz / “test currently passes” | Snapshot Hz. Pin is dummy-head GPU esc ≥40 / OG ≥15 on **debug+opt-3**. Unoptimized debug misses it; `--release` is not the gate. Headed still unchecked. | Honest `testing.md`. Do not ignore or lower floors. GPU grind paused. |
 | Admit-margin “in tree” read as product fix | Mechanism only | Keep “product not verified”; add failure shape (C) post-admit drop. |
 
@@ -45,5 +45,6 @@ Commits: `automatic checkpoint` ≈ assistant; `WIP` ≈ developer.
 | 6 | coverage/mutants skip lists | Same dead filters as bacon, including `gpu_ips` matching `naive_gpu_ips_ratio_probe`. Both scripts now skip `integration_tier` / `e2e_tier` only. | **~22%** |
 | 8 | mutants default `--file` list | Defaulted to missing `intexp.rs` + tile-era `tile_manager`/`tile_publisher`. Now `utils.rs` / `range.rs` / `floatexp.rs`. Issue-stack charter still said “release pin / debug can miss.” | **~26%** |
 | 9 | Admit-margin docs still said “neighbor-only, omits 10 bits” | Live admit (2026-08-13) converts IntExp probe points through `T`, f64 `From<IntExp>` rounds as one value, slider fail-closes. Issue-stack + depth-design caught up. **Headed blockiness still not product-fixed.** | **~28%** |
+| 10 | “Tests pin WorkUpdate f64 host” as if no f32 iterate | Channel is still f64 for the collector; OG naive now iterates `Mandelbrotable` f32 when the bit-count gate admits, then converts. Margin default 1. | **~30%** |
 
 Not 100%. Implementation ghosts still mostly unknown.
