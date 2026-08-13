@@ -35,6 +35,6 @@ Commits: `automatic checkpoint` ≈ assistant; `WIP` ≈ developer.
 | 2 | HUD `color:` still OG by default | Window init + `ColorerMode`/`ColorerHud` Default were OG after GPU became product default; collector WorkUpdates wiped shade stamps back to OG. Defaults + preserve stamps. Issue-stack “root cause fixed” retitled so it is not headed blockiness. GPU unit tests now take the same wgpu lock as the IPS probe (parallel GPU tests were starving it). | **~14%** |
 | 3 | Two GPU locks conflated as one | Colorer/escaper tests named `_wgpu` but take in-process `lock_gpu_tests()`; IPS probe + cadence take `/tmp/cz_wgpu_test.lockdir`. Cadence header still spoke as if `--all-targets` were the house run. `pipeline-refresh-rates` “OG remains default” read as colorer. Split the names/comments. Tick 2’s “same wgpu lock as IPS” was itself a ghost. | **~16%** |
 | 4 | `craftsmanship_tests.rs` after the split | Tracey pins, `testing.md`, and AGENTS still named a single file. Tests live in `craftsmanship_tests/` (`mod.rs` + tiers). Paths updated. | **~18%** |
-| 5 | bacon `test-lib` skip list | Skipped dead names (`home_800x480`, `standards_perf::`) and **`gpu_ips`**, which still matches `naive_gpu_ips_ratio_probe` — lightning was silently omitting the IPS probe. Now skips `integration_tier` / `e2e_tier` only. | **~20%** |
+| 6 | coverage/mutants skip lists | Same dead filters as bacon, including `gpu_ips` matching `naive_gpu_ips_ratio_probe`. Both scripts now skip `integration_tier` / `e2e_tier` only. | **~22%** |
 
 Not 100%. Implementation ghosts still mostly unknown.

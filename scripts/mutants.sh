@@ -26,7 +26,8 @@ for f in "${FILES[@]}"; do
 done
 
 echo "mutants: cpuset=${CZ_CPUSET} files=${FILES[*]}"
-# Pass test filters after `--` so each mutant runs a fast lib subset.
+# Pass test filters after `--` so each mutant runs a fast lib subset
+# (unit tier only; do not skip `gpu_ips` — that name matches the live IPS probe).
 exec taskset -c "${CZ_CPUSET}" cargo mutants \
   --exclude 'src/main.rs' \
   --exclude 'src/assemblies/headgroup/window/mod.rs' \
@@ -38,7 +39,5 @@ exec taskset -c "${CZ_CPUSET}" cargo mutants \
   --lib \
   -- \
   --test-threads=1 \
-  --skip home_800x480 \
-  --skip gpu_ips \
-  --skip standards_perf:: \
-  --skip foveation_balance
+  --skip integration_tier \
+  --skip e2e_tier

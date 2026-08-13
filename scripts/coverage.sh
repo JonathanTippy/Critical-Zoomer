@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Region coverage for QC. Ignores GUI/actor shells (headed e2e covers those).
-# Skips instrumented-slow home fill under llvm-cov.
+# Skips 15s/60s pyramid tiers (llvm-cov is for unit region coverage).
 # Usage: taskset -c 4-11 scripts/coverage.sh
 #
 # Living artifact (commit this summary): docs/assistant/coverage-baseline.txt
@@ -38,12 +38,8 @@ taskset -c "${CZ_CPUSET}" cargo llvm-cov --lib \
   --ignore-filename-regex="$IGNORE" \
   -- \
   --test-threads=1 \
-  --skip home_800x480_fills_within_five_seconds_cpu \
-  --skip home_800x480 \
-  --skip gpu_ips \
-  --skip foveation_balance \
-  --skip standards_perf:: \
-  --skip cpu_ips_ \
+  --skip integration_tier \
+  --skip e2e_tier \
   2>&1 | tee -a "$LIVING"
 
 echo "HTML: ${OUT_DIR}/index.html" | tee -a "$LIVING"
