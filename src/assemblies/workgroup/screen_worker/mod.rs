@@ -2,7 +2,7 @@ use std::cmp::min;
 use steady_state::*;
 use crate::assemblies::headgroup::window::sampling::{index_from_relative_location, relative_location_i32_row_and_seat, transform_relative_location_i32};
 use crate::assemblies::workgroup::c_generator::{
-    admit_generator_with_margin, CGenerator, Mandelbrotable,
+    admit_generator_with_margin, CGenerator, Mandelbrotable, ABSOLUTE_F64_RISKY_PITCH,
 };
 use crate::assemblies::structs::{AttentionFocus, KernelMode};
 use crate::assemblies::workgroup::reference_worker::{
@@ -105,9 +105,19 @@ fn og_copy_intexp1_naive_admits(
     margin: u32,
 ) -> bool {
     // r[impl cz.depth.c-generator-fails-closed+1]
-    gear == Some(KernelMode::Naive)
-        && CGenerator::<f64>::new_with_margin(loc, zoom_pot, res, margin).is_none()
-        && CGenerator::<CopyIntExp1>::new_with_margin(loc, zoom_pot, res, margin).is_some()
+    if gear != Some(KernelMode::Naive) {
+        return false;
+    }
+    if CGenerator::<CopyIntExp1>::new_with_margin(loc, zoom_pot, res, margin).is_none() {
+        return false;
+    }
+    match CGenerator::<f64>::new_with_margin(loc, zoom_pot, res, margin) {
+        None => true,
+        Some(g) => {
+            let pitch = g.origin_and_space().1.abs().to_f64();
+            pitch > 0.0 && pitch < ABSOLUTE_F64_RISKY_PITCH
+        }
+    }
 }
 
 fn ensure_naive_gpu_if_needed(state: &mut WorkerState<f64>) {
@@ -1336,10 +1346,18 @@ mod mutant_kill {
         );
         let res = DEFAULT_WINDOW_RES;
         let naive = Some(KernelMode::Naive);
-        assert!(!og_copy_intexp1_naive_admits(naive, &loc, 41, res, 1));
-        assert!(og_copy_intexp1_naive_admits(naive, &loc, 42, res, 1));
+        assert!(!og_copy_intexp1_naive_admits(naive, &loc, 37, res, 1));
+        assert!(og_copy_intexp1_naive_admits(naive, &loc, 38, res, 1));
         assert!(og_copy_intexp1_naive_admits(naive, &loc, 49, res, 1));
         assert!(!og_copy_intexp1_naive_admits(Some(KernelMode::Pert), &loc, 49, res, 1));
+        let headed = (
+            crate::assemblies::headgroup::window::coords::decimal_str_to_intexp("-0.153205192159323")
+                .unwrap(),
+            crate::assemblies::headgroup::window::coords::decimal_str_to_intexp("1.03165172670619")
+                .unwrap(),
+        );
+        assert!(og_copy_intexp1_naive_admits(naive, &headed, 38, res, 1));
+        assert!(CGenerator::<f64>::new_with_margin(&headed, 38, res, 1).is_some());
     }
 
     #[test]

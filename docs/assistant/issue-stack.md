@@ -55,7 +55,9 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
   from readout. Headed at mag ~44 after f64 wall. Screen worker panicked in
   `CopyIntExp::from` when viewport `IntExp` mantissa was wider than one word
   (admit is a bit *count*; the stored mantissa still carries extra low bits).
-  From now squeezes. Do not treat headed flat as fixed until the developer says so.
+  **OG naive `i64`:** also when absolute f64 pitch `< 1e-14` (mag ~38), not
+  only when the 53-bit count fails (mag ~42). Headed black at mag 38 with
+  `stack:f64` was that gap.
 - **Transition rectangular blockiness / shallow false admit (2026-08-12 design RCA).**
   When a deeper gear exists but the image shows rectangular precision blocks,
   suspect **C-generator false-admit of a shallow type**, or a **later precision

@@ -45,8 +45,8 @@ low bits past the admit count; panicking there killed the screen worker.
 
 ## OG naive (`Words = 1`)
 
-Manual Naive CPU uses `DirectKernel` on `CopyIntExp<1>` when f32 does not admit,
-absolute f64 `CGenerator::new_with_margin` fails, and the one-word tape still
-covers the stencil. Home, default margin 1: f64 dies at zoom **42**; one word
-still admits through zoom **49** (and until bits exceed 64, about **52**). HUD
-host stack label is `i64`. Not a perturbation compute-gear rung.
+Manual Naive CPU uses `DirectKernel` on `CopyIntExp<1>` when f32 does not admit
+and either absolute f64 fails **or** pixel pitch is below `1e-14` (f64 still
+admits by bit count but iterate neighbors collapse — headed black around mag
+**38**). One word still covers through ~**49–52**. HUD host stack label is `i64`.
+Not a perturbation compute-gear rung.

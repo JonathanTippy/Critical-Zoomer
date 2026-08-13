@@ -35,7 +35,8 @@ count exceeds 24 while f64 (53) still admits.
 `Mandelbrotable::PRECISION`, `stencil_bits_needed`, `CGenerator::new_with_margin`.
 Settings slider `c_generator_margin_bits` (default 1). OG naive CPU uses the same
 `DirectKernel` / `Mandelbrotable` iterate for f32, f64, then `CopyIntExp<1>`
-when absolute f64 fails and the one-word tape still admits.
+when absolute f64 fails or pixel pitch is below `1e-14` (neighbors collapse
+while the 53-bit count still admits).
 
 **Verification.** `generator_matches_v009_grid_bit_for_bit`,
 `rejects_collapse_at_far_end`, `successful_generator_has_distinct_neighbors`,

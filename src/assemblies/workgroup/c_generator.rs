@@ -11,6 +11,10 @@ pub const DEFAULT_C_GENERATOR_MARGIN_BITS: u32 = 1;
 /// not run when [`stencil_bits_needed`] exceeds this.
 pub const F32_SIGNIFICAND_BITS: u32 = 24;
 
+/// Absolute f64 pixel pitch below which iterate neighbors collapse (~mag 38).
+/// Perturbation prefers relative; OG naive bumps to `CopyIntExp<1>`.
+pub const ABSOLUTE_F64_RISKY_PITCH: f64 = 1e-14;
+
 /// Precision carried by a Mandelbrot host type. The C-generator gate is this
 /// count: admit iff `significand_bits` covers |c| magnitude down to pixel pitch
 /// and the pitch exponent is at or above `min_exponent`.
@@ -252,7 +256,6 @@ pub fn admit_generator_with_margin<T: Mandelbrotable>(
     view_center: &(IntExp, IntExp),
     margin_bits: u32,
 ) -> Option<GeneratorAdmission<T>> {
-    const ABSOLUTE_F64_RISKY_PITCH: f64 = 1e-14;
     let anchor = relative_anchor
         .map(|a| (a.0.clone(), a.1.clone()))
         .unwrap_or_else(|| (view_center.0.clone(), view_center.1.clone()));
