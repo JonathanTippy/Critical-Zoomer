@@ -51,6 +51,10 @@ through ~**49–52**. HUD host stack label is `i64`. Not a perturbation compute-
 rung. If f64 is admitted, iterate must work; mag-38 black with `stack:f64` is a
 bug, not a reason to bump the host.
 
-Headed 2026-08-13 at mag **43** (`HEADED_I64_GREY_*`, `stack:i64`, `mode:naive`):
-**black is gone.** Remaining product bug is **flat grey** with HUD `ipp:0`
-(pps still high). Pin `og_copy_intexp1_headed_mag_43_not_all_interior`.
+Headed 2026-08-13: **black on OG naive f64 was an assistant regression** (CopyIntExp
+wire-up / `From` panic / illegal `1e-14` host bump). HUD `gear:F64` reports the
+OG naive compute-gear stamp, not the i64 tape — mag 43 `stack:i64` still shows
+`gear:F64`. Remaining product bug is **flat grey** (`HEADED_I64_GREY_*`, HUD
+`ipp:0`): collector is `WorkUpdate<f64>`, so cie `to_f64` at mag 43 collapses
+neighbor `c` while the tape still iterates. Pin
+`og_copy_intexp1_headed_mag_43_not_all_interior`.

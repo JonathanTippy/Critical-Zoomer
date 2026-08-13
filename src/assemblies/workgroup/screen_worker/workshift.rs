@@ -2426,7 +2426,7 @@ mod mutant_kill {
             HEADED_I64_GREY_IM, HEADED_I64_GREY_MAG, HEADED_I64_GREY_RE, TEST_SCREEN_RES,
         };
         use crate::copy_intexp::CopyIntExp1;
-        use crate::assemblies::workgroup::c_generator::CGenerator;
+        use crate::assemblies::workgroup::c_generator::{CGenerator, Mandelbrotable};
         use super::{from_stencil_with_margin, workshift_with_kernel, DirectKernel};
         let loc = ul_for_center(
             decimal_str_to_intexp(HEADED_I64_GREY_RE).unwrap(),
@@ -2446,6 +2446,15 @@ mod mutant_kill {
         let frame = (loc, TEST_SCREEN_RES);
         let mut ctx = from_stencil_with_margin::<CopyIntExp1>(frame, None, 1, false)
             .expect("mag 43 CopyIntExp<1> admits");
+        assert_eq!(
+            ctx.view_gear,
+            crate::delta_gear::ComputeGear::F64,
+            "HUD gear:F64 is ComputeGear for absolute naive, including i64 host — not 'OG f64 iterate'"
+        );
+        assert_eq!(
+            crate::assemblies::workgroup::screen_worker::host_stack_for_context::<CopyIntExp1>(),
+            crate::assemblies::structs::HostStack::CopyI64
+        );
         for _ in 0..400 {
             workshift_with_kernel(16_000_000, 2, 4, 150, &mut ctx, &DirectKernel);
             if ctx.points.iter().all(|p| p.delivered || p.escapes || p.repeats) {
@@ -2459,12 +2468,34 @@ mod mutant_kill {
             escapes > 0,
             "headed mag 43: black (all-interior) is closed (escapes={escapes} repeats={repeats} unfinished={dummyish})"
         );
-        // Remaining headed bug is flat grey + HUD ipp:0. Compute must still
-        // accumulate iterations; shade/dummy is the open product gap.
         assert!(
             ctx.view_ipp() > 0.0,
-            "seats must iterate (headed HUD showed ipp:0; grey is not 'no work') ipp={}",
+            "seats must iterate (headed HUD showed ipp:0) ipp={}",
             ctx.view_ipp()
+        );
+        // RCA: collector is WorkUpdate<f64>. Neighbor c/z via to_f64 at mag 43
+        // (pitch ≈ ulp(|c|~1)) can collapse while the i64 tape still iterates.
+        let mut times = std::collections::BTreeSet::new();
+        let mut f64_c = std::collections::BTreeSet::new();
+        for p in &ctx.points {
+            if p.escapes {
+                times.insert(p.iterations);
+            }
+            let bits = (
+                p.c.0.to_f64().to_bits(),
+                p.c.1.to_f64().to_bits(),
+            );
+            f64_c.insert(bits);
+        }
+        assert!(
+            times.len() > 1,
+            "i64 iterate still has more than one escape time (got {times:?}); grey is post-tape"
+        );
+        assert!(
+            f64_c.len() < ctx.points.len(),
+            "to_f64(c) must collapse some neighbors at mag 43 (unique f64 c={}, seats={})",
+            f64_c.len(),
+            ctx.points.len()
         );
     }
 

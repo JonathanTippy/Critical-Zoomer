@@ -365,7 +365,8 @@ r[cz.depth.gear-hud+2]
 iterate, and is final when every seat is delivered. It is not a rate (that is IPS).
 Mode names which production kernel runs: **`naive`** = `DirectKernel`; **`pert`** =
 `PerturbationKernel`. Gear applies under **`mode:pert`** only (delta ladder); naive
-reports `F64`. Ref is a running snapshot:
+absolute stamps `F64` even when the host stack is `i64` (`CopyIntExp<1>`).
+Read `stack:` for the tape, not `gear:`. Ref is a running snapshot:
 `wip` when no usable published reference exists yet or any seat is in `direct_only` glitch
 recovery awaiting a newer reference generation; `complete` when a usable reference is
 installed and no seats are glitched. Mixed-seat views surface MIXED rather than a false

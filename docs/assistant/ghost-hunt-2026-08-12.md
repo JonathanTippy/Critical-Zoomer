@@ -50,5 +50,6 @@ Commits: `automatic checkpoint` ≈ assistant; `WIP` ≈ developer.
 | 12 | Number-stack “~10 bits headroom” + CopyIntExp mul “abs then sign” | Live margin default is **1**. Mul is unsigned `u128` schoolbook. OG naive now uses `CopyIntExp<1>` after absolute f64 (home zoom 42, still on at 49). | **~34%** |
 | 13 | Mag-38 black ⇒ bump CopyIntExp at `1e-14` | Assistant hid a location/period question behind a type switch. Admit is bit count; mag 38 f64 still admits and far-exterior escapes. Pitch prefer-relative is pert/GPU. | **~36%** |
 | 14 | `critical-zoomer-invariants.mdc` | AGENTS and craftsmanship rules name it as the always-on summary. File was missing from `.cursor/rules/`. Restored from the six typed invariants. | **~38%** |
+| 15 | Mag-38 black as i64 / pitch | HUD `gear:F64` `mode:naive` is OG DirectKernel, not the i64 tape. `stack:` is the host. Assistant CopyIntExp bump was the OG regression. Mag-43 grey is i64→f64 collector narrow. | **~40%** |
 
 Not 100%. Implementation ghosts still mostly unknown.

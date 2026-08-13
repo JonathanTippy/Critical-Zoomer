@@ -54,13 +54,21 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
 - **View IPP (2026-08-13).** Mean iterations per seat on the live view. Running
   while filling (`ipp:~N`); final when every seat is delivered (`ipp:N`).
   Difficulty of *this* view, not a rate.
-- **OG naive `CopyIntExp<1>` (`stack:i64`) flat grey (2026-08-13).** Headed
-  `mag 2^43  -0.2067325560057166 + 1.1075689870974698i` (`HEADED_I64_GREY_*`):
-  **black is closed** (developer). Remaining: **flat grey**, HUD `ipp:0` with
-  `pps` still high (`mode:naive`, `stack:i64`, `gear:F64`). Worker panic on
-  fat `From<IntExp>` is a separate closed mechanism (squeeze). CopyIntExp
-  only after f64 bit-count wall (~42), not a mag-38 pitch bump. Pin
-  `og_copy_intexp1_headed_mag_43_not_all_interior`. Do not treat grey as fixed.
+- **OG naive black — assistant regression (2026-08-13).** Black at mag ~38 was
+  **manual Naive DirectKernel on f64** (`stack:f64`). It had worked; we broke it
+  while wiring `CopyIntExp` (panic `From`, then a `1e-14` host bump). HUD
+  `mode:naive` `gear:F64` is the **OG kernel tag**, not the i64 host — `gear`
+  is the pert delta ladder / absolute-naive stamp and stays `F64` even when
+  `stack:i64`. Do not read `gear:F64` as “this is f64 iterate.” Developer:
+  black is closed. Do not re-break OG naive to chase i64.
+- **OG naive `CopyIntExp<1>` (`stack:i64`) flat grey (2026-08-13).** Separate
+  from OG-black. Headed `mag 2^43  -0.1761779392230477 + 1.0870336335448237i`
+  (`HEADED_I64_GREY_*`): **flat grey**, HUD `ipp:0`, `pps` high, `stack:i64`,
+  `gear:F64` (lie, see above). RCA: collector channel is still `WorkUpdate<f64>`;
+  cie answers `to_f64` at pitch ≈ ulp(|c|~1). Tape still iterates (escape times
+  differ); shade sees collapsed f64 `c`/`z`. Dummy smallness 100 is the same
+  flat grey. Pin `og_copy_intexp1_headed_mag_43_not_all_interior`. **Do not
+  treat grey as fixed.** Fat-mantissa `From` squeeze is a closed panic, not this.
 - **Transition rectangular blockiness / shallow false admit (2026-08-12 design RCA).**
   When a deeper gear exists but the image shows rectangular precision blocks,
   suspect **C-generator false-admit of a shallow type**, or a **later precision
