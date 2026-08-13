@@ -45,8 +45,9 @@ Five layers, cheapest-first:
    agent until the developer returns. Never run approval-gated commands, never
    set `request_smart_mode_approval`, and never retry a block "with approval."
    Always-on rule: `.cursor/rules/no-approval-during-loops.mdc`.
-5. **Full check** — `scripts/full_check.sh` (cargo check + full
-   `cargo test --release --all-targets` + all Criterion benches + `tracey query validate`
+5. **Full check** — `scripts/full_check.sh` (cargo check + release tests in
+   pyramid order: unit, then `integration_tier`, then e2e park + cadence +
+   all Criterion benches + `tracey query validate`
    and status). Stop hook `.cursor/hooks/full_check_on_stop.sh` runs it when the
    turn touched code/benches/tracey and follow-ups the agent if red. Log:
    `/tmp/cz_full_check.log`. Skip with `CZ_FULL_CHECK=0`. Fail-closed Tracey (no
@@ -63,9 +64,8 @@ Five layers, cheapest-first:
 ## Verify
 
 Run the **full** test suite after workgroup/colorer edits — not a hand-picked
-subset. Prefer `cargo test --all-targets` (and release when performance pins
-matter), or `scripts/full_check.sh` which is the lock-step check (check +
-full tests + all three Criterion benches + Tracey). Keep tracey links intact
+subset. Prefer `scripts/full_check.sh` (check + unit then integration then
+e2e + all three Criterion benches + Tracey). Keep tracey links intact
 (every `r[impl ...]` resolves to a rule; every rule's tests exist); run
 `tracey query validate` when docs/markers move (there is no `tracey validate`
 CLI). Prefer `cargo test` and `cargo bench` over shell. After workgroup/headgroup

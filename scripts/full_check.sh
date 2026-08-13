@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Full check: cargo check, full test suite, all Criterion benches,
-# fail-closed Tracey validate + status dump.
+# Full check: cargo check, tests in timeout-pyramid order (unit →
+# integration → e2e), all Criterion benches, fail-closed Tracey.
 # Usage: taskset -c 4-11 scripts/full_check.sh
 #        scripts/full_check.sh --dry-run
 # Log: /tmp/cz_full_check.log  (never in the repo)
@@ -19,15 +19,16 @@ END=$((nproc_now * 3 / 4 - 1))
 [[ "$END" -lt "$START" ]] && END="$START"
 PIN=(taskset -c "${START}-${END}" nice -n 10)
 
-TEST_FLAGS=(--release --all-targets)
-
 plan() {
   echo "full_check: pin ${START}-${END}  log $LOG"
   echo "  1. cargo check --lib"
-  echo "  2. cargo test --release --all-targets"
-  echo "  3. cargo bench workgroup_fitness shadergroup_fitness my_bench"
-  echo "  4. tracey query validate      (fail-closed)"
-  echo "  5. tracey query status        (dump; does not fail the check)"
+  echo "  2. cargo test --release --lib  (unit; skip integration_tier, e2e_tier)"
+  echo "  3. cargo test --release --lib integration_tier   (≤10, 15s)"
+  echo "  4. cargo test --release --lib e2e_tier            (park, 60s)"
+  echo "  5. cargo test --release --test pipeline_cadence   (OG + GPU, 60s)"
+  echo "  6. cargo bench workgroup_fitness shadergroup_fitness my_bench"
+  echo "  7. tracey query validate      (fail-closed)"
+  echo "  8. tracey query status        (dump; does not fail the check)"
 }
 
 if [[ "$DRY" -eq 1 ]]; then
@@ -56,7 +57,16 @@ fail() {
 .cursor/hooks/kill-test-zombies.sh >>"$LOG" 2>&1 || true
 
 run cargo check --lib || fail "cargo check --lib"
-run cargo test "${TEST_FLAGS[@]}" || fail "cargo test ${TEST_FLAGS[*]}"
+# Unit first: cheap 1s tests. Fail here before paying for 15s/60s suites.
+run cargo test --release --lib -- \
+  --skip integration_tier --skip e2e_tier \
+  || fail "cargo test unit (--lib, skip integration/e2e)"
+run cargo test --release --lib integration_tier \
+  || fail "cargo test integration_tier"
+run cargo test --release --lib e2e_tier \
+  || fail "cargo test e2e_tier"
+run cargo test --release --test pipeline_cadence \
+  || fail "cargo test pipeline_cadence"
 run cargo bench --bench workgroup_fitness --bench shadergroup_fitness --bench my_bench \
   || fail "cargo bench (workgroup_fitness + shadergroup_fitness + my_bench)"
 echo "Criterion ran. Compare medians to docs/assistant/benchmarks.md (~20% FIX NOW)."

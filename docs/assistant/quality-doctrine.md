@@ -62,9 +62,9 @@ was a NASA-V style process failure. **No soft-skip on hard bars.**
 ## Operational suggestions (from the quality slip)
 
 1. Prefer types over comments for invariants (`BoutCap`, `Delivery`, …).
-2. Run `scripts/full_check.sh` (or full `cargo test --release --all-targets` +
-   all Criterion benches + `tracey query validate`) before claiming a unit
-   green — not a hand-picked subset. Tracey missing is a **fail**, not a skip.
+2. Run `scripts/full_check.sh` (unit then integration then e2e, then Criterion
+   + `tracey query validate`) before claiming a unit green — not a hand-picked
+   subset. Tracey missing is a **fail**, not a skip.
 3. Keep bacon jobs pointing at **live** scripts under `scripts/`; do not leave
    coverage/mutants paths broken.
 4. Workgroup-only charter: colorer/headgroup edits beyond location bar + HUD

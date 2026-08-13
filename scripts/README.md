@@ -4,7 +4,7 @@ Assistant-owned helpers. Not a second test suite. No checked-in PNGs.
 
 | File | Role |
 |------|------|
-| `full_check.sh` | Lock-step: cargo check, full release tests, all Criterion benches, Tracey. Log `/tmp/cz_full_check.log`. |
+| `full_check.sh` | Lock-step: cargo check, release tests in pyramid order (unit → integration → e2e), all Criterion benches, Tracey. Log `/tmp/cz_full_check.log`. |
 | `screenshot_check.sh` | Isolated Xvfb → settled home PNG under `/tmp`. |
 | `screenshot_session.sh` / `screenshot_session_lib.sh` | Private start/send/stop for that screenshot check. |
 | `coverage.sh` | llvm-cov region report. |
