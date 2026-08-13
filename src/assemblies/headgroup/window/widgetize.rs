@@ -3,115 +3,132 @@ use egui::{color_picker, Ui};
 use egui_dnd::dnd;
 use crate::assemblies::structs::{ColorerMode, EscaperMode, KernelMode};
 use crate::settings::*;
+
+fn settings_section(ui: &mut Ui, title: &str, body: impl FnOnce(&mut Ui)) {
+    ui.add_space(8.0);
+    ui.heading(title);
+    ui.add_space(6.0);
+    egui::Frame::group(ui.style())
+        .inner_margin(egui::Margin::symmetric(10, 8))
+        .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 8.0;
+            body(ui);
+        });
+}
+
 impl Settings {
     pub fn widgetize(&mut self, ui:&mut Ui) {
 
-        ui.label("bailout radius:");
-        self.bailout_radius.widgetize(ui);
+        settings_section(ui, "Coloring", |ui| {
+            ui.label("Steps");
 
-        ui.separator();
-        ui.label("Compute kernel (gear)");
-        ui.checkbox(&mut self.manual_gear_enabled, "Manual gear");
-        ui.add_enabled_ui(self.manual_gear_enabled, |ui| {
-            ui.horizontal(|ui| {
-                ui.radio_value(
-                    &mut self.manual_gear,
-                    KernelMode::Naive,
-                    KernelMode::Naive.manual_gear_label(),
-                );
-                ui.radio_value(
-                    &mut self.manual_gear,
-                    KernelMode::NaiveGpu,
-                    KernelMode::NaiveGpu.manual_gear_label(),
-                );
-                ui.radio_value(
-                    &mut self.manual_gear,
-                    KernelMode::Pert,
-                    KernelMode::Pert.manual_gear_label(),
-                );
-            });
-        });
-        ui.label("Naive GPU and Perturbation are early-dev and still buggy.");
-        ui.separator();
-        ui.label("Eye tracking");
-        ui.checkbox(&mut self.eye_tracking_enabled, "Enable gaze spiral");
-        if ui.button("Calibrate gaze").clicked() {
-            self.eye_tracking_enabled = true;
-            self.request_gaze_calibrate = true;
-        }
-        ui.label("Gaze spiral is early-dev and still buggy.");
-        ui.separator();
-        ui.label("Debug — colorer (gear)");
-        ui.checkbox(&mut self.manual_color_gear_enabled, "Manual color gear");
-        ui.add_enabled_ui(self.manual_color_gear_enabled, |ui| {
-            ui.horizontal(|ui| {
-                ui.radio_value(
-                    &mut self.manual_color_gear,
-                    ColorerMode::Og,
-                    ColorerMode::Og.manual_gear_label(),
-                );
-                ui.radio_value(
-                    &mut self.manual_color_gear,
-                    ColorerMode::Gpu,
-                    ColorerMode::Gpu.manual_gear_label(),
-                );
-            });
-        });
-        ui.separator();
-        ui.label("Debug — escaper (gear)");
-        ui.checkbox(&mut self.manual_escape_gear_enabled, "Manual escape gear");
-        ui.add_enabled_ui(self.manual_escape_gear_enabled, |ui| {
-            ui.horizontal(|ui| {
-                ui.radio_value(
-                    &mut self.manual_escape_gear,
-                    EscaperMode::Og,
-                    EscaperMode::Og.manual_gear_label(),
-                );
-                ui.radio_value(
-                    &mut self.manual_escape_gear,
-                    EscaperMode::Gpu,
-                    EscaperMode::Gpu.manual_gear_label(),
-                );
-            });
-        });
-        ui.separator();
-        ui.label("Debug — C-generator admit margin (bits)");
-        ui.add(egui::Slider::new(&mut self.c_generator_margin_bits, 0..=32).text("margin bits"));
-        ui.separator();
+            if self.coloring_script.is_none() {
+                self.coloring_script = Some(DEFAULT_COLORING_SCRIPT.into());
+            }
 
-        ui.label("order of coloring steps:");
+            let mut items = self.coloring_script.clone().unwrap();
 
-        //ui.add(egui::Slider::new(&mut state.settings.bailout_max_additional_iterations,  0..=100000).logarithmic(true));
+            let mut rect = Rect::ZERO;
 
-        if self.coloring_script.is_none() {
-            self.coloring_script = Some(DEFAULT_COLORING_SCRIPT.into());
-        }
-
-        let mut items = self.coloring_script.clone().unwrap();
-
-        let mut rect = Rect::ZERO;
-
-        dnd(ui, "dnd_example").show_vec(&mut items, |ui, item, handle, state| {
-            ui.horizontal(|ui| {
-                handle.ui(ui, |ui| {
-                    ui.label("|☰☰|");
+            dnd(ui, "dnd_example").show_vec(&mut items, |ui, item, handle, state| {
+                ui.horizontal(|ui| {
+                    handle.ui(ui, |ui| {
+                        ui.label("|☰☰|");
+                    });
+                    ui.label(*item);
+                    ui.radio_value(&mut self.currently_selected_coloring_instruction, item.id(), "select")
                 });
-                ui.label(*item);
-                ui.radio_value(&mut self.currently_selected_coloring_instruction, item.id(), "select")
             });
-        });
 
-        self.coloring_script = Some(items.clone());
+            self.coloring_script = Some(items.clone());
 
-        if let Some(s) = &mut self.coloring_script {
-            for i in s {
-                if i.id() == self.currently_selected_coloring_instruction {
-                    i.widgetize(ui);
+            if let Some(s) = &mut self.coloring_script {
+                for i in s {
+                    if i.id() == self.currently_selected_coloring_instruction {
+                        ui.add_space(8.0);
+                        i.widgetize(ui);
+                    }
                 }
             }
-        }
+        });
 
+        settings_section(ui, "Compute", |ui| {
+            ui.label("Bailout radius");
+            self.bailout_radius.widgetize(ui);
+            ui.add_space(4.0);
+            ui.label("Kernel");
+            ui.checkbox(&mut self.manual_gear_enabled, "Manual gear");
+            ui.add_enabled_ui(self.manual_gear_enabled, |ui| {
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.manual_gear,
+                        KernelMode::Naive,
+                        KernelMode::Naive.manual_gear_label(),
+                    );
+                    ui.radio_value(
+                        &mut self.manual_gear,
+                        KernelMode::NaiveGpu,
+                        KernelMode::NaiveGpu.manual_gear_label(),
+                    );
+                    ui.radio_value(
+                        &mut self.manual_gear,
+                        KernelMode::Pert,
+                        KernelMode::Pert.manual_gear_label(),
+                    );
+                });
+            });
+            ui.label("Naive GPU and Perturbation are early-dev and still buggy.");
+        });
 
+        settings_section(ui, "Shade", |ui| {
+            ui.label("Colorer");
+            ui.checkbox(&mut self.manual_color_gear_enabled, "Manual color gear");
+            ui.add_enabled_ui(self.manual_color_gear_enabled, |ui| {
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.manual_color_gear,
+                        ColorerMode::Og,
+                        ColorerMode::Og.manual_gear_label(),
+                    );
+                    ui.radio_value(
+                        &mut self.manual_color_gear,
+                        ColorerMode::Gpu,
+                        ColorerMode::Gpu.manual_gear_label(),
+                    );
+                });
+            });
+            ui.add_space(4.0);
+            ui.label("Escaper");
+            ui.checkbox(&mut self.manual_escape_gear_enabled, "Manual escape gear");
+            ui.add_enabled_ui(self.manual_escape_gear_enabled, |ui| {
+                ui.horizontal(|ui| {
+                    ui.radio_value(
+                        &mut self.manual_escape_gear,
+                        EscaperMode::Og,
+                        EscaperMode::Og.manual_gear_label(),
+                    );
+                    ui.radio_value(
+                        &mut self.manual_escape_gear,
+                        EscaperMode::Gpu,
+                        EscaperMode::Gpu.manual_gear_label(),
+                    );
+                });
+            });
+            ui.add_space(4.0);
+            ui.label("C-generator");
+            ui.add(egui::Slider::new(&mut self.c_generator_margin_bits, 0..=32).text("margin bits"));
+        });
+
+        settings_section(ui, "Eye tracking", |ui| {
+            ui.checkbox(&mut self.eye_tracking_enabled, "Enable gaze spiral");
+            if ui.button("Calibrate gaze").clicked() {
+                self.eye_tracking_enabled = true;
+                self.request_gaze_calibrate = true;
+            }
+            ui.label("Gaze spiral is early-dev and still buggy.");
+        });
+
+        ui.add_space(12.0);
     }
 }
 
