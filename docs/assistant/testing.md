@@ -81,7 +81,8 @@ bulk GPU fill. Completeness is a GPU+host-queue property
    health (period, sticky-ref, IPS), not as the default picture check. View
    **IPP** (mean iterations/seat) is how hard *this* view actually was; final
    only when the frame is delivered. Headed mag 43 `HEADED_I64_GREY_*`: black
-   closed; remaining flat grey + `ipp:0` (`og_copy_intexp1_headed_mag_43_not_all_interior`).
+   closed; remaining flat grey + `ipp:0` (`og_copy_intexp1_headed_mag_43_not_all_interior`;
+   RCA `docs/assistant/rca-i64-flat-grey-2026-08-13.md`).
    HUD `gear:F64` on naive is the OG kernel stamp, not the i64 tape — read `stack:`.
 6. **Proptest regressions stay in tree.** Seeds under `proptest-regressions/`
    (including `copy_intexp.txt`) are re-run before new cases. Check them in.

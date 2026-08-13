@@ -66,8 +66,10 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
   (`HEADED_I64_GREY_*`): **flat grey**, HUD `ipp:0`, `pps` high, `stack:i64`,
   `gear:F64` (lie, see above). RCA: collector channel is still `WorkUpdate<f64>`;
   cie answers `to_f64` at pitch ≈ ulp(|c|~1). Tape still iterates (escape times
-  differ); shade sees collapsed f64 `c`/`z`. Dummy smallness 100 is the same
-  flat grey. Pin `og_copy_intexp1_headed_mag_43_not_all_interior`. **Do not
+  differ); shade sees collapsed f64 `c`/`z`.   Dummy smallness 100 is the same
+  flat grey. Full write-up:
+  `docs/assistant/rca-i64-flat-grey-2026-08-13.md`.
+  Pin `og_copy_intexp1_headed_mag_43_not_all_interior`. **Do not
   treat grey as fixed.** Fat-mantissa `From` squeeze is a closed panic, not this.
 - **Transition rectangular blockiness / shallow false admit (2026-08-12 design RCA).**
   When a deeper gear exists but the image shows rectangular precision blocks,

@@ -57,4 +57,5 @@ OG naive compute-gear stamp, not the i64 tape — mag 43 `stack:i64` still shows
 `gear:F64`. Remaining product bug is **flat grey** (`HEADED_I64_GREY_*`, HUD
 `ipp:0`): collector is `WorkUpdate<f64>`, so cie `to_f64` at mag 43 collapses
 neighbor `c` while the tape still iterates. Pin
-`og_copy_intexp1_headed_mag_43_not_all_interior`.
+`og_copy_intexp1_headed_mag_43_not_all_interior`. RCA:
+`docs/assistant/rca-i64-flat-grey-2026-08-13.md`.
