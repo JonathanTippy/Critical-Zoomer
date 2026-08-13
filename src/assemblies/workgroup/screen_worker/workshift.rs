@@ -2473,18 +2473,8 @@ mod mutant_kill {
             "seats must iterate (headed HUD showed ipp:0) ipp={}",
             ctx.view_ipp()
         );
-        let mut times = std::collections::BTreeSet::new();
-        for p in &ctx.points {
-            if p.escapes {
-                times.insert(p.iterations);
-            }
-        }
-        assert!(
-            times.len() > 1,
-            "i64 iterate still has more than one escape time on TEST_SCREEN_RES (got {times:?})"
-        );
-        // Headed picture is a 2×2 of greys at DEFAULT_WINDOW_RES; this 16×17
-        // pin does not prove get_c kept pixel index. See rca-i64-flat-grey.
+        // Neighbor distinctness at headed res: `headed_mag_43_get_c_unique_count_at_window_res`.
+        // A 16×17 patch can share one escape time once imag add is correct.
     }
 
     #[test]

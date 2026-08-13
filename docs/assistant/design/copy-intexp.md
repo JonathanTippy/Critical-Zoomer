@@ -18,9 +18,11 @@ Add widens with `as u64 as i128`. Mul schoolbook uses `u128` for 64×64 products
 ## Add
 
 1. Align to the **coarser** exp (the larger one). Right-shift the finer mantissa.
-2. Add limbs with unsigned carry. If the extra carry word is used, shift one
-   word right and add 64 to `exp`. Mixed-sign wrap that lands in range stays
-   as-is (`a + (-a)` is zero).
+2. Add limbs with unsigned carry. Carry 1 and a negative high limb is two’s
+   complement sign extension — keep the word, do not bump `exp`. A real extra
+   word still shifts one word right and adds 64 to `exp`. Mixed-sign wrap that
+   lands in range stays as-is (`a + (-a)` is zero). Headed mag-43 `get_c` imag
+   used to jump to 4096 (`1` at `exp+64`) on row 1.
 
 Never left-shift to keep extra precision. That would throw away high bits or
 need a longer tape.

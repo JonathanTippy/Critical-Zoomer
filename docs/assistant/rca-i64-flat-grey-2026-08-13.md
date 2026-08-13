@@ -13,8 +13,9 @@ negative screen offsets.
 **Drag.** Defect tracks UL seat/row (or other screen index), not a sliding
 objective-`c` grid.
 
-**Guess.** CopyIntExp add/mul/From on non-negative `origin + k*space` (or
-iterate `z²+c`) drops pixel bits; or an accidental f64 on that path. Not
-WorkUpdate `c`. Not collector.
+**Guess.** CopyIntExp add treated unsigned carry-1 on a negative high limb as a
+new word (`exp+64` → imag 4096 on row 1). Sign extension now keeps the word.
+`headed_mag_43_get_c_unique_count_at_window_res` pins `get_c`. Headed 2×2 may
+still be iterate. Not WorkUpdate `c`.
 
 Handoff: `docs/assistant/recontinuation-i64-grey.md`.

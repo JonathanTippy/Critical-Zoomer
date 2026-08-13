@@ -123,7 +123,11 @@ fn add_limbs<const Words: usize>(a: [i64; Words], b: [i64; Words]) -> ([i64; Wor
 
 fn pack_add<const Words: usize>(sum: ([i64; Words], i64), exp: i32) -> CopyIntExp<Words> {
     let (limbs, extra) = sum;
-    if extra == 0 {
+    // Limb add is unsigned. Carry 1 with a negative high limb is two's-complement
+    // sign extension, not a new word. Treating it as extra used to replace the
+    // mantissa with `1` and add 64 to `exp` (headed mag-43 imag → 4096).
+    let sign_ext = i64::from(limbs[Words - 1] < 0);
+    if extra == sign_ext {
         CopyIntExp {
             value: limbs,
             exp,
@@ -489,6 +493,99 @@ mod tests {
         let c = CopyIntExp::<1>::from(src);
         assert!(c.is_finite());
         assert!(c.value[0] != 0 || c.exp != -80);
+    }
+
+    #[test]
+    // r[verify cz.depth.c-generator-fails-closed+1]
+    // r[verify cz.math.copy-intexp-add-squeeze+1]
+    fn headed_mag_43_get_c_unique_count_at_window_res() {
+        use crate::assemblies::headgroup::window::coords::{decimal_str_to_intexp, ul_for_center};
+        use crate::assemblies::workgroup::c_generator::CGenerator;
+        use crate::constants::{
+            DEFAULT_WINDOW_RES, HEADED_I64_GREY_IM, HEADED_I64_GREY_MAG, HEADED_I64_GREY_RE,
+        };
+        let loc = ul_for_center(
+            decimal_str_to_intexp(HEADED_I64_GREY_RE).unwrap(),
+            decimal_str_to_intexp(HEADED_I64_GREY_IM).unwrap(),
+            HEADED_I64_GREY_MAG,
+            DEFAULT_WINDOW_RES,
+        );
+        let compute = (
+            loc.pos.0.clone(),
+            crate::utils::IntExp::ZERO - loc.pos.1.clone(),
+        );
+        let gen = CGenerator::<CopyIntExp1>::new_with_margin(
+            &compute,
+            HEADED_I64_GREY_MAG as i64,
+            DEFAULT_WINDOW_RES,
+            1,
+        )
+        .expect("i64 admits mag 43 window");
+        let w = DEFAULT_WINDOW_RES.0;
+        let h = DEFAULT_WINDOW_RES.1;
+        let mut eq_re = 1u32;
+        let mut last = gen.get_c((0, 0)).0;
+        for seat in 1..w {
+            let v = gen.get_c((seat, 0)).0;
+            if v != last {
+                eq_re += 1;
+                last = v;
+            }
+        }
+        let mut eq_im = 1u32;
+        let mut last = gen.get_c((0, 0)).1;
+        for row in 1..h {
+            let v = gen.get_c((0, row)).1;
+            if v != last {
+                eq_im += 1;
+                last = v;
+            }
+        }
+        assert_eq!(eq_re, w, "pixel re must stay distinct");
+        assert_eq!(eq_im, h, "pixel im must stay distinct (pack_add sign-ext)");
+        let compute_im_f = f64::from(compute.1.clone());
+        let from_im_f = CopyIntExp1::from(compute.1.clone()).to_f64();
+        assert!(
+            compute_im_f > 0.0,
+            "UL imag IntExp is + (~1.09), got {compute_im_f}"
+        );
+        // Remaining From hole: 64-bit magnitude into a signed limb.
+        assert!(
+            from_im_f < 0.0,
+            "RCA witness: From still flips headed imag ({from_im_f})"
+        );
+    }
+
+    /// `From` copies 64 magnitude bits into signed `i64`. Bit 63 is the sign.
+    #[test]
+    // r[verify cz.math.copy-intexp-from-tape+1]
+    fn rca_from_64bit_positive_mantissa_sets_sign_bit() {
+        let src = IntExp {
+            val: Integer::from(1) << 63,
+            exp: -63,
+        };
+        assert!(!src.val.is_negative());
+        assert_eq!(src.val.significant_bits(), 64);
+        assert!((f64::from(src.clone()) - 1.0).abs() < 1e-15);
+        let c = CopyIntExp::<1>::from(src);
+        assert!(c.value[0] < 0, "2^63 as u64→i64 is negative ({})", c.value[0]);
+        assert!(c.to_f64() < 0.0, "+1.0 From became {}", c.to_f64());
+    }
+
+    #[test]
+    // r[verify cz.math.copy-intexp-add-squeeze+1]
+    fn add_two_negatives_keeps_word_and_exp() {
+        let a = CopyIntExp::<1> {
+            value: [-100],
+            exp: -52,
+        };
+        let b = CopyIntExp::<1> {
+            value: [-1],
+            exp: -52,
+        };
+        let s = a + b;
+        assert_eq!(s.exp, -52);
+        assert_eq!(s.value[0], -101);
     }
 
     #[test]
