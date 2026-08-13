@@ -197,7 +197,7 @@ async fn internal_behavior<A: SteadyActor>(
         , escape_fps_counter: RateCounter::default()
         , color_fps_counter: RateCounter::default()
         , controller_fps_counter: RateCounter::default()
-        , last_gear_label: "F64"
+        , last_gear_label: "naive"
         , last_stack_label: "f64"
         , last_mode_label: "naive"
         , last_ref_label: "NA"
@@ -398,7 +398,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                             if let Some(at) = s.hud.controller_emitted_at {
                                 state.controller_fps_counter.record(1, at);
                             }
-                            state.last_gear_label = s.hud.gear.hud_label();
+                            state.last_gear_label = s.hud.mode.hud_label();
                             state.last_stack_label = s.hud.stack.hud_label();
                             state.last_mode_label = s.hud.mode.hud_label();
                             state.last_ref_label = s.hud.ref_hud_label();
@@ -552,7 +552,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 ui.put(
                     egui::Rect::from_min_size(
                         egui::pos2(10.0, 10.0),
-                        egui::vec2(560.0, 96.0)
+                        egui::vec2(560.0, 200.0)
                     ),
                     |ui: &mut egui::Ui| {
                         // Set transparent background
@@ -577,10 +577,14 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                         let now = Instant::now();
                                         let pps = state.pps_counter.rate(now);
                                         let ips = state.ips_counter.rate(now);
-                                        let pub_fps = state.publisher_fps_counter.rate(now);
-                                        let esc_fps = state.escape_fps_counter.rate(now);
-                                        let col_fps = state.color_fps_counter.rate(now);
-                                        let ctrl_fps = state.controller_fps_counter.rate(now);
+                                        let pub_1s = state.publisher_fps_counter.rate(now);
+                                        let pub_10s = state.publisher_fps_counter.rate_10s(now);
+                                        let esc_1s = state.escape_fps_counter.rate(now);
+                                        let esc_10s = state.escape_fps_counter.rate_10s(now);
+                                        let col_1s = state.color_fps_counter.rate(now);
+                                        let col_10s = state.color_fps_counter.rate_10s(now);
+                                        let ctrl_1s = state.controller_fps_counter.rate(now);
+                                        let ctrl_10s = state.controller_fps_counter.rate_10s(now);
                                         let ipp_txt = if state.last_ipp_final {
                                             format!("ipp:{}", state.last_ipp)
                                         } else {
@@ -590,19 +594,27 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                             1.0 / r.1.0.as_secs_f64()
                                         });
                                         // r[impl cz.depth.gear-hud+2]
+                                        let ref_hud = if state.last_mode_label == "pert" {
+                                            Some(state.last_ref_label)
+                                        } else {
+                                            None
+                                        };
                                         response += format_hud_overlay(
-                                            r.0.0 as f64 / 1_000_000_000.0,
                                             1.0 / r.1.0.as_secs_f64(),
                                             ten_s,
-                                            pub_fps,
-                                            esc_fps,
-                                            col_fps,
-                                            ctrl_fps,
+                                            pub_1s,
+                                            pub_10s,
+                                            esc_1s,
+                                            esc_10s,
+                                            col_1s,
+                                            col_10s,
+                                            ctrl_1s,
+                                            ctrl_10s,
                                             state.last_gear_label,
+                                            state.last_stack_label,
+                                            ref_hud,
                                             state.last_color_label,
                                             state.last_escape_label,
-                                            state.last_stack_label,
-                                            state.last_ref_label,
                                             pps,
                                             ips,
                                             &ipp_txt,

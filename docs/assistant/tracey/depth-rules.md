@@ -364,14 +364,15 @@ Aggregate HUD gear may be MIXED when seats disagree.
 
 r[cz.depth.gear-hud+2]
 
-**Rule.** The HUD is three rows, top-left: **rates** (`fps`, `1s`, `10s low`,
-`pub`/`esc`/`col`/`ctrl`), then **gears** (compute `gear:`, `color:`, `escape:`)
-plus **type** (host tape) and **ref**, then **PPS / IPS / IPP**. No `mode`,
-`stack`, `drop`, or `gaze` on the overlay. Gear is which kernel runs (compute
-stamps `F64` on absolute naive even when type is `i64`). Type is the numeric
-host (`f64` / `i64` / …). IPP is mean iterations per seat, final only when
-every seat is delivered — not a rate (that is IPS). Ref is `wip` / `complete`
-(or `NA`). Mixed-seat views surface MIXED rather than a false single gear.
+**Rule.** HUD top-left: each of `fps`/`pub`/`esc`/`col`/`ctrl` is its own
+line with **1s** and **10s** rates. Then **compute** `gear:` (kernel: `naive` /
+`naive-gpu` / `pert`) with **type:** (host tape) beside it; `ref:` only when
+gear is `pert`, after type. Then **color gear:** and **escape gear:** on their
+own line. Then PPS / IPS / IPP. No `mode`, `stack`, `drop`, or `gaze`. Gear is
+the compute kernel, not ComputeGear `F64`. Type is `f64` / `i64` / …. IPP is
+mean iterations per seat, final only when every seat is delivered. Ref is
+`wip` / `complete` (or `NA`) and only on perturbation. Mixed-seat compute
+stamps stay MIXED on the type/host side when that is what the view reports.
 No user setting selects the gear. Location/goto stays bottom-right.
 
 **Implementation.** `WorkUpdate` telemetry → collector → window HUD overlay;

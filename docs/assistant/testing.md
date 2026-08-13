@@ -81,8 +81,8 @@ bulk GPU fill. Completeness is a GPU+host-queue property
    health (period, sticky-ref, IPS), not as the default picture check. View
    **IPP** (mean iterations/seat) is how hard *this* view actually was; final
    only when the frame is delivered. Headed mag 43 `HEADED_I64_GREY_*` and mag
-   44 relative CopyIntExp: grey closed (developer 2026-08-13). HUD `gear:F64`
-   on naive is the compute-gear stamp; read `type:` for the host tape.
+   44 relative CopyIntExp: grey closed (developer 2026-08-13). HUD `gear:` is
+   the kernel (`naive` / `pert`); read `type:` for the host tape.
 6. **Proptest regressions stay in tree.** Seeds under `proptest-regressions/`
    (including `copy_intexp.txt`) are re-run before new cases. Check them in.
 

@@ -20,7 +20,7 @@ pub struct AttentionFocus {
     pub gaze: Option<(i32, i32)>,
 }
 
-/// Worker → display telemetry for HUD (stack, mode, ref, gear + rate counters).
+/// Worker → display telemetry for HUD (type, kernel gear, ref, rates).
 // r[impl cz.depth.gear-hud+2]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct ViewHud {

@@ -58,10 +58,10 @@ rung. If f64 is admitted, iterate must work; mag-38 black with `type:f64` is a
 bug, not a reason to bump the host.
 
 Headed 2026-08-13: **black on OG naive f64 was an assistant regression** (CopyIntExp
-wire-up / `From` panic / illegal `1e-14` host bump). HUD `gear:F64` reports the
-OG naive compute-gear stamp, not the i64 tape — mag 43 `type:i64` still shows
-`gear:F64`. Grey was `From` sign-bit, unsigned `pack_add`, f64 relative `c`,
-and `Words=1` mul `>>64`. Pins: `from_64bit_positive_mantissa_stays_positive`,
+wire-up / `From` panic / illegal `1e-14` host bump). HUD `gear:naive` is the
+kernel; `type:i64` is the tape. Grey was `From` sign-bit, unsigned `pack_add`,
+f64 relative `c`, and `Words=1` mul `>>64`. Pins:
+`from_64bit_positive_mantissa_stays_positive`,
 `headed_mag_43_get_c_unique_count_at_window_res`,
 `relative_copy_intexp1_mag_44_does_not_f64_collapse_c`,
 `copy_intexp1_mandel_orbit_tracks_f64_at_headed_c`. Admit is correct. Not

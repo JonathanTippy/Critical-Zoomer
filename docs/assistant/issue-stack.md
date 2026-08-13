@@ -57,10 +57,8 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
 - **OG naive black — assistant regression (2026-08-13).** Black at mag ~38 was
   **manual Naive DirectKernel on f64** (`stack:f64`). It had worked; we broke it
   while wiring `CopyIntExp` (panic `From`, then a `1e-14` host bump). HUD
-  `mode:naive` `gear:F64` is the **OG kernel tag**, not the i64 host — `gear`
-  is the pert delta ladder / absolute-naive stamp and stays `F64` even when
-  `type:i64`. Do not read `gear:F64` as “this is f64 iterate.” Developer:
-  black is closed. Do not re-break OG naive to chase i64.
+  `gear:naive` `type:f64` is kernel + host tape. Do not read type as the
+  kernel. Developer: black is closed. Do not re-break OG naive to chase i64.
 - **OG naive `CopyIntExp<1>` (`type:i64`) four-quadrant / mag-44 grey
   (2026-08-13) — closed.** `From` 63-bit squeeze; signed add; relative `c` in
   T not f64; `Words=1` mul bit-squeezes (not `>>64`). Developer confirmed
