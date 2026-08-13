@@ -81,10 +81,21 @@ if [[ -d "$WGPU_LOCKDIR" ]]; then
 fi
 
 run cargo check --lib || fail "cargo check --lib"
-# Unit first: cheap 1s tests. Fail here before paying for 15s/60s suites.
-run cargo test --lib -- \
-  --skip integration_tier --skip e2e_tier \
-  || fail "cargo test unit (--lib, skip integration/e2e)"
+# Unit first. One retry: concurrent `cargo` on shared `target/` (agent + this
+# hook) dies in lld with an empty `= note:` and `rustcXXXX` scratch dirs — not
+# a red test. A real unit fail still fails the second try.
+unit_ok=0
+for unit_try in 1 2; do
+  echo "======== cargo test --lib unit (try ${unit_try}/2) ========"
+  if taskset -c "${START}-${END}" nice -n 10 -- \
+    cargo test --lib -- --skip integration_tier --skip e2e_tier
+  then
+    unit_ok=1
+    break
+  fi
+  echo "full_check: unit try ${unit_try} missed (compile/link or test); retry"
+done
+[[ "$unit_ok" -eq 1 ]] || fail "cargo test unit (--lib, skip integration/e2e)"
 run cargo test --lib integration_tier \
   || fail "cargo test integration_tier"
 run cargo test --lib e2e_tier \
