@@ -37,6 +37,6 @@ Commits: `automatic checkpoint` ≈ assistant; `WIP` ≈ developer.
 | 4 | `craftsmanship_tests.rs` after the split | Tracey pins, `testing.md`, and AGENTS still named a single file. Tests live in `craftsmanship_tests/` (`mod.rs` + tiers). Paths updated. | **~18%** |
 | 5 | bacon `test-lib` skip list | Skipped dead names (`home_800x480`, `standards_perf::`) and **`gpu_ips`**, which still matches `naive_gpu_ips_ratio_probe` — lightning was silently omitting the IPS probe. Now skips `integration_tier` / `e2e_tier` only. | **~20%** |
 | 6 | coverage/mutants skip lists | Same dead filters as bacon, including `gpu_ips` matching `naive_gpu_ips_ratio_probe`. Both scripts now skip `integration_tier` / `e2e_tier` only. | **~22%** |
-| 7 | “release pin / debug can miss” as house law | After `profile.dev` opt-level 3, house tests are debug+opt-3. Unoptimized debug still misses Hz bars; `--release` drops overflow checks. Living notes in shadergroup-virtues + shade-gpu summary aligned. | **~24%** |
+| 8 | mutants default `--file` list | Defaulted to missing `intexp.rs` + tile-era `tile_manager`/`tile_publisher`. Now `utils.rs` / `range.rs` / `floatexp.rs`. Issue-stack charter still said “release pin / debug can miss.” | **~26%** |
 
 Not 100%. Implementation ghosts still mostly unknown.

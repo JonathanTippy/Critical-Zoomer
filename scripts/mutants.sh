@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Scoped cargo-mutants. Excludes main/GUI shells; skips slow release hard-bars.
+# Scoped cargo-mutants. Excludes main/GUI shells; unit-tier tests only.
 # Usage: taskset -c 3-8 scripts/mutants.sh [file-glob...]
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -10,11 +10,9 @@ END=$((NPROC * 3 / 4 - 1))
 CZ_CPUSET="${CZ_CPUSET:-${START}-${END}}"
 
 FILES=(
-  "src/intexp.rs"
+  "src/utils.rs"
   "src/range.rs"
   "src/floatexp.rs"
-  "src/assemblies/workgroup/tile_manager.rs"
-  "src/assemblies/workgroup/tile_publisher.rs"
 )
 if [[ $# -gt 0 ]]; then
   FILES=("$@")
