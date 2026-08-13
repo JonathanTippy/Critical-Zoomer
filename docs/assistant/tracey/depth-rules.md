@@ -22,35 +22,26 @@ Do not iterate deep relative seats with collapsed f64 absolute `c` alone — tha
 
 r[cz.depth.c-generator-fails-closed+1]
 
-**Rule.** Objective-coordinate conversion is admitted only when the target compute type keeps
-every adjacent screen point distinct **and** retains about **10 bits** of render headroom
-beyond bare neighbor distinguishability (same margin on absolute `c` and relative/`delta_c`
-paths). Distinguishing seats alone is not enough for correct Mandelbrot dynamics; missing
-the margin false-admits shallow types and yields rectangular transition blockiness.
-Admission is O(1): compute exact `IntExp` origin and
-pixel pitch, probe only the near and far ends of each axis (including the max-magnitude end
-where float ulp is worst), convert probe points through `T: From<IntExp>`, and verify
-adjacency in `T` with the margin. On success store `origin` and `space` as `T`; hot `get_c` is pure `T`
-multiply-add with no per-seat IntExp. Generated coordinates reproduce v0.0.9's top-left,
-no-half-pixel grid exactly. Relative generation subtracts the anchor in exact `IntExp` before
-narrowing; anchor is `published.c` when a reference exists, else view center. Rebuild the
-generator when reference generation changes so seats bind to the matching grid.
+**Rule.** Each host type carries [`HostPrecision`] (significand bit count and
+exponent floor). The C-generator admits that type when the bit count covers
+`|c|` magnitude down to pixel pitch (plus optional slider margin, default **0**).
+No near/far `T` probe — the gate is the count. On success store `origin` and
+`space` as `T`; hot `get_c` is pure `T` multiply-add. Grid is v0.0.9 top-left,
+no-half-pixel. Relative subtracts the anchor in exact `IntExp` before the same
+count. Naive GPU F32 is a second type (24 bits) and must not run when the
+count exceeds 24 while f64 (53) still admits.
 
-Design lock / interview: `docs/assistant/interviews/2026-08-12-precision-wall-gear-switching.md`,
-`docs/assistant/paraphrase-authoritative/c-generator-admit-margin.md`. Mechanism is in
-`CGenerator::new_with_margin`; **transition blockiness is not product-verified**.
-
-**Implementation.** `src/assemblies/workgroup/c_generator.rs` — `Mandelbrotable`,
-`CGenerator::new`, `new_with_margin`, `new_relative`, `admit_generator`,
-`admit_generator_with_margin`, `rebuild_generator_for_reference`. Settings:
-`c_generator_margin_bits`.
+**Implementation.** `src/assemblies/workgroup/c_generator.rs` — `HostPrecision`,
+`Mandelbrotable::PRECISION`, `stencil_bits_needed`, `CGenerator::new_with_margin`.
+Settings slider `c_generator_margin_bits` (default 0, debugging only).
 
 **Verification.** `generator_matches_v009_grid_bit_for_bit`,
 `rejects_collapse_at_far_end`, `successful_generator_has_distinct_neighbors`,
 `relative_generator_subtracts_before_narrowing`, `from_stencil_carried_ref_anchors_to_ref_c`,
 `reference_install_rebuilds_c_generator`,
 `home_f64_absolute_wall_moves_earlier_with_default_margin`,
-`margin_bits_zero_matches_prior_distinguish_only_admit`.
+`margin_bits_zero_matches_prior_distinguish_only_admit`,
+`mutant_kill_f32_collapses_and_scan_undelivered` (mag 17 > f32, ≤ f64).
 
 r[cz.depth.relative-coords+1]
 

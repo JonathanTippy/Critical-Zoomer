@@ -198,25 +198,16 @@ then, seats use the zero-orbit floor.
 
 ### CGenerator admission (`r[cz.depth.c-generator-fails-closed+1]`)
 
-Per frame, once, in O(1): compute exact `IntExp` origin and pixel pitch; probe only
-the near and far ends of each axis for distinguishability in the target type `T`
-(`Mandelbrotable`, `From<IntExp>`). On success store `(origin, space)` as `T`;
-`get_c(seat, row)` is then pure `T` multiply-add with no per-seat IntExp work.
-Stack order: f64 absolute → f64 relative → FloatExp absolute → FloatExp relative.
-Relative admission subtracts in exact `IntExp` before narrowing; anchor is
-`published.c` when a reference exists, else view center. On reference generation
-change, rebuild the generator relative to the new reference so seats initialize
-from the matching grid.
+Per frame, once, in O(1): count bits from `|c|` magnitude down to pixel pitch;
+admit type `T` when `T::PRECISION.significand_bits` covers that count (plus
+optional slider margin, default **0**). Store `(origin, space)` as `T`;
+`get_c` is pure `T` multiply-add. Stack order: f64 absolute → f64 relative →
+FloatExp absolute → FloatExp relative. Relative subtracts in exact `IntExp`
+before the same count. Naive GPU F32 is 24-bit precision on the same count.
 
 **Values gated:** absolute seat `c` on naive paths; `delta_c` on perturbation
-paths (the numbers actually iterated). **Render margin (2026-08-12):** admission
-must keep ~**10 bits** of headroom beyond neighbor distinguishability on both
-paths — distinguish-only false-admits shallow types and yields rectangular
-transition blockiness. Implemented as probe pitch `space / 2^margin_bits`
-(`DEFAULT_C_GENERATOR_MARGIN_BITS = 10`; settings `c_generator_margin_bits`).
-Interview:
-`docs/assistant/interviews/2026-08-12-precision-wall-gear-switching.md`;
-paraphrase: `docs/assistant/paraphrase-authoritative/c-generator-admit-margin.md`.
+paths. Headed: margin 0 walls square when conversion is exact; the slider stays
+for debugging. `From<IntExp> for f64` rounds `val×2^exp` as one binary value.
 
 **Perturbation admit order:** nearest kept ref to the screen → δc stencil →
 margin admit → smallest type. Closer ref may unlock a cheaper type; must be

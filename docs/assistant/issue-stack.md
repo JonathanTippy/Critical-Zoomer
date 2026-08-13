@@ -49,20 +49,18 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
 
 - **Transition rectangular blockiness / shallow false admit (2026-08-12 design RCA).**
   When a deeper gear exists but the image shows rectangular precision blocks,
-  suspect **C-generator false-admit of a shallow type** because admit only checks
-  neighbor distinguishability and **omits ~10 bits of render headroom**. Gear =
-  compute kernel; type = cheapest admitted representation inside that gear;
-  gearbox = max expected PPS among admitting gears. Margin belongs in C-gen on
-  both absolute `c` and δc paths. Interview:
+  suspect **C-generator false-admit of a shallow type**, or a **later precision
+  drop** after an honest admit. Gear = compute kernel; type = cheapest admitted
+  representation inside that gear; gearbox = max expected PPS among admitting
+  gears. Interview:
   `interviews/2026-08-12-precision-wall-gear-switching.md`; paraphrase:
   `paraphrase-authoritative/c-generator-admit-margin.md`.
-  **Code in tree (2026-08-12), product not verified.** Default 10-bit admit
-  margin (`space / 2^margin` probe) plus settings `c_generator_margin_bits`
-  (0–32) for manual testing. Mechanism pins exist; **do not treat transition
-  blockiness or “gear kaput” as fixed** until the developer says so. Third
-  shape (interview 2026-08-12): C-gen admits honestly, then a **later layer
-  drops precision** (classic: f64 interlayer) → same rectangular look.
-  Naive **black wrong-interior** remains a periodicity tangent.
+  **Code (2026-08-13):** admit is bit counting against `HostPrecision` on the
+  type (f64=53, f32 GPU=24, FloatExp=53 with unbounded exponent). Default
+  margin is 0. Naive GPU must leave F32 when the count exceeds 24 (e.g. mag
+  2^17 at home). **Do not treat transition blockiness or headed Naive GPU as
+  fixed** until the developer says so. Naive **black wrong-interior** remains a
+  periodicity tangent.
 - **Precision wall / gear:F64 at ~pot 43–48 — HUD floor on live path (2026-08-09),
   product blockiness not closed.** Headed #5: HUD stayed `gear:F64` past the
   f64 wall. Code: ScaledF64 `view_gear` floor; pin
@@ -170,12 +168,10 @@ bucket 2 telemetry.
 - **Certified `Boundary` completion state.** Dyadic pixel centers can only hit algebraically certifiable boundary parameters: exact parabolic points via rational cycle/multiplier checks, and Misiurewicz points via exact preperiodic repetition. Add a third completion state and separate coloring; do not impose an app effort cap. Explicitly deferred from the perturbation-core round, not forgotten.
 - **Lookahead/hoard across mags**: v0.0.9 remaps one screen only. The tile era's thin-tower lookahead failed by fragmenting the truth store; any future lookahead must extend the remap discipline, not replace it (virtues §3, §11).
 - **PPS-selected kernel (naive vs pert)** (`r[cz.perf.pps-selected-kernel+1]`): **landing** — PPS race among legal kernels (Naive / Naive GPU / Pert); no GPU-first assumption; lock highest measured PPS; **one-workshift trials (~10ms), re-open every ~500ms** so slowing gears (esp. Naive GPU) can lose without continuous / janky cycling (`pps_probe_locks_highest_measured_kernel`, `pps_probe_reevaluates_after_interval`).
-- **C-generator ~10-bit admit margin (2026-08-12) — mechanism in tree, bug open.**
-  Default margin in `CGenerator::new_with_margin` / `admit_generator_with_margin`;
-  settings slider `c_generator_margin_bits`. Rule text under
-  `r[cz.depth.c-generator-fails-closed+1]`. Transition blockiness is still an
-  open true bug until headed/product confirmation. See
-  `c-generator-admit-margin.md`.
+- **C-generator bit-count admit (2026-08-13).** Types carry `HostPrecision`;
+  gate is significand bits vs magnitude+pitch. Margin slider default 0
+  (debugging). Naive GPU F32 must not outrun that count. Headed blockiness
+  still not declared fixed.
 - **Headgroup/shadergroup test strategy** (open problem): the workgroup now has property tests bound to its craftsmanship rules; the headgroup does not. The screenshot harness is the only net for visual bugs but needs use on every edit and image-description trust is imperfect; oracles can rot when output legitimately changes; the only known visual property so far is real-axis reflection symmetry. Needs a stronger strategy before the GPU shade port — the shadergroup was cut back last time partly for lack of tests. In-app PPM snip (`snip.rs` / `CZ_SNIPREQ`) is a start for faux-user paths.   Workgroup membership pins: `pin_exterior_not_marked_in_at_zoom_52`, `pin_not_blocky_delta_c_at_zoom_49`. Series package oracles are live with SA (`r[cz.depth.series-approximation+1]`). Paint/headgroup still screenshot-only.
 - **HUD truth (2026-08-08):** metrics top-left show stack/mode/ref/gear; location+goto
   panel bottom-right (`coords-parse+2`, `location-readout+2`); mode flips

@@ -4,14 +4,105 @@ use crate::constants::PIXELS_PER_UNIT_POT;
 use crate::utils::IntExp;
 
 /// Default C-generator render headroom beyond neighbor distinguishability.
-/// Interview 2026-08-12: ~10 bits at shallow depth; leave fixed unless settings override.
-pub const DEFAULT_C_GENERATOR_MARGIN_BITS: u32 = 10;
+/// Headed: distinguish-only (0) already walls square when bit conversion is
+/// exact; extra bits were over-design. Slider remains for debugging.
+pub const DEFAULT_C_GENERATOR_MARGIN_BITS: u32 = 0;
+
+/// IEEE binary32 significand (23 stored + implicit 1). Naive GPU F32 must
+/// not run when [`stencil_bits_needed`] exceeds this.
+pub const F32_SIGNIFICAND_BITS: u32 = 24;
+
+/// Precision carried by a Mandelbrot host type. The C-generator gate is this
+/// count: admit iff `significand_bits` covers |c| magnitude down to pixel pitch
+/// and the pitch exponent is at or above `min_exponent`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HostPrecision {
+    pub significand_bits: u32,
+    /// Smallest binary exponent a finite value can hold (normals for IEEE).
+    pub min_exponent: i32,
+}
+
+impl HostPrecision {
+    pub const F32: Self = Self {
+        significand_bits: F32_SIGNIFICAND_BITS,
+        min_exponent: -126,
+    };
+    pub const F64: Self = Self {
+        significand_bits: 53,
+        min_exponent: -1022,
+    };
+    /// Same 53-bit mantissa as f64; exponent is not IEEE-bounded.
+    pub const FLOAT_EXP: Self = Self {
+        significand_bits: 53,
+        min_exponent: i32::MIN,
+    };
+}
+
+/// Binary exponent of `|x|` (`floor(log2(|x|))`), or `None` if zero.
+pub fn intexp_magnitude_exp(x: &IntExp) -> Option<i32> {
+    if x.val.is_zero() {
+        return None;
+    }
+    let bits = x.val.significant_bits();
+    if bits == 0 {
+        return None;
+    }
+    Some((bits as i32) - 1 + x.exp)
+}
+
+/// Bits to keep neighboring seats distinct: from the MSB of |c| (near and far
+/// on both axes) down to pixel pitch `2^(-(zoom+ppu))`, plus `margin_bits`.
+pub fn stencil_bits_needed(
+    loc: &(IntExp, IntExp),
+    zoom_pot: i64,
+    res: (u32, u32),
+    margin_bits: u32,
+) -> u32 {
+    let pitch_exp = -(zoom_pot as i32).saturating_add(PIXELS_PER_UNIT_POT);
+    let space = IntExp::from(1).shift(pitch_exp);
+    let axis = |origin: &IntExp, count: u32, increasing: bool| -> u32 {
+        if count <= 1 {
+            return 0;
+        }
+        let span = space.clone() * IntExp::from((count - 1) as i32);
+        let far = if increasing {
+            origin.clone() + span
+        } else {
+            origin.clone() - span
+        };
+        let mag = [intexp_magnitude_exp(origin), intexp_magnitude_exp(&far)]
+            .into_iter()
+            .flatten()
+            .max()
+            .unwrap_or(pitch_exp);
+        (mag as i64 - pitch_exp as i64 + 1).max(0) as u32
+    };
+    axis(&loc.0, res.0, true)
+        .max(axis(&loc.1, res.1, false))
+        .saturating_add(margin_bits)
+}
+
+fn type_covers_stencil<T: Mandelbrotable>(
+    loc: &(IntExp, IntExp),
+    zoom_pot: i64,
+    res: (u32, u32),
+    margin_bits: u32,
+) -> Option<u32> {
+    let pitch_exp = -(zoom_pot as i32).saturating_add(PIXELS_PER_UNIT_POT);
+    if pitch_exp < T::PRECISION.min_exponent {
+        return None;
+    }
+    let needed = stencil_bits_needed(loc, zoom_pot, res, margin_bits);
+    if T::PRECISION.significand_bits < needed {
+        return None;
+    }
+    Some(needed)
+}
 
 /// Numeric host type for CPU Mandelbrot arithmetic.
 ///
-/// `From<IntExp>` rounds to the host type. It may only be used for a screen
-/// grid after `CGenerator::new` has proved that adjacent objective points stay
-/// distinct in that type **with** the configured render margin.
+/// `PRECISION` is the admit gate. `From<IntExp>` is only used after that gate
+/// to store `origin`/`space`.
 pub trait Mandelbrotable:
     Copy
     + PartialEq
@@ -24,6 +115,7 @@ pub trait Mandelbrotable:
     const ZERO: Self;
     const ONE: Self;
     const TWO: Self;
+    const PRECISION: HostPrecision;
 
     fn from_u32(value: u32) -> Self;
     fn to_f64(self) -> f64;
@@ -36,6 +128,7 @@ impl Mandelbrotable for f64 {
     const ZERO: Self = 0.0;
     const ONE: Self = 1.0;
     const TWO: Self = 2.0;
+    const PRECISION: HostPrecision = HostPrecision::F64;
 
     fn from_u32(value: u32) -> Self {
         value as f64
@@ -202,12 +295,13 @@ pub fn pick_stack_admission_with_margin(
 /// The grid follows v0.0.9 exactly: `origin` is the top-left sample, +seat is
 /// +real, +row is -imag, and there is no half-pixel offset.
 ///
-/// Admission is O(1): only the near and far ends of each axis are probed in
-/// `T`; the hot `get_c` loop never touches `IntExp`.
+/// Admission is O(1) bit counting against [`Mandelbrotable::PRECISION`]; the
+/// hot `get_c` loop never touches `IntExp`.
 #[derive(Clone, Copy, Debug)]
 pub struct CGenerator<T: Mandelbrotable> {
     origin: (T, T),
     space: T,
+    bits_needed: u32,
 }
 
 impl<T: Mandelbrotable> CGenerator<T> {
@@ -217,11 +311,8 @@ impl<T: Mandelbrotable> CGenerator<T> {
         Self::new_with_margin(loc, zoom_pot, res, DEFAULT_C_GENERATOR_MARGIN_BITS)
     }
 
-    /// Fail-closed admit: neighbors distinct in `T` with `margin_bits` of headroom.
-    ///
-    /// Headroom is checked by probing a pitch of `space / 2^margin_bits`. If
-    /// that finer step is still nonzero at near and far ends, the real pitch
-    /// has that many bits to spare for Mandelbrot dynamics.
+    /// Fail-closed admit: [`HostPrecision::significand_bits`] covers magnitude
+    /// plus pixel pitch (and optional `margin_bits`).
     // r[impl cz.depth.c-generator-fails-closed+1]
     pub fn new_with_margin(
         loc: &(IntExp, IntExp),
@@ -229,43 +320,12 @@ impl<T: Mandelbrotable> CGenerator<T> {
         res: (u32, u32),
         margin_bits: u32,
     ) -> Option<Self> {
+        let bits_needed = type_covers_stencil::<T>(loc, zoom_pot, res, margin_bits)?;
         let space_objective = IntExp::from(1).shift(-(zoom_pot as i32 + PIXELS_PER_UNIT_POT));
-        let probe = if margin_bits == 0 {
-            space_objective.clone()
-        } else {
-            space_objective.clone().shift(-(margin_bits as i32))
-        };
-
-        // Exact IntExp probe points, then `T: From<IntExp>`. Adding the probe in
-        // `T` false-admits when origin+space already rounded (blocky type).
-        let axis_distinct = |origin: &IntExp, count: u32, increasing: bool| {
-            if count <= 1 {
-                return true;
-            }
-            let span = space_objective.clone() * IntExp::from((count - 1) as i32);
-            let (next_ie, last_ie, last_margin_ie) = if increasing {
-                (
-                    origin.clone() + probe.clone(),
-                    origin.clone() + span.clone(),
-                    origin.clone() + span - probe.clone(),
-                )
-            } else {
-                (
-                    origin.clone() - probe.clone(),
-                    origin.clone() - span.clone(),
-                    origin.clone() - span + probe.clone(),
-                )
-            };
-            T::from(origin.clone()) != T::from(next_ie)
-                && T::from(last_ie) != T::from(last_margin_ie)
-        };
-
-        if !(axis_distinct(&loc.0, res.0, true) && axis_distinct(&loc.1, res.1, false)) {
-            return None;
-        }
         Some(Self {
             origin: (T::from(loc.0.clone()), T::from(loc.1.clone())),
             space: T::from(space_objective),
+            bits_needed,
         })
     }
 
@@ -308,6 +368,10 @@ impl<T: Mandelbrotable> CGenerator<T> {
 
     pub fn origin_and_space(&self) -> ((T, T), T) {
         (self.origin, self.space)
+    }
+
+    pub fn bits_needed(&self) -> u32 {
+        self.bits_needed
     }
 }
 
@@ -413,9 +477,16 @@ mod tests {
             IntExp::ZERO - IntExp::from(HOME_POSITION.1),
         );
         let res = DEFAULT_WINDOW_RES;
-        // Distinguish-only (margin 0): document the raw ulp wall.
-        assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 43, res, 0).is_some());
-        assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 44, res, 0).is_none());
+        // Bit-count wall: home |c|~2 needs zoom+11 bits; f64 has 53 → pot 42.
+        assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 42, res, 0).is_some());
+        assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 43, res, 0).is_none());
+        assert_eq!(
+            stencil_bits_needed(&compute_loc, 17, res, 0),
+            28,
+            "mag 2^17 at home is past f32 (24) and inside f64 (53)"
+        );
+        assert!(stencil_bits_needed(&compute_loc, 17, res, 0) > F32_SIGNIFICAND_BITS);
+        assert!(stencil_bits_needed(&compute_loc, 17, res, 0) <= HostPrecision::F64.significand_bits);
     }
 
     #[test]
@@ -427,14 +498,13 @@ mod tests {
             IntExp::ZERO - IntExp::from(HOME_POSITION.1),
         );
         let res = DEFAULT_WINDOW_RES;
-        // Default ~10-bit margin fails closed ~10 pots before distinguish-only.
-        assert!(CGenerator::<f64>::new(&compute_loc, 33, res).is_some());
-        assert!(CGenerator::<f64>::new(&compute_loc, 34, res).is_none());
-        assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 34, res, 0).is_some());
-        // Slider must move the wall: +10 bits ≈ +10 pots earlier.
-        assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 23, res, 20).is_some());
-        assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 24, res, 20).is_none());
-        assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 24, res, 10).is_some());
+        // Default is distinguish-only (margin 0). Slider still adds bits.
+        assert!(CGenerator::<f64>::new(&compute_loc, 42, res).is_some());
+        assert!(CGenerator::<f64>::new(&compute_loc, 43, res).is_none());
+        assert_eq!(DEFAULT_C_GENERATOR_MARGIN_BITS, 0);
+        assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 22, res, 20).is_some());
+        assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 23, res, 20).is_none());
+        assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 23, res, 10).is_some());
     }
 
     #[test]
@@ -460,10 +530,9 @@ mod tests {
             IntExp::ZERO - IntExp::from(HOME_POSITION.1),
         );
         let res = DEFAULT_WINDOW_RES;
-        for zoom in [0i64, 20, 40, 43] {
+        for zoom in [0i64, 20, 40, 42, 43] {
             let with0 = CGenerator::<f64>::new_with_margin(&compute_loc, zoom, res, 0);
-            // Old distinguish-only check used space at both ends; margin 0 must match.
-            assert_eq!(with0.is_some(), zoom <= 43);
+            assert_eq!(with0.is_some(), zoom <= 42);
         }
     }
 
@@ -516,8 +585,8 @@ mod tests {
             "relative must appear by absolute collapse (rel={first_relative:?} collapse={first_abs_collapse:?})"
         );
         assert!(
-            first_abs_collapse.is_some_and(|z| (28..=40).contains(&z)),
-            "seahorse absolute collapse with default margin: got {first_abs_collapse:?}"
+            first_abs_collapse.is_some_and(|z| (43..=46).contains(&z)),
+            "seahorse absolute collapse (bit count, margin 0): got {first_abs_collapse:?}"
         );
     }
 
@@ -530,8 +599,8 @@ mod tests {
         );
         let res = DEFAULT_WINDOW_RES;
         let view_center = view_center_for_test(&compute_loc, HOME_POSITION.2, res);
-        // Distinguish-only hard wall (margin 0) still at 44–45.
-        for zoom_pot in 44..46i64 {
+        // Absolute+relative both fail once bit count exceeds f64 (home |c|~2).
+        for zoom_pot in 43..46i64 {
             assert!(
                 admit_generator_with_margin::<f64>(
                     &compute_loc,
@@ -564,9 +633,7 @@ mod tests {
                 "home zoom_pot={zoom_pot} must admit f64 absolute or relative"
             );
         }
-        // Hard wall with default margin is earlier than distinguish-only; relative
-        // still covers until the relative grid itself fails. Document margin-0 wall.
-        for zoom_pot in 44..46i64 {
+        for zoom_pot in 43..46i64 {
             assert!(
                 admit_generator_with_margin::<f64>(
                     &compute_loc,

@@ -173,7 +173,7 @@ pub struct WorkContext<T: Mandelbrotable> {
     // Greedy kept references (off-screen still useful). `latest_reference` is
     // the preferred bind for the view generator.
     , pub reference_library: Vec<Arc<PublishedReference>>
-    // C-generator render margin bits (settings-overridable; default 10).
+    // C-generator render margin bits (settings-overridable; default 0).
     , pub c_generator_margin_bits: u32
 }
 
@@ -822,7 +822,7 @@ pub fn from_stencil_relative<T: Mandelbrotable + From<f32> + 'static>(
 /// point/mixmap buffers when present so steady-zoom pivots avoid large reallocs.
 ///
 /// `previous` is `(old_context, old_objective)`.
-/// Uses the previous context's margin bits when present, else the default 10.
+/// Uses the previous context's margin bits when present, else the default.
 // r[impl cz.craft.stencil-only-replace+2]
 pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
     frame_info: (ObjectivePosAndZoom, (u32, u32)),

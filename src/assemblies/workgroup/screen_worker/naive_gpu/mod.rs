@@ -9,7 +9,7 @@ pub use device::{GpuPrecision, NaiveGpuContext};
 pub use kernel::{HarvestedFinish, WipMeta};
 
 use crate::assemblies::workgroup::screen_worker::workshift::{
-    c_for_seat_f64, next_attention_spiral_pos, point_is_edge, queue_incomplete_neighbors,
+    next_attention_spiral_pos, point_is_edge, queue_incomplete_neighbors,
     queue_incomplete_neighbors_in, queue_incomplete_neighbors_of_edge, refresh_active_gear,
     workshift_with_kernel, BoutCap, CompletedPoint, Delivery, DirectKernel, Motion, Point,
     PushOutcome, SeatKernel, Step, WorkContext, iterate_max_n_times,
@@ -298,7 +298,7 @@ pub fn workshift_naive_gpu(
         context.time_workshift_started = Instant::now();
     }
 
-    // F32→F64 escalate when adjacent seats collapse in f32 (precision wall ~pot 20).
+    // F32→F64 (or CPU) when f32 cannot keep a legal grid — either axis, near or far.
     let want = if f32_collapses_neighbors(context) {
         GpuPrecision::F64
     } else {
@@ -821,29 +821,12 @@ fn publish_finished_undelivered(context: &mut WorkContext<f64>, kernel: &DirectK
     }
 }
 
-/// True when f32 cannot distinguish neighboring seats (F32 precision wall).
-/// Uses generator plane geometry — must not depend on lazy seat init (otherwise
-/// deep zooms stay on F32 until seats happen to be started, which is too late).
+/// True when the stencil needs more significand bits than IEEE f32 (24).
+/// Same C-generator bit count the host used to admit f64 — GPU downcast is a
+/// second type with its own `HostPrecision::F32`.
 fn f32_collapses_neighbors(context: &WorkContext<f64>) -> bool {
-    let w = context.res.0;
-    let h = context.res.1;
-    if w < 2 || h < 1 {
-        return false;
-    }
-    let x = w / 2;
-    let y = h / 2;
-    let x1 = (x + 1).min(w - 1);
-    if x1 == x {
-        return false;
-    }
-    let d0 = context.c_generator.get_c((x, y));
-    let d1 = context.c_generator.get_c((x1, y));
-    let a = c_for_seat_f64(context, d0);
-    let b = c_for_seat_f64(context, d1);
-    if a.0 == b.0 && a.1 == b.1 {
-        return false;
-    }
-    (a.0 as f32) == (b.0 as f32) && (a.1 as f32) == (b.1 as f32)
+    context.c_generator.bits_needed()
+        > crate::assemblies::workgroup::c_generator::F32_SIGNIFICAND_BITS
 }
 
 fn apply_finish_to_point(point: &mut Point<f64>, fin: &HarvestedFinish) {
@@ -1285,28 +1268,14 @@ mod mutant_kill {
             assert!(!f32_collapses_neighbors(&t));
         }
 
-        // Deep pot: generator pitch can collapse under f32 (precision wall).
-        let deep = ObjectivePosAndZoom {
+        let mag17 = ObjectivePosAndZoom {
             pos: home.pos.clone(),
-            zoom_pot: 60,
+            zoom_pot: 17,
         };
-        if let Some(dctx) = from_stencil((deep, TEST_SCREEN_RES), None) {
-            // At extreme zoom absolute may fail admit; relative shell still ok.
-            let collapsed = f32_collapses_neighbors(&dctx);
-            // Either collapses or seats are identical in f64 (early false) —
-            // pin that the check is conjunction of both components as f32.
-            if collapsed {
-                let w = dctx.res.0;
-                let h = dctx.res.1;
-                let x = w / 2;
-                let y = h / 2;
-                let x1 = (x + 1).min(w - 1);
-                let a = c_for_seat_f64(&dctx, dctx.c_generator.get_c((x, y)));
-                let b = c_for_seat_f64(&dctx, dctx.c_generator.get_c((x1, y)));
-                assert!((a.0 as f32) == (b.0 as f32) && (a.1 as f32) == (b.1 as f32));
-                assert_ne!(a.0 == b.0 && a.1 == b.1, true); // f64 still distinct
-            }
-        }
+        let m17 = from_stencil((mag17, TEST_SCREEN_RES), None).expect("f64 still admits mag 17");
+        assert!(f32_collapses_neighbors(&m17));
+        assert!(m17.c_generator.bits_needed() > 24);
+        assert!(m17.c_generator.bits_needed() <= 53);
 
         // Scan skips delivered / skip-mask / finished-orphan seats.
         let n = ctx.points.len();

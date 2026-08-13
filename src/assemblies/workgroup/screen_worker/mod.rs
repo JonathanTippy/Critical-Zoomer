@@ -59,7 +59,7 @@ pub struct WorkerState<T: Mandelbrotable> {
     , naive_gpu_init_tried: bool
     // Latest debug manual-gear override from settings (`None` = auto policy).
     , manual_gear: Option<crate::assemblies::structs::KernelMode>
-    // C-generator render margin bits from settings (default 10).
+    // C-generator render margin bits from settings (default 0).
     , c_generator_margin_bits: u32
     // Controller Replace emission Instant awaiting the next successful WorkUpdate put.
     , pending_controller_emitted_at: Option<std::time::Instant>

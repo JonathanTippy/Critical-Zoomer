@@ -293,6 +293,8 @@ impl Mandelbrotable for FloatExp {
     const ZERO: Self = Self::ZERO;
     const ONE: Self = Self::ONE;
     const TWO: Self = Self::TWO;
+    const PRECISION: crate::assemblies::workgroup::c_generator::HostPrecision =
+        crate::assemblies::workgroup::c_generator::HostPrecision::FLOAT_EXP;
     fn from_u32(value: u32) -> Self {
         Self::from(value as f64)
     }
