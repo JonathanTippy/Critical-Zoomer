@@ -1,6 +1,7 @@
 const WORDSIZE: usize = 64;
 
 // This is a form of intexp optimal for iterating with either naive or perturbed methods.
+// The const bits number is central; sized data on the stack is fast data, even if its actually quite a bit of data.
 
 use std::cmp::Ordering;
 use std::cmp::Ordering::{Equal, Greater, Less};
@@ -29,6 +30,11 @@ impl<const Words: usize> CopyIntExp<Words> {
             }
             // good job assistant, happy with this block.
         }
+    }
+
+    /// Like `IntExp`: no infinities, so every value is finite.
+    pub(crate) fn is_finite(self) -> bool {
+        true
     }
 }
 
