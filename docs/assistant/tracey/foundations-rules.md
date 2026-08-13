@@ -79,10 +79,13 @@ No infinities.
 - [x] Result matches unbounded `IntExp` add after the same squeeze (round to coarser
   exp, then round 64-bit words until the value fits `Words` limbs).
 - [x] Finer + coarser keeps the coarser exp.
+- [x] Carry 1 with a negative high limb is sign extension, not a new word.
 
 **Implementation.** `src/copy_intexp.rs` `Add`.
 **Verification.** `add_commutative`, `add_matches_squeezed_intexp`,
-`add_squeezes_to_coarser_exp`, `sub_is_add_of_neg`, `neg_is_involution`.
+`add_squeezes_to_coarser_exp`, `sub_is_add_of_neg`, `neg_is_involution`,
+`add_two_negatives_keeps_word_and_exp`,
+`headed_mag_43_get_c_unique_count_at_window_res`.
 
 r[cz.math.copy-intexp-mul-schoolbook+1]
 
@@ -104,15 +107,20 @@ r[cz.math.copy-intexp-from-tape+1]
 **Normative summary.** `From<IntExp>` copies LSF digits into the fixed window.
 If the mantissa is wider than the tape, squeeze (drop low bits, raise `exp`)
 until it fits — same as add/mul. Then two’s-complement when the source is
-negative. Never panic on a too-wide source.
+negative. Never panic on a too-wide source. Limbs are **signed** `i64`: a
+64-bit magnitude uses the sign bit. That conversion is still wrong on the
+live path (headed UL imag flips sign). Round-trip pins use small mantissas
+only (`±10_000`).
 
 **Acceptance criteria.**
-- [x] Values that fit round-trip through `CopyIntExp` back to `IntExp` equality.
+- [x] Values that fit in 63 magnitude bits round-trip through `CopyIntExp`.
 - [x] A mantissa wider than `Words×64` bits still converts (squeeze, no panic).
+- [ ] 64-bit positive magnitude must not become a negative limb.
 
 **Implementation.** `CopyIntExp::from`.
 **Verification.** `from_intexp_roundtrips_when_it_fits`,
-`from_squeezes_mantissa_wider_than_tape`.
+`from_squeezes_mantissa_wider_than_tape`,
+`rca_from_64bit_positive_mantissa_sets_sign_bit` (witness of the open hole).
 
 r[cz.math.copy-intexp-no-infinity+1]
 

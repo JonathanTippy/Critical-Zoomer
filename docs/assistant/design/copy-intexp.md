@@ -56,9 +56,10 @@ bug, not a reason to bump the host.
 Headed 2026-08-13: **black on OG naive f64 was an assistant regression** (CopyIntExp
 wire-up / `From` panic / illegal `1e-14` host bump). HUD `gear:F64` reports the
 OG naive compute-gear stamp, not the i64 tape — mag 43 `stack:i64` still shows
-`gear:F64`. Remaining product bug is **four-quadrant grey** (`HEADED_I64_GREY_*`,
-HUD `ipp:0`): drag-locked to the **window** (UL seat/row, seats ≥ 0). CopyIntExp
-add/mul/From or accidental f64. Admit is correct. Not WorkUpdate `c`. Not
-negative screen offsets. Handoff: `docs/assistant/recontinuation-i64-grey.md`.
-RCA: `docs/assistant/rca-i64-flat-grey-2026-08-13.md`. Pin
-`og_copy_intexp1_headed_mag_43_not_all_interior` is 16×17 only.
+`gear:F64`. **Grey RCA (proven):** `pack_add` used to treat sign-extension carry
+as a new word (imag → 4096 for row ≥ 1, `ipp:0`, glued to the window). Live
+add keeps that carry. **Still live:** `From` writes 64 magnitude bits into a
+signed limb (bit 63 = sign). Admit is correct. Not WorkUpdate `c`. Handoff:
+`docs/assistant/recontinuation-i64-grey.md`. RCA:
+`docs/assistant/rca-i64-flat-grey-2026-08-13.md`. 16×17 pin
+`og_copy_intexp1_headed_mag_43_not_all_interior` does not check origin sign.

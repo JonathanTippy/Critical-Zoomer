@@ -54,5 +54,6 @@ Commits: `automatic checkpoint` ≈ assistant; `WIP` ≈ developer.
 | 16 | `full_check` still “on repo `target/`” in the isolation rule; AGENTS checkpoints “non-main only” | Hook builds `/tmp/cz_full_check_cargo_target`; agents `/tmp/cz_cursor_cargo_target`. Checkpoints go on the **checked-out** branch (often main). Hook green ≠ hunt done; redundant always-on rules for don’t-stagnate / follow-through / checkpoints. | **~42%** |
 | 17 | Mag-43 “flat grey” + collector `to_f64(c)` | **Four quadrants glued to the window while dragging.** Screen-space sign, not objective `c`. Admit fine. Guess: CopyIntExp negative δ / f64 of it. | **~46%** |
 | 18 | Signed/center screen-δ as the grey RCA | Developer: screen is UL, +right/+down, seats always ≥ 0. Drag still means UL seat/row, not objective `c`. Retract negative offsets. Handoff `recontinuation-i64-grey.md`. | **~48%** |
+| 19 | Mag-43 grey = 2×2 / collector / signed δ | **Measured:** `pack_add` sign-ext → imag 4096 for row≥1 (`ipp:0`, window-glue). Two imag values, not four halves. `From` 64-bit signed limb still flips headed origin. | **~52%** |
 
-Not 100%. Implementation ghosts still mostly unknown. Headed 2×2 grey / head CPU still open.
+Not 100%. Implementation ghosts still mostly unknown. Headed i64 grey / head CPU still open.

@@ -48,6 +48,7 @@ when absolute f64 fails the bit-count gate.
 `home_copy_intexp1_admits_after_f64_wall`,
 `og_copy_intexp1_naive_flips_on_after_home_f64_wall`,
 `og_copy_intexp1_headed_mag_43_not_all_interior`,
+`headed_mag_43_get_c_unique_count_at_window_res`,
 
 r[cz.depth.relative-coords+1]
 
@@ -382,3 +383,4 @@ location/goto panel bottom-right (`r[cz.ui.coords-parse+2]`, `r[cz.ui.location-r
 `reference_wip_after_glitch_until_new_generation`,
 `naive_f64_north_tip_mag_38_still_escapes`,
 `og_copy_intexp1_headed_mag_43_not_all_interior`,
+`headed_mag_43_get_c_unique_count_at_window_res`,

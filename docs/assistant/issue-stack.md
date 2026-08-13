@@ -62,14 +62,15 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
   `stack:i64`. Do not read `gear:F64` as “this is f64 iterate.” Developer:
   black is closed. Do not re-break OG naive to chase i64.
 - **OG naive `CopyIntExp<1>` (`stack:i64`) four-quadrant grey (2026-08-13).**
-  Separate from OG-black. Headed mag 43–44 (`HEADED_I64_GREY_*` and nearby):
-  four axis-aligned greys, one lighter. Drag: tiles stay on the **window**,
-  not the plane. Screen seats are UL, +right/+down, **always ≥ 0**. Admit of
-  i64 is correct. Suspects: CopyIntExp add/mul/From on `origin + k*space` or
-  iterate, or accidental f64 on that path. Not WorkUpdate `c`. Not negative
-  screen offsets. Handoff:
+  Separate from OG-black. Headed mag 43–44. **Measured:** `pack_add` treated
+  unsigned carry-1 on a negative limb as a new word → imag `1×2^12`=4096 for
+  every row except 0 (`ipp:0`, glued to the window). That is two imag values,
+  not a 2×2 of halves. Live `pack_add` keeps sign-ext carry; `get_c` imag is
+  distinct again. **Still live:** `From` squeezes 64 magnitude bits into signed
+  `i64` (headed UL imag + → −). Admit is correct. Not WorkUpdate `c`. Not
+  negative screen offsets. Do not treat headed as fixed. Handoff:
   `docs/assistant/recontinuation-i64-grey.md`. RCA:
-  `docs/assistant/rca-i64-flat-grey-2026-08-13.md`. **Do not treat as fixed.**
+  `docs/assistant/rca-i64-flat-grey-2026-08-13.md`.
 - **Transition rectangular blockiness / shallow false admit (2026-08-12 design RCA).**
   When a deeper gear exists but the image shows rectangular precision blocks,
   suspect **C-generator false-admit of a shallow type**, or a **later precision

@@ -4,10 +4,10 @@ Paste into a new chat. Do not revive retracted theories.
 
 ## Job
 
-Headed **mag 43–44**, `stack:i64` `mode:naive`: **four axis-aligned grey
-tiles**, one slightly lighter. Screen worker. Not fixed. Shade is a pipe.
+Headed **mag 43–44**, `stack:i64` `mode:naive`. Screen worker. Shade is a pipe.
+Not declared fixed.
 
-Loci (screenshots in prior chat assets):
+Loci:
 
 - `mag 2^43  -0.1761779392230477 + 1.0870336335448237i` (`HEADED_I64_GREY_*`)
 - `mag 2^43  -0.2067325560057166 + 1.1075689870974698i`
@@ -15,38 +15,35 @@ Loci (screenshots in prior chat assets):
 
 HUD `gear:F64` is the OG DirectKernel stamp. Read `stack:`.
 
+## Proven (lib, 854×480)
+
+1. **`pack_add` sign-extension.** Unsigned limb carry `1` on a negative high
+   limb is not a new word. Old code squeezed to `1 × 2^12` = 4096 for every
+   imag except row 0 → `ipp:0`, field glued to the window. Live tree keeps the
+   carry when it matches the sign bit. Distinct `get_c` imag after that.
+2. **`From` still steals the sign bit.** Squeeze to 64 magnitude bits into
+   signed `i64`. Headed UL imag IntExp (+) becomes CopyIntExp (−). Real sign
+   flips the other way. Pins in `src/copy_intexp.rs`.
+
+The headed “four equal greys” picture was **not** what `get_c` produced: it
+was **two** imag values (row 0 vs rest). Do not re-invent a 2×2 of screen
+halves.
+
 ## Binding
 
-- **Admit is correct.** Significand bits, not exponent range. 64 vs ~54 is enough.
+- **Admit is correct.** Significand bits, not exponent range.
 - **Screen seats are always ≥ 0.** Origin = **top-left**. +seat = right, +row =
-  down. There are **no negative screen offsets.** Do not invent center-relative
-  signed δ.
-- **Drag test:** tiles stay on the **window**, they do not slide with the plane.
-  So the defect tracks **seat/row** (or something else indexed from UL), not a
-  fixed objective-`c` grid.
-- `get_c`: `origin + space * from_u32(seat)`, `origin − space * from_u32(row)`
-  (`c_generator.rs`). Iterate: `z ← z² + c` on `CopyIntExp<1>` (`iterate_with_c`).
-- WorkUpdate: **f32** recontinuable `z`, **f64** scalars (smallness, times).
-  Worker must **not** emit `c`. `docs/assistant/design/work-update.md`.
-- Mag-~38 **black** was OG naive **f64**, assistant regression. Closed. Do not
-  re-break it.
+  down. No negative screen offsets.
+- **Drag** glued to the window while imag was 4096 for row ≥ 1 (UL row index,
+  not a sliding objective-`c` grid).
+- `get_c`: `origin + space * from_u32(seat)`, `origin − space * from_u32(row)`.
+- WorkUpdate: **f32** `z`, **f64** scalars. Worker must **not** emit `c`.
+- Mag-~38 **black** was OG naive **f64**. Closed.
 
-## Retracted (do not reuse)
+## Retracted
 
-Collector `to_f64(c)` as the picture. False-admit of i64. Negative / screen-center
-signed offsets. Uniform “flat grey” (it is a 2×2).
-
-## Live suspects
-
-1. **CopyIntExp** (new add/mul/From) loses pixel-index bits on **non-negative**
-   `origin + k*space` or on iterate.
-2. **Accidental f64** on the iterate/`c` path (53 bits → big rectangles). Absolute
-   naive is supposed to stay in `T`. `DirectKernel::start_seat` f64-roundtrips `c`
-   only if `coords_are_relative`.
-
-16×17 pin `og_copy_intexp1_headed_mag_43_not_all_interior` does not see headed
-854×480.
+Collector `to_f64(c)`. False-admit of i64. Negative / screen-center signed
+offsets. Uniform “flat grey.” Accidental f64 on absolute naive iterate.
 
 Product code is developer-driven. RCA:
-`docs/assistant/rca-i64-flat-grey-2026-08-13.md` (same facts; this note wins
-if they drift).
+`docs/assistant/rca-i64-flat-grey-2026-08-13.md`.
