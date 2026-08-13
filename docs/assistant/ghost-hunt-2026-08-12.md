@@ -47,5 +47,6 @@ Commits: `automatic checkpoint` ≈ assistant; `WIP` ≈ developer.
 | 9 | Admit-margin docs still said “neighbor-only, omits 10 bits” | Live admit (2026-08-13) converts IntExp probe points through `T`, f64 `From<IntExp>` rounds as one value, slider fail-closes. Issue-stack + depth-design caught up. **Headed blockiness still not product-fixed.** | **~28%** |
 | 10 | “Tests pin WorkUpdate f64 host” as if no f32 iterate | Channel is still f64 for the collector; OG naive now iterates `Mandelbrotable` f32 when the bit-count gate admits, then converts. Margin default 1. | **~30%** |
 | 11 | HUD S-F64 past mag 14 on naive | Pitch `< 1e-7` stamped ScaledF64 on **absolute** shells. Iterate was still f64/f32. Floor is relative/pert only. | **~32%** |
+| 12 | Number-stack “~10 bits headroom” + CopyIntExp mul “abs then sign” | Live margin default is **1**. Mul is unsigned `u128` schoolbook. OG naive now uses `CopyIntExp<1>` after absolute f64 (home zoom 42, still on at 49). | **~34%** |
 
 Not 100%. Implementation ghosts still mostly unknown.
