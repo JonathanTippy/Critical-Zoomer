@@ -821,11 +821,11 @@ fn publish_finished_undelivered(context: &mut WorkContext<f64>, kernel: &DirectK
     }
 }
 
-/// True when the stencil needs more significand bits than IEEE f32 (24).
-/// Same C-generator bit count the host used to admit f64 — GPU downcast is a
-/// second type with its own `HostPrecision::F32`.
+/// True when **absolute** `c` needs more significand bits than IEEE f32 (24).
+/// Do not use the live generator's `bits_needed`: a relative shell counts
+/// δc and would flip Naive GPU back to F32 around mag 2^38 (pitch ~1e-14).
 fn f32_collapses_neighbors(context: &WorkContext<f64>) -> bool {
-    context.c_generator.bits_needed()
+    context.absolute_bits_needed
         > crate::assemblies::workgroup::c_generator::F32_SIGNIFICAND_BITS
 }
 
@@ -1242,7 +1242,9 @@ mod mutant_kill {
 
     #[test]
     fn mutant_kill_f32_collapses_and_scan_undelivered() {
-        use crate::assemblies::workgroup::screen_worker::workshift::from_stencil;
+        use crate::assemblies::workgroup::screen_worker::workshift::{
+            from_stencil, from_stencil_with_margin,
+        };
         use crate::constants::{HOME_POSITION, TEST_SCREEN_RES};
         use crate::utils::{IntExp, ObjectivePosAndZoom};
 
@@ -1274,8 +1276,32 @@ mod mutant_kill {
         };
         let m17 = from_stencil((mag17, TEST_SCREEN_RES), None).expect("f64 still admits mag 17");
         assert!(f32_collapses_neighbors(&m17));
-        assert!(m17.c_generator.bits_needed() > 24);
-        assert!(m17.c_generator.bits_needed() <= 53);
+        assert!(m17.absolute_bits_needed > 24);
+        assert!(m17.absolute_bits_needed <= 53);
+
+        // Mag 38: pitch ~1e-14 so admit_generator prefers relative (small δc
+        // bit count). Naive GPU still iterates absolute c — must stay off F32.
+        let mag38 = ObjectivePosAndZoom {
+            pos: home.pos.clone(),
+            zoom_pot: 38,
+        };
+        let m38_rel = from_stencil((mag38.clone(), TEST_SCREEN_RES), None)
+            .expect("relative or absolute f64 at mag 38");
+        assert!(
+            f32_collapses_neighbors(&m38_rel),
+            "absolute c bits={} generator bits={}",
+            m38_rel.absolute_bits_needed,
+            m38_rel.c_generator.bits_needed()
+        );
+        let m38_naive = from_stencil_with_margin(
+            (mag38, TEST_SCREEN_RES),
+            None,
+            0,
+            false,
+        )
+        .expect("naive absolute still admits mag 38");
+        assert!(!m38_naive.coords_are_relative);
+        assert!(f32_collapses_neighbors(&m38_naive));
 
         // Scan skips delivered / skip-mask / finished-orphan seats.
         let n = ctx.points.len();

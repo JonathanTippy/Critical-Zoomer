@@ -175,6 +175,8 @@ pub struct WorkContext<T: Mandelbrotable> {
     , pub reference_library: Vec<Arc<PublishedReference>>
     // C-generator render margin bits (settings-overridable; default 0).
     , pub c_generator_margin_bits: u32
+    // Bits needed for absolute c (Naive GPU f32 cast), not relative δc.
+    , pub absolute_bits_needed: u32
 }
 
 /// Brief perturbation probe when direct is genuinely stuck (>2s to clear remaining).
@@ -877,20 +879,35 @@ pub fn from_stencil_with_margin<T: Mandelbrotable + From<f32> + 'static>(
         .as_ref()
         .map(|r| r.generation)
         .unwrap_or(0);
-    let admission = admit_generator_with_margin::<T>(
-        &compute_loc,
-        obj.zoom_pot as i64,
-        res,
-        relative_anchor,
-        &view_center,
-        margin_bits,
-    )?;
+    let admission = if relative_ok {
+        admit_generator_with_margin::<T>(
+            &compute_loc,
+            obj.zoom_pot as i64,
+            res,
+            relative_anchor,
+            &view_center,
+            margin_bits,
+        )?
+    } else {
+        GeneratorAdmission::Absolute(CGenerator::<T>::new_with_margin(
+            &compute_loc,
+            obj.zoom_pot as i64,
+            res,
+            margin_bits,
+        )?)
+    };
     let coords_are_relative = admission.is_relative();
     let c_generator = *admission.generator();
     let coord_anchor = match admission {
         GeneratorAdmission::Absolute(_) => view_center,
         GeneratorAdmission::Relative { anchor, .. } => anchor,
     };
+    let absolute_bits_needed = crate::assemblies::workgroup::c_generator::stencil_bits_needed(
+        &compute_loc,
+        obj.zoom_pot as i64,
+        res,
+        margin_bits,
+    );
     let (_, space) = c_generator.origin_and_space();
     let seat_pitch_epsilon = space.abs() * T::from(1.0 / 256.0);
     let use_floatexp_host = std::any::TypeId::of::<T>()
@@ -1031,6 +1048,7 @@ pub fn from_stencil_with_margin<T: Mandelbrotable + From<f32> + 'static>(
             lib
         },
         c_generator_margin_bits: margin_bits,
+        absolute_bits_needed,
     };
     if ctx.coords_are_relative && ctx.latest_reference.is_none() {
         let bootstrap = bootstrap_relative_reference(
