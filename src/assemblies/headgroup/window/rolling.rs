@@ -41,10 +41,39 @@ impl RateCounter {
         self.sum_in(now, Duration::from_secs(1)) as f64
     }
 
-    /// Average events per second over the trailing 10s window.
-    pub fn rate_10s(&mut self, now: Instant) -> f64 {
+    /// Slowest 100ms bin in the last 1s, as events/sec.
+    pub fn rate_1s_low(&mut self, now: Instant) -> f64 {
         self.prune(now);
-        self.sum_in(now, Duration::from_secs(10)) as f64 / 10.0
+        self.min_bin_rate(now, Duration::from_secs(1), Duration::from_millis(100))
+    }
+
+    /// Slowest 1s bin in the last 10s, as events/sec.
+    pub fn rate_10s_low(&mut self, now: Instant) -> f64 {
+        self.prune(now);
+        self.min_bin_rate(now, Duration::from_secs(10), Duration::from_secs(1))
+    }
+
+    fn min_bin_rate(&self, now: Instant, window: Duration, bin: Duration) -> f64 {
+        let bins = (window.as_nanos() / bin.as_nanos()).max(1) as u32;
+        let scale = Duration::from_secs(1).as_secs_f64() / bin.as_secs_f64();
+        let mut min = None;
+        for i in 0..bins {
+            let Some(later) = now.checked_sub(bin.saturating_mul(i)) else {
+                break;
+            };
+            let Some(older) = later.checked_sub(bin) else {
+                break;
+            };
+            let n: u64 = self
+                .events
+                .iter()
+                .filter(|(t, _)| *t > older && *t <= later)
+                .map(|e| e.1)
+                .sum();
+            let r = n as f64 * scale;
+            min = Some(min.map_or(r, |m: f64| m.min(r)));
+        }
+        min.unwrap_or(0.0)
     }
 }
 
@@ -164,19 +193,36 @@ fn window_stats(
     Some((average, worst))
 }
 
-/// Overlay: each fps line is 1s+10s; compute gear+type(+ref if pert); color/escape; PPS.
+pub(crate) fn fps_from_frame_dt(dt: Duration) -> f64 {
+    let ns = dt.as_nanos().max(1);
+    1_000_000_000.0 / ns as f64
+}
+
+fn hud_rate_line(tag: &str, now: f64, low_1s: f64, low_10s: Option<f64>) -> String {
+    match low_10s {
+        Some(t) => format!("{tag}: {now:.0}  1s low: {low_1s:.1}  10s low: {t:.1}"),
+        None => format!("{tag}: {now:.0}  1s low: {low_1s:.1}"),
+    }
+}
+
+/// Overlay: window-fps template per rate line; compute gear+type(+ref if pert); color/escape; PPS.
 // r[impl cz.depth.gear-hud+2]
 pub fn format_hud_overlay(
-    fps_1s: f64,
-    fps_10s: Option<f64>,
-    pub_1s: f64,
-    pub_10s: f64,
-    esc_1s: f64,
-    esc_10s: f64,
-    col_1s: f64,
-    col_10s: f64,
-    ctrl_1s: f64,
-    ctrl_10s: f64,
+    fps_now: f64,
+    fps_1s_low: f64,
+    fps_10s_low: Option<f64>,
+    pub_now: f64,
+    pub_1s_low: f64,
+    pub_10s_low: Option<f64>,
+    esc_now: f64,
+    esc_1s_low: f64,
+    esc_10s_low: Option<f64>,
+    col_now: f64,
+    col_1s_low: f64,
+    col_10s_low: Option<f64>,
+    ctrl_now: f64,
+    ctrl_1s_low: f64,
+    ctrl_10s_low: Option<f64>,
     gear: &str,
     type_label: &str,
     ref_label: Option<&str>,
@@ -186,16 +232,17 @@ pub fn format_hud_overlay(
     ips: f64,
     ipp_txt: &str,
 ) -> String {
-    let fps10 = match fps_10s {
-        Some(v) => format!("  10s:{v:.1}"),
-        None => String::new(),
-    };
     let ref_bit = match ref_label {
         Some(r) => format!("  ref:{r}"),
         None => String::new(),
     };
     format!(
-        "fps  1s:{fps_1s:.1}{fps10}\npub  1s:{pub_1s:.1}  10s:{pub_10s:.1}\nesc  1s:{esc_1s:.1}  10s:{esc_10s:.1}\ncol  1s:{col_1s:.1}  10s:{col_10s:.1}\nctrl  1s:{ctrl_1s:.1}  10s:{ctrl_10s:.1}\ngear:{gear}  type:{type_label}{ref_bit}\ncolor gear:{color}  escape gear:{escape}\npps:{pps:.0}  ips:{ips:.0}  {ipp_txt}"
+        "{}\n{}\n{}\n{}\n{}\ngear:{gear}  type:{type_label}{ref_bit}\ncolor gear:{color}  escape gear:{escape}\npps:{pps:.0}  ips:{ips:.0}  {ipp_txt}",
+        hud_rate_line("fps", fps_now, fps_1s_low, fps_10s_low),
+        hud_rate_line("pub", pub_now, pub_1s_low, pub_10s_low),
+        hud_rate_line("esc", esc_now, esc_1s_low, esc_10s_low),
+        hud_rate_line("col", col_now, col_1s_low, col_10s_low),
+        hud_rate_line("ctrl", ctrl_now, ctrl_1s_low, ctrl_10s_low),
     )
 }
 
@@ -242,16 +289,21 @@ mod tests {
         assert!((pps.rate(now) - 3.0).abs() < 1e-9);
         assert!((ips.rate(now) - 1000.0).abs() < 1e-9);
         let overlay = format_hud_overlay(
+            65.0,
             36.7,
             Some(13.0),
             21.0,
             18.0,
+            Some(12.0),
             25.0,
             20.0,
+            Some(15.0),
             56.0,
             40.0,
+            Some(30.0),
             0.0,
             0.0,
+            None,
             "naive",
             "i64",
             None,
@@ -263,12 +315,13 @@ mod tests {
         );
         let lines: Vec<&str> = overlay.lines().collect();
         assert_eq!(lines.len(), 8);
-        assert!(lines[0].starts_with("fps  1s:36.7"));
-        assert!(lines[0].contains("10s:13.0"));
-        assert!(lines[1].starts_with("pub  1s:"));
-        assert!(lines[2].starts_with("esc  1s:"));
-        assert!(lines[3].starts_with("col  1s:"));
-        assert!(lines[4].starts_with("ctrl  1s:"));
+        assert_eq!(lines[0], "fps: 65  1s low: 36.7  10s low: 13.0");
+        assert_eq!(lines[1], "pub: 21  1s low: 18.0  10s low: 12.0");
+        assert!(lines[2].starts_with("esc: "));
+        assert!(lines[2].contains("1s low:"));
+        assert!(lines[3].starts_with("col: "));
+        assert!(lines[4].starts_with("ctrl: 0  1s low: 0.0"));
+        assert!(!lines[4].contains("10s low:"));
         assert_eq!(lines[5], "gear:naive  type:i64");
         assert_eq!(lines[6], "color gear:GPU  escape gear:OG");
         assert!(lines[7].contains("pps:"));
@@ -276,15 +329,20 @@ mod tests {
         assert!(lines[7].contains("ipp:19"));
         let pert = format_hud_overlay(
             36.7,
+            36.7,
             None,
             0.0,
             0.0,
+            None,
             0.0,
             0.0,
+            None,
             0.0,
             0.0,
+            None,
             0.0,
             0.0,
+            None,
             "pert",
             "f64",
             Some("complete"),
@@ -295,10 +353,8 @@ mod tests {
             "ipp:~0",
         );
         assert!(pert.contains("gear:pert  type:f64  ref:complete"));
-        assert!(
-            !pert.lines().next().unwrap().contains("10s:"),
-            "paint fps omits 10s until that window exists"
-        );
+        assert!(pert.lines().next().unwrap().starts_with("fps: 37  1s low: 36.7"));
+        assert!(!pert.lines().next().unwrap().contains("10s low:"));
         assert!(!overlay.contains("mode:"));
         assert!(!overlay.contains("stack:"));
         assert!(!overlay.contains("drop:"));

@@ -577,22 +577,41 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                         let now = Instant::now();
                                         let pps = state.pps_counter.rate(now);
                                         let ips = state.ips_counter.rate(now);
-                                        let pub_1s = state.publisher_fps_counter.rate(now);
-                                        let pub_10s = state.publisher_fps_counter.rate_10s(now);
-                                        let esc_1s = state.escape_fps_counter.rate(now);
-                                        let esc_10s = state.escape_fps_counter.rate_10s(now);
-                                        let col_1s = state.color_fps_counter.rate(now);
-                                        let col_10s = state.color_fps_counter.rate_10s(now);
-                                        let ctrl_1s = state.controller_fps_counter.rate(now);
-                                        let ctrl_10s = state.controller_fps_counter.rate_10s(now);
+                                        let pub_now = state.publisher_fps_counter.rate(now);
+                                        let pub_1s_low = state.publisher_fps_counter.rate_1s_low(now);
+                                        let pub_10s_low = rolling_frame_result.0.map(|_| {
+                                            state.publisher_fps_counter.rate_10s_low(now)
+                                        });
+                                        let esc_now = state.escape_fps_counter.rate(now);
+                                        let esc_1s_low = state.escape_fps_counter.rate_1s_low(now);
+                                        let esc_10s_low = rolling_frame_result.0.map(|_| {
+                                            state.escape_fps_counter.rate_10s_low(now)
+                                        });
+                                        let col_now = state.color_fps_counter.rate(now);
+                                        let col_1s_low = state.color_fps_counter.rate_1s_low(now);
+                                        let col_10s_low = rolling_frame_result.0.map(|_| {
+                                            state.color_fps_counter.rate_10s_low(now)
+                                        });
+                                        let ctrl_now = state.controller_fps_counter.rate(now);
+                                        let ctrl_1s_low = state.controller_fps_counter.rate_1s_low(now);
+                                        let ctrl_10s_low = rolling_frame_result.0.map(|_| {
+                                            state.controller_fps_counter.rate_10s_low(now)
+                                        });
                                         let ipp_txt = if state.last_ipp_final {
                                             format!("ipp:{}", state.last_ipp)
                                         } else {
                                             format!("ipp:~{}", state.last_ipp)
                                         };
-                                        let ten_s = rolling_frame_result.0.map(|r| {
-                                            1.0 / r.1.0.as_secs_f64()
+                                        let ten_s = rolling_frame_result.0.map(|w| {
+                                            fps_from_frame_dt(w.1.0)
                                         });
+                                        let fps_now = rolling_frame_result
+                                            .2
+                                            .as_ref()
+                                            .or(Some(&r))
+                                            .map(|w| fps_from_frame_dt(w.0.1))
+                                            .unwrap_or(0.0);
+                                        let fps_1s_low = fps_from_frame_dt(r.1.0);
                                         // r[impl cz.depth.gear-hud+2]
                                         let ref_hud = if state.last_mode_label == "pert" {
                                             Some(state.last_ref_label)
@@ -600,16 +619,21 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                             None
                                         };
                                         response += format_hud_overlay(
-                                            1.0 / r.1.0.as_secs_f64(),
+                                            fps_now,
+                                            fps_1s_low,
                                             ten_s,
-                                            pub_1s,
-                                            pub_10s,
-                                            esc_1s,
-                                            esc_10s,
-                                            col_1s,
-                                            col_10s,
-                                            ctrl_1s,
-                                            ctrl_10s,
+                                            pub_now,
+                                            pub_1s_low,
+                                            pub_10s_low,
+                                            esc_now,
+                                            esc_1s_low,
+                                            esc_10s_low,
+                                            col_now,
+                                            col_1s_low,
+                                            col_10s_low,
+                                            ctrl_now,
+                                            ctrl_1s_low,
+                                            ctrl_10s_low,
                                             state.last_gear_label,
                                             state.last_stack_label,
                                             ref_hud,
