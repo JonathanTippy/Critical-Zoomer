@@ -2,7 +2,7 @@
 # Start / send / stop an isolated app session for screenshot_check.sh.
 # Do not hang new e2e/perf suites off this tool.
 #
-#   taskset -c 4-11 xvfb-run -a -s "-screen 0 900x500x24" scripts/screenshot_session.sh start [out_dir]
+#   taskset -c 3-8 xvfb-run -a -s "-screen 0 900x500x24" scripts/screenshot_session.sh start [out_dir]
 #   scripts/screenshot_session.sh send 'capture a.png'
 #   scripts/screenshot_session.sh stop
 #
@@ -73,7 +73,7 @@ cz_ctl_daemon() {
   # So the app polls the session-isolated harness files.
   export CZ_GOTOFILE="$GOTOFILE"
   export CZ_NAVFILE="$NAVFILE"
-  taskset -c "${CZ_CPUSET:-4-11}" "$BIN" --beats 300000 -r 2 >"$XVFB_LOG" 2>&1 &
+  taskset -c "${CZ_CPUSET:-3-8}" "$BIN" --beats 300000 -r 2 >"$XVFB_LOG" 2>&1 &
   echo $! >"$PIDFILE"
   cleanup() {
     local app

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Full check: cargo check, tests in timeout-pyramid order (unit →
 # integration → e2e), all Criterion benches, fail-closed Tracey.
-# Usage: taskset -c 4-11 scripts/full_check.sh
+# Usage: taskset -c 3-8 scripts/full_check.sh
 #        scripts/full_check.sh --dry-run
 # Log: /tmp/cz_full_check.log  (never in the repo)
 set -u

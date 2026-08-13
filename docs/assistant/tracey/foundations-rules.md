@@ -106,7 +106,8 @@ recursive.
 
 **Implementation.** `src/copy_intexp.rs` `Mul`.
 **Verification.** `mul_commutative`, `mul_matches_squeezed_intexp`,
-`mul_schoolbook_fits_in_words`, `mul_high_half_shifts_exp`.
+`mul_schoolbook_fits_in_words`, `mul_high_half_shifts_exp`,
+`copy_intexp1_mandel_orbit_tracks_f64_at_headed_c`.
 
 r[cz.math.copy-intexp-from-tape+1]
 

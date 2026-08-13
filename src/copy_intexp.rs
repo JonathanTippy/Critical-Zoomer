@@ -486,6 +486,7 @@ mod tests {
     }
 
     #[test]
+    // r[verify cz.math.copy-intexp-mul-schoolbook+1]
     fn mul_high_half_shifts_exp() {
         let a = CopyIntExp::<1> {
             value: [1i64 << 32],
@@ -499,6 +500,7 @@ mod tests {
     }
 
     #[test]
+    // r[verify cz.math.copy-intexp-mul-schoolbook+1]
     fn copy_intexp1_mandel_orbit_tracks_f64_at_headed_c() {
         let cre = -0.1146689120911964_f64;
         let cim = 0.9695042757337979_f64;
@@ -508,9 +510,6 @@ mod tests {
         );
         let mut z = c;
         let mut zf = (cre, cim);
-        let mut esc_t = 0u32;
-        let mut esc_f = 0u32;
-        let mut first_bad = None;
         for n in 1..=40u32 {
             let re2 = z.0 * z.0;
             let im2 = z.1 * z.1;
@@ -518,18 +517,14 @@ mod tests {
             z = (re2 - im2 + c.0, CopyIntExp1::TWO * ri + c.1);
             zf = (zf.0 * zf.0 - zf.1 * zf.1 + cre, 2.0 * zf.0 * zf.1 + cim);
             let zt = (z.0.to_f64(), z.1.to_f64());
-            if first_bad.is_none() && ((zt.0 - zf.0).abs() > 1e-8 || (zt.1 - zf.1).abs() > 1e-8) {
-                first_bad = Some((n, zt, zf, z.0.exp, z.1.exp, z.0.value[0], z.1.value[0]));
-            }
-            if esc_t == 0 && (re2 + im2).to_f64() > 4.0 {
-                esc_t = n;
-            }
-            if esc_f == 0 && zf.0 * zf.0 + zf.1 * zf.1 > 4.0 {
-                esc_f = n;
-            }
-        }
-        if let Some((n, zt, zf, e0, e1, v0, v1)) = first_bad {
-            panic!("diverged at n={n} zT=({:.6},{:.6}) zf=({:.6},{:.6}) exp=({e0},{e1}) val=({v0},{v1})", zt.0, zt.1, zf.0, zf.1);
+            assert!(
+                (zt.0 - zf.0).abs() < 1e-8 && (zt.1 - zf.1).abs() < 1e-8,
+                "n={n} zT=({:.6},{:.6}) zf=({:.6},{:.6})",
+                zt.0,
+                zt.1,
+                zf.0,
+                zf.1
+            );
         }
     }
 

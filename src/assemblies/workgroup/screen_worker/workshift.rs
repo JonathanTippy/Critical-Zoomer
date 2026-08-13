@@ -1346,6 +1346,7 @@ where
             let index = index_from_pos(&pos, context.res.0);
             let point = &mut context.points[index];
             let delta_c = point.delta_c;
+            // r[impl cz.depth.floatexp-host-coords+1]
             // Anchor + δc in T. f64(anchor)+f64(δc) collapses neighbors when
             // pitch is one ulp of |c|.
             point.c = (
@@ -2477,6 +2478,7 @@ mod mutant_kill {
 
     #[test]
     // r[verify cz.depth.c-generator-fails-closed+1]
+    // r[verify cz.depth.floatexp-host-coords+1]
     fn relative_copy_intexp1_mag_44_does_not_f64_collapse_c() {
         use crate::assemblies::headgroup::window::coords::{decimal_str_to_intexp, ul_for_center};
         use crate::copy_intexp::CopyIntExp1;

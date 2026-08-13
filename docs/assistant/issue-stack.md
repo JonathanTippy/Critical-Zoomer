@@ -59,9 +59,9 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
   while wiring `CopyIntExp` (panic `From`, then a `1e-14` host bump). HUD
   `mode:naive` `gear:F64` is the **OG kernel tag**, not the i64 host — `gear`
   is the pert delta ladder / absolute-naive stamp and stays `F64` even when
-  `stack:i64`. Do not read `gear:F64` as “this is f64 iterate.” Developer:
+  `type:i64`. Do not read `gear:F64` as “this is f64 iterate.” Developer:
   black is closed. Do not re-break OG naive to chase i64.
-- **OG naive `CopyIntExp<1>` (`stack:i64`) four-quadrant / mag-44 grey
+- **OG naive `CopyIntExp<1>` (`type:i64`) four-quadrant / mag-44 grey
   (2026-08-13) — closed.** `From` 63-bit squeeze; signed add; relative `c` in
   T not f64; `Words=1` mul bit-squeezes (not `>>64`). Developer confirmed
   headed. RCA: `docs/assistant/rca-i64-flat-grey-2026-08-13.md`.

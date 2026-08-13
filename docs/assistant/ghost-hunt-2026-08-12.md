@@ -56,4 +56,6 @@ Commits: `automatic checkpoint` ≈ assistant; `WIP` ≈ developer.
 | 18 | Signed/center screen-δ as the grey RCA | Developer: screen is UL, +right/+down, seats always ≥ 0. Drag still means UL seat/row, not objective `c`. Retract negative offsets. Handoff `recontinuation-i64-grey.md`. | **~48%** |
 | 19 | Mag-43 grey = 2×2 / collector / signed δ | **Measured then fixed:** `From` sign steal, unsigned add, f64 relative `c`, `Words=1` mul `>>64`. Developer confirmed headed 2026-08-13. | **~58%** |
 
+| 20 | HUD `stack:` + taskset `0-7`/`4-11` | Overlay is `type:`. Pin is middle-half cores (`3-8` on 12). Mag-44 grey closed. | **~60%** |
+
 Not 100%. Implementation ghosts still mostly unknown. Headed i64 grey is closed.

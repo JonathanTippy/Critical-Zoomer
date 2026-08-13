@@ -1,6 +1,6 @@
 # RCA: i64 four-quadrant grey
 
-**Locus.** Mag 43–44, `stack:i64` `mode:naive`. **Headed fixed** (developer
+**Locus.** Mag 43–44, `type:i64` `mode:naive`. **Headed fixed** (developer
 2026-08-13).
 
 ## Measured

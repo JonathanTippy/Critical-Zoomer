@@ -32,8 +32,9 @@ need a longer tape.
 ## Mul
 
 Schoolbook into `2×Words` limbs for `Words > 1`. **`Words = 1` is signed
-`i128` product**, then squeeze until it fits an `i64` limb (shift 64, add 64
-to `exp`). Unsigned 64×64 on a negative limb is not `z²`. Not Karatsuba.
+`i128` product**, then **minimum bit-shifts** until it fits a signed `i64`
+limb. A 64-bit dump per overflow starved `z²` (headed mag 44 escape-at-7).
+Unsigned 64×64 on a negative limb is not `z²`. Not Karatsuba.
 
 ## Finite
 
@@ -52,15 +53,16 @@ panicking there killed the screen worker.
 
 Manual Naive CPU uses `DirectKernel` on `CopyIntExp<1>` when f32 does not admit
 and absolute f64 fails the bit-count gate (home ~**42**). One word still covers
-through ~**49–52**. HUD host stack label is `i64`. Not a perturbation compute-gear
-rung. If f64 is admitted, iterate must work; mag-38 black with `stack:f64` is a
+through ~**49–52**. HUD host label is `type:i64`. Not a perturbation compute-gear
+rung. If f64 is admitted, iterate must work; mag-38 black with `type:f64` is a
 bug, not a reason to bump the host.
 
 Headed 2026-08-13: **black on OG naive f64 was an assistant regression** (CopyIntExp
 wire-up / `From` panic / illegal `1e-14` host bump). HUD `gear:F64` reports the
-OG naive compute-gear stamp, not the i64 tape — mag 43 `stack:i64` still shows
-`gear:F64`. Grey was `From` sign-bit plus unsigned `pack_add`/`mul` on negative
-limbs. Pins: `from_64bit_positive_mantissa_stays_positive`,
-`headed_mag_43_get_c_unique_count_at_window_res`. Admit is correct. Not
-WorkUpdate `c`. Headed mag-44 grey closed (developer 2026-08-13): relative `c`
-in T, then `Words=1` mul bit-squeeze.
+OG naive compute-gear stamp, not the i64 tape — mag 43 `type:i64` still shows
+`gear:F64`. Grey was `From` sign-bit, unsigned `pack_add`, f64 relative `c`,
+and `Words=1` mul `>>64`. Pins: `from_64bit_positive_mantissa_stays_positive`,
+`headed_mag_43_get_c_unique_count_at_window_res`,
+`relative_copy_intexp1_mag_44_does_not_f64_collapse_c`,
+`copy_intexp1_mandel_orbit_tracks_f64_at_headed_c`. Admit is correct. Not
+WorkUpdate `c`. Headed mag-44 grey closed (developer 2026-08-13).

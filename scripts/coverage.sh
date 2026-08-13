@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Region coverage for QC. Ignores GUI/actor shells (headed e2e covers those).
 # Skips 15s/60s pyramid tiers (llvm-cov is for unit region coverage).
-# Usage: taskset -c 4-11 scripts/coverage.sh
+# Usage: taskset -c 3-8 scripts/coverage.sh
 #
 # Living artifact (commit this summary): docs/assistant/coverage-baseline.txt
 # HTML report (local only): target/llvm-cov/html

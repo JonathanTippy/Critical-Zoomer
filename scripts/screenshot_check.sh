@@ -2,8 +2,8 @@
 # Isolated Xvfb screenshot check. Writes PNGs under /tmp; never commit them.
 #
 # Usage:
-#   taskset -c 4-11 nice -n 15 cargo build --release
-#   CZ_CPUSET=4-11 taskset -c 4-11 nice -n 15 \
+#   taskset -c 3-8 nice -n 15 cargo build --release
+#   CZ_CPUSET=3-8 taskset -c 3-8 nice -n 15 \
 #     scripts/screenshot_check.sh /tmp/cz_screenshot_check
 #
 # Writes PNGs under the out dir (default /tmp). Never commit those PNGs.
@@ -14,7 +14,7 @@ HOLD_SECS="${HOLD_SECS:-12}"
 "$ROOT/scripts/screenshot_session.sh" stop 2>/dev/null || true
 rm -rf "$OUT"
 mkdir -p "$OUT"
-taskset -c "${CZ_CPUSET:-4-11}" xvfb-run -a -s "-screen 0 900x500x24" \
+taskset -c "${CZ_CPUSET:-3-8}" xvfb-run -a -s "-screen 0 900x500x24" \
   "$ROOT/scripts/screenshot_session.sh" start "$OUT" &
 CTL_PID=$!
 sleep 6

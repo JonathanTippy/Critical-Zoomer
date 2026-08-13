@@ -11,11 +11,11 @@ live in `cargo test` and `cargo bench`. Do not add new shell e2e suites.
 
 ## 1. First look: build, capture, inspect
 
-1. Build the current source in release mode using nice priority and the center
-   quarter of the CPUs:
+1. Build the current source in release mode using nice priority and the middle
+   half of the CPUs:
 
    ```bash
-   taskset -c 4-11 nice -n 15 cargo build --release
+   taskset -c 3-8 nice -n 15 cargo build --release
    ```
 
 2. Run the isolated Xvfb screenshot check. Keep `CZ_ALLOW_REAL_DISPLAY` unset.
@@ -24,7 +24,7 @@ live in `cargo test` and `cargo bench`. Do not add new shell e2e suites.
    `scripts/`.
 
    ```bash
-   CZ_CPUSET=4-11 taskset -c 4-11 nice -n 15 \
+   CZ_CPUSET=3-8 taskset -c 3-8 nice -n 15 \
      scripts/screenshot_check.sh /tmp/cz_manual_home
    ```
 

@@ -49,6 +49,7 @@ when absolute f64 fails the bit-count gate.
 `og_copy_intexp1_naive_flips_on_after_home_f64_wall`,
 `og_copy_intexp1_headed_mag_43_not_all_interior`,
 `headed_mag_43_get_c_unique_count_at_window_res`,
+`relative_copy_intexp1_mag_44_does_not_f64_collapse_c`.
 
 r[cz.depth.relative-coords+1]
 
@@ -255,15 +256,17 @@ r[cz.depth.floatexp-host-coords+1]
 
 **Rule.** Seat samples relative to the generator anchor (`coord_anchor`) are `delta_c`.
 Absolute `c` for naive/zero-orbit is `reference_c`/`anchor + delta_c` when the generator
-is relative. Anchor is `reference_c` when a reference scoped the generator, else view
+is relative. Reconstruct that sum in the host type `T`. f64(anchor)+f64(δc)
+collapses neighbors when pitch is one ulp of `|c|`. Anchor is `reference_c` when a reference scoped the generator, else view
 center. Live shallow/mid actors use `f64` host seats when the generator admits them; deep
 admission may use relative f64 or FloatExp host in tests / deep path.
 `FloatExp.mantissa` remains f64 by design. Render/`Answer` may narrow at the
 collector. Mathematical deltas and stored reference iterates remain FloatExp
 storage regardless of host type.
 
-**Implementation.** `from_stencil` relative generators; `c_from_delta_c_*` /
-`c_for_seat_*`; screen worker monomorphized to f64 for live; FloatExp kernel
+**Implementation.** `from_stencil` relative generators; `DirectKernel::start_seat`
+adds `T::from(anchor)+delta_c`; `c_from_delta_c_*` / `c_for_seat_*` for f64
+narrow; screen worker monomorphized to f64 for live shallow; FloatExp kernel
 module for depth tests.
 
 **Verification.** `deep_frame_admitted_past_f64_collapse`,
@@ -271,7 +274,8 @@ module for depth tests.
 `objective_c_matches_relative_generator_plus_anchor`,
 `home_reference_request_matches_c_generator`,
 `pin_exterior_not_marked_in_at_zoom_52`,
-`pin_not_blocky_delta_c_at_zoom_49`.
+`pin_not_blocky_delta_c_at_zoom_49`,
+`relative_copy_intexp1_mag_44_does_not_f64_collapse_c`.
 
 r[cz.depth.series-approximation+1]
 

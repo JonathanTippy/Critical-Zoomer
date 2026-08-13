@@ -80,11 +80,9 @@ bulk GPU fill. Completeness is a GPU+host-queue property
    high-heel (`NORTH_TIP_*`). Harder minibrots stay in the pocket for compute
    health (period, sticky-ref, IPS), not as the default picture check. View
    **IPP** (mean iterations/seat) is how hard *this* view actually was; final
-   only when the frame is delivered. Headed mag 43 `HEADED_I64_GREY_*`: black
-   remaining i64 grey: lib `From`/signed add-mul pins green; headed not
-   declared fixed (`docs/assistant/recontinuation-i64-grey.md`,
-   `docs/assistant/rca-i64-flat-grey-2026-08-13.md`).
-   HUD `gear:F64` on naive is the compute-gear stamp, not the i64 tape — read `type:`.
+   only when the frame is delivered. Headed mag 43 `HEADED_I64_GREY_*` and mag
+   44 relative CopyIntExp: grey closed (developer 2026-08-13). HUD `gear:F64`
+   on naive is the compute-gear stamp; read `type:` for the host tape.
 6. **Proptest regressions stay in tree.** Seeds under `proptest-regressions/`
    (including `copy_intexp.txt`) are re-run before new cases. Check them in.
 
@@ -94,10 +92,10 @@ bulk GPU fill. Completeness is a GPU+host-queue property
 wait on 15s/60s suites:
 
 ```bash
-taskset -c 4-11 nice -n 15 cargo test --lib -- --skip integration_tier --skip e2e_tier
-taskset -c 4-11 nice -n 15 cargo test --lib integration_tier -- --nocapture
-taskset -c 4-11 nice -n 15 cargo test --lib e2e_tier -- --nocapture
-taskset -c 4-11 nice -n 15 cargo test --test pipeline_cadence -- --nocapture
+taskset -c 3-8 nice -n 15 cargo test --lib -- --skip integration_tier --skip e2e_tier
+taskset -c 3-8 nice -n 15 cargo test --lib integration_tier -- --nocapture
+taskset -c 3-8 nice -n 15 cargo test --lib e2e_tier -- --nocapture
+taskset -c 3-8 nice -n 15 cargo test --test pipeline_cadence -- --nocapture
 ```
 
 Pipeline cadence lives in `tests/pipeline_cadence.rs` (one harness; dir lock).
