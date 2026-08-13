@@ -35,8 +35,7 @@ count exceeds 24 while f64 (53) still admits.
 `Mandelbrotable::PRECISION`, `stencil_bits_needed`, `CGenerator::new_with_margin`.
 Settings slider `c_generator_margin_bits` (default 1). OG naive CPU uses the same
 `DirectKernel` / `Mandelbrotable` iterate for f32, f64, then `CopyIntExp<1>`
-when absolute f64 fails or pixel pitch is below `1e-14` (neighbors collapse
-while the 53-bit count still admits).
+when absolute f64 fails the bit-count gate.
 
 **Verification.** `generator_matches_v009_grid_bit_for_bit`,
 `rejects_collapse_at_far_end`, `successful_generator_has_distinct_neighbors`,
@@ -360,8 +359,10 @@ Aggregate HUD gear may be MIXED when seats disagree.
 r[cz.depth.gear-hud+2]
 
 **Rule.** The HUD displays host stack, kernel mode (`naive`|`pert`), reference status
-(`wip`|`complete`), effective active compute gear, and rolling IPS and PPS. Mode names
-which production kernel runs: **`naive`** = `DirectKernel`; **`pert`** =
+(`wip`|`complete`), effective active compute gear, rolling IPS and PPS, and view **IPP**
+(mean iterations per seat). IPP is a property of the live view: it is known only as seats
+iterate, and is final when every seat is delivered. It is not a rate (that is IPS).
+Mode names which production kernel runs: **`naive`** = `DirectKernel`; **`pert`** =
 `PerturbationKernel`. Gear applies under **`mode:pert`** only (delta ladder); naive
 reports `F64`. Ref is a running snapshot:
 `wip` when no usable published reference exists yet or any seat is in `direct_only` glitch

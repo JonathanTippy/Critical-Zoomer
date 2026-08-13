@@ -6,6 +6,11 @@ pub const DEFAULT_WINDOW_RES:(u32, u32) = (854, 480);
 /// Kept small so craftsmanship fills finish in ≪1s wall (~100ms quiet machine).
 pub const TEST_SCREEN_RES: (u32, u32) = (16, 17);
 pub const HOME_POSITION:(i32, i32, i32) = (-2, -2, -2);
+/// North-tip filament (“high heel”). Picture-sanity latch: magnification is the
+/// axis that fails globally; this location is just somewhere with visible
+/// structure. Harder minibrots stay for compute-health, not everyday pins.
+pub const NORTH_TIP_RE: &str = "-0.161913425661";
+pub const NORTH_TIP_IM: &str = "1.035546905361";
 pub const MOVE_SPEED_PPS: i32 = 200;
 pub const MOVE_SPEED_IN_SCREENS: f32 = 0.42;
 pub const PIXELS_PER_UNIT_POT:i32 = 9;
@@ -34,6 +39,8 @@ mod mutant_kill {
         assert_eq!(MOVE_SPEED_IN_SCREENS, 0.42);
         assert!(MOVE_SPEED_IN_SCREENS > 0.0 && MOVE_SPEED_IN_SCREENS < 1.0);
         assert_ne!(MOVE_SPEED_IN_SCREENS, 0.0);
+        assert_eq!(NORTH_TIP_RE, "-0.161913425661");
+        assert_eq!(NORTH_TIP_IM, "1.035546905361");
         assert_eq!(SCROLL_SPEED, 40.0);
         assert_ne!(SCROLL_SPEED, -40.0);
         assert_ne!(SCROLL_SPEED, 0.0);

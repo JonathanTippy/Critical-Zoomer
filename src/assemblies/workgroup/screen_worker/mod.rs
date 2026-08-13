@@ -2,7 +2,7 @@ use std::cmp::min;
 use steady_state::*;
 use crate::assemblies::headgroup::window::sampling::{index_from_relative_location, relative_location_i32_row_and_seat, transform_relative_location_i32};
 use crate::assemblies::workgroup::c_generator::{
-    admit_generator_with_margin, CGenerator, Mandelbrotable, ABSOLUTE_F64_RISKY_PITCH,
+    admit_generator_with_margin, CGenerator, Mandelbrotable,
 };
 use crate::assemblies::structs::{AttentionFocus, KernelMode};
 use crate::assemblies::workgroup::reference_worker::{
@@ -34,6 +34,9 @@ pub struct WorkUpdate<T> {
     pub reference_status: crate::assemblies::structs::ReferenceStatus,
     /// Iterations performed since the previous update.
     pub iterations_delta: u64,
+    /// View iterations-per-point (mean seat iterations). Final when the view is done.
+    pub ipp: u32,
+    pub ipp_final: bool,
     /// Oldest pending controller Replace emission time (HUD `ctrl:`).
     pub controller_emitted_at: Option<std::time::Instant>,
 }
@@ -108,16 +111,8 @@ fn og_copy_intexp1_naive_admits(
     if gear != Some(KernelMode::Naive) {
         return false;
     }
-    if CGenerator::<CopyIntExp1>::new_with_margin(loc, zoom_pot, res, margin).is_none() {
-        return false;
-    }
-    match CGenerator::<f64>::new_with_margin(loc, zoom_pot, res, margin) {
-        None => true,
-        Some(g) => {
-            let pitch = g.origin_and_space().1.abs().to_f64();
-            pitch > 0.0 && pitch < ABSOLUTE_F64_RISKY_PITCH
-        }
-    }
+    CGenerator::<CopyIntExp1>::new_with_margin(loc, zoom_pot, res, margin).is_some()
+        && CGenerator::<f64>::new_with_margin(loc, zoom_pot, res, margin).is_none()
 }
 
 fn ensure_naive_gpu_if_needed(state: &mut WorkerState<f64>) {
@@ -1047,6 +1042,8 @@ fn work_update_to_f64<T: Mandelbrotable + 'static>(u: WorkUpdate<T>) -> WorkUpda
         kernel_mode: u.kernel_mode,
         reference_status: u.reference_status,
         iterations_delta: u.iterations_delta,
+        ipp: u.ipp,
+        ipp_final: u.ipp_final,
         controller_emitted_at: u.controller_emitted_at,
     }
 }
@@ -1062,27 +1059,32 @@ where
     T: Mandelbrotable + 'static,
 {
     use crate::assemblies::structs::{HostStack, KernelMode, ReferenceStatus};
-    let (host_stack, kernel_mode, reference_status, active_gear) = match ctx.as_mut() {
-        Some(c) => {
-            let batch = completed_points.len() as u32;
-            if batch > 0 {
-                c.record_hud_completion_batch(batch);
+    let (host_stack, kernel_mode, reference_status, active_gear, ipp, ipp_final) =
+        match ctx.as_mut() {
+            Some(c) => {
+                let batch = completed_points.len() as u32;
+                if batch > 0 {
+                    c.record_hud_completion_batch(batch);
+                }
+                let kernel_mode = classify_kernel_mode(c);
+                (
+                    host_stack_for_context::<T>(),
+                    kernel_mode,
+                    classify_reference_status(c),
+                    c.active_gear,
+                    c.view_ipp().round() as u32,
+                    c.view_ipp_final(),
+                )
             }
-            let kernel_mode = classify_kernel_mode(c);
-            (
-                host_stack_for_context::<T>(),
-                kernel_mode,
-                classify_reference_status(c),
-                c.active_gear,
-            )
-        }
-        None => (
-            HostStack::F64,
-            KernelMode::Naive,
-            ReferenceStatus::Wip,
-            ComputeGear::F64,
-        ),
-    };
+            None => (
+                HostStack::F64,
+                KernelMode::Naive,
+                ReferenceStatus::Wip,
+                ComputeGear::F64,
+                0,
+                false,
+            ),
+        };
     WorkUpdate {
         frame_info,
         completed_points,
@@ -1091,6 +1093,8 @@ where
         kernel_mode,
         reference_status,
         iterations_delta,
+        ipp,
+        ipp_final,
         controller_emitted_at,
     }
 }
@@ -1346,18 +1350,22 @@ mod mutant_kill {
         );
         let res = DEFAULT_WINDOW_RES;
         let naive = Some(KernelMode::Naive);
-        assert!(!og_copy_intexp1_naive_admits(naive, &loc, 37, res, 1));
-        assert!(og_copy_intexp1_naive_admits(naive, &loc, 38, res, 1));
+        assert!(!og_copy_intexp1_naive_admits(naive, &loc, 38, res, 1));
+        assert!(og_copy_intexp1_naive_admits(naive, &loc, 42, res, 1));
         assert!(og_copy_intexp1_naive_admits(naive, &loc, 49, res, 1));
         assert!(!og_copy_intexp1_naive_admits(Some(KernelMode::Pert), &loc, 49, res, 1));
-        let headed = (
-            crate::assemblies::headgroup::window::coords::decimal_str_to_intexp("-0.153205192159323")
-                .unwrap(),
-            crate::assemblies::headgroup::window::coords::decimal_str_to_intexp("1.03165172670619")
-                .unwrap(),
+        let tip = (
+            crate::assemblies::headgroup::window::coords::decimal_str_to_intexp(
+                crate::constants::NORTH_TIP_RE,
+            )
+            .unwrap(),
+            crate::assemblies::headgroup::window::coords::decimal_str_to_intexp(
+                crate::constants::NORTH_TIP_IM,
+            )
+            .unwrap(),
         );
-        assert!(og_copy_intexp1_naive_admits(naive, &headed, 38, res, 1));
-        assert!(CGenerator::<f64>::new_with_margin(&headed, 38, res, 1).is_some());
+        assert!(CGenerator::<f64>::new_with_margin(&tip, 38, res, 1).is_some());
+        assert!(!og_copy_intexp1_naive_admits(naive, &tip, 38, res, 1));
     }
 
     #[test]

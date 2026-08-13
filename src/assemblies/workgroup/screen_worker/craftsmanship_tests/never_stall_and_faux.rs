@@ -185,18 +185,12 @@ fn reference_install_mid_fill_keeps_shift_progress() {
     });
 }
 
-/// Developer repro: `-0.161913425661 + 1.035546905361i mag 2^20`.
-/// Classic perturbation glitch blobs when an uncovered sticky reference from a
-/// prior view is carried across the zoom path (dead-reckon goto is fine).
+/// North-tip high-heel at mag 20. Same filament as picture-sanity
+/// (`NORTH_TIP_*`); this fixture is the *hard* zoom for compute-health /
+/// sticky-ref glitch, not the everyday “does the picture look like a set” pin.
 fn hard_minibrot_frame(res: (u32, u32)) -> (ObjectivePosAndZoom, (u32, u32)) {
-    use crate::assemblies::headgroup::window::coords::{f64_to_intexp, ul_for_center};
-    let loc = ul_for_center(
-        f64_to_intexp(-0.161913425661),
-        f64_to_intexp(1.035546905361),
-        20,
-        res,
-    );
-    (loc, res)
+    use crate::assemblies::headgroup::window::coords::north_tip_ul;
+    (north_tip_ul(20, res), res)
 }
 
 fn frame_at_center(re: f64, im: f64, pot: i32, res: (u32, u32)) -> (ObjectivePosAndZoom, (u32, u32)) {
@@ -278,7 +272,11 @@ fn faux_user_zoom_to_hard_minibrot_matches_direct() {
 
         let res = TEST_SCREEN_RES;
         // Dead-reckon: IntExp goto line applied through the headgroup command path.
-        let goto = "-0.161913425661 + 1.035546905361i mag 2^20";
+        let goto = format!(
+            "{} + {}i mag 2^20",
+            crate::constants::NORTH_TIP_RE,
+            crate::constants::NORTH_TIP_IM
+        );
         let cmds = commands_from_goto_line(goto).expect("goto");
         let mut dead_nav = SamplingContext {
             screen: None,

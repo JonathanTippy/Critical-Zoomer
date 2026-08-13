@@ -75,6 +75,12 @@ bulk GPU fill. Completeness is a GPU+host-queue property
    (`scripts/screenshot_check.sh` only) — not a substitute for these.
 4. **When adding a performance-sensitive path** (naive GPU, gear switch,
    telemetry), add or extend a steady-state test in the same change.
+5. **Picture sanity vs compute health.** Magnification fails globally; location
+   is a latch. Everyday “does this still look like a set” pins use the north-tip
+   high-heel (`NORTH_TIP_*`). Harder minibrots stay in the pocket for compute
+   health (period, sticky-ref, IPS), not as the default picture check. View
+   **IPP** (mean iterations/seat) is how hard *this* view actually was; final
+   only when the frame is delivered.
 
 ## House run
 

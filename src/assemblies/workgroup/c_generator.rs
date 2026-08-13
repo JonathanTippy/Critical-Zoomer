@@ -11,8 +11,9 @@ pub const DEFAULT_C_GENERATOR_MARGIN_BITS: u32 = 1;
 /// not run when [`stencil_bits_needed`] exceeds this.
 pub const F32_SIGNIFICAND_BITS: u32 = 24;
 
-/// Absolute f64 pixel pitch below which iterate neighbors collapse (~mag 38).
-/// Perturbation prefers relative; OG naive bumps to `CopyIntExp<1>`.
+/// Absolute f64 pixel pitch below which `admit_generator` prefers a relative
+/// (δc) shell. That is a perturbation / Naive-GPU F32 gate, **not** proof that
+/// absolute f64 naive iterate has collapsed. Mag ~38 at |c|~1 is this pitch.
 pub const ABSOLUTE_F64_RISKY_PITCH: f64 = 1e-14;
 
 /// Precision carried by a Mandelbrot host type. The C-generator gate is this

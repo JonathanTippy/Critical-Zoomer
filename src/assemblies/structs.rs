@@ -30,6 +30,9 @@ pub struct ViewHud {
     pub gear: ComputeGear,
     pub points_delta: u64,
     pub iterations_delta: u64,
+    /// Running mean iterations/seat (`view_ipp`). Final when `ipp_final`.
+    pub ipp: u32,
+    pub ipp_final: bool,
     /// Cumulative full-frame packages dropped by escaper/colorer drain-to-newest.
     pub packages_dropped: u64,
     /// Colorer path actually used for this view (OG / GPU / GPU fell back to OG).

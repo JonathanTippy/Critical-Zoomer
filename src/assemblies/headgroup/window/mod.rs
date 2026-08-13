@@ -114,6 +114,8 @@ pub struct WindowState {
     , pub last_color_label: &'static str
     , pub last_escape_label: &'static str
     , pub last_packages_dropped: u64
+    , pub last_ipp: u32
+    , pub last_ipp_final: bool
     // Last auto_vsync_hz value fanned to content actors.
     , pub last_fanned_auto_vsync_hz: f64
     // Fan Settings only when UI/cadence actually changed.
@@ -202,6 +204,8 @@ async fn internal_behavior<A: SteadyActor>(
         , last_color_label: Settings::DEFAULT.resolved_color_gear().manual_gear_label()
         , last_escape_label: Settings::DEFAULT.resolved_escape_gear().manual_gear_label()
         , last_packages_dropped: 0
+        , last_ipp: 0
+        , last_ipp_final: false
         , last_fanned_auto_vsync_hz: Settings::DEFAULT.auto_vsync_hz
         , settings_fanout_needed: true
         , settings_ui_fan_timer: Instant::now()
@@ -401,6 +405,8 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                             state.last_color_label = s.hud.color.hud_label();
                             state.last_escape_label = s.hud.escape.hud_label();
                             state.last_packages_dropped = s.hud.packages_dropped;
+                            state.last_ipp = s.hud.ipp;
+                            state.last_ipp_final = s.hud.ipp_final;
                             update_sampling_context(&mut state.sampling_context, s);
                         }
                         None => {}
@@ -575,9 +581,14 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                         let esc_fps = state.escape_fps_counter.rate(now);
                                         let col_fps = state.color_fps_counter.rate(now);
                                         let ctrl_fps = state.controller_fps_counter.rate(now);
+                                        let ipp_txt = if state.last_ipp_final {
+                                            format!("ipp:{}", state.last_ipp)
+                                        } else {
+                                            format!("ipp:~{}", state.last_ipp)
+                                        };
                                         // r[impl cz.depth.gear-hud+2]
                                         response += format!(
-                                            "fps:{:.0}  pub:{:.0}  esc:{:.0}  col:{:.0}  ctrl:{:.0}  stack:{}  mode:{}  ref:{}  gear:{}\npps:{:.0}  ips:{:.0}  drop:{}  color:{}  escape:{}  gaze:{}  1s:{:.1}",
+                                            "fps:{:.0}  pub:{:.0}  esc:{:.0}  col:{:.0}  ctrl:{:.0}  stack:{}  mode:{}  ref:{}  gear:{}\npps:{:.0}  ips:{:.0}  {}  drop:{}  color:{}  escape:{}  gaze:{}  1s:{:.1}",
                                             r.0.0 as f64 / 1000000000.0,
                                             pub_fps,
                                             esc_fps,
@@ -589,6 +600,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                             state.last_gear_label,
                                             pps,
                                             ips,
+                                            ipp_txt,
                                             state.last_packages_dropped,
                                             state.last_color_label,
                                             state.last_escape_label,

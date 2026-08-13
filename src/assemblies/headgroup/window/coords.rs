@@ -184,6 +184,16 @@ pub fn ul_for_center(
     }
 }
 
+/// North-tip high-heel UL for a zoom. Picture-sanity latch; mag is the axis.
+pub fn north_tip_ul(zoom_pot: i32, screen: (u32, u32)) -> ObjectivePosAndZoom {
+    ul_for_center(
+        decimal_str_to_intexp(crate::constants::NORTH_TIP_RE).expect("NORTH_TIP_RE"),
+        decimal_str_to_intexp(crate::constants::NORTH_TIP_IM).expect("NORTH_TIP_IM"),
+        zoom_pot,
+        screen,
+    )
+}
+
 /// Viewport center in mathematical (re, im) from UL location.
 // r[impl cz.ui.location-readout+2]
 pub fn viewport_center(loc: &ObjectivePosAndZoom, screen: (u32, u32)) -> (IntExp, IntExp) {

@@ -1,0 +1,15 @@
+---
+description: When the developer rambles, finish every item in the thread — not only the last sentence
+alwaysApply: true
+---
+
+# Follow through the whole thread
+
+If the developer is thinking out loud across several messages, **inventory
+every ask in this conversation** and finish each one before treating the turn
+as done. The latest sentence is not a license to drop earlier ones.
+
+Typical shape here: admit/type correctness, mag as the global axis, north-tip
+picture-sanity vs hard loci for compute-health, then extra properties (e.g.
+IPP). All of those stay in scope until they are in code, tests, or an explicit
+deferral the developer accepted.

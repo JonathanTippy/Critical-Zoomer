@@ -51,13 +51,17 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
   decimals (~40 bits). Pixel pitch is `2^-(zoom+9)`; places are
   `ceil((zoom+9)×log10(2))` with half-even rounding (16 at mag 44). Not a
   workgroup compute bug.
+- **View IPP (2026-08-13).** Mean iterations per seat on the live view. Running
+  while filling (`ipp:~N`); final when every seat is delivered (`ipp:N`).
+  Difficulty of *this* view, not a rate.
 - **OG naive `CopyIntExp<1>` (`stack:i64`) flat grey (2026-08-13).** Separate
   from readout. Headed at mag ~44 after f64 wall. Screen worker panicked in
   `CopyIntExp::from` when viewport `IntExp` mantissa was wider than one word
   (admit is a bit *count*; the stored mantissa still carries extra low bits).
-  **OG naive `i64`:** also when absolute f64 pitch `< 1e-14` (mag ~38), not
-  only when the 53-bit count fails (mag ~42). Headed black at mag 38 with
-  `stack:f64` was that gap.
+  CopyIntExp is only after f64’s bit-count wall (~42), not a mag-38 pitch bump.
+  Headed black at mag 38 with admitted `stack:f64` is an iterate/period
+  regression (location is a latch; mag is global). Picture-sanity latch: north
+  tip / high-heel (`NORTH_TIP_*`). Harder minibrots are compute-health only.
 - **Transition rectangular blockiness / shallow false admit (2026-08-12 design RCA).**
   When a deeper gear exists but the image shows rectangular precision blocks,
   suspect **C-generator false-admit of a shallow type**, or a **later precision

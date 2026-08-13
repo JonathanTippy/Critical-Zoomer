@@ -186,6 +186,8 @@ mod tests {
         assert_eq!(hud.mode.hud_label(), "pert");
         assert_eq!(hud.ref_hud_label(), "complete");
         assert_eq!(hud.gear.hud_label(), "S-F64");
+        assert_eq!(hud.ipp, 0);
+        assert!(!hud.ipp_final);
         let mut pps = RateCounter::default();
         let mut ips = RateCounter::default();
         let now = Instant::now();

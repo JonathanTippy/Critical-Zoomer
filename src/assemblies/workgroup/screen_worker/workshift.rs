@@ -310,6 +310,22 @@ impl<T: Mandelbrotable> WorkContext<T> {
         self.hud_points_window as f64 / secs
     }
 
+    /// Mean iterations per seat on the live view. Grows as seats iterate;
+    /// final when every seat is delivered (easy seats finish first, so a
+    /// mid-fill value is not the view's difficulty).
+    pub fn view_ipp(&self) -> f64 {
+        let n = self.points.len();
+        if n == 0 {
+            return 0.0;
+        }
+        let sum: u64 = self.points.iter().map(|p| p.iterations as u64).sum();
+        sum as f64 / n as f64
+    }
+
+    pub fn view_ipp_final(&self) -> bool {
+        !self.points.is_empty() && self.points.iter().all(|p| p.delivered)
+    }
+
     pub fn screen_point_count(&self) -> u64 {
         self.res.0 as u64 * self.res.1 as u64
     }
@@ -2342,6 +2358,61 @@ mod mutant_kill {
         assert!(
             ctx.points.iter().any(|p| p.initialized || p.delivered),
             "OG CopyIntExp<1> DirectKernel must start seats"
+        );
+    }
+
+    #[test]
+    fn naive_f64_north_tip_mag_38_still_escapes() {
+        use crate::assemblies::headgroup::window::coords::{north_tip_ul, ul_for_center};
+        use crate::assemblies::headgroup::window::coords::{decimal_str_to_intexp};
+        use crate::constants::TEST_SCREEN_RES;
+        use super::{from_stencil_with_margin, workshift_with_kernel, DirectKernel};
+        // Global mag check: far exterior. The north-tip mag-20 mini *center* is
+        // compute-health; at mag 38 that same point is a finished interior.
+        let exterior = (
+            ul_for_center(
+                decimal_str_to_intexp("2").unwrap(),
+                decimal_str_to_intexp("2").unwrap(),
+                38,
+                TEST_SCREEN_RES,
+            ),
+            TEST_SCREEN_RES,
+        );
+        let mut ctx = from_stencil_with_margin::<f64>(exterior, None, 1, false)
+            .expect("mag 38 exterior: f64 admits");
+        assert!(!ctx.coords_are_relative);
+        assert_eq!(ctx.view_ipp(), 0.0);
+        for _ in 0..400 {
+            workshift_with_kernel(16_000_000, 2, 4, 150, &mut ctx, &DirectKernel);
+            if ctx.points.iter().all(|p| p.delivered || p.escapes || p.repeats) {
+                break;
+            }
+        }
+        let escapes = ctx.points.iter().filter(|p| p.escapes).count();
+        let repeats = ctx.points.iter().filter(|p| p.repeats).count();
+        assert!(
+            repeats == 0 && escapes > 0,
+            "admitted f64 at mag 38 must escape on far exterior (escapes={escapes} repeats={repeats})"
+        );
+        let n = ctx.points.len() as f64;
+        let sum: u64 = ctx.points.iter().map(|p| p.iterations as u64).sum();
+        assert!((ctx.view_ipp() - sum as f64 / n).abs() < 1e-9);
+
+        // Picture-sanity latch at a moderate mag (mixed set, not the deep mini).
+        let tip = (north_tip_ul(8, TEST_SCREEN_RES), TEST_SCREEN_RES);
+        let mut tip_ctx = from_stencil_with_margin::<f64>(tip, None, 1, false)
+            .expect("north tip mag 8");
+        for _ in 0..400 {
+            workshift_with_kernel(16_000_000, 2, 4, 150, &mut tip_ctx, &DirectKernel);
+            if tip_ctx.points.iter().all(|p| p.delivered || p.escapes || p.repeats) {
+                break;
+            }
+        }
+        let tip_esc = tip_ctx.points.iter().filter(|p| p.escapes).count();
+        let tip_rep = tip_ctx.points.iter().filter(|p| p.repeats).count();
+        assert!(
+            tip_esc > 0 && tip_rep > 0,
+            "north-tip picture latch at mag 8 should mix in/out (escapes={tip_esc} repeats={tip_rep})"
         );
     }
 

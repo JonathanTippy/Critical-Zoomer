@@ -138,6 +138,8 @@ pub(crate) fn absorb_work_update(state: &mut WorkCollectorState<f64>, u: WorkUpd
                 gear: u.active_gear,
                 points_delta: 0,
                 iterations_delta: u.iterations_delta,
+                ipp: u.ipp,
+                ipp_final: u.ipp_final,
                 packages_dropped: 0,
                 color: completed_work.hud.color,
                 escape: completed_work.hud.escape,
@@ -157,6 +159,8 @@ pub(crate) fn absorb_work_update(state: &mut WorkCollectorState<f64>, u: WorkUpd
                 gear: u.active_gear,
                 points_delta: l as u64,
                 iterations_delta: u.iterations_delta,
+                ipp: u.ipp,
+                ipp_final: u.ipp_final,
                 packages_dropped: 0,
                 color: completed_work.hud.color,
                 escape: completed_work.hud.escape,
@@ -178,6 +182,8 @@ pub(crate) fn absorb_work_update(state: &mut WorkCollectorState<f64>, u: WorkUpd
                 gear: u.active_gear,
                 points_delta: u.completed_points.len() as u64,
                 iterations_delta: u.iterations_delta,
+                ipp: u.ipp,
+                ipp_final: u.ipp_final,
                 packages_dropped: 0,
                 ..Default::default()
             },
@@ -506,6 +512,8 @@ mod mutant_kill {
             kernel_mode: crate::assemblies::structs::KernelMode::Naive,
             reference_status: crate::assemblies::structs::ReferenceStatus::Wip,
             iterations_delta: 0,
+            ipp: 0,
+            ipp_final: false,
             controller_emitted_at: None,
         }
     }

@@ -46,7 +46,7 @@ low bits past the admit count; panicking there killed the screen worker.
 ## OG naive (`Words = 1`)
 
 Manual Naive CPU uses `DirectKernel` on `CopyIntExp<1>` when f32 does not admit
-and either absolute f64 fails **or** pixel pitch is below `1e-14` (f64 still
-admits by bit count but iterate neighbors collapse — headed black around mag
-**38**). One word still covers through ~**49–52**. HUD host stack label is `i64`.
-Not a perturbation compute-gear rung.
+and absolute f64 fails the bit-count gate (home ~**42**). One word still covers
+through ~**49–52**. HUD host stack label is `i64`. Not a perturbation compute-gear
+rung. If f64 is admitted, iterate must work; mag-38 black with `stack:f64` is a
+bug, not a reason to bump the host.
