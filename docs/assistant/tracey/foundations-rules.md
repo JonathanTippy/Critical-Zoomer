@@ -90,14 +90,19 @@ No infinities.
 
 r[cz.math.copy-intexp-mul-schoolbook+1]
 
-**Normative summary.** `Words = 1` mul is a signed `i128` product, then squeeze
-until it fits an `i64` limb. Wider tapes stay schoolbook into `2×Words` limbs.
-Commutative. Not recursive.
+**Normative summary.** `Words = 1` mul is a signed `i128` product, then
+minimum bit-shifts until the product fits a signed `i64` limb (not a 64-bit
+dump). Wider tapes stay schoolbook into `2×Words` limbs. Commutative. Not
+recursive.
 
 **Acceptance criteria.**
 - [x] `a * b == b * a`.
 - [x] Result matches unbounded `IntExp` mul after fitting to `Words×64` bits.
-- [x] A product that needs another word raises `exp` by 64 and keeps the high limb.
+- [x] A product that needs another word on a wide tape raises `exp` by 64 and
+  keeps the high limb. `Words = 1` raises `exp` by the bit count that fits
+  the signed limb.
+- [x] A Mandelbrot orbit at the headed mag-44 sample tracks f64 for tens of
+  iterates (`copy_intexp1_mandel_orbit_tracks_f64_at_headed_c`).
 
 **Implementation.** `src/copy_intexp.rs` `Mul`.
 **Verification.** `mul_commutative`, `mul_matches_squeezed_intexp`,

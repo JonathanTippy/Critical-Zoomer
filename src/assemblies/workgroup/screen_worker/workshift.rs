@@ -1863,7 +1863,7 @@ where
                 "workshift.rs:workshift_with_kernel",
                 "iterate outcomes at deep pitch",
                 &format!(
-                    "{{\"rel\":{},\"pitch\":{:.3e},\"ipp\":{:.3},\"esc\":{esc},\"rep\":{rep},\"del\":{delivered},\"n\":{n},\"uniq_c\":{uniq_c},\"uniq_it\":{},\"c0f\":[{:.6},{:.6}],\"cmidf\":[{:.6},{:.6}],\"it0\":{},\"itm\":{},\"esc0\":{},\"escm\":{}}}",
+                    "{{\"rel\":{},\"pitch\":{:.3e},\"ipp\":{:.3},\"esc\":{esc},\"rep\":{rep},\"del\":{delivered},\"n\":{n},\"uniq_c\":{uniq_c},\"uniq_it\":{},\"c0f\":[{:.6},{:.6}],\"cmidf\":[{:.6},{:.6}],\"z0f\":[{:.6},{:.6}],\"rad0\":{:.6},\"it0\":{},\"itm\":{},\"esc0\":{},\"escm\":{}}}",
                     context.coords_are_relative,
                     pitch,
                     ipp,
@@ -1872,6 +1872,9 @@ where
                     c0.1.to_f64(),
                     cm.0.to_f64(),
                     cm.1.to_f64(),
+                    context.points[0].z.0.to_f64(),
+                    context.points[0].z.1.to_f64(),
+                    (context.points[0].real_squared + context.points[0].imag_squared).to_f64(),
                     context.points[0].iterations,
                     context.points[mid].iterations,
                     context.points[0].escapes,

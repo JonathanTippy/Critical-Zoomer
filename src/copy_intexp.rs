@@ -192,8 +192,8 @@ impl<const Words: usize> Mul for CopyIntExp<Words> {
             let mut p = (self.value[0] as i128) * (other.value[0] as i128);
             let mut exp = self.exp + other.exp;
             while p > i64::MAX as i128 || p < i64::MIN as i128 {
-                p >>= WORDSIZE as u32;
-                exp += WORDSIZE as i32;
+                p >>= 1;
+                exp += 1;
             }
             let mut value = [0i64; Words];
             value[0] = p as i64;
@@ -492,9 +492,45 @@ mod tests {
             exp: 0,
         };
         let p = a * a;
-        assert_eq!(p.exp, WORDSIZE as i32);
-        assert_eq!(p.value[0], 1);
+        // 2^64 does not fit in a signed limb: shift 2 bits, not a whole word.
+        assert_eq!(p.exp, 2);
+        assert_eq!(p.value[0], 1i64 << 62);
         assert_eq!(p.to_f64(), 2.0_f64.powi(64));
+    }
+
+    #[test]
+    fn copy_intexp1_mandel_orbit_tracks_f64_at_headed_c() {
+        let cre = -0.1146689120911964_f64;
+        let cim = 0.9695042757337979_f64;
+        let c = (
+            CopyIntExp1::from(crate::assemblies::headgroup::window::coords::f64_to_intexp(cre)),
+            CopyIntExp1::from(crate::assemblies::headgroup::window::coords::f64_to_intexp(cim)),
+        );
+        let mut z = c;
+        let mut zf = (cre, cim);
+        let mut esc_t = 0u32;
+        let mut esc_f = 0u32;
+        let mut first_bad = None;
+        for n in 1..=40u32 {
+            let re2 = z.0 * z.0;
+            let im2 = z.1 * z.1;
+            let ri = z.0 * z.1;
+            z = (re2 - im2 + c.0, CopyIntExp1::TWO * ri + c.1);
+            zf = (zf.0 * zf.0 - zf.1 * zf.1 + cre, 2.0 * zf.0 * zf.1 + cim);
+            let zt = (z.0.to_f64(), z.1.to_f64());
+            if first_bad.is_none() && ((zt.0 - zf.0).abs() > 1e-8 || (zt.1 - zf.1).abs() > 1e-8) {
+                first_bad = Some((n, zt, zf, z.0.exp, z.1.exp, z.0.value[0], z.1.value[0]));
+            }
+            if esc_t == 0 && (re2 + im2).to_f64() > 4.0 {
+                esc_t = n;
+            }
+            if esc_f == 0 && zf.0 * zf.0 + zf.1 * zf.1 > 4.0 {
+                esc_f = n;
+            }
+        }
+        if let Some((n, zt, zf, e0, e1, v0, v1)) = first_bad {
+            panic!("diverged at n={n} zT=({:.6},{:.6}) zf=({:.6},{:.6}) exp=({e0},{e1}) val=({v0},{v1})", zt.0, zt.1, zf.0, zf.1);
+        }
     }
 
     #[test]
