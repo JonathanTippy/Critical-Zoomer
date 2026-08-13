@@ -12,6 +12,10 @@ const WORDSIZE: usize = 64;
 // JFT: Q: What about rounding? A: not necessary when iterating. bits stay the same.
 // JFT: keep addition and multiplication algebraic instead of branching on sign, its simpler.
 // JFT: When iterating over all words in the value, always use an iterator to give rust the best shot at optimizing.
+// JFT: In this code, its just addition, multiplication, and shifts. no slow ops.
+// JFT: When branching, first ask if you can avoid it.
+// JFT: if you can't, ensure the happy path is immensely more common than the unhappy path.
+// JFT: May need to invert the order of some logic, this is ok.
 
 use std::cmp::Ordering;
 use std::cmp::Ordering::{Equal, Greater, Less};
@@ -461,15 +465,6 @@ mod tests {
             exp in -12i32..12,
         ) -> C2 {
             C2 { value: [w0, w1], exp }
-        }
-    }
-
-    prop_compose! {
-        fn arb_c2_low()(
-            w0 in 0i64..2048,
-            exp in -12i32..12,
-        ) -> C2 {
-            C2 { value: [w0, 0], exp }
         }
     }
 
