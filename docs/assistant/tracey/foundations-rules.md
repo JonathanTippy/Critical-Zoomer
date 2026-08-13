@@ -34,7 +34,7 @@ r[cz.range.guess-biased-nearest+1]
 
 **Acceptance criteria.**
 - [ ] Do **not** recreate `guess_biased` as a standing requirement. Unfinished seats stay `Dummy` (outside-looking), never invented Inside.
-- Revert note: `src/range.rs` at v0.0.9 has `Range` but no `guess_biased`. That method was tile-machine. Overbuilt for the golden design: if the pipe is slow, honest publishing feels better; when PPS is flowing, bias-from-proximate would not be noticed.
+- Revert note: `src/range.rs` at v0.0.9 has `Range` but no `guess_biased`. That method was tile-machine. Skip it: bias would feel better on a slow pipe, but the benefit is too small to justify the complexity; when PPS is flowing it would not be noticed.
 
 r[cz.display.nores-when-no-proximate+1]
 

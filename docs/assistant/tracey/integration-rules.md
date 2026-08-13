@@ -44,17 +44,17 @@ r[cz.int.publisher-nores-bias+1]
 
 **Normative summary.** Do not rebuild a single calibrated-answer biasing system
 (tile-era proximate clamp). The product target is **PPS through the publish
-path**. Remap of the previous package is continuity, not a synthesizer for a
-trickle of “new data.” If the pipe is slow, honest whole-snapshot publishing
-feels better; when PPS is already flowing, bias would not be noticed. Unset
-seats stay `Dummy` (outside-looking), never invented Inside. Provisional edge
-answers stay provisional.
+path**. Bias would feel better if the pipe were slow; the gain is too small to
+pay for the complexity. When PPS is already flowing, bias would not be noticed.
+Unset seats stay `Dummy` (outside-looking), never invented Inside. Provisional
+edge answers stay provisional.
 
 **Acceptance criteria (v0.0.9 terms).**
 - [ ] Remap sampling (`sample_old_values`) carries old answers into the new frame;
   unset pixels remain `CompletedPoint::Dummy{}` (outside-looking), never interior black.
 - [ ] Provisional screen-edge answers are overwritten by real work, never frozen as final.
-- Do not add a calibrated→answer bias shader/pass as a substitute for PPS.
+- Do not add a calibrated→answer bias shader/pass: not a substitute for PPS, and not
+  worth the complexity for a slow-pipe nicety.
 
 r[cz.int.memory-bump+1]
 
