@@ -6,17 +6,17 @@ Atomic rules for bottom-up units: IntExp/homothety, Range/calibration bias, NORE
 
 r[cz.math.intexp-add-commutative+1]
 
-**Normative summary.** `IntExp` addition is commutative for finite values used as homothety coordinates.
+**Normative summary.** `IntExp` addition is commutative. `IntExp` has no infinities.
 
 **Acceptance criteria.**
-- [x] For arbitrary finite `a`, `b`, `a + b == b + a`.
+- [x] For arbitrary `a`, `b`, `a + b == b + a`.
 
 r[cz.math.intexp-mul-associative+1]
 
-**Normative summary.** `IntExp` multiplication is associative for finite values in typical coordinate ranges.
+**Normative summary.** `IntExp` multiplication is associative in typical coordinate ranges. `IntExp` has no infinities.
 
 **Acceptance criteria.**
-- [x] For arbitrary finite `a`, `b`, `c` within test bounds, `(a * b) * c == a * (b * c)`.
+- [x] For arbitrary `a`, `b`, `c` within test bounds, `(a * b) * c == a * (b * c)`.
 
 r[cz.math.mandelbrot-real-axis-symmetry+1]
 
@@ -30,13 +30,11 @@ r[cz.math.mandelbrot-real-axis-symmetry+1]
 
 r[cz.range.guess-biased-nearest+1]
 
-**Normative summary.** `Range::guess_biased` returns the bias when inside the range, otherwise the nearest endpoint.
+**Normative summary.** Tile-era `Range::guess_biased` (clamp a bias into a proven range) is **not** a v0.0.9 product path. The live bar is PPS through whole-snapshot publish, not a calibrated-answer biasing synthesizer.
 
 **Acceptance criteria.**
-- [ ] Bias inside → bias; bias below → lower; bias above → upper.
-- Revert note: **suspended** — `src/range.rs` at v0.0.9 has the `Range` struct but no
-  `guess_biased`; that method arrived with the tile machine. Recreate the verify if a biased
-  guess returns with the GPU port (proximate-bias sampling).
+- [ ] Do **not** recreate `guess_biased` as a standing requirement. Unfinished seats stay `Dummy` (outside-looking), never invented Inside.
+- Revert note: `src/range.rs` at v0.0.9 has `Range` but no `guess_biased`. That method was tile-machine. Overbuilt for the golden design: if the pipe is slow, honest publishing feels better; when PPS is flowing, bias-from-proximate would not be noticed.
 
 r[cz.display.nores-when-no-proximate+1]
 
