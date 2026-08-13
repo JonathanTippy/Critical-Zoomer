@@ -52,5 +52,6 @@ Commits: `automatic checkpoint` ≈ assistant; `WIP` ≈ developer.
 | 14 | `critical-zoomer-invariants.mdc` | AGENTS and craftsmanship rules name it as the always-on summary. File was missing from `.cursor/rules/`. Restored from the six typed invariants. | **~38%** |
 | 15 | Mag-38 black as i64 / pitch | HUD `gear:F64` `mode:naive` is OG DirectKernel, not the i64 tape. `stack:` is the host. Assistant CopyIntExp bump was the OG regression. Mag-43 grey is i64→f64 collector narrow. | **~40%** |
 | 16 | `full_check` still “on repo `target/`” in the isolation rule; AGENTS checkpoints “non-main only” | Hook builds `/tmp/cz_full_check_cargo_target`; agents `/tmp/cz_cursor_cargo_target`. Checkpoints go on the **checked-out** branch (often main). Hook green ≠ hunt done; redundant always-on rules for don’t-stagnate / follow-through / checkpoints. | **~42%** |
+| 17 | Mag-43 “flat grey” + collector `to_f64(c)` | Screenshots are **four quadrants**, one lighter. Screen-worker `get_c` CopyIntExp add; shade is a pipe. `c` is not on WorkUpdate. 16×17 pin missed the 2×2. | **~44%** |
 
-Not 100%. Implementation ghosts still mostly unknown. Headed grey / head CPU still open.
+Not 100%. Implementation ghosts still mostly unknown. Headed 2×2 grey / head CPU still open.

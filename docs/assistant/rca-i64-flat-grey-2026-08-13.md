@@ -1,74 +1,78 @@
-# RCA: i64 naive flat grey (2026-08-13)
+# RCA: i64 naive four-quadrant grey (2026-08-13)
 
-Headed observation (developer):
+Headed (developer screenshots, not a tokenizer paraphrase):
 
-```
-mag 2^43  -0.1761779392230477 + 1.0870336335448237i
-```
+- `mag 2^43  -0.1761779392230477 + 1.0870336335448237i`
+- `mag 2^43  -0.2067325560057166 + 1.1075689870974698i`
+- `mag 2^44  -0.104628673854 + 0.959133336119i`
 
-Picture: **flat grey**, not Mandelbrot. HUD: `stack:i64`, `mode:naive`,
-`gear:F64`, `ipp:0`, pps high. Constants: `HEADED_I64_GREY_*`.
+Picture: **four axis-aligned quadrants of flat grey**, one slightly lighter.
+Sharp horizontal + vertical cuts. Not Mandelbrot. Not one uniform field.
 
-**Not fixed.** Do not treat this as closed.
+HUD: `stack:i64` `mode:naive` `gear:F64` (OG stamp — read `stack:`) `ipp:0`
+pps high. `HEADED_I64_GREY_*` is the first locus.
 
-This is **not** the mag-~38 black. That was OG naive on **f64** (`stack:f64`),
-an assistant regression while wiring `CopyIntExp` (`From` panic, then an illegal
-`1e-14` host bump). Developer: black is closed. HUD `gear:F64` on naive is the
-OG DirectKernel / ComputeGear stamp, including when the host is i64. Read
-`stack:`, not `gear:`. Assistant mistake: treating `gear:F64` as “this is f64
-iterate / the i64 kernel.”
+**Not fixed.** Shade is a pipe (v0.1 interview): what the screen worker
+answers is the picture.
 
 ---
 
-## What is still iterating
+## Retracted
 
-At mag 43, absolute f64 fails the bit-count admit. Manual Naive CPU uses
-`DirectKernel` on `CopyIntExp<1>` (`stack:i64`).
-
-The pin `og_copy_intexp1_headed_mag_43_not_all_interior` shows:
-
-- seats **do** escape (not all-interior black)
-- `view_ipp() > 0` (tape is iterating)
-- **more than one** escape time (neighbors are not the same orbit)
-
-So the i64 iterate is not “everyone Dummy 100.” Headed `ipp:0` is a **HUD /
-publish lie**, not “no work.”
+1. **OG-black was i64.** Mag-~38 black was OG naive **f64**. Assistant
+   regression. `gear:F64` is the kernel stamp.
+2. **Collector `to_f64(c)`.** `c` is not a render input and must not be
+   emitted (`docs/assistant/design/work-update.md`). Publish is f32 `z` +
+   f64 scalars. That cannot draw four screen rectangles.
+3. **“Flat grey” as the symptom.** The screenshots are a **2×2**.
 
 ---
 
-## Why shade is flat grey
+## Scope: screen worker only
 
-The collector still takes `WorkUpdate<f64>`. Completions from the i64 tape are
-narrowed with `to_f64` on `c` (and `z`) before color.
+Manual Naive `DirectKernel` on `CopyIntExp<1>`. Absolute C-generator
+(`relative_ok: false`). Completions are Escapes / Repeats / Dummy; those
+are what shade paints (escape time / smallness / interior).
 
-At this location `|c| ~ 1`. Pixel pitch at mag 43 is far below 1 ulp of f64
-near 1. Neighbor seats that differ on the i64 tape **round to the same f64
-`c`**. The pin: unique `to_f64(c)` bit-pairs **< seat count**.
-
-Colorer / dummy-smallness then see a field of collapsed `c`/`z`. Dummy 100 on
-that collapsed field is the same flat grey.
-
-High pps + `ipp:0` on the headed HUD is this interlayer (f64 publish), not an
-idle worker.
+This view does **not** cross `c = 0`. The whole patch is Re < 0, Im > 0
+(width ~ `854 × 2^-(43+9)`). Screen quadrants are **not** the complex-plane
+axes. They are **pixel-index** axes.
 
 ---
 
-## What this is not
+## Mechanism
 
-- Not location-HUD decimal rounding (display only).
-- Not the closed fat-mantissa `From<IntExp>` panic.
-- Not “bump CopyIntExp earlier” (that re-broke OG f64 naive).
-- Not `gear:F64` meaning the wrong kernel.
+`CGenerator::get_c` is `origin + space * seat` (and `origin − space * row`)
+in `CopyIntExp<1>`. Admit is bit-*count* (64 ≥ ~54 at mag 43, |c|~1) and
+passes. `get_c` then **adds** a `2^-52` pitch onto an origin near 1.
+
+CopyIntExp add **squeeze-aligns to the coarser exp** and right-shifts the
+finer mantissa. If origin’s stored exp is coarser than pitch, the pixel
+offset shifts off the one-word tape. Only the **high bits of seat/row**
+survive.
+
+One surviving bit of seat → a vertical cut near `2^k` columns (e.g. 256 or
+512), not the window midline. One surviving bit of row → a horizontal cut
+near `2^k` rows (e.g. 256 of 480 ≈ lower ~47%). **Four constant-`c` tiles.**
+Each tile is one orbit / one smallness → one grey; one tile a hair lighter.
+
+That is precision-wall **failure shape C** (admit honest, then a later drop)
+and the interview’s **rectangular low-res** look, at the limit: the whole
+window is a 2×2.
+
+`loop_check` / false period can still make a tile interior. Secondary.
+Provisional scredge does not draw a centered 2×2.
+
+`og_copy_intexp1_headed_mag_43_not_all_interior` uses `TEST_SCREEN_RES`
+(16×17). A 16-wide grid can still show more than one escape time while
+854×480 is four cells. That pin does not see this picture.
 
 ---
 
-## What a fix would have to change (not done)
+## What a fix has to do (not done)
 
-Keep answers at a width that still separates neighbors through collector →
-shade, **or** stop coloring from f64 `c` at this depth. Product change is
-developer-driven. Pin stays; grey stays open until you say otherwise.
+`get_c` on `CopyIntExp<1>` must keep neighbor `c` distinct for every seat
+and row at headed res, at this mag. Admit count is not that proof. Product
+change is developer-driven.
 
-Links: `docs/assistant/issue-stack.md` (true bugs),
-`docs/assistant/design/copy-intexp.md`,
-`src/assemblies/workgroup/screen_worker/workshift.rs`
-(`og_copy_intexp1_headed_mag_43_not_all_interior`).
+Do not re-break OG f64 naive. Do not put `c` on WorkUpdate to “fix” grey.

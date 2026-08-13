@@ -61,16 +61,15 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
   is the pert delta ladder / absolute-naive stamp and stays `F64` even when
   `stack:i64`. Do not read `gear:F64` as “this is f64 iterate.” Developer:
   black is closed. Do not re-break OG naive to chase i64.
-- **OG naive `CopyIntExp<1>` (`stack:i64`) flat grey (2026-08-13).** Separate
-  from OG-black. Headed `mag 2^43  -0.1761779392230477 + 1.0870336335448237i`
-  (`HEADED_I64_GREY_*`): **flat grey**, HUD `ipp:0`, `pps` high, `stack:i64`,
-  `gear:F64` (lie, see above). RCA: collector channel is still `WorkUpdate<f64>`;
-  cie answers `to_f64` at pitch ≈ ulp(|c|~1). Tape still iterates (escape times
-  differ); shade sees collapsed f64 `c`/`z`.   Dummy smallness 100 is the same
-  flat grey. Full write-up:
-  `docs/assistant/rca-i64-flat-grey-2026-08-13.md`.
-  Pin `og_copy_intexp1_headed_mag_43_not_all_interior`. **Do not
-  treat grey as fixed.** Fat-mantissa `From` squeeze is a closed panic, not this.
+- **OG naive `CopyIntExp<1>` (`stack:i64`) four-quadrant grey (2026-08-13).**
+  Separate from OG-black. Headed mag 43–44 (e.g. `HEADED_I64_GREY_*`):
+  **four axis-aligned grey rectangles, one slightly lighter** — not one flat
+  field, not Mandelbrot. HUD `ipp:0` `pps` high `stack:i64` `gear:F64` (lie).
+  Screen worker: `get_c` CopyIntExp add drops pixel index to ~1 bit/axis.
+  Retracted: collector `to_f64(c)`. Write-up:
+  `docs/assistant/rca-i64-flat-grey-2026-08-13.md`. Pin
+  `og_copy_intexp1_headed_mag_43_not_all_interior` is 16×17 and does not
+  see the 2×2. **Do not treat as fixed.**
 - **Transition rectangular blockiness / shallow false admit (2026-08-12 design RCA).**
   When a deeper gear exists but the image shows rectangular precision blocks,
   suspect **C-generator false-admit of a shallow type**, or a **later precision

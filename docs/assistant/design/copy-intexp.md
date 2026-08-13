@@ -54,8 +54,7 @@ bug, not a reason to bump the host.
 Headed 2026-08-13: **black on OG naive f64 was an assistant regression** (CopyIntExp
 wire-up / `From` panic / illegal `1e-14` host bump). HUD `gear:F64` reports the
 OG naive compute-gear stamp, not the i64 tape — mag 43 `stack:i64` still shows
-`gear:F64`. Remaining product bug is **flat grey** (`HEADED_I64_GREY_*`, HUD
-`ipp:0`): collector is `WorkUpdate<f64>`, so cie `to_f64` at mag 43 collapses
-neighbor `c` while the tape still iterates. Pin
-`og_copy_intexp1_headed_mag_43_not_all_interior`. RCA:
-`docs/assistant/rca-i64-flat-grey-2026-08-13.md`.
+`gear:F64`. Remaining product bug is **four-quadrant grey** (`HEADED_I64_GREY_*`,
+HUD `ipp:0`): screen-worker `get_c` on the one-word tape, not WorkUpdate `c`.
+RCA: `docs/assistant/rca-i64-flat-grey-2026-08-13.md`. Pin
+`og_copy_intexp1_headed_mag_43_not_all_interior` is 16×17 only.

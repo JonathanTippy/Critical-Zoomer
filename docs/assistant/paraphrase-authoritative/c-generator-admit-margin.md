@@ -25,8 +25,9 @@ selection, **or a later precision drop** failed.
 worker stops; (B) C-gen false-admits shallow → rectangular low-res; (C) C-gen
 admits honestly, then code **after** admit uses insufficient precision (e.g.
 an f64 interlayer) → same rectangular look. Naive or pert; do not split the
-theory. Live host completions are f64 (`WorkUpdate<f64>`); treat that as a
-(C) suspect, not as “depth closed.”
+theory. Headed i64 2×2 grey is (C) inside **screen-worker `get_c`**: CopyIntExp
+add drops pixel index after admit (`docs/assistant/rca-i64-flat-grey-2026-08-13.md`).
+WorkUpdate is not that interlayer (f32 `z`, f64 scalars, no `c`).
 
 ## What C-generator judges
 

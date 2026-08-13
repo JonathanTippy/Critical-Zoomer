@@ -2473,30 +2473,18 @@ mod mutant_kill {
             "seats must iterate (headed HUD showed ipp:0) ipp={}",
             ctx.view_ipp()
         );
-        // RCA: collector is WorkUpdate<f64>. Neighbor c/z via to_f64 at mag 43
-        // (pitch ≈ ulp(|c|~1)) can collapse while the i64 tape still iterates.
         let mut times = std::collections::BTreeSet::new();
-        let mut f64_c = std::collections::BTreeSet::new();
         for p in &ctx.points {
             if p.escapes {
                 times.insert(p.iterations);
             }
-            let bits = (
-                p.c.0.to_f64().to_bits(),
-                p.c.1.to_f64().to_bits(),
-            );
-            f64_c.insert(bits);
         }
         assert!(
             times.len() > 1,
-            "i64 iterate still has more than one escape time (got {times:?}); grey is post-tape"
+            "i64 iterate still has more than one escape time on TEST_SCREEN_RES (got {times:?})"
         );
-        assert!(
-            f64_c.len() < ctx.points.len(),
-            "to_f64(c) must collapse some neighbors at mag 43 (unique f64 c={}, seats={})",
-            f64_c.len(),
-            ctx.points.len()
-        );
+        // Headed picture is a 2×2 of greys at DEFAULT_WINDOW_RES; this 16×17
+        // pin does not prove get_c kept pixel index. See rca-i64-flat-grey.
     }
 
     #[test]
