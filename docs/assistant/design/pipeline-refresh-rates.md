@@ -109,11 +109,10 @@ still immediate `request_repaint` (see Head present).
 `fps:` / `pub:` / `esc:` / `col:` / `ctrl:` from emission Instants + rolling
 RateCounters; `ips:` / `pps:` unchanged.
 
-**`ctrl:` coupling (2026-08-12):** controller Replace stamps only reach the
-window when a collector publish carries `controller_emitted_at`. Low `ctrl:`
-under motion usually tracks dense publish/remap lag, not a fat Replace payload
-(Replace is stencil-only). Events whose Instant is older than the RateCounter’s
-1 s window age out to 0 at paint. Detail: `collector-publish-bottleneck.md`.
+**`ctrl:` (2026-08-13):** controller wakes on the content period (same
+`resolved_content_period` as collector/shade). Unchanged stencils send `Pace`
+(HUD stamp only, no remap). `ctrl:` should sit near `pub:` at vsync, not 0
+after fill. Replace stays stencil-only on real view changes.
 
 ## Verify
 

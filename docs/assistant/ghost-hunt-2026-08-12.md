@@ -57,5 +57,6 @@ Commits: `automatic checkpoint` ≈ assistant; `WIP` ≈ developer.
 | 19 | Mag-43 grey = 2×2 / collector / signed δ | **Measured then fixed:** `From` sign steal, unsigned add, f64 relative `c`, `Words=1` mul `>>64`. Developer confirmed headed 2026-08-13. | **~58%** |
 
 | 20 | HUD `stack:` + taskset `0-7`/`4-11` | Overlay is `type:`. Pin is middle-half cores (`3-8` on 12). Mag-44 grey closed. | **~60%** |
+| 21 | Idle HUD `ctrl:` 0 | Controller woke ~50 ms and only `Replace`d on stencil change; stamps aged out of the 1 s counter. Now content-period + `Pace` (no remap). Drain merge keeps Replace over Pace. Headed `ctrl:` vs `pub:` still for the developer. | **~62%** |
 
 Not 100%. Implementation ghosts still mostly unknown. Headed i64 grey is closed.

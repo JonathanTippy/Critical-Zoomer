@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use steady_state::*;
 
 use crate::assemblies::headgroup::window::sampling::*;
@@ -13,6 +15,26 @@ pub enum WorkerCommand {
         frame_info: (ObjectivePosAndZoom, (u32, u32)),
         emitted_at: std::time::Instant,
     },
+    /// Content-beat HUD stamp. Does not remap. Same `emitted_at` path as Replace.
+    Pace { emitted_at: std::time::Instant },
+}
+
+/// Drain-to-newest for mixed Pace/Replace: a later Replace wins; a later Pace
+/// only refreshes the stamp on a kept Replace (never drops the view change).
+// r[impl cz.craft.drain-to-newest+1]
+pub(crate) fn merge_worker_command(prev: Option<WorkerCommand>, next: WorkerCommand) -> WorkerCommand {
+    match (prev, next) {
+        (None, n) => n,
+        (
+            Some(WorkerCommand::Replace { frame_info, .. }),
+            WorkerCommand::Pace { emitted_at },
+        ) => WorkerCommand::Replace {
+            frame_info,
+            emitted_at,
+        },
+        (Some(WorkerCommand::Pace { .. }), n) => n,
+        (Some(WorkerCommand::Replace { .. }), n @ WorkerCommand::Replace { .. }) => n,
+    }
 }
 
 pub struct WorkControllerState {
@@ -34,13 +56,14 @@ pub async fn run(
     actor: SteadyActorShadow,
     from_sampler: SteadyRx<(PointStencil)>,
     to_worker: SteadyTx<WorkerCommand>,
+    settings_in: SteadyRx<crate::settings::Settings>,
     state: SteadyState<WorkControllerState>,
 ) -> Result<(), Box<dyn Error>> {
-    // The worker is tested by its simulated neighbors, so we always use internal_behavior.
     internal_behavior(
-        actor.into_spotlight([&from_sampler], [&to_worker]),
+        actor.into_spotlight([&from_sampler, &settings_in], [&to_worker]),
         from_sampler,
         to_worker,
+        settings_in,
         state,
     )
     .await
@@ -50,10 +73,12 @@ async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
     from_sampler: SteadyRx<(PointStencil)>,
     to_worker: SteadyTx<WorkerCommand>,
+    settings_in: SteadyRx<crate::settings::Settings>,
     state: SteadyState<WorkControllerState>,
 ) -> Result<(), Box<dyn Error>> {
     let mut from_sampler = from_sampler.lock().await;
     let mut to_worker = to_worker.lock().await;
+    let mut settings_in = settings_in.lock().await;
 
     let mut state = state
         .lock(|| WorkControllerState {
@@ -62,14 +87,25 @@ async fn internal_behavior<A: SteadyActor>(
         })
         .await;
 
-    let max_sleep = Duration::from_millis(50);
+    let mut content_period = crate::settings::Settings::DEFAULT.resolved_content_period();
+    let mut last_stamp = Instant::now()
+        .checked_sub(Duration::from_secs(1))
+        .unwrap_or_else(Instant::now);
 
     while actor.is_running(|| i!(to_worker.mark_closed())) {
         await_for_any!(
-            actor.wait_periodic(max_sleep),
+            actor.wait_periodic(content_period),
             actor.wait_avail(&mut from_sampler, 1),
+            actor.wait_avail(&mut settings_in, 1),
         );
 
+        while actor.avail_units(&mut settings_in) > 0 {
+            if let Some(s) = actor.try_take(&mut settings_in) {
+                content_period = s.resolved_content_period();
+            }
+        }
+
+        let mut sent = false;
         if actor.avail_units(&mut from_sampler) > 0 {
             // r[impl cz.craft.drain-to-newest+1]
             while actor.avail_units(&mut from_sampler) > 1 {
@@ -91,16 +127,35 @@ async fn internal_behavior<A: SteadyActor>(
             );
 
             // r[impl cz.craft.stencil-only-replace+2]
-            // Instant only on the outgoing command after vacant check.
             if should_send_replace(&mut state, &frame_info) && !actor.is_full(&mut to_worker) {
                 let _ = actor.try_send(
                     &mut to_worker,
                     WorkerCommand::Replace {
                         frame_info,
-                        emitted_at: std::time::Instant::now(),
+                        emitted_at: Instant::now(),
                     },
                 );
+                last_stamp = Instant::now();
+                sent = true;
             }
+        }
+
+        if !sent
+            && state.last_sampler_location.is_some()
+            && crate::assemblies::workgroup::work_collector::content_beat_due(
+                last_stamp,
+                content_period,
+                Instant::now(),
+            )
+            && !actor.is_full(&mut to_worker)
+        {
+            let _ = actor.try_send(
+                &mut to_worker,
+                WorkerCommand::Pace {
+                    emitted_at: Instant::now(),
+                },
+            );
+            last_stamp = Instant::now();
         }
     }
     // Final shutdown log, reporting all statistics.
@@ -241,6 +296,38 @@ mod mutant_kill {
         fres.1 = (TEST_SCREEN_RES.0 + 2, TEST_SCREEN_RES.1);
         assert!(should_send_replace(&mut state, &fres));
         assert_eq!(state.worker_res, fres.1);
+    }
+
+    #[test]
+    fn mutant_kill_merge_pace_does_not_drop_replace() {
+        let at0 = Instant::now();
+        let at1 = Instant::now();
+        let frame = frame(-2);
+        let replace = WorkerCommand::Replace {
+            frame_info: frame.clone(),
+            emitted_at: at0,
+        };
+        let pace = WorkerCommand::Pace { emitted_at: at1 };
+        match merge_worker_command(Some(replace), pace) {
+            WorkerCommand::Replace {
+                frame_info,
+                emitted_at,
+            } => {
+                assert_eq!(frame_info.0.zoom_pot, -2);
+                assert_eq!(emitted_at, at1);
+            }
+            WorkerCommand::Pace { .. } => panic!("Pace must not eclipse Replace"),
+        }
+        match merge_worker_command(
+            Some(WorkerCommand::Pace { emitted_at: at0 }),
+            WorkerCommand::Replace {
+                frame_info: frame,
+                emitted_at: at1,
+            },
+        ) {
+            WorkerCommand::Replace { emitted_at, .. } => assert_eq!(emitted_at, at1),
+            WorkerCommand::Pace { .. } => panic!("Replace after Pace must win"),
+        }
     }
 
     /// Screen→plane: +seat → +real, +row → −imag, zoom_pot polarity, init zoom.

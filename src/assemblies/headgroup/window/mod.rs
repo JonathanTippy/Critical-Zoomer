@@ -135,12 +135,12 @@ pub async fn run(
     actor: SteadyActorShadow,
     pixels_in: SteadyRx<View<Color32>>,
     stencil_out: SteadyTx<(PointStencil)>,
-    settings_out: SteadyTxBundle<Settings,4>,
+    settings_out: SteadyTxBundle<Settings, 5>,
     attention_out: SteadyTx<AttentionFocus>,
     state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
     internal_behavior(
-        actor.into_spotlight([&pixels_in], [&stencil_out, &settings_out[0], &settings_out[1], &settings_out[2], &settings_out[3], &attention_out]),
+        actor.into_spotlight([&pixels_in], [&stencil_out, &settings_out[0], &settings_out[1], &settings_out[2], &settings_out[3], &settings_out[4], &attention_out]),
         pixels_in,
         stencil_out,
         settings_out,
@@ -155,7 +155,7 @@ async fn internal_behavior<A: SteadyActor>(
     actor: A,
     pixels_in: SteadyRx<View<Color32>>,
     stencil_out: SteadyTx<(PointStencil)>,
-    settings_out: SteadyTxBundle<Settings, 4>,
+    settings_out: SteadyTxBundle<Settings, 5>,
     attention_out: SteadyTx<AttentionFocus>,
     state: SteadyState<WindowState>,
 ) -> Result<(), Box<dyn Error>> {
@@ -296,7 +296,7 @@ struct EguiWindowPassthrough<'a, A> {
     portable_actor: Arc<Mutex<A>>,
     pixels_in: SteadyRx<View<Color32>>,
     stencil_out: SteadyTx<(PointStencil)>,
-    settings_out: SteadyTxBundle<Settings, 4>,
+    settings_out: SteadyTxBundle<Settings, 5>,
     attention_out: SteadyTx<AttentionFocus>,
     portable_state:Arc<Mutex<StateGuard<'a, WindowState>>>
 }
@@ -319,6 +319,7 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
             ,self.settings_out[1].try_lock().unwrap()
             ,self.settings_out[2].try_lock().unwrap()
             ,self.settings_out[3].try_lock().unwrap()
+            ,self.settings_out[4].try_lock().unwrap()
         ];
         let mut attention_out = self.attention_out.try_lock().unwrap();
         let mut state = self.portable_state.lock().unwrap();

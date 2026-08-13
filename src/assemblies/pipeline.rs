@@ -48,7 +48,7 @@ pub fn build_pipeline(graph: &mut Graph, head: HeadKind) {
 
     let (window_tx_to_stuff, stuff_rx_from_window) = channel_builder
         .with_capacity(50)
-        .build_channel_bundle::<Settings, 4>();
+        .build_channel_bundle::<Settings, 5>();
 
     let (work_controller_tx_to_screen_worker, screen_worker_rx_from_work_controller) =
         channel_builder.with_capacity(10).build();
@@ -76,11 +76,12 @@ pub fn build_pipeline(graph: &mut Graph, head: HeadKind) {
         .with_load_avg()
         .with_mcpu_avg();
 
-    let (colorer_settings, escaper_settings, worker_settings, collector_settings) = (
+    let (colorer_settings, escaper_settings, worker_settings, collector_settings, controller_settings) = (
         stuff_rx_from_window[0].clone(),
         stuff_rx_from_window[1].clone(),
         stuff_rx_from_window[2].clone(),
         stuff_rx_from_window[3].clone(),
+        stuff_rx_from_window[4].clone(),
     );
 
     match head {
@@ -140,6 +141,7 @@ pub fn build_pipeline(graph: &mut Graph, head: HeadKind) {
                 context,
                 work_controller_rx_from_window.clone(),
                 work_controller_tx_to_screen_worker.clone(),
+                controller_settings.clone(),
                 state.clone(),
             )
         },

@@ -12,8 +12,9 @@ Headed `ctrl:` / `pub:` ~15 at `DEFAULT_WINDOW_RES` (854×480), collapsing
 toward 0 at 1920×1080.
 
 - `pub:` is collector content-beat publish stamps that reach the window.
-- `ctrl:` is controller Replace emission Instants that **ride** a later
-  successful collector→shade publish (`pending_controller_emitted_at` → View HUD).
+- `ctrl:` is controller Replace/Pace Instants that **ride** a later
+  successful collector→shade publish. Since 2026-08-13 the controller also
+  `Pace`s on the content beat so idle `ctrl:` tracks vsync instead of aging to 0.
 
 So `ctrl:` is **not** the work-controller loop rate. The controller is not
 back-pressured by the collector channel in the sense of a slow Replace sender;

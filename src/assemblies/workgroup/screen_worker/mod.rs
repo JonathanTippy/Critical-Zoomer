@@ -527,12 +527,25 @@ async fn internal_behavior<A: SteadyActor>(
         if actor.avail_units(&mut commands_in) > 0 {
 
             // r[impl cz.craft.drain-to-newest+1]
-            while actor.avail_units(&mut commands_in) > 1 {
-                let stuff = actor.try_take(&mut commands_in).expect("internal error");
-                drop(stuff);
-            };
+            let mut cmd = actor.try_take(&mut commands_in).expect("internal error");
+            while actor.avail_units(&mut commands_in) > 0 {
+                cmd = merge_worker_command(
+                    Some(cmd),
+                    actor.try_take(&mut commands_in).expect("internal error"),
+                );
+            }
 
-            match actor.try_take(&mut commands_in).unwrap() {
+            match cmd {
+
+                WorkerCommand::Pace { emitted_at } => {
+                    emit_controller_pace(
+                        &mut actor,
+                        &mut updates_out,
+                        &mut state,
+                        emitted_at,
+                    )
+                    .await;
+                }
 
                 WorkerCommand::Replace { frame_info, emitted_at } => {
                     state.pending_controller_emitted_at = Some(emitted_at);
@@ -1045,6 +1058,53 @@ fn work_update_to_f64<T: Mandelbrotable + 'static>(u: WorkUpdate<T>) -> WorkUpda
         ipp: u.ipp,
         ipp_final: u.ipp_final,
         controller_emitted_at: u.controller_emitted_at,
+    }
+}
+
+async fn emit_controller_pace<A, T>(
+    actor: &mut A,
+    updates_out: &mut T,
+    state: &mut WorkerState<f64>,
+    emitted_at: std::time::Instant,
+) where
+    A: SteadyActor,
+    T: TxCore<MsgOut = WorkUpdate<f64>, MsgSize = usize>,
+    for<'a> T: TxCore<MsgIn<'a> = WorkUpdate<f64>, MsgOut = WorkUpdate<f64>, MsgSize = usize>,
+{
+    state.pending_controller_emitted_at = Some(emitted_at);
+    let ctrl = state.pending_controller_emitted_at.take();
+    let update = if let Some(live) = state.f32_live.as_mut() {
+        work_update_to_f64(telemetry_update(
+            Some(live.frame_info.clone()),
+            vec![],
+            Some(&mut live.context),
+            0,
+            ctrl,
+        ))
+    } else if let Some(live) = state.cie_live.as_mut() {
+        work_update_to_f64(telemetry_update(
+            Some(live.frame_info.clone()),
+            vec![],
+            Some(&mut live.context),
+            0,
+            ctrl,
+        ))
+    } else if let Some(live) = state.work_context.as_mut() {
+        telemetry_update(
+            Some(live.frame_info.clone()),
+            vec![],
+            Some(&mut live.context),
+            0,
+            ctrl,
+        )
+    } else {
+        state.pending_controller_emitted_at = ctrl;
+        return;
+    };
+    if let Err(u) = send_update_waiting(actor, updates_out, update).await {
+        if let Some(at) = u.controller_emitted_at {
+            state.pending_controller_emitted_at = Some(at);
+        }
     }
 }
 

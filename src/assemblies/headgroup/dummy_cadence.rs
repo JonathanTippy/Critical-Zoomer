@@ -58,7 +58,7 @@ pub async fn run(
     actor: SteadyActorShadow,
     pixels_in: SteadyRx<View<Color32>>,
     stencil_out: SteadyTx<PointStencil>,
-    settings_out: SteadyTxBundle<Settings, 4>,
+    settings_out: SteadyTxBundle<Settings, 5>,
     attention_out: SteadyTx<AttentionFocus>,
     state: SteadyState<DummyCadenceState>,
     cfg: DummyCadenceConfig,
@@ -72,6 +72,7 @@ pub async fn run(
                 &settings_out[1],
                 &settings_out[2],
                 &settings_out[3],
+                &settings_out[4],
                 &attention_out,
             ],
         ),
@@ -89,7 +90,7 @@ async fn internal_behavior<A: SteadyActor>(
     mut actor: A,
     pixels_in: SteadyRx<View<Color32>>,
     stencil_out: SteadyTx<PointStencil>,
-    settings_out: SteadyTxBundle<Settings, 4>,
+    settings_out: SteadyTxBundle<Settings, 5>,
     attention_out: SteadyTx<AttentionFocus>,
     state: SteadyState<DummyCadenceState>,
     cfg: DummyCadenceConfig,
@@ -101,6 +102,7 @@ async fn internal_behavior<A: SteadyActor>(
         settings_out[1].lock().await,
         settings_out[2].lock().await,
         settings_out[3].lock().await,
+        settings_out[4].lock().await,
     ];
     let mut attention_out = attention_out.lock().await;
 
