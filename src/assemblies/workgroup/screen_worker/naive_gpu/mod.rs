@@ -1035,10 +1035,13 @@ mod smoke_tests {
             .map(|(i, p)| (i as u32, p))
             .collect();
 
-        // Warmup + best-of-3. Floors stay track > 0.80 and compute ≥ 1.5×.
+        // Warmup + best-of-3. Floors stay track ≥ 0.80 and compute ≥ 1.5×.
         gpu.dispatch_wave_multi_iters_only(&upload_c, 4.0, 1e-15, BoutCap::STANDARD, 16)
             .expect("warmup");
         let _ = gpu.harvest_iters_only().expect("warmup harvest");
+        gpu.dispatch_wave_multi_sparse(&upload_fs, 4.0, 1e-15, BoutCap::STANDARD, 16)
+            .expect("warmup sparse");
+        let _ = gpu.harvest_sparse_finals().expect("warmup sparse harvest");
 
         let mut best_compute_ratio = 0.0_f64;
         let mut best_fs_ratio = 0.0_f64;
@@ -1091,7 +1094,7 @@ mod smoke_tests {
             "compute GPU/CPU ratio {best_compute_ratio:.2} below iterate-heavy floor (1.5×)"
         );
         assert!(
-            best_track > 0.80,
+            best_track >= 0.80,
             "sparse fullstack {best_fs_ratio:.2}× is {best_track:.2} of compute {best_compute_ratio:.2}× (need ≥0.80)"
         );
     }

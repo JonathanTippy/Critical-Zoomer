@@ -1,0 +1,20 @@
+---
+description: Pin cargo and the app to the middle half of CPU cores
+alwaysApply: true
+---
+
+# Middle-half CPU pin
+
+`nproc` cores, use the **middle half** (skip first and last quarter). On this
+12-core machine that is `taskset -c 3-8`.
+
+```bash
+n=$(nproc)
+start=$((n / 4))
+end=$((start + n / 2 - 1))
+taskset -c ${start}-${end}
+```
+
+Pin **cargo** and the **app binary** this way. Do not spread across all cores.
+Agents: `taskset -c 3-8` on this 12-core box (same formula). Never `0-7` as a
+habit — that is the first 8, not the middle half.

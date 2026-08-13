@@ -1,5 +1,9 @@
 use super::buffers::*;
 use super::device::{GpuPrecision, NaiveGpuContext, MAX_WAVE};
+
+/// Finish records copied in the compute submit (iterate-heavy waves stay ≤ this).
+/// A second copy runs only when `count` exceeds it.
+const FINISH_EAGER: u32 = 16;
 use crate::assemblies::workgroup::screen_worker::workshift::{BoutCap, Point, Step};
 use bytemuck::{bytes_of, pod_read_unaligned};
 use std::sync::mpsc;
@@ -168,21 +172,7 @@ impl NaiveGpuContext {
             pass.set_bind_group(0, &self.bind_group, &[]);
             pass.dispatch_workgroups((wip_count + 255) / 256, 1, 1);
         }
-        // Header + compact finish prefix in the same submit (no second GPU sync).
-        let sparse_n = wip_count.min(MAX_WAVE);
-        encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, staging, 0, 4);
-        encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, staging, 4, 4);
-        encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, &self.header_staging, 0, 4);
-        encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, &self.header_staging, 4, 4);
-        if sparse_n > 0 {
-            encoder.copy_buffer_to_buffer(
-                &self.finishes_buf,
-                0,
-                staging,
-                16,
-                self.finish_stride * sparse_n as u64,
-            );
-        }
+        self.copy_sparse_header_and_eager(&mut encoder, staging, wip_count);
         if copy_seats {
             encoder.copy_buffer_to_buffer(
                 &self.seats_buf,
@@ -361,20 +351,7 @@ impl NaiveGpuContext {
             pass.set_bind_group(0, &self.bind_group, &[]);
             pass.dispatch_workgroups((wip_count + 255) / 256, 1, 1);
         }
-        let sparse_n = wip_count.min(MAX_WAVE);
-        encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, staging, 0, 4);
-        encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, staging, 4, 4);
-        encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, &self.header_staging, 0, 4);
-        encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, &self.header_staging, 4, 4);
-        if sparse_n > 0 {
-            encoder.copy_buffer_to_buffer(
-                &self.finishes_buf,
-                0,
-                staging,
-                16,
-                self.finish_stride * sparse_n as u64,
-            );
-        }
+        self.copy_sparse_header_and_eager(&mut encoder, staging, wip_count);
         if copy_seats {
             encoder.copy_buffer_to_buffer(
                 &self.seats_buf,
@@ -392,37 +369,68 @@ impl NaiveGpuContext {
         Ok(slot)
     }
 
+    fn copy_sparse_header_and_eager(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        staging: &wgpu::Buffer,
+        wip_count: u32,
+    ) {
+        encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, staging, 0, 4);
+        encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, staging, 4, 4);
+        encoder.copy_buffer_to_buffer(&self.finish_count_buf, 0, &self.header_staging, 0, 4);
+        encoder.copy_buffer_to_buffer(&self.iter_total_buf, 0, &self.header_staging, 4, 4);
+        let eager = wip_count.min(MAX_WAVE).min(FINISH_EAGER);
+        if eager > 0 {
+            encoder.copy_buffer_to_buffer(
+                &self.finishes_buf,
+                0,
+                staging,
+                16,
+                self.finish_stride * eager as u64,
+            );
+        }
+    }
+
     pub fn harvest_iters_only(&self) -> Result<u32, String> {
         let header = map_bytes(&self.device, &self.header_staging, 8)?;
         Ok(u32::from_ne_bytes([header[4], header[5], header[6], header[7]]))
     }
 
-    /// Finals from a sparse-staging slot (header+finishes, one map).
-    /// Parses straight from the mapped range — no full staging `to_vec` copy.
+    /// Finals from a sparse-staging slot. Map the 16-byte header first, then only
+    /// the compact finish prefix (`count` records) — mapping `wip` empty slots
+    /// made iterate-heavy fullstack lag compute (~0.60 track vs ≥0.80).
     pub fn harvest_sparse_slot(&self, slot: u8) -> Result<(Vec<HarvestedFinish>, u32), String> {
         let slot = (slot & 1) as usize;
         let wip = self.sparse_wip[slot].get().min(MAX_WAVE);
-        let map_bytes_n = 16 + self.finish_stride * wip as u64;
         let buf = &self.sparse_staging[slot];
-        let slice = buf.slice(0..map_bytes_n);
-        let (tx, rx) = mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |r| {
-            let _ = tx.send(r);
-        });
-        self.device
-            .poll(wgpu::PollType::Wait)
-            .map_err(|e| format!("poll: {e}"))?;
-        rx.recv()
-            .map_err(|e| e.to_string())?
-            .map_err(|e| format!("map failed: {e}"))?;
-        let mapped = slice.get_mapped_range();
-        let count = u32::from_ne_bytes([mapped[0], mapped[1], mapped[2], mapped[3]]);
-        let iter_delta = u32::from_ne_bytes([mapped[4], mapped[5], mapped[6], mapped[7]]);
+        let header = map_bytes_offset(&self.device, buf, 0, 16)?;
+        let count = u32::from_ne_bytes([header[0], header[1], header[2], header[3]]);
+        let iter_delta = u32::from_ne_bytes([header[4], header[5], header[6], header[7]]);
         let n_fin = count.min(wip).min(MAX_WAVE) as usize;
-        let stride = self.finish_stride as usize;
+        if n_fin == 0 {
+            return Ok((Vec::new(), iter_delta));
+        }
+        let stride = self.finish_stride;
+        if n_fin as u32 > FINISH_EAGER {
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("naive_compact_finishes"),
+                });
+            encoder.copy_buffer_to_buffer(
+                &self.finishes_buf,
+                0,
+                buf,
+                16,
+                stride * n_fin as u64,
+            );
+            self.queue.submit(Some(encoder.finish()));
+        }
+        let mapped = map_bytes_offset(&self.device, buf, 16, stride * n_fin as u64)?;
+        let stride = stride as usize;
         let mut finals = Vec::with_capacity(n_fin);
         for i in 0..n_fin {
-            let off = 16 + i * stride;
+            let off = i * stride;
             match self.precision {
                 GpuPrecision::F32 => {
                     finals.push(finish_from_f32(pod_read_unaligned(&mapped[off..off + 64])));
@@ -432,8 +440,6 @@ impl NaiveGpuContext {
                 }
             }
         }
-        drop(mapped);
-        buf.unmap();
         Ok((finals, iter_delta))
     }
 

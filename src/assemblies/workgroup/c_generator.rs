@@ -1,7 +1,27 @@
 use std::ops::{Add, Mul, Sub};
+use std::io::Write;
 
 use crate::constants::PIXELS_PER_UNIT_POT;
 use crate::utils::IntExp;
+
+pub(crate) fn cz_dbg(hypothesis_id: &str, location: &str, message: &str, data_json: &str) {
+    // #region agent log
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/home/jonathan/git/Critical-Zoomer/.cursor/debug-30c91f.log")
+    {
+        let _ = writeln!(
+            f,
+            "{{\"sessionId\":\"30c91f\",\"hypothesisId\":\"{hypothesis_id}\",\"location\":\"{location}\",\"message\":\"{message}\",\"data\":{data_json},\"timestamp\":{ts}}}"
+        );
+    }
+    // #endregion
+}
 
 /// Default C-generator render headroom beyond neighbor distinguishability.
 /// Headed: 1 bit looks marginally better at type walls than 0; slider stays.
@@ -385,11 +405,61 @@ impl<T: Mandelbrotable> CGenerator<T> {
     ) -> Option<Self> {
         let bits_needed = type_covers_stencil::<T>(loc, zoom_pot, res, margin_bits)?;
         let space_objective = IntExp::from(1).shift(-(zoom_pot as i32 + PIXELS_PER_UNIT_POT));
-        Some(Self {
+        let gen = Self {
             origin: (T::from(loc.0.clone()), T::from(loc.1.clone())),
-            space: T::from(space_objective),
+            space: T::from(space_objective.clone()),
             bits_needed,
-        })
+        };
+        // #region agent log
+        if zoom_pot >= 42 {
+            let w = res.0;
+            let h = res.1;
+            let mut uniq_re = 1u32;
+            let mut last = gen.get_c((0, 0)).0;
+            for seat in 1..w {
+                let v = gen.get_c((seat, 0)).0;
+                if v != last {
+                    uniq_re += 1;
+                    last = v;
+                }
+            }
+            let mut uniq_im = 1u32;
+            let mut last = gen.get_c((0, 0)).1;
+            for row in 1..h {
+                let v = gen.get_c((0, row)).1;
+                if v != last {
+                    uniq_im += 1;
+                    last = v;
+                }
+            }
+            let c00 = gen.get_c((0, 0));
+            let c10 = gen.get_c((1, 0));
+            let c01 = gen.get_c((0, 1));
+            let ie_re = f64::from(loc.0.clone());
+            let ie_im = f64::from(loc.1.clone());
+            cz_dbg(
+                "H1H2",
+                "c_generator.rs:new_with_margin",
+                "get_c uniqueness and From vs IntExp",
+                &format!(
+                    "{{\"zoom\":{zoom_pot},\"bits_needed\":{bits_needed},\"prec\":{},\"w\":{w},\"h\":{h},\"uniq_re\":{uniq_re},\"uniq_im\":{uniq_im},\"space\":{:.3e},\"c00\":[{:.6},{:.6}],\"c10\":[{:.6},{:.6}],\"c01\":[{:.6},{:.6}],\"ie_origin\":[{:.6},{:.6}],\"t_origin\":[{:.6},{:.6}]}}",
+                    T::PRECISION.significand_bits,
+                    gen.space.to_f64(),
+                    c00.0.to_f64(),
+                    c00.1.to_f64(),
+                    c10.0.to_f64(),
+                    c10.1.to_f64(),
+                    c01.0.to_f64(),
+                    c01.1.to_f64(),
+                    ie_re,
+                    ie_im,
+                    gen.origin.0.to_f64(),
+                    gen.origin.1.to_f64(),
+                ),
+            );
+        }
+        // #endregion
+        Some(gen)
     }
 
     pub fn new_relative(

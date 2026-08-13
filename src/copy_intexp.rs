@@ -10,7 +10,6 @@ const WORDSIZE: usize = 64;
 // JFT: This is a form of intexp optimal for iterating with either naive or perturbed methods.
 // JFT: The const bits number is central; sized data on the stack is fast data, even if its actually quite a bit of data.
 // JFT: Q: What about rounding? A: not necessary when iterating. bits stay the same.
-// JFT: keep addition and multiplication algebraic instead of branching on sign, its simpler.
 // JFT: When iterating over all words in the value, always use an iterator to give rust the best shot at optimizing.
 // JFT: In this code, its just addition, multiplication, and shifts. no slow ops.
 // JFT: When branching, first ask if you can avoid it.

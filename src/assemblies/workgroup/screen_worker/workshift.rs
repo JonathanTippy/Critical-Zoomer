@@ -695,6 +695,19 @@ pub fn apply_generator_admission<T: Mandelbrotable>(
     let (_, space) = c_generator.origin_and_space();
     ctx.pitch_epsilon = space.abs() * T::from_f32(1.0 / 256.0);
     ctx.generator_generation = generation;
+    // #region agent log
+    crate::assemblies::workgroup::c_generator::cz_dbg(
+        "H3",
+        "workshift.rs:apply_generator_admission",
+        "relative vs absolute generator",
+        &format!(
+            "{{\"relative\":{},\"prec\":{},\"space\":{:.3e}}}",
+            coords_are_relative,
+            T::PRECISION.significand_bits,
+            space.to_f64()
+        ),
+    );
+    // #endregion
 }
 
 /// Rebuild `c_generator` relative to a published reference anchor.
@@ -1346,13 +1359,11 @@ where
             let index = index_from_pos(&pos, context.res.0);
             let point = &mut context.points[index];
             let delta_c = point.delta_c;
-            let c = c_from_delta_c_f64(
-                (delta_c.0.to_f64(), delta_c.1.to_f64()),
-                &context.coord_anchor,
-            );
+            // Anchor + δc in T. f64(anchor)+f64(δc) collapses every seat at
+            // mag 44 (pitch 2^-53): headed logs it0==itm==17, flat grey.
             point.c = (
-                T::from(crate::assemblies::headgroup::window::coords::f64_to_intexp(c.0)),
-                T::from(crate::assemblies::headgroup::window::coords::f64_to_intexp(c.1)),
+                T::from(context.coord_anchor.0.clone()) + delta_c.0,
+                T::from(context.coord_anchor.1.clone()) + delta_c.1,
             );
             point.z = point.c;
         }
@@ -1818,6 +1829,58 @@ where
     // Idle metric is delivered fraction, not the empty-queue break index.
     let delivered = context.points.iter().filter(|p| p.delivered).count();
     context.percent_completed = delivered as f64 / (total_points as f64) * 100.0;
+    // #region agent log
+    if context.workshifts % 16 == 1 {
+        let (_, space) = context.c_generator.origin_and_space();
+        let pitch = space.to_f64().abs();
+        if pitch > 0.0 && pitch < 1e-12 {
+            let n = context.points.len();
+            let esc = context.points.iter().filter(|p| p.escapes).count();
+            let rep = context.points.iter().filter(|p| p.repeats).count();
+            let ipp = context.view_ipp();
+            let mid = n / 2;
+            let c0 = context.points[0].c;
+            let cm = context.points[mid].c;
+            let samples = [0usize, (n.saturating_sub(1)).min(n.saturating_sub(1)), n / 4, n / 2, (n * 3) / 4];
+            let mut uniq_c = 0usize;
+            let mut seen: Vec<(T, T)> = Vec::new();
+            let mut uniq_it = std::collections::BTreeSet::new();
+            for i in samples {
+                if i >= n {
+                    continue;
+                }
+                let c = context.points[i].c;
+                if !seen.iter().any(|s| *s == c) {
+                    seen.push(c);
+                    uniq_c += 1;
+                }
+                if context.points[i].initialized {
+                    uniq_it.insert(context.points[i].iterations);
+                }
+            }
+            crate::assemblies::workgroup::c_generator::cz_dbg(
+                "H4H5",
+                "workshift.rs:workshift_with_kernel",
+                "iterate outcomes at deep pitch",
+                &format!(
+                    "{{\"rel\":{},\"pitch\":{:.3e},\"ipp\":{:.3},\"esc\":{esc},\"rep\":{rep},\"del\":{delivered},\"n\":{n},\"uniq_c\":{uniq_c},\"uniq_it\":{},\"c0f\":[{:.6},{:.6}],\"cmidf\":[{:.6},{:.6}],\"it0\":{},\"itm\":{},\"esc0\":{},\"escm\":{}}}",
+                    context.coords_are_relative,
+                    pitch,
+                    ipp,
+                    uniq_it.len(),
+                    c0.0.to_f64(),
+                    c0.1.to_f64(),
+                    cm.0.to_f64(),
+                    cm.1.to_f64(),
+                    context.points[0].iterations,
+                    context.points[mid].iterations,
+                    context.points[0].escapes,
+                    context.points[mid].escapes,
+                ),
+            );
+        }
+    }
+    // #endregion
 }
 
 /// Hard ceiling for any single iteration bout. The worker must never make an
@@ -2475,6 +2538,48 @@ mod mutant_kill {
         );
         // Neighbor distinctness at headed res: `headed_mag_43_get_c_unique_count_at_window_res`.
         // A 16×17 patch can share one escape time once imag add is correct.
+    }
+
+    #[test]
+    // r[verify cz.depth.c-generator-fails-closed+1]
+    fn relative_copy_intexp1_mag_44_does_not_f64_collapse_c() {
+        use crate::assemblies::headgroup::window::coords::{decimal_str_to_intexp, ul_for_center};
+        use crate::copy_intexp::CopyIntExp1;
+        use super::{from_stencil_with_margin, DirectKernel, SeatKernel};
+        let res = crate::constants::DEFAULT_WINDOW_RES;
+        let loc = ul_for_center(
+            decimal_str_to_intexp("-0.1146689120911964").unwrap(),
+            decimal_str_to_intexp("0.9695042757337979").unwrap(),
+            44,
+            res,
+        );
+        let mut ctx = from_stencil_with_margin::<CopyIntExp1>((loc, res), None, 1, true)
+            .expect("mag 44 CopyIntExp<1>");
+        assert!(
+            ctx.coords_are_relative,
+            "mag 44 headed path is relative CopyIntExp"
+        );
+        let corners = [
+            (0i32, 0i32),
+            (res.0 as i32 - 1, 0),
+            (0, res.1 as i32 - 1),
+            (res.0 as i32 - 1, res.1 as i32 - 1),
+            (res.0 as i32 / 2, res.1 as i32 / 2),
+        ];
+        let mut uniq = Vec::new();
+        for pos in corners {
+            DirectKernel.start_seat(&mut ctx, pos);
+            let idx = crate::utils::index_from_pos(&pos, ctx.res.0);
+            let c = ctx.points[idx].c;
+            if !uniq.iter().any(|u| *u == c) {
+                uniq.push(c);
+            }
+        }
+        assert!(
+            uniq.len() > 1,
+            "relative naive must not collapse plane c ({} unique of 5 corners; f64(c) may still match)",
+            uniq.len()
+        );
     }
 
     #[test]
