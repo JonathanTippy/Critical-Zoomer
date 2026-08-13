@@ -1,6 +1,12 @@
 {
   "version": 1,
   "hooks": {
+    "sessionStart": [
+      {
+        "command": "bash .cursor/hooks/notify-zoomer-groove.sh start",
+        "timeout": 5
+      }
+    ],
     "beforeShellExecution": [
       {
         "command": ".cursor/hooks/guard-raw-kill.sh",
@@ -20,10 +26,21 @@
         "timeout": 15
       }
     ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "bash .cursor/hooks/notify-zoomer-groove.sh prompt",
+        "timeout": 5
+      }
+    ],
     "stop": [
       {
         "command": ".cursor/hooks/kill-test-zombies.sh --hook-stop",
         "timeout": 15
+      },
+      {
+        "command": "bash .cursor/hooks/notify-zoomer-groove.sh stop",
+        "timeout": 5,
+        "loop_limit": 2
       },
       {
         "command": "bash .cursor/hooks/full_check_on_stop.sh",
@@ -36,6 +53,10 @@
         "command": ".cursor/hooks/workgroup-rules.sh",
         "matcher": "Write|StrReplace|EditNotebook",
         "timeout": 10
+      },
+      {
+        "command": "bash .cursor/hooks/notify-zoomer-groove.sh post",
+        "timeout": 5
       }
     ]
   }
