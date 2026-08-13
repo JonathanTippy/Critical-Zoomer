@@ -2,6 +2,12 @@
 
 No authoritative unit file (homothety validity only). Non-authoritative.
 
+## CopyIntExp (UD-NUM-COPY-1)
+
+Fixed `[i64; Words]` + `i32` exp for iterate. Same quantity as `IntExp`, but the
+tape cannot grow: add/mul **squeeze** (coarser exp, drop low bits) instead of
+expanding. No infinities. See `docs/assistant/design/copy-intexp.md`.
+
 ## IntExp (UD-NUM-INT-1) — inferred
 
 Rug integer significand + `i32` exponent. Basis for all homothety locations. Tagged properties: add commutative; mul associative (where precision/membership allows).

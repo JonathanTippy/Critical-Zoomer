@@ -66,3 +66,58 @@ Defined in requirements.md: r[cz.display.offscreen-r2-circle+1]
 - Revert note: **feature absent at v0.0.9** — the classifier (`headgroup/window/offscreen.rs`)
   was tile-era. The product rule stands; the implementation needs porting to the restored
   headgroup.
+
+r[cz.math.copy-intexp-add-squeeze+1]
+
+**Normative summary.** `CopyIntExp` add cannot grow the mantissa. It aligns to the
+coarser exp by right-shifting the finer operand (low bits dropped), then if an
+extra carry word is used, shifts one word right and adds 64 to `exp`. Commutative.
+No infinities.
+
+**Acceptance criteria.**
+- [x] `a + b == b + a`.
+- [x] Result matches unbounded `IntExp` add after the same squeeze (round to coarser
+  exp, then round 64-bit words until the value fits `Words` limbs).
+- [x] Finer + coarser keeps the coarser exp.
+
+**Implementation.** `src/copy_intexp.rs` `Add`.
+**Verification.** `add_commutative`, `add_matches_squeezed_intexp`,
+`add_squeezes_to_coarser_exp`, `sub_is_add_of_neg`, `neg_is_involution`.
+
+r[cz.math.copy-intexp-mul-schoolbook+1]
+
+**Normative summary.** `CopyIntExp` mul is schoolbook into `2×Words` limbs, then
+the same squeeze as add until the high half is unused. Commutative. Not recursive.
+
+**Acceptance criteria.**
+- [x] `a * b == b * a`.
+- [x] Result matches unbounded `IntExp` mul after fitting to `Words×64` bits.
+- [x] A product that needs another word raises `exp` by 64 and keeps the high limb.
+
+**Implementation.** `src/copy_intexp.rs` `Mul`.
+**Verification.** `mul_commutative`, `mul_matches_squeezed_intexp`,
+`mul_schoolbook_fits_in_words`, `mul_high_half_shifts_exp`.
+
+r[cz.math.copy-intexp-from-tape+1]
+
+**Normative summary.** `From<IntExp>` copies LSF digits into the fixed window
+(panic if too wide) and applies two’s-complement when the source is negative.
+
+**Acceptance criteria.**
+- [x] Values that fit round-trip through `CopyIntExp` back to `IntExp` equality.
+
+**Implementation.** `CopyIntExp::from`.
+**Verification.** `from_intexp_roundtrips_when_it_fits`.
+
+r[cz.math.copy-intexp-no-infinity+1]
+
+**Normative summary.** `CopyIntExp` cannot represent infinities. Every value is
+finite. `Mandelbrotable::is_finite` is constantly true. Squeeze never produces Inf.
+
+**Acceptance criteria.**
+- [x] Arbitrary values, `ZERO`, `max_value`, and finite `from_f32` are finite.
+- [x] `Ord` agrees with the sign of `a - b` after squeeze subtract.
+
+**Implementation.** `Mandelbrotable` for `CopyIntExp`.
+**Verification.** `every_value_is_finite`, `never_infinite`, `ord_agrees_with_sub_sign`.
+

@@ -1,7 +1,17 @@
+//! Fixed-width `IntExp` for iterate: `[i64; Words]` + `exp` on the stack.
+//! Infinite tape (`IntExp`) grows the mantissa. This type squeezes: align to the
+//! coarser exp, drop low bits, and if a sum/product needs another word, shift
+//! the value right and add 64 to `exp`. No infinities.
+//!
+//! Design: `docs/assistant/design/copy-intexp.md`.
+
 const WORDSIZE: usize = 64;
 
-// This is a form of intexp optimal for iterating with either naive or perturbed methods.
-// The const bits number is central; sized data on the stack is fast data, even if its actually quite a bit of data.
+// JFT: This is a form of intexp optimal for iterating with either naive or perturbed methods.
+// JFT: The const bits number is central; sized data on the stack is fast data, even if its actually quite a bit of data.
+// JFT: Q: What about rounding? A: not necessary when iterating. bits stay the same.
+// JFT: keep addition and multiplication algebraic instead of branching on sign, its simpler.
+// JFT: When iterating over all words in the value, always use an iterator to give rust the best shot at optimizing.
 
 use std::cmp::Ordering;
 use std::cmp::Ordering::{Equal, Greater, Less};
@@ -17,6 +27,7 @@ pub(crate) struct CopyIntExp<const Words: usize> {
     exp: i32,
 }
 impl<const Words: usize> CopyIntExp<Words> {
+    // r[impl cz.math.copy-intexp-from-tape+1]
     pub(crate) fn from(value: IntExp) -> CopyIntExp<Words> {
         if value.val.significant_bits() as usize > Words * WORDSIZE {
             panic!()
@@ -30,7 +41,7 @@ impl<const Words: usize> CopyIntExp<Words> {
                 value: words,
                 exp: value.exp,
             };
-            // good job assistant, happy with this block.
+            // JFT: good job assistant, happy with this block.
             if value.val.is_negative() {
                 out.value = neg_limbs(out.value);
             }
@@ -68,20 +79,23 @@ impl<const Words: usize> From<IntExp> for CopyIntExp<Words> {
 impl<const Words: usize> Add for CopyIntExp<Words> {
     type Output = CopyIntExp<Words>;
     fn add(self, other: CopyIntExp<Words>) -> Self::Output {
+        // r[impl cz.math.copy-intexp-add-squeeze+1]
         // Infinite tape (IntExp): shl the higher-exp mantissa, grow val, keep
         // the finer exp. Fixed tape: shr the finer mantissa onto the coarser
         // exp (drop low bits). Never `<< 0`.
         match self.exp.cmp(&other.exp) {
-            Equal => pack_add(add_limbs(self.value, other.value), self.exp),
+            Equal => pack_add(add_limbs(self.value, other.value), self.exp, limbs_neg(self.value), limbs_neg(other.value)),
             Greater => {
                 let s = (self.exp - other.exp) as u32;
                 debug_assert!(s > 0);
-                pack_add(add_limbs(self.value, shr_limbs(other.value, s)), self.exp)
+                let fine = shr_limbs(other.value, s);
+                pack_add(add_limbs(self.value, fine), self.exp, limbs_neg(self.value), limbs_neg(fine))
             }
             Less => {
                 let s = (other.exp - self.exp) as u32;
                 debug_assert!(s > 0);
-                pack_add(add_limbs(shr_limbs(self.value, s), other.value), other.exp)
+                let fine = shr_limbs(self.value, s);
+                pack_add(add_limbs(fine, other.value), other.exp, limbs_neg(fine), limbs_neg(other.value))
             }
         }
     }
@@ -89,26 +103,32 @@ impl<const Words: usize> Add for CopyIntExp<Words> {
 
 fn add_limbs<const Words: usize>(a: [i64; Words], b: [i64; Words]) -> ([i64; Words], i64) {
     let mut out = [0i64; Words];
-    let mut carry = 0i128;
+    let mut carry = 0u128;
     for i in 0..Words {
-        let sum = a[i] as i128 + b[i] as i128 + carry;
-        out[i] = sum as i64;
+        let sum = a[i] as u64 as u128 + b[i] as u64 as u128 + carry;
+        out[i] = sum as u64 as i64;
         carry = sum >> 64;
     }
     (out, carry as i64)
 }
 
-fn pack_add<const Words: usize>(sum: ([i64; Words], i64), exp: i32) -> CopyIntExp<Words> {
+fn pack_add<const Words: usize>(
+    sum: ([i64; Words], i64),
+    exp: i32,
+    a_neg: bool,
+    b_neg: bool,
+) -> CopyIntExp<Words> {
     let (limbs, extra) = sum;
-    if extra == 0 {
-        CopyIntExp {
-            value: limbs,
-            exp,
-        }
-    } else {
+    let overflow = a_neg == b_neg && limbs_neg(limbs) != a_neg;
+    if extra != 0 && overflow && !limbs_zero(limbs) {
         CopyIntExp {
             value: shr_one_word(limbs, extra),
             exp: exp + WORDSIZE as i32,
+        }
+    } else {
+        CopyIntExp {
+            value: limbs,
+            exp,
         }
     }
 }
@@ -157,6 +177,7 @@ fn shr_limbs<const Words: usize>(a: [i64; Words], s: u32) -> [i64; Words] {
 impl<const Words: usize> Mul for CopyIntExp<Words> {
     type Output = Self;
     fn mul(self, other: Self) -> Self {
+        // r[impl cz.math.copy-intexp-mul-schoolbook+1]
         let sa = limbs_neg(self.value);
         let sb = limbs_neg(other.value);
         let a = if sa {
@@ -170,18 +191,46 @@ impl<const Words: usize> Mul for CopyIntExp<Words> {
             other.value
         };
         let (mut lo, mut hi) = mul_limbs_full(a, b);
+        if sa != sb {
+            (lo, hi) = neg_2n(lo, hi);
+        }
         let mut exp = self.exp + other.exp;
-        while !limbs_zero(hi) {
+        while high_half_used(lo, hi) {
+            let sign = if hi[Words - 1] < 0 { !0i64 } else { 0i64 };
             lo = shr_one_word(lo, hi[0]);
             for i in 0..Words - 1 {
                 hi[i] = hi[i + 1];
             }
-            hi[Words - 1] = 0;
+            hi[Words - 1] = sign;
             exp += WORDSIZE as i32;
         }
-        let value = if sa != sb { neg_limbs(lo) } else { lo };
-        Self { value, exp }
+        Self { value: lo, exp }
     }
+}
+
+fn high_half_used<const Words: usize>(lo: [i64; Words], hi: [i64; Words]) -> bool {
+    let fill = if lo[Words - 1] < 0 { !0i64 } else { 0i64 };
+    hi.iter().any(|&w| w != fill)
+}
+
+fn neg_2n<const Words: usize>(
+    lo: [i64; Words],
+    hi: [i64; Words],
+) -> ([i64; Words], [i64; Words]) {
+    let mut out_lo = [0i64; Words];
+    let mut out_hi = [0i64; Words];
+    let mut carry = 1i128;
+    for i in 0..Words {
+        let t = (!(lo[i] as u64) as i128) + carry;
+        out_lo[i] = t as i64;
+        carry = t >> 64;
+    }
+    for i in 0..Words {
+        let t = (!(hi[i] as u64) as i128) + carry;
+        out_hi[i] = t as i64;
+        carry = t >> 64;
+    }
+    (out_lo, out_hi)
 }
 
 fn mul_limbs_full<const Words: usize>(
@@ -219,7 +268,6 @@ fn mul_limbs_full<const Words: usize>(
     (lo, hi)
 }
 
-/// Q: What about rounding? A: not necessary when iterating. bits stay the same.
 impl<const Words: usize> PartialEq for CopyIntExp<Words> {
     fn eq(&self, other: &Self) -> bool {
         limbs_zero((self.sub(*other)).value)
@@ -308,6 +356,7 @@ fn to_intexp<const Words: usize>(x: CopyIntExp<Words>) -> IntExp {
 }
 
 impl<const Words: usize> Mandelbrotable for CopyIntExp<Words> {
+    // r[impl cz.math.copy-intexp-no-infinity+1]
     const ZERO: Self = Self {
         value: [0; Words],
         exp: 0,
@@ -395,6 +444,41 @@ impl<const Words: usize> Mandelbrotable for CopyIntExp<Words> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    const TAPE: usize = 2;
+    type C2 = CopyIntExp<TAPE>;
+
+    fn round_to_exp(x: IntExp, exp: i32) -> IntExp {
+        match x.exp.cmp(&exp) {
+            Equal => x,
+            Less => IntExp {
+                val: x.val >> (exp - x.exp) as u32,
+                exp,
+            },
+            Greater => IntExp {
+                val: x.val << (x.exp - exp) as u32,
+                exp,
+            },
+        }
+    }
+
+    fn fit_tape(mut x: IntExp, words: usize) -> IntExp {
+        let cap = (words * WORDSIZE - 1) as u32;
+        while x.val.significant_bits() > cap {
+            x = x.round(WORDSIZE);
+        }
+        x
+    }
+
+    fn squeeze_add(a: IntExp, b: IntExp, words: usize) -> IntExp {
+        let exp = a.exp.max(b.exp);
+        fit_tape(round_to_exp(a, exp) + round_to_exp(b, exp), words)
+    }
+
+    fn squeeze_mul(a: IntExp, b: IntExp, words: usize) -> IntExp {
+        fit_tape(a * b, words)
+    }
 
     #[test]
     fn mul_schoolbook_fits_in_words() {
@@ -430,5 +514,101 @@ mod tests {
         let s = coarse + fine;
         assert_eq!(s.exp, 3);
         assert_eq!(s.value[0], 1);
+    }
+
+    #[test]
+    fn never_infinite() {
+        assert!(C2::ZERO.is_finite());
+        assert!(C2::max_value().is_finite());
+        assert!(C2::from_f32(-0.0).is_finite());
+        assert!(C2::from_f32(1.25).is_finite());
+    }
+
+    prop_compose! {
+        fn arb_c2()(
+            w0 in -2048i64..2048,
+            w1 in -4i64..4,
+            exp in -12i32..12,
+        ) -> C2 {
+            C2 { value: [w0, w1], exp }
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        // r[verify cz.math.copy-intexp-add-squeeze+1]
+        #[test]
+        fn add_commutative(a in arb_c2(), b in arb_c2()) {
+            prop_assert_eq!(a + b, b + a);
+        }
+
+        // r[verify cz.math.copy-intexp-add-squeeze+1]
+        #[test]
+        fn add_matches_squeezed_intexp(a in arb_c2(), b in arb_c2()) {
+            let got = to_intexp(a + b);
+            let expect = squeeze_add(to_intexp(a), to_intexp(b), TAPE);
+            prop_assert_eq!(got, expect);
+        }
+
+        // r[verify cz.math.copy-intexp-mul-schoolbook+1]
+        #[test]
+        fn mul_commutative(a in arb_c2(), b in arb_c2()) {
+            prop_assert_eq!(a * b, b * a);
+        }
+
+        // r[verify cz.math.copy-intexp-mul-schoolbook+1]
+        #[test]
+        fn mul_matches_squeezed_intexp(a in arb_c2(), b in arb_c2()) {
+            let got = to_intexp(a * b);
+            let expect = squeeze_mul(to_intexp(a), to_intexp(b), TAPE);
+            prop_assert_eq!(got, expect);
+        }
+
+        // r[verify cz.math.copy-intexp-from-tape+1]
+        #[test]
+        fn from_intexp_roundtrips_when_it_fits(
+            v in -10_000i64..10_000,
+            exp in -8i32..8,
+        ) {
+            let src = IntExp {
+                val: Integer::from(v),
+                exp,
+            };
+            let back = to_intexp(C2::from(src.clone()));
+            prop_assert_eq!(back, src);
+        }
+
+        // r[verify cz.math.copy-intexp-add-squeeze+1]
+        #[test]
+        fn neg_is_involution(a in arb_c2()) {
+            prop_assert_eq!(a.neg().neg(), a);
+        }
+
+        // r[verify cz.math.copy-intexp-add-squeeze+1]
+        #[test]
+        fn sub_is_add_of_neg(a in arb_c2(), b in arb_c2()) {
+            prop_assert_eq!(a - b, a + b.neg());
+        }
+
+        // r[verify cz.math.copy-intexp-no-infinity+1]
+        #[test]
+        fn every_value_is_finite(a in arb_c2()) {
+            prop_assert!(a.is_finite());
+            prop_assert!(<C2 as Mandelbrotable>::is_finite(a));
+        }
+
+        // r[verify cz.math.copy-intexp-no-infinity+1]
+        #[test]
+        fn ord_agrees_with_sub_sign(a in arb_c2(), b in arb_c2()) {
+            let d = a - b;
+            match a.cmp(&b) {
+                Ordering::Equal => prop_assert!(limbs_zero(d.value)),
+                Ordering::Less => prop_assert!(limbs_neg(d.value)),
+                Ordering::Greater => {
+                    prop_assert!(!limbs_neg(d.value) && !limbs_zero(d.value));
+                }
+            }
+        }
     }
 }
