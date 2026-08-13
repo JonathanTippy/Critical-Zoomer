@@ -12,7 +12,8 @@ radius. Live `esc:~15` then `esc:~9` / `col:~45–50` with `drop:` is real and
 authoritative. Dual-device did **not** fix headed rates. Dummy-head RCA:
 convert + GPU pack/readback, not channel full. Within-actor convert hoist +
 same-walk prepack once printed dummy-head GPU esc ~60 Hz — **snapshot, not
-headed, not a standing dummy-head rate** (release pin ≥40; debug can miss).
+headed, not a standing dummy-head rate** (pin GPU esc ≥40 on debug+opt-3
+`cargo test`; unoptimized debug misses it; `--release` is not the house gate).
 **Keep a strong escaper↔colorer actor API**; fusion parked unless unavoidable.
 Stencil: O(1) per loop (two `IntExp`s grow at design depth).
 

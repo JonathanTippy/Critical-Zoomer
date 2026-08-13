@@ -12,7 +12,7 @@ interview. Correct the note. Do not treat headed bugs as fixed.
 | “Shelved: worker parks so head CPU is fine” | Wrong actor. Window still immediate-repaint. Developer: 100% CPU at vsync rates. | Unshelve as open; worker park ≠ window idle. |
 | Actor-layout interview parking lot “cadence not implemented / no code” | Historical; later code landed then `351afdf` reverted head pacing | Amendment on that interview, do not rewrite the transcript. |
 | Depth “finish-line / precision wall green” | Blockiness + post-admit f64 interlayer still open. Tests **pin** `WorkUpdate<f64>` host. | Do not call depth-trust done. |
-| Dummy-head GPU esc ~60 Hz / “test currently passes” | **Tests fail (2026-08-12 debug):** OG mean esc ~10 (floor 15), GPU ~23 (floor 40). Headed still unchecked. | Honest `testing.md`. Do not ignore or lower floors. GPU grind paused. |
+| Dummy-head GPU esc ~60 Hz / “test currently passes” | Snapshot Hz. Pin is dummy-head GPU esc ≥40 / OG ≥15 on **debug+opt-3**. Unoptimized debug misses it; `--release` is not the gate. Headed still unchecked. | Honest `testing.md`. Do not ignore or lower floors. GPU grind paused. |
 | Admit-margin “in tree” read as product fix | Mechanism only | Keep “product not verified”; add failure shape (C) post-admit drop. |
 
 GPU compute/escape grind **paused** for v0.1 (interview). This hunt does not
@@ -31,10 +31,12 @@ Commits: `automatic checkpoint` ≈ assistant; `WIP` ≈ developer.
 | Tick | Swath | Caught | % guess (caught / all, incl. unknowns) |
 |---|---|---|---|
 | 0 (pass 1) | Cadence / color default / VSYNC / depth-closed / dummy-head floors | Table above | ~10% |
-| 1 | Dummy-head GPU esc **~60 Hz** as standing fact | `shadergroup-virtues.md`, shade-gpu interview living notes, issue-stack charter: that Hz was a snapshot; pin is release ≥40; debug can miss; headed still unchecked | **~12%** |
+| 1 | Dummy-head GPU esc **~60 Hz** as standing fact | `shadergroup-virtues.md`, shade-gpu interview living notes, issue-stack charter: that Hz was a snapshot; pin is dummy-head GPU esc ≥40; unoptimized debug can miss; headed still unchecked | **~12%** |
 | 2 | HUD `color:` still OG by default | Window init + `ColorerMode`/`ColorerHud` Default were OG after GPU became product default; collector WorkUpdates wiped shade stamps back to OG. Defaults + preserve stamps. Issue-stack “root cause fixed” retitled so it is not headed blockiness. GPU unit tests now take the same wgpu lock as the IPS probe (parallel GPU tests were starving it). | **~14%** |
 | 3 | Two GPU locks conflated as one | Colorer/escaper tests named `_wgpu` but take in-process `lock_gpu_tests()`; IPS probe + cadence take `/tmp/cz_wgpu_test.lockdir`. Cadence header still spoke as if `--all-targets` were the house run. `pipeline-refresh-rates` “OG remains default” read as colorer. Split the names/comments. Tick 2’s “same wgpu lock as IPS” was itself a ghost. | **~16%** |
 | 4 | `craftsmanship_tests.rs` after the split | Tracey pins, `testing.md`, and AGENTS still named a single file. Tests live in `craftsmanship_tests/` (`mod.rs` + tiers). Paths updated. | **~18%** |
+| 5 | bacon `test-lib` skip list | Skipped dead names (`home_800x480`, `standards_perf::`) and **`gpu_ips`**, which still matches `naive_gpu_ips_ratio_probe` — lightning was silently omitting the IPS probe. Now skips `integration_tier` / `e2e_tier` only. | **~20%** |
 | 6 | coverage/mutants skip lists | Same dead filters as bacon, including `gpu_ips` matching `naive_gpu_ips_ratio_probe`. Both scripts now skip `integration_tier` / `e2e_tier` only. | **~22%** |
+| 7 | “release pin / debug can miss” as house law | After `profile.dev` opt-level 3, house tests are debug+opt-3. Unoptimized debug still misses Hz bars; `--release` drops overflow checks. Living notes in shadergroup-virtues + shade-gpu summary aligned. | **~24%** |
 
 Not 100%. Implementation ghosts still mostly unknown.
