@@ -68,19 +68,20 @@ impl<const Words: usize> From<IntExp> for CopyIntExp<Words> {
 impl<const Words: usize> Add for CopyIntExp<Words> {
     type Output = CopyIntExp<Words>;
     fn add(self, other: CopyIntExp<Words>) -> Self::Output {
-        // Only the higher-exp mantissa is shifted — never `<< 0` (which is
-        // observationally identical to `>> 0` and hid a cargo-mutants survivor).
+        // Infinite tape (IntExp): shl the higher-exp mantissa, grow val, keep
+        // the finer exp. Fixed tape: shr the finer mantissa onto the coarser
+        // exp (drop low bits). Never `<< 0`.
         match self.exp.cmp(&other.exp) {
             Equal => pack_add(add_limbs(self.value, other.value), self.exp),
             Greater => {
                 let s = (self.exp - other.exp) as u32;
                 debug_assert!(s > 0);
-                pack_add(add_limbs(shl_limbs(self.value, s), other.value), other.exp)
+                pack_add(add_limbs(self.value, shr_limbs(other.value, s)), self.exp)
             }
             Less => {
                 let s = (other.exp - self.exp) as u32;
                 debug_assert!(s > 0);
-                pack_add(add_limbs(self.value, shl_limbs(other.value, s)), self.exp)
+                pack_add(add_limbs(shr_limbs(self.value, s), other.value), other.exp)
             }
         }
     }
@@ -121,21 +122,32 @@ fn shr_one_word<const Words: usize>(a: [i64; Words], extra: i64) -> [i64; Words]
     out
 }
 
-fn shl_limbs<const Words: usize>(a: [i64; Words], s: u32) -> [i64; Words] {
+fn shr_limbs<const Words: usize>(a: [i64; Words], s: u32) -> [i64; Words] {
     let mut out = [0i64; Words];
     let word_shift = (s as usize) / WORDSIZE;
     let bits = s % (WORDSIZE as u32);
+    let sign = if a[Words - 1] < 0 { !0u64 } else { 0u64 };
     if word_shift >= Words {
+        if sign != 0 {
+            out = [!0i64; Words];
+        }
         return out;
     }
-    for (i, dst) in out.iter_mut().enumerate().rev() {
-        let Some(src) = i.checked_sub(word_shift) else {
+    for (i, dst) in out.iter_mut().enumerate() {
+        let src = i + word_shift;
+        if src >= Words {
+            *dst = sign as i64;
             continue;
-        };
+        }
         let low = a[src] as u64;
-        let mut v = if bits == 0 { low } else { low << bits };
-        if bits != 0 && src > 0 {
-            v |= (a[src - 1] as u64) >> (WORDSIZE as u32 - bits);
+        let mut v = if bits == 0 { low } else { low >> bits };
+        if bits != 0 {
+            let high = if src + 1 < Words {
+                a[src + 1] as u64
+            } else {
+                sign
+            };
+            v |= high << (WORDSIZE as u32 - bits);
         }
         *dst = v as i64;
     }
@@ -403,5 +415,20 @@ mod tests {
         assert_eq!(p.exp, WORDSIZE as i32);
         assert_eq!(p.value[0], 1);
         assert_eq!(p.to_f64(), 2.0_f64.powi(64));
+    }
+
+    #[test]
+    fn add_squeezes_to_coarser_exp() {
+        let coarse = CopyIntExp::<1> {
+            value: [1],
+            exp: 3,
+        };
+        let fine = CopyIntExp::<1> {
+            value: [1],
+            exp: 0,
+        };
+        let s = coarse + fine;
+        assert_eq!(s.exp, 3);
+        assert_eq!(s.value[0], 1);
     }
 }
