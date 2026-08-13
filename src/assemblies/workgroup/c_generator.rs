@@ -130,6 +130,8 @@ pub fn admit_generator_with_margin<T: Mandelbrotable>(
         let pitch = space.abs().to_f64();
         // Prefer relative when absolute still admits but pitch is near the f64
         // ulp wall (~pot 43 at |c|~1) so live f64 hard-bumps perturbation earlier.
+        // Naive live path must not call this after absolute+margin fail — it
+        // uses `CGenerator::new_with_margin` only (no view-center rescue).
         if pitch > 0.0 && pitch < ABSOLUTE_F64_RISKY_PITCH {
             if let Some(generator) = CGenerator::<T>::new_relative_with_margin(
                 compute_loc,
@@ -433,6 +435,20 @@ mod tests {
         assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 23, res, 20).is_some());
         assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 24, res, 20).is_none());
         assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 24, res, 10).is_some());
+    }
+
+    #[test]
+    fn naive_margin_does_not_rescue_with_view_center_relative() {
+        use crate::constants::{DEFAULT_WINDOW_RES, HOME_POSITION};
+        let compute_loc = (
+            IntExp::from(HOME_POSITION.0),
+            IntExp::ZERO - IntExp::from(HOME_POSITION.1),
+        );
+        let res = DEFAULT_WINDOW_RES;
+        // Absolute+margin-32 dies around pot 11. Naive must use this probe,
+        // not admit_generator's view-center relative rescue (that lasts to ~47).
+        assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 20, res, 32).is_none());
+        assert!(CGenerator::<f64>::new_with_margin(&compute_loc, 10, res, 32).is_some());
     }
 
     #[test]

@@ -2,15 +2,15 @@ use std::cmp::min;
 use steady_state::*;
 use crate::assemblies::headgroup::window::sampling::{index_from_relative_location, relative_location_i32_row_and_seat, transform_relative_location_i32};
 use crate::assemblies::workgroup::c_generator::{
-    admit_generator_with_margin, Mandelbrotable,
+    admit_generator_with_margin, CGenerator, Mandelbrotable,
 };
+use crate::assemblies::structs::{AttentionFocus, KernelMode};
 use crate::assemblies::workgroup::reference_worker::{
     select_reference_request, PublishedReference, ReferenceRequest,
 };
 use crate::delta_gear::ComputeGear;
 use crate::utils::{ObjectivePosAndZoom, pos_from_index, IntExp};
 //use crate::actor::work_collector::*;
-use crate::assemblies::structs::AttentionFocus;
 use crate::assemblies::workgroup::work_controller::*;
 use crate::assemblies::workgroup::screen_worker::workshift::*;
 
@@ -75,6 +75,10 @@ pub struct WorkerState<T: Mandelbrotable> {
 pub struct LiveTarget<T: Mandelbrotable> {
     pub context: WorkContext<T>,
     pub frame_info: (ObjectivePosAndZoom, (u32, u32)),
+}
+
+fn relative_shell_ok(manual_gear: Option<KernelMode>) -> bool {
+    matches!(manual_gear, Some(KernelMode::Pert))
 }
 
 fn ensure_naive_gpu_if_needed(state: &mut WorkerState<f64>) {
@@ -243,15 +247,21 @@ async fn internal_behavior<A: SteadyActor>(
                         let zoom_pot = live.frame_info.0.zoom_pot as i64;
                         let res = live.frame_info.1;
                         let view_center = view_center_compute(&compute_loc, live.frame_info.0.zoom_pot, res);
-                        let relative_anchor = live.context.latest_reference.as_ref().map(|r| &r.c);
-                        if let Some(admission) = admit_generator_with_margin(
-                            &compute_loc,
-                            zoom_pot,
-                            res,
-                            relative_anchor,
-                            &view_center,
-                            margin,
-                        ) {
+                        let admitted = if relative_shell_ok(gear) {
+                            let relative_anchor = live.context.latest_reference.as_ref().map(|r| &r.c);
+                            admit_generator_with_margin(
+                                &compute_loc,
+                                zoom_pot,
+                                res,
+                                relative_anchor,
+                                &view_center,
+                                margin,
+                            )
+                        } else {
+                            CGenerator::new_with_margin(&compute_loc, zoom_pot, res, margin)
+                                .map(crate::assemblies::workgroup::c_generator::GeneratorAdmission::Absolute)
+                        };
+                        if let Some(admission) = admitted {
                             let generation = live.context.generator_generation;
                             apply_generator_admission(
                                 &mut live.context,
@@ -351,6 +361,7 @@ async fn internal_behavior<A: SteadyActor>(
                     );
                     actor.try_send(&mut reference_requests_out, request);
 
+                    let relative_ok = relative_shell_ok(state.manual_gear);
                     let compute_loc = (
                         frame_info.0.pos.0.clone(),
                         IntExp::ZERO - frame_info.0.pos.1.clone(),
@@ -360,20 +371,30 @@ async fn internal_behavior<A: SteadyActor>(
                         frame_info.0.zoom_pot,
                         frame_info.1,
                     );
-                    let relative_anchor = state
-                        .work_context
-                        .as_ref()
-                        .and_then(|l| l.context.latest_reference.as_ref().map(|r| r.c.clone()));
-                    if admit_generator_with_margin::<f64>(
-                        &compute_loc,
-                        frame_info.0.zoom_pot as i64,
-                        frame_info.1,
-                        relative_anchor.as_ref(),
-                        &view_center,
-                        state.c_generator_margin_bits,
-                    )
-                    .is_none()
-                    {
+                    let stencil_ok = if relative_ok {
+                        let relative_anchor = state
+                            .work_context
+                            .as_ref()
+                            .and_then(|l| l.context.latest_reference.as_ref().map(|r| r.c.clone()));
+                        admit_generator_with_margin::<f64>(
+                            &compute_loc,
+                            frame_info.0.zoom_pot as i64,
+                            frame_info.1,
+                            relative_anchor.as_ref(),
+                            &view_center,
+                            state.c_generator_margin_bits,
+                        )
+                        .is_some()
+                    } else {
+                        CGenerator::<f64>::new_with_margin(
+                            &compute_loc,
+                            frame_info.0.zoom_pot as i64,
+                            frame_info.1,
+                            state.c_generator_margin_bits,
+                        )
+                        .is_some()
+                    };
+                    if !stencil_ok {
                         // Fail closed: keep the last legal generator; do not
                         // install a type the margin rejects.
                         continue;
@@ -422,6 +443,7 @@ async fn internal_behavior<A: SteadyActor>(
                         frame_info.clone(),
                         previous_for_shell,
                         state.c_generator_margin_bits,
+                        relative_ok,
                     ) {
                         new_ctx.manual_gear = state.manual_gear;
                         new_ctx.c_generator_margin_bits = state.c_generator_margin_bits;

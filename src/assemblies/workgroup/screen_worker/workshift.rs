@@ -832,14 +832,19 @@ pub fn from_stencil<T: Mandelbrotable + From<f32> + 'static>(
         .as_ref()
         .map(|(old, _)| old.c_generator_margin_bits)
         .unwrap_or(DEFAULT_C_GENERATOR_MARGIN_BITS);
-    from_stencil_with_margin(frame_info, previous, margin)
+    from_stencil_with_margin(frame_info, previous, margin, true)
 }
 
 /// Same as [`from_stencil`] with an explicit C-generator render-margin bit count.
+///
+/// `relative_ok`: perturbation may use a relative/`delta_c` shell when absolute
+/// `c` fails the margin. Naive must pass `false` — otherwise relative-to-center
+/// (or a carried ref) keeps f64 alive until mag 2^47 with rectangular collapse.
 pub fn from_stencil_with_margin<T: Mandelbrotable + From<f32> + 'static>(
     frame_info: (ObjectivePosAndZoom, (u32, u32)),
     previous: Option<(WorkContext<T>, ObjectivePosAndZoom)>,
     margin_bits: u32,
+    relative_ok: bool,
 ) -> Option<WorkContext<T>> {
     let carried_library = previous
         .as_ref()
@@ -863,7 +868,11 @@ pub fn from_stencil_with_margin<T: Mandelbrotable + From<f32> + 'static>(
     let (obj, res) = frame_info;
     let compute_loc = (obj.pos.0.clone(), IntExp::ZERO - obj.pos.1.clone());
     let view_center = view_center_compute(&compute_loc, obj.zoom_pot, res);
-    let relative_anchor = carried_reference.as_ref().map(|r| &r.c);
+    let relative_anchor = if relative_ok {
+        carried_reference.as_ref().map(|r| &r.c)
+    } else {
+        None
+    };
     let generator_generation = carried_reference
         .as_ref()
         .map(|r| r.generation)
