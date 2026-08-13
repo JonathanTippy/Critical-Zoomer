@@ -1,6 +1,20 @@
-# Scoped excludes for full-tree runs. Prefer scripts/mutants.sh.
+# House mutants: unit-tier oracle only.
+# Raw `cargo mutants` used to run `tests/pipeline_cadence.rs` in the unmutated
+# baseline; dummy-head Hz bars are not a mutant-kill suite (and fail in a
+# scratch tree / unoptimized debug). Prefer `scripts/mutants.sh`.
 exclude_globs = [
   "src/main.rs",
   "src/assemblies/headgroup/window/mod.rs",
   "src/settings.rs",
 ]
+additional_cargo_test_args = [
+  "--lib",
+  "--",
+  "--test-threads=1",
+  "--skip",
+  "integration_tier",
+  "--skip",
+  "e2e_tier",
+]
+timeout_multiplier = 2.0
+minimum_test_timeout = 20
