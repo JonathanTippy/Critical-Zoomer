@@ -103,10 +103,11 @@ cheap, and its output is still a full values frame the next stage re-consumes.
 
 **Live rates override benches (2026-08-12):** headed HUD with GPU escape showed
 roughly **`esc:~15` then `esc:~9` / `col:~45–50`**. Dual-device did not fix that.
-Dummy-head RCA then convert hoist + same-walk GPU prepack (still a values
-channel between actors) measured dummy-head GPU **esc ~60 Hz**. **Headed HUD
-not re-checked** after that pass — do not call live rates fixed until the
-window shows it. Shipping/host round-trip (map wait) remains.
+A dummy-head convert-hoist pass once printed GPU **esc ~60 Hz**. That was a
+**snapshot**, not a standing rate: dummy-head **release** pin is GPU esc ≥40
+(`tests/pipeline_cadence.rs`); **debug** has missed that floor; **headed HUD
+was not re-checked**. Do not cite ~60 Hz as current truth. Shipping/host
+round-trip (map wait) remains.
 
 Stacking GPU escape + GPU color today makes the middle worse: escape readback
 into `ZoomerValuesScreen`, then colorer re-packs nearly the same layout as

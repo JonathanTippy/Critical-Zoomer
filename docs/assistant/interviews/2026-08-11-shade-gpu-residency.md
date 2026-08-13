@@ -11,7 +11,8 @@
 radius. Live `esc:~15` then `esc:~9` / `col:~45–50` with `drop:` is real and
 authoritative. Dual-device did **not** fix headed rates. Dummy-head RCA:
 convert + GPU pack/readback, not channel full. Within-actor convert hoist +
-same-walk prepack measured dummy-head GPU esc ~60 Hz — **not a headed fix**.
+same-walk prepack once printed dummy-head GPU esc ~60 Hz — **snapshot, not
+headed, not a standing dummy-head rate** (release pin ≥40; debug can miss).
 **Keep a strong escaper↔colorer actor API**; fusion parked unless unavoidable.
 Stencil: O(1) per loop (two `IntExp`s grow at design depth).
 
@@ -32,7 +33,7 @@ Stencil: O(1) per loop (two `IntExp`s grow at design depth).
 | Per-actor GPU compartmentalization | **goal** — prove by headed `esc:`/`col:`, not Criterion | this interview |
 | Strong escaper↔colorer actor API | **locked** — fusion last resort | virtues + this interview |
 | Stencil O(1) per loop, never O(pixels) | **locked** — two `IntExp`s grow at design depth | virtues + wisdom |
-| Convert hoist + same-walk `gpu_answer_pack` | **applied** — dummy-head GPU esc ~60 Hz measured; headed not re-checked | escaper |
+| Convert hoist + same-walk `gpu_answer_pack` | **applied** — one dummy-head snapshot ~60 Hz; standing pin is release GPU esc ≥40; headed not re-checked | escaper |
 | Dual parallel CPU/GPU views for all actor linkages | **idea only** — developer wary (upload everywhere) | this interview |
 | Fuse escape+color on device / keep values resident | **parked** unless within-actor options are exhausted | this interview |
 | Workgroup answers already GPU-native → shade without host | undiscussed | naive-gpu / publish |

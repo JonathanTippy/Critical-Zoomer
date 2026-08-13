@@ -25,3 +25,12 @@ find; git history is the hunt; they still count in the total. Evolved
 developer ideas are candidates — deference to hand-coded
 design-via-iteration. Dictator-phase spec in Trash is history, not law.
 Commits: `automatic checkpoint` ≈ assistant; `WIP` ≈ developer.
+
+## Loop ticks
+
+| Tick | Swath | Caught | % guess (caught / all, incl. unknowns) |
+|---|---|---|---|
+| 0 (pass 1) | Cadence / color default / VSYNC / depth-closed / dummy-head floors | Table above | ~10% |
+| 1 | Dummy-head GPU esc **~60 Hz** as standing fact | `shadergroup-virtues.md`, shade-gpu interview living notes, issue-stack charter: that Hz was a snapshot; pin is release ≥40; debug can miss; headed still unchecked | **~12%** |
+
+Not 100%. Implementation ghosts barely started. Unknowns still dominate.
