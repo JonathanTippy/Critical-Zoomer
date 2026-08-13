@@ -587,6 +587,21 @@ mod tests {
     }
 
     #[test]
+    fn copy_intexp1_from_fat_viewport_mantissa_does_not_panic() {
+        use crate::constants::{DEFAULT_WINDOW_RES, HOME_POSITION};
+        use crate::copy_intexp::CopyIntExp1;
+        let mut loc = (
+            IntExp::from(HOME_POSITION.0),
+            IntExp::ZERO - IntExp::from(HOME_POSITION.1),
+        );
+        loc.0.val <<= 80;
+        loc.0.exp -= 80;
+        loc.1.val <<= 80;
+        loc.1.exp -= 80;
+        assert!(CGenerator::<CopyIntExp1>::new(&loc, 44, DEFAULT_WINDOW_RES).is_some());
+    }
+
+    #[test]
     fn naive_margin_does_not_rescue_with_view_center_relative() {
         use crate::constants::{DEFAULT_WINDOW_RES, HOME_POSITION};
         let compute_loc = (

@@ -284,10 +284,10 @@ pub fn format_location_readout(re: &IntExp, im: &IntExp, zoom_pot: i32) -> Strin
         format!("+ {im_s}i")
     };
     format!(
-        "{} {}  mag 2^{}"
+        "mag 2^{}  {} {}"
+        , zoom_pot
         , format_intexp_readout(re, zoom_pot)
         , im_part
-        , zoom_pot
     )
 }
 
@@ -438,7 +438,7 @@ pub fn commands_from_goto_line(line: &str) -> Option<Vec<ZoomerCommand>> {
 /// Parse HUD readout (`a ± bi mag 2^N`) or legacy `re im [pot]` / `re, im`.
 /// Returns `(re, im, zoom_pot)` — pot is `Some` when the line named a magnification.
 fn parse_location_or_pair(line: &str) -> Option<(IntExp, IntExp, Option<i32>)> {
-    let (body, mag_pot) = split_mag_suffix(line);
+    let (body, mag_pot) = split_mag(line);
     if let Some((re, im)) = parse_complex(body) {
         return Some((re, im, mag_pot));
     }
@@ -460,7 +460,27 @@ fn parse_location_or_pair(line: &str) -> Option<(IntExp, IntExp, Option<i32>)> {
     Some((re, im, pot))
 }
 
-/// Split trailing `mag 2^N` (location HUD / Copy format) from the complex body.
+/// Split `mag 2^N` from the front (HUD) or the end (older copies).
+fn split_mag(line: &str) -> (&str, Option<i32>) {
+    let t = line.trim();
+    let lower = t.to_lowercase();
+    if lower.starts_with("mag") {
+        let after = t.get(3..).unwrap_or("").trim_start();
+        if let Some((pot, rest)) = mag_token_then_rest(after) {
+            return (rest, Some(pot));
+        }
+    }
+    split_mag_suffix(line)
+}
+
+fn mag_token_then_rest(s: &str) -> Option<(i32, &str)> {
+    let s = s.trim_start();
+    let end = s.find(char::is_whitespace).unwrap_or(s.len());
+    let pot = parse_mag_token(&s[..end])?;
+    Some((pot, s[end..].trim_start()))
+}
+
+/// Split trailing `mag 2^N` (older Copy format) from the complex body.
 fn split_mag_suffix(line: &str) -> (&str, Option<i32>) {
     let lower = line.to_lowercase();
     let Some(idx) = lower.rfind("mag") else {
@@ -585,6 +605,10 @@ mod tests {
         assert!((f64::from(re.clone()) - 1.0).abs() < 1e-6);
         assert!((f64::from(im.clone()) + 1.0).abs() < 1e-6);
         let text = format_location_readout(&re, &im, loc.zoom_pot);
+        assert!(
+            text.starts_with("mag 2^5"),
+            "mag first so a long decimal does not hide it; got {text}"
+        );
         assert!(
             text.contains("mag 2^5"),
             "HUD string must include magnification; got {text}"
@@ -719,6 +743,10 @@ mod tests {
     fn goto_accepts_pasted_hud_string_with_negative_imag_and_mag() {
         let line = "0.301025390625 -0.010498046875i mag 2^2";
         assert!(goto_line_is_valid(line), "screenshot-style paste must validate");
+        assert!(
+            goto_line_is_valid("mag 2^2  0.301025390625 -0.010498046875i"),
+            "HUD mag-prefix paste must validate"
+        );
         let cmds = commands_from_goto_line(line).expect("commands");
         assert!(matches!(cmds.first(), Some(ZoomerCommand::SetZoom { pot: 2 })));
         match cmds.get(1) {

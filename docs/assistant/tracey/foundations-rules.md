@@ -101,14 +101,18 @@ until the high half is unused. Commutative. Not recursive.
 
 r[cz.math.copy-intexp-from-tape+1]
 
-**Normative summary.** `From<IntExp>` copies LSF digits into the fixed window
-(panic if too wide) and applies two’s-complement when the source is negative.
+**Normative summary.** `From<IntExp>` copies LSF digits into the fixed window.
+If the mantissa is wider than the tape, squeeze (drop low bits, raise `exp`)
+until it fits — same as add/mul. Then two’s-complement when the source is
+negative. Never panic on a too-wide source.
 
 **Acceptance criteria.**
 - [x] Values that fit round-trip through `CopyIntExp` back to `IntExp` equality.
+- [x] A mantissa wider than `Words×64` bits still converts (squeeze, no panic).
 
 **Implementation.** `CopyIntExp::from`.
-**Verification.** `from_intexp_roundtrips_when_it_fits`.
+**Verification.** `from_intexp_roundtrips_when_it_fits`,
+`from_squeezes_mantissa_wider_than_tape`.
 
 r[cz.math.copy-intexp-no-infinity+1]
 

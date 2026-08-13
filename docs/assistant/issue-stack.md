@@ -52,8 +52,10 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
   `ceil((zoom+9)×log10(2))` with half-even rounding (16 at mag 44). Not a
   workgroup compute bug.
 - **OG naive `CopyIntExp<1>` (`stack:i64`) flat grey (2026-08-13).** Separate
-  from readout. Headed at mag ~44 after f64 wall: HUD `i64` / `mode:naive`,
-  large flat field. Workgroup iterate/color path — do not blame the decimal HUD.
+  from readout. Headed at mag ~44 after f64 wall. Screen worker panicked in
+  `CopyIntExp::from` when viewport `IntExp` mantissa was wider than one word
+  (admit is a bit *count*; the stored mantissa still carries extra low bits).
+  From now squeezes. Do not treat headed flat as fixed until the developer says so.
 - **Transition rectangular blockiness / shallow false admit (2026-08-12 design RCA).**
   When a deeper gear exists but the image shows rectangular precision blocks,
   suspect **C-generator false-admit of a shallow type**, or a **later precision

@@ -36,24 +36,26 @@ pub(crate) type CopyIntExp1 = CopyIntExp<1>;
 impl<const Words: usize> CopyIntExp<Words> {
     // r[impl cz.math.copy-intexp-from-tape+1]
     pub(crate) fn from(value: IntExp) -> CopyIntExp<Words> {
-        if value.val.significant_bits() as usize <= Words * WORDSIZE {
-            let digits = value.val.to_digits::<u64>(Order::Lsf);
-            let mut words = [0i64; Words];
-            for (i, d) in digits.into_iter().enumerate() {
-                words[i] = d as i64;
-            }
-            let mut out = CopyIntExp {
-                value: words,
-                exp: value.exp,
-            };
-            // JFT: good job assistant, happy with this block.
-            if value.val.is_negative() {
-                out.value = neg_limbs(out.value);
-            }
-            out
-        } else {
-            panic!()
+        let cap = (Words * WORDSIZE) as u32;
+        let mut value = value;
+        while value.val.significant_bits() > cap {
+            let extra = (value.val.significant_bits() - cap) as usize;
+            value = value.round(extra.max(1));
         }
+        let digits = value.val.to_digits::<u64>(Order::Lsf);
+        let mut words = [0i64; Words];
+        for (i, d) in digits.into_iter().take(Words).enumerate() {
+            words[i] = d as i64;
+        }
+        let mut out = CopyIntExp {
+            value: words,
+            exp: value.exp,
+        };
+        // JFT: good job assistant, happy with this block.
+        if value.val.is_negative() {
+            out.value = neg_limbs(out.value);
+        }
+        out
     }
 
     /// Like `IntExp`: no infinities, so every value is finite.
@@ -475,6 +477,18 @@ mod tests {
         assert_eq!(p.exp, WORDSIZE as i32);
         assert_eq!(p.value[0], 1);
         assert_eq!(p.to_f64(), 2.0_f64.powi(64));
+    }
+
+    #[test]
+    // r[verify cz.math.copy-intexp-from-tape+1]
+    fn from_squeezes_mantissa_wider_than_tape() {
+        let src = IntExp {
+            val: (Integer::from(1) << 90) + Integer::from(123),
+            exp: -80,
+        };
+        let c = CopyIntExp::<1>::from(src);
+        assert!(c.is_finite());
+        assert!(c.value[0] != 0 || c.exp != -80);
     }
 
     #[test]

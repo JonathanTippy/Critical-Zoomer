@@ -38,8 +38,10 @@ No infinities, same as `IntExp`. Overflow is a scale bump, not NaN/Inf.
 
 ## From IntExp
 
-Digit copy into the limb window (panic if it does not fit), then two’s-complement
-if the source is negative.
+Digit copy into the limb window. If the source mantissa is wider than the tape,
+squeeze (drop low bits, raise `exp`) until it fits — same as add/mul. Then
+two’s-complement if the source is negative. Viewport `IntExp` often keeps extra
+low bits past the admit count; panicking there killed the screen worker.
 
 ## OG naive (`Words = 1`)
 
