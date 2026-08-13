@@ -19,7 +19,9 @@ GPU compute/escape grind **paused** for v0.1 (interview). This hunt does not
 resume it.
 
 **Definition (interview 2026-08-12 evening):** a ghost is an **assistant
-misunderstanding** in comments, docs, names, or behavior after v0.0.9.
-Evolved developer ideas are candidates — deference to hand-coded
+misunderstanding** in comments, docs, names, **or code** after v0.0.9.
+Implementation ghosts are assistant mistakes while editing — harder to
+find; git history is the hunt; they still count in the total. Evolved
+developer ideas are candidates — deference to hand-coded
 design-via-iteration. Dictator-phase spec in Trash is history, not law.
 Commits: `automatic checkpoint` ≈ assistant; `WIP` ≈ developer.

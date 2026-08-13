@@ -1,19 +1,15 @@
 #!/usr/bin/env bash
-# One-shot hygiene gate: bacon-equivalent check, full test suite, all
-# Criterion benches, fail-closed Tracey validate + status dump.
-# Log: /tmp/cz_hygiene.log  (never in the repo)
-#
-# Usage:
-#   .cursor/hooks/hygiene-gate.sh           # run the gate
-#   .cursor/hooks/hygiene-gate.sh --dry-run # print plan, exit 0
-# Env:
-#   CZ_HYGIENE_RELEASE=1  → cargo test --release --all-targets
+# Full check: cargo check, full test suite, all Criterion benches,
+# fail-closed Tracey validate + status dump.
+# Usage: taskset -c 4-11 scripts/full_check.sh
+#        scripts/full_check.sh --dry-run
+# Log: /tmp/cz_full_check.log  (never in the repo)
 set -u
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 1
-LOG="${CZ_HYGIENE_LOG:-/tmp/cz_hygiene.log}"
-STAMP_OK="${CZ_HYGIENE_STAMP_OK:-/tmp/cz_hygiene_last_ok}"
-STAMP_FAIL="${CZ_HYGIENE_STAMP_FAIL:-/tmp/cz_hygiene_last_fail}"
+LOG="${CZ_FULL_CHECK_LOG:-/tmp/cz_full_check.log}"
+STAMP_OK="${CZ_FULL_CHECK_STAMP_OK:-/tmp/cz_full_check_last_ok}"
+STAMP_FAIL="${CZ_FULL_CHECK_STAMP_FAIL:-/tmp/cz_full_check_last_fail}"
 DRY=0
 [[ "${1:-}" == "--dry-run" ]] && DRY=1
 
@@ -26,12 +22,12 @@ PIN=(taskset -c "${START}-${END}" nice -n 10)
 TEST_FLAGS=(--release --all-targets)
 
 plan() {
-  echo "hygiene-gate: pin ${START}-${END}  log $LOG"
-  echo "  1. cargo check --lib          (bacon jobs.check)"
-  echo "  2. cargo test --release --all-targets  (cadence floors are release bars)"
+  echo "full_check: pin ${START}-${END}  log $LOG"
+  echo "  1. cargo check --lib"
+  echo "  2. cargo test --release --all-targets"
   echo "  3. cargo bench workgroup_fitness shadergroup_fitness my_bench"
-  echo "  4. tracey query validate      (fail-closed; no soft-skip)"
-  echo "  5. tracey query status        (feedback dump; does not fail the gate)"
+  echo "  4. tracey query validate      (fail-closed)"
+  echo "  5. tracey query status        (dump; does not fail the check)"
 }
 
 if [[ "$DRY" -eq 1 ]]; then
@@ -51,7 +47,7 @@ run() {
 }
 
 fail() {
-  echo "HYGIENE FAIL: $*"
+  echo "FULL CHECK FAIL: $*"
   date -Iseconds >"$STAMP_FAIL"
   echo "$*" >>"$STAMP_FAIL"
   exit 1
@@ -75,5 +71,5 @@ tracey query status || echo "tracey query status exited $?"
 .cursor/hooks/kill-test-zombies.sh >>"$LOG" 2>&1 || true
 date -Iseconds >"$STAMP_OK"
 rm -f "$STAMP_FAIL"
-echo "HYGIENE OK"
+echo "FULL CHECK OK"
 exit 0

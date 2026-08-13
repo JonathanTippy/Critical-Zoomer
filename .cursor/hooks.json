@@ -26,7 +26,7 @@
         "timeout": 15
       },
       {
-        "command": ".cursor/hooks/hygiene-on-stop.sh",
+        "command": "bash .cursor/hooks/full_check_on_stop.sh",
         "timeout": 2400,
         "loop_limit": 3
       }

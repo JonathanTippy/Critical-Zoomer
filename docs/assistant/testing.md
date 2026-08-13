@@ -27,7 +27,7 @@ that prove numbers and invariants still flow through the machine.
 | Screen worker alone | `craftsmanship_tests.rs` (`steady_state_screen_worker_*`) | Fill + IPS floors on DirectKernel / naive-GPU path |
 | Post-fill park settle | `steady_state_home_stays_parked_for_10s_after_fill` | 10s wall idle after home fill: seats stay delivered, 0 iters |
 | Workgroup chain | `craftsmanship_tests.rs` (`steady_state_workgroup_*`) | `iterations_delta` / `points_delta` survive into HUD `RateCounter` |
-| **Pipeline cadence (dummy head)** | `tests/pipeline_cadence.rs` | One harness (not lib+bin duplicate). Cross-process lock. Floors: OG esc ≥15, GPU esc ≥40, **release**. Hygiene gate runs `cargo test --release --all-targets`. Headed HUD is still the product check. |
+| **Pipeline cadence (dummy head)** | `tests/pipeline_cadence.rs` | One harness (not lib+bin duplicate). Cross-process lock. Floors: OG esc ≥15, GPU esc ≥40, **release**. `scripts/full_check.sh` runs `cargo test --release --all-targets`. Headed HUD is still the product check. |
 | Home PPS ratio | `steady_state_home_pps_gpu_vs_cpu_ratio` | GPU vs CPU wall PPS (climb toward ~FLOP ratio) |
 | GPU host queues | `steady_state_naive_gpu_home_neighbor_queues_grow` | Finals grow out/in/edge queues (no bulk skip) |
 | GPU no CPU mop | `steady_state_naive_gpu_home_fills_without_cpu_mop` | Home closes on GPU; no ≥N% DirectKernel mop |

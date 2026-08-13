@@ -30,6 +30,6 @@ command = [
 ]
 need_stdout = true
 
-[jobs.hygiene]
-command = ["bash", "-lc", "./.cursor/hooks/hygiene-gate.sh"]
+[jobs.full_check]
+command = ["bash", "-lc", "./scripts/full_check.sh"]
 need_stdout = true

@@ -45,12 +45,12 @@ Five layers, cheapest-first:
    agent until the developer returns. Never run approval-gated commands, never
    set `request_smart_mode_approval`, and never retry a block "with approval."
    Always-on rule: `.cursor/rules/no-approval-during-loops.mdc`.
-5. **Hygiene gate** — `.cursor/hooks/hygiene-gate.sh` (bacon check + full
-   `cargo test --all-targets` + all Criterion benches + `tracey query validate`
-   and status). `stop` hook `.cursor/hooks/hygiene-on-stop.sh` runs it when the
+5. **Full check** — `scripts/full_check.sh` (cargo check + full
+   `cargo test --release --all-targets` + all Criterion benches + `tracey query validate`
+   and status). Stop hook `.cursor/hooks/full_check_on_stop.sh` runs it when the
    turn touched code/benches/tracey and follow-ups the agent if red. Log:
-   `/tmp/cz_hygiene.log`. Skip with `CZ_HYGIENE=0`. Fail-closed Tracey (no
-   soft-skip). `scripts/` is **only** for Xvfb screenshot check.
+   `/tmp/cz_full_check.log`. Skip with `CZ_FULL_CHECK=0`. Fail-closed Tracey (no
+   soft-skip). `scripts/` also holds the Xvfb screenshot check.
 
 ## Two rules that prevent most regressions
 
@@ -64,16 +64,15 @@ Five layers, cheapest-first:
 
 Run the **full** test suite after workgroup/colorer edits — not a hand-picked
 subset. Prefer `cargo test --all-targets` (and release when performance pins
-matter), or `.cursor/hooks/hygiene-gate.sh` which is the lock-step gate (check +
+matter), or `scripts/full_check.sh` which is the lock-step check (check +
 full tests + all three Criterion benches + Tracey). Keep tracey links intact
 (every `r[impl ...]` resolves to a rule; every rule's tests exist); run
 `tracey query validate` when docs/markers move (there is no `tracey validate`
 CLI). Prefer `cargo test` and `cargo bench` over shell. After workgroup/headgroup
 perf-affecting edits, run **all** Criterion benches (`workgroup_fitness`,
 `shadergroup_fitness`, `my_bench`) and compare to `docs/assistant/benchmarks.md`
-(~20% regression bar). `scripts/` is
-**only** for the isolated Xvfb screenshot check — see `scripts/README.md`; do not
-add new e2e shell suites or check in PNGs there.
+(~20% regression bar). See `scripts/README.md`. Do not add new e2e shell
+suites or check in PNGs there.
 
 Dense PPS grind loop prompt (fixed `/loop`, full regression gate each tick):
 `docs/assistant/pps-grind-loop-prompt.md`. Pause loops with

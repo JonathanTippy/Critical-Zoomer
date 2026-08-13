@@ -586,3 +586,17 @@ Loop is good. Ghost definition locked (comments/docs/names/behavior;
 evolved-dev ideas are candidates with deference; Trash spec is history).
 Prompt: `docs/assistant/ghost-grind-loop-prompt.md`. 100% means the
 honest guess, not a clean swath. Pass 1 is nowhere near 100%.
+
+---
+
+### Developer
+
+yes, implementations ghosts are assistant mistakes when editing the code.
+These will be harder to find but still fall under ghost and count to the
+total. It will take careful thought to estimate the unknowns well, and
+thorough git history research to ferret out what went on.
+
+### Assistant
+
+Locked: implementation ghosts count. Hunt via git history (`automatic
+checkpoint` vs `WIP`). Unknowns in the % guess stay conservative.
