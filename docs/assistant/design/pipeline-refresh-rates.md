@@ -90,7 +90,7 @@ Escaper and colorer wake on the same content period, swap latest input
 
 ### Escape gear
 
-**OG remains default.**
+**Escape path remains OG default.** Colorer default is GPU (not this section).
 
 ## Actor wake shape
 

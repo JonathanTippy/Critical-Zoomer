@@ -2,8 +2,10 @@
 //! harness only) — `src/main.rs` duplicates modules, so `#[cfg(test)]` in
 //! `pipeline.rs` used to fail the same pins on `--lib` and `--bin`.
 //!
-//! Cross-process lock: cargo test --all-targets must not run two full graphs
-//! at once (telemetry port + GPU). Floors are **release** bars.
+//! Cross-process dir lock (`WgpuTestLock`): an ad-hoc `--all-targets` can still
+//! overlap this harness with the lib IPS probe. `full_check.sh` runs cadence
+//! after unit/integration. In-process GPU unit tests use `lock_gpu_tests()`
+//! (a mutex), not this dir lock. Floors are **release** bars.
 
 use critical_zoomer::assemblies::headgroup::dummy_cadence::{
     cadence_lab_settings, CadenceReport, DummyCadenceConfig,
