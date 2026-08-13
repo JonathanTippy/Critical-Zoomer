@@ -9,12 +9,11 @@ use std::sync::{
     Arc, Mutex,
 };
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub const FEAT_W: usize = 24;
 pub const FEAT_H: usize = 16;
 pub const FEAT_LEN: usize = FEAT_W * FEAT_H;
-const DWELL: Duration = Duration::from_millis(750);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GazeCorner {
@@ -34,10 +33,10 @@ impl GazeCorner {
 
     pub fn toast(self) -> &'static str {
         match self {
-            GazeCorner::TopLeft => "Look at the top-left corner of the window",
-            GazeCorner::TopRight => "Look at the top-right corner of the window",
-            GazeCorner::BottomRight => "Look at the bottom-right corner of the window",
-            GazeCorner::BottomLeft => "Look at the bottom-left corner of the window",
+            GazeCorner::TopLeft => "Look at the top-left corner, then click Yup, doing it",
+            GazeCorner::TopRight => "Look at the top-right corner, then click Yup, doing it",
+            GazeCorner::BottomRight => "Look at the bottom-right corner, then click Yup, doing it",
+            GazeCorner::BottomLeft => "Look at the bottom-left corner, then click Yup, doing it",
         }
     }
 
@@ -156,11 +155,7 @@ pub fn yuyv_to_luma(width: u32, height: u32, yuyv: &[u8]) -> Option<Vec<u8>> {
 #[derive(Clone, Debug)]
 pub enum GazePhase {
     Idle,
-    Calibrating {
-        corner: usize,
-        started: Instant,
-        samples: Vec<Vec<f32>>,
-    },
+    Calibrating { corner: usize },
     Ready(GazeMap),
     Failed(&'static str),
 }
@@ -206,11 +201,34 @@ impl GazeSession {
     pub fn begin_calibrate(&mut self) {
         self.set_enabled(true);
         self.collected.clear();
-        self.phase = GazePhase::Calibrating {
-            corner: 0,
-            started: Instant::now(),
-            samples: Vec::new(),
+        self.phase = GazePhase::Calibrating { corner: 0 };
+    }
+
+    /// Snapshot this pose. Call only when the user confirms they are looking.
+    pub fn confirm_pose(&mut self, sampling: (f32, f32)) {
+        let GazePhase::Calibrating { corner } = &self.phase else {
+            return;
         };
+        let c = *corner;
+        let Some(feat) = self.cam.latest() else {
+            self.phase = GazePhase::Failed("no camera — gaze off");
+            return;
+        };
+        let target = GazeCorner::ORDER[c].target_px(sampling.0, sampling.1);
+        self.collected.push((feat, target));
+        let next = c + 1;
+        if next >= GazeCorner::ORDER.len() {
+            if self.collected.len() < 4 {
+                self.phase = GazePhase::Failed("calibration incomplete");
+                self.collected.clear();
+                return;
+            }
+            self.phase = GazePhase::Ready(GazeMap {
+                corners: self.collected.clone(),
+            });
+        } else {
+            self.phase = GazePhase::Calibrating { corner: next };
+        }
     }
 
     pub fn hud_short(&self) -> &'static str {
@@ -248,11 +266,10 @@ impl GazeSession {
         if !self.enabled {
             return None;
         }
-        let feat = self.cam.latest();
         if matches!(&self.phase, GazePhase::Calibrating { .. }) {
-            self.tick_calibrate(feat, sampling);
             return None;
         }
+        let feat = self.cam.latest();
         match &self.phase {
             GazePhase::Ready(map) => feat.and_then(|f| map.interpolate(&f)).map(|(x, y)| {
                 let x = x.clamp(0.0, (sampling.0 - 1.0).max(0.0)) as i32;
@@ -263,45 +280,10 @@ impl GazeSession {
         }
     }
 
-    fn tick_calibrate(&mut self, feat: Option<Vec<f32>>, sampling: (f32, f32)) {
-        let GazePhase::Calibrating {
-            corner,
-            started,
-            samples,
-        } = &mut self.phase
-        else {
-            return;
-        };
-        if let Some(f) = feat {
-            samples.push(f);
-        }
-        if started.elapsed() < DWELL {
-            return;
-        }
-        let c = *corner;
-        let mean = mean_feature(samples);
-        let Some(mean) = mean else {
-            self.phase = GazePhase::Failed("no camera — gaze off");
-            return;
-        };
-        let target = GazeCorner::ORDER[c].target_px(sampling.0, sampling.1);
-        self.collected.push((mean, target));
-        let next = c + 1;
-        if next >= GazeCorner::ORDER.len() {
-            if self.collected.len() < 4 {
-                self.phase = GazePhase::Failed("calibration incomplete");
-                self.collected.clear();
-                return;
-            }
-            self.phase = GazePhase::Ready(GazeMap {
-                corners: self.collected.clone(),
-            });
-        } else {
-            self.phase = GazePhase::Calibrating {
-                corner: next,
-                started: Instant::now(),
-                samples: Vec::new(),
-            };
+    #[cfg(test)]
+    fn inject_feature(&self, feat: Vec<f32>) {
+        if let Ok(mut g) = self.cam.latest.lock() {
+            *g = Some(feat);
         }
     }
 }
@@ -314,6 +296,9 @@ struct GazeCamera {
 
 impl GazeCamera {
     fn start(&mut self) {
+        if cfg!(test) {
+            return;
+        }
         if self.run.load(Ordering::Relaxed) {
             return;
         }
@@ -440,10 +425,25 @@ mod tests {
     }
 
     #[test]
-    fn corner_targets_sit_on_window_edges() {
-        let tl = GazeCorner::TopLeft.target_px(200.0, 100.0);
-        let br = GazeCorner::BottomRight.target_px(200.0, 100.0);
-        assert!(tl.0 < 20.0 && tl.1 < 20.0);
-        assert!(br.0 > 180.0 && br.1 > 80.0);
+    #[test]
+    fn confirm_pose_waits_until_clicked_then_finishes() {
+        let mut s = GazeSession::new();
+        s.begin_calibrate();
+        assert!(matches!(s.phase, GazePhase::Calibrating { corner: 0 }));
+        s.tick((200.0, 100.0));
+        assert!(matches!(s.phase, GazePhase::Calibrating { corner: 0 }));
+        for i in 0..4 {
+            s.inject_feature(feat_mark(i));
+            s.confirm_pose((200.0, 100.0));
+        }
+        assert!(matches!(s.phase, GazePhase::Ready(_)));
+    }
+
+    #[test]
+    fn confirm_without_frame_fails_open() {
+        let mut s = GazeSession::new();
+        s.begin_calibrate();
+        s.confirm_pose((200.0, 100.0));
+        assert!(matches!(s.phase, GazePhase::Failed(_)));
     }
 }

@@ -38,7 +38,7 @@ impl Settings {
             self.eye_tracking_enabled = true;
             self.request_gaze_calibrate = true;
         }
-        ui.label("Toast: look at each window corner. No full-screen dots.");
+        ui.label("Toast per corner; click Yup, doing it when you are looking. No timer.");
         ui.separator();
         ui.label("Debug — colorer (gear)");
         ui.checkbox(&mut self.manual_color_gear_enabled, "Manual color gear");

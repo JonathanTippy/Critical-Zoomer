@@ -14,6 +14,7 @@ use critical_zoomer::assemblies::headgroup::dummy_cadence::{
 };
 use critical_zoomer::assemblies::pipeline::{new_report_slot, run_dummy_cadence_pipeline};
 use critical_zoomer::assemblies::structs::{ColorerMode, EscaperMode};
+use std::sync::Mutex;
 use std::time::Duration;
 
 const HEALTHY_COL_HZ: f64 = 40.0;
@@ -21,7 +22,12 @@ const HEALTHY_OG_ESC_HZ: f64 = 15.0;
 const HEALTHY_GPU_ESC_HZ: f64 = 40.0;
 const MEASURE: Duration = Duration::from_secs(5);
 
+/// One dummy-head pipeline at a time. The dir lock covers other harnesses;
+/// this mutex covers the two cases in this file (default rustc is parallel).
+static CADENCE_CASE: Mutex<()> = Mutex::new(());
+
 fn run_case(escape: EscaperMode, color: ColorerMode) -> CadenceReport {
+    let _serial = CADENCE_CASE.lock().unwrap_or_else(|e| e.into_inner());
     let _lock = critical_zoomer::debug_agent::WgpuTestLock::acquire();
     critical_zoomer::debug_agent::init_cpu_profile_from_env();
     critical_zoomer::debug_agent::enable_escape_rca();

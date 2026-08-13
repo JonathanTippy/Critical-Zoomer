@@ -78,7 +78,7 @@ run cargo test --lib integration_tier \
   || fail "cargo test integration_tier"
 run cargo test --lib e2e_tier \
   || fail "cargo test e2e_tier"
-run cargo test --test pipeline_cadence \
+run cargo test --test pipeline_cadence -- --test-threads=1 \
   || fail "cargo test pipeline_cadence"
 run cargo bench --bench workgroup_fitness --bench shadergroup_fitness --bench my_bench \
   || fail "cargo bench (workgroup_fitness + shadergroup_fitness + my_bench)"

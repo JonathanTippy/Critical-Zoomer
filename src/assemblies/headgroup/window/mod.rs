@@ -626,6 +626,8 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                 );
 
                 if let Some(toast) = state.gaze.toast_text() {
+                    let sampling = (size.0 as f32, size.1 as f32);
+                    let calibrating = matches!(state.gaze.phase, gaze::GazePhase::Calibrating { .. });
                     egui::Area::new(egui::Id::new("gaze_toast"))
                         .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 12.0))
                         .order(egui::Order::Foreground)
@@ -634,6 +636,11 @@ impl<A: SteadyActor> eframe::App for EguiWindowPassthrough<'_, A> {
                                 .inner_margin(egui::Margin::symmetric(10, 6))
                                 .show(ui, |ui| {
                                     ui.label(toast);
+                                    if calibrating {
+                                        if ui.button("Yup, doing it").clicked() {
+                                            state.gaze.confirm_pose(sampling);
+                                        }
+                                    }
                                 });
                         });
                 }
