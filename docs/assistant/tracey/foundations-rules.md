@@ -119,5 +119,5 @@ finite. `Mandelbrotable::is_finite` is constantly true. Squeeze never produces I
 - [x] `Ord` agrees with the sign of `a - b` after squeeze subtract.
 
 **Implementation.** `Mandelbrotable` for `CopyIntExp`.
-**Verification.** `every_value_is_finite`, `never_infinite`, `ord_agrees_with_intexp`.
+**Verification.** `every_value_is_finite`, `never_infinite`, `ord_is_total`.
 

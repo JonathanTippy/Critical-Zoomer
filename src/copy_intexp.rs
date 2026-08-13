@@ -33,9 +33,7 @@ pub(crate) struct CopyIntExp<const Words: usize> {
 impl<const Words: usize> CopyIntExp<Words> {
     // r[impl cz.math.copy-intexp-from-tape+1]
     pub(crate) fn from(value: IntExp) -> CopyIntExp<Words> {
-        if value.val.significant_bits() as usize > Words * WORDSIZE {
-            panic!()
-        } else {
+        if value.val.significant_bits() as usize <= Words * WORDSIZE {
             let digits = value.val.to_digits::<u64>(Order::Lsf);
             let mut words = [0i64; Words];
             for (i, d) in digits.into_iter().enumerate() {
@@ -50,6 +48,8 @@ impl<const Words: usize> CopyIntExp<Words> {
                 out.value = neg_limbs(out.value);
             }
             out
+        } else {
+            panic!()
         }
     }
 
@@ -174,15 +174,23 @@ impl<const Words: usize> Mul for CopyIntExp<Words> {
     type Output = Self;
     fn mul(self, other: Self) -> Self {
         // r[impl cz.math.copy-intexp-mul-schoolbook+1]
-        let (mut lo, mut hi) = mul_limbs_full(self.value, other.value);
-        let mut exp = self.exp + other.exp;
-        while hi.iter().any(|&w| w != 0) {
+        let (lo, hi) = mul_limbs_full(self.value, other.value);
+        let exp = self.exp + other.exp;
+        if hi.iter().all(|&w| w == 0) {
+            return Self { value: lo, exp };
+        }
+        let mut lo = lo;
+        let mut hi = hi;
+        let mut exp = exp;
+        loop {
             lo = shr_one_word(lo, hi[0]);
             hi.rotate_left(1);
             hi[Words - 1] = 0;
             exp += WORDSIZE as i32;
+            if hi.iter().all(|&w| w == 0) {
+                return Self { value: lo, exp };
+            }
         }
-        Self { value: lo, exp }
     }
 }
 
@@ -224,7 +232,7 @@ fn mul_limbs_full<const Words: usize>(
 
 impl<const Words: usize> PartialEq for CopyIntExp<Words> {
     fn eq(&self, other: &Self) -> bool {
-        to_intexp(*self) == to_intexp(*other)
+        self.cmp(other) == Ordering::Equal
     }
 }
 
@@ -238,8 +246,36 @@ impl<const Words: usize> PartialOrd for CopyIntExp<Words> {
 
 impl<const Words: usize> Ord for CopyIntExp<Words> {
     fn cmp(&self, other: &Self) -> Ordering {
-        to_intexp(*self).cmp(&to_intexp(*other))
+        match self.exp.cmp(&other.exp) {
+            Equal => cmp_limbs(self.value, other.value),
+            Greater => {
+                let s = (self.exp - other.exp) as u32;
+                cmp_limbs(self.value, shr_limbs(other.value, s))
+            }
+            Less => {
+                let s = (other.exp - self.exp) as u32;
+                cmp_limbs(shr_limbs(self.value, s), other.value)
+            }
+        }
     }
+}
+
+fn cmp_limbs<const Words: usize>(a: [i64; Words], b: [i64; Words]) -> Ordering {
+    let mut limbs = a.iter().rev().zip(b.iter().rev());
+    let Some((&ha, &hb)) = limbs.next() else {
+        return Ordering::Equal;
+    };
+    match ha.cmp(&hb) {
+        Ordering::Equal => {}
+        o => return o,
+    }
+    for (&x, &y) in limbs {
+        match (x as u64).cmp(&(y as u64)) {
+            Ordering::Equal => {}
+            o => return o,
+        }
+    }
+    Ordering::Equal
 }
 
 impl<const Words: usize> Sub for CopyIntExp<Words> {
@@ -468,6 +504,15 @@ mod tests {
         }
     }
 
+    prop_compose! {
+        fn arb_c2_low()(
+            w0 in 0i64..2048,
+            exp in -12i32..12,
+        ) -> C2 {
+            C2 { value: [w0, 0], exp }
+        }
+    }
+
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(256))]
 
@@ -534,8 +579,11 @@ mod tests {
 
         // r[verify cz.math.copy-intexp-no-infinity+1]
         #[test]
-        fn ord_agrees_with_intexp(a in arb_c2(), b in arb_c2()) {
-            prop_assert_eq!(a.cmp(&b), to_intexp(a).cmp(&to_intexp(b)));
+        fn ord_is_total(a in arb_c2(), b in arb_c2()) {
+            prop_assert_eq!(a.cmp(&b), b.cmp(&a).reverse());
+            if a == b {
+                prop_assert_eq!(a.cmp(&b), Ordering::Equal);
+            }
         }
     }
 }
