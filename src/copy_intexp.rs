@@ -105,10 +105,12 @@ impl<const Words: usize> Add for CopyIntExp<Words> {
 
 fn add_limbs<const Words: usize>(a: [i64; Words], b: [i64; Words]) -> ([i64; Words], i64) {
     let mut out = [0i64; Words];
-    let mut carry = 0u128;
+    let mut carry = 0i128;
     for (dst, (&av, &bv)) in out.iter_mut().zip(a.iter().zip(b.iter())) {
-        let sum = av as u64 as u128 + bv as u64 as u128 + carry;
-        *dst = sum as u64 as i64;
+        // Zero-extend the 64-bit pattern. `av as i128` sign-extends and
+        // destroys carry when a low limb has the high bit set.
+        let sum = (av as u64 as i128) + (bv as u64 as i128) + carry;
+        *dst = sum as i64;
         carry = sum >> 64;
     }
     (out, carry as i64)
@@ -209,8 +211,9 @@ fn mul_limbs_full<const Words: usize>(
             } else {
                 hi[idx - Words] as u64 as u128
             };
+            // 64×64 unsigned product is up to 128 bits; i128 only holds 127.
             let t = (ai as u64 as u128) * (bj as u64 as u128) + old + carry;
-            let w = t as u64 as i64;
+            let w = t as i64;
             if idx < Words {
                 lo[idx] = w;
             } else {
@@ -223,7 +226,7 @@ fn mul_limbs_full<const Words: usize>(
                 break;
             }
             let t = (*h as u64 as u128) + carry;
-            *h = t as u64 as i64;
+            *h = t as i64;
             carry = t >> 64;
         }
     }
