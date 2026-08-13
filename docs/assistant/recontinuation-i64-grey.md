@@ -47,5 +47,6 @@ signed offsets. Uniform “flat grey” (it is a 2×2).
 16×17 pin `og_copy_intexp1_headed_mag_43_not_all_interior` does not see headed
 854×480.
 
-Product code is developer-driven. Docs: `docs/assistant/rca-i64-flat-grey-2026-08-13.md`
-(may still contain the retracted signed-center guess — this note wins).
+Product code is developer-driven. RCA:
+`docs/assistant/rca-i64-flat-grey-2026-08-13.md` (same facts; this note wins
+if they drift).

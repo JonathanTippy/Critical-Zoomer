@@ -62,10 +62,13 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
   `stack:i64`. Do not read `gear:F64` as “this is f64 iterate.” Developer:
   black is closed. Do not re-break OG naive to chase i64.
 - **OG naive `CopyIntExp<1>` (`stack:i64`) four-quadrant grey (2026-08-13).**
-  Separate from OG-black. Headed mag 43–44 (e.g. `HEADED_I64_GREY_*`):
-  **four axis-aligned greys, one lighter; drag keeps the split on the window
-  center** (screen-space sign, not objective `c`). Admit of i64 is correct.
-  Best guess: CopyIntExp negative δ, or f64 of that δ. Write-up:
+  Separate from OG-black. Headed mag 43–44 (`HEADED_I64_GREY_*` and nearby):
+  four axis-aligned greys, one lighter. Drag: tiles stay on the **window**,
+  not the plane. Screen seats are UL, +right/+down, **always ≥ 0**. Admit of
+  i64 is correct. Suspects: CopyIntExp add/mul/From on `origin + k*space` or
+  iterate, or accidental f64 on that path. Not WorkUpdate `c`. Not negative
+  screen offsets. Handoff:
+  `docs/assistant/recontinuation-i64-grey.md`. RCA:
   `docs/assistant/rca-i64-flat-grey-2026-08-13.md`. **Do not treat as fixed.**
 - **Transition rectangular blockiness / shallow false admit (2026-08-12 design RCA).**
   When a deeper gear exists but the image shows rectangular precision blocks,
@@ -157,9 +160,11 @@ bucket 2 telemetry.
   Representability / series / HUD gear+IPS+PPS / home pert parity vs
   DirectKernel landed. **Do not read as v0.1 depth-trust done.** Rectangular
   blockiness still open (admit-none, false-shallow, or **post-admit precision
-  drop**). Live host is f64 (`WorkUpdate<f64>` pinned); that interlayer is
-  a named failure shape. FloatExp-host banding remains open and is **not**
-  moot if f64 host is the drop. Interview:
+  drop**). WorkUpdate standard is f32 `z` + f64 scalars, no `c`
+  (`design/work-update.md`); live `WorkUpdate<T>` is a mismatch, not the
+  headed i64 2×2. That 2×2 is screen-worker CopyIntExp or accidental f64
+  (`recontinuation-i64-grey.md`). FloatExp-host banding remains open and is
+  **not** moot. Interview:
   `interviews/2026-08-12-v01-product-direction.md`.
 - **First reference job length still = `MAX_BOUT` (1000); no mid-view extend.** **Closed (2026-08-07):** publish only on period/escape; no length wall. Intermediate snapshots before done remain an open question (see depth-design).
 - **Reference library reuse landing; discard still open.** Greedy keep + per-seat best-ref bind are in; byte-budgeted eviction / unused-ref discard are not.

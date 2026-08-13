@@ -18,3 +18,4 @@ Related paraphrases (not full transcripts):
 
 - `docs/assistant/paraphrase-authoritative/reference-reuse.md` — from the 2026-08-10 session
 - `docs/assistant/paraphrase-authoritative/c-generator-admit-margin.md` — from the 2026-08-12 session
+- `docs/assistant/recontinuation-i64-grey.md` — i64 four-quadrant grey handoff (2026-08-13)

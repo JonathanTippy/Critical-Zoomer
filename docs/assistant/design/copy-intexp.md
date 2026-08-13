@@ -55,7 +55,8 @@ Headed 2026-08-13: **black on OG naive f64 was an assistant regression** (CopyIn
 wire-up / `From` panic / illegal `1e-14` host bump). HUD `gear:F64` reports the
 OG naive compute-gear stamp, not the i64 tape — mag 43 `stack:i64` still shows
 `gear:F64`. Remaining product bug is **four-quadrant grey** (`HEADED_I64_GREY_*`,
-HUD `ipp:0`): drag-locked to **screen center**. CopyIntExp signed screen-δ
-(or f64 of it). Admit is correct. Not WorkUpdate `c`.
+HUD `ipp:0`): drag-locked to the **window** (UL seat/row, seats ≥ 0). CopyIntExp
+add/mul/From or accidental f64. Admit is correct. Not WorkUpdate `c`. Not
+negative screen offsets. Handoff: `docs/assistant/recontinuation-i64-grey.md`.
 RCA: `docs/assistant/rca-i64-flat-grey-2026-08-13.md`. Pin
 `og_copy_intexp1_headed_mag_43_not_all_interior` is 16×17 only.
