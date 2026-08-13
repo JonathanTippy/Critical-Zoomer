@@ -31,6 +31,7 @@ impl Settings {
                 );
             });
         });
+        ui.label("Naive GPU and Perturbation are early-dev and still buggy.");
         ui.separator();
         ui.label("Eye tracking");
         ui.checkbox(&mut self.eye_tracking_enabled, "Enable gaze spiral");
@@ -39,6 +40,7 @@ impl Settings {
             self.request_gaze_calibrate = true;
         }
         ui.label("Toast per corner; click Yup, doing it when you are looking. No timer.");
+        ui.label("Gaze spiral is a start — lighting and camera make it miss silently. Off by default.");
         ui.separator();
         ui.label("Debug — colorer (gear)");
         ui.checkbox(&mut self.manual_color_gear_enabled, "Manual color gear");
