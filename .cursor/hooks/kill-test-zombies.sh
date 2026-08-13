@@ -7,8 +7,12 @@
 #   - cz_ctl sessions under /tmp/cz_* (via scripts/cz_ctl.sh stop)
 #   - Xvfb / xvfb-run clearly tied to those sessions
 #
-# Never touches: /usr/bin/critical_zoomer, headed apps on :0 without a cz
-# session, or Cursor cursorsandbox parents.
+# Never touches: /usr/bin/critical_zoomer, or Cursor cursorsandbox parents.
+# Headed `target/` / `/tmp/cz_*` sessions **are** reaped (including a
+# developer-headed test of the repo binary). That is accepted: slightly
+# annoying, but it keeps the assistant from confusing leftover app
+# processes with a live headed session. Do not "fix" by sparing headed
+# repo binaries.
 #
 # Usage:
 #   .cursor/hooks/kill-test-zombies.sh              # CLI

@@ -538,3 +538,17 @@ default, VSYNC, unshelve window CPU, depth not “green”), admit-margin
 failure (C), actor-layout parking-lot amendment, honest comments at
 `request_repaint`. Did **not** change present behavior or claim CPU/depth
 fixed.
+
+---
+
+### Developer
+
+I also just want to say the zombie reaper was a huge success, totally killed
+that issue. its silghtly annoying that my headed tests get killed but I kinda
+like it because it means I'm less likely to confuse the assistant.
+
+### Assistant
+
+**Locked:** reaper stays. Headed repo-binary kills are an accepted tradeoff
+— do not spare them to be nice. Installed `/usr/bin` and Cursor sandboxes
+still out of scope.

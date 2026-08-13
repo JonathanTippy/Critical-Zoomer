@@ -25,3 +25,7 @@ If you need an explicit sweep, run **only**:
 ```
 
 Log: `/tmp/cz_zombie_kill.log`. Never invent ad-hoc kill/pkill one-liners.
+
+Headed runs of the **repo** binary may get reaped too. That is accepted
+(developer 2026-08-12): slightly annoying, less assistant confusion. Do not
+carve out an exception for headed `target/` processes.
