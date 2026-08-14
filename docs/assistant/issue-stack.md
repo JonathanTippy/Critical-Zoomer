@@ -100,6 +100,11 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
 
 ## Known issues (open)
 
+- **Pivot publish waited for the content beat (2026-08-13).** Collector only
+  sent to shade when `content_beat_due`. A hitch that fans Automatic to 1 Hz
+  made Replace wait a second to show. Pivot `frame_info` now publishes that
+  wake (`should_publish_resident`). Headed not re-checked.
+
 - **Open (ghost-hunt 2026-08-12): head window ~100% CPU.** Not shelved.
   Screen **worker** parks after fill (`seats_need_work`) — that is the wrong
   actor. Window `update` still does bare `ctx.request_repaint()` (`351afdf`).

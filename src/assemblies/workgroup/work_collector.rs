@@ -109,9 +109,15 @@ fn view_from_package(package: &ResultsPackage<f64>, ctrl_emit: Option<Instant>) 
 
 /// Content beat is due when the shared period has elapsed — independent of
 /// whether new work arrived. Shade always gets the resident package.
-// r[impl cz.craft.content-beat-publish+1]
+// r[impl cz.craft.content-beat-publish+2]
 pub(crate) fn content_beat_due(last_publish: Instant, period: Duration, now: Instant) -> bool {
     now.duration_since(last_publish) >= period
+}
+
+/// Pivot `frame_info` must not wait for the next content beat (virtues: Replace
+/// observed ~10ms). Idle shade still rides the beat when nothing pivoted.
+pub(crate) fn should_publish_resident(beat_due: bool, saw_pivot: bool) -> bool {
+    beat_due || saw_pivot
 }
 
 /// Fold one WorkUpdate into collector state. Collector never drain-to-newest.
@@ -256,14 +262,20 @@ async fn internal_behavior<A: SteadyActor>(
             }
         }
 
+        let mut saw_pivot = false;
         while actor.avail_units(&mut from_worker) > 0 {
             let u = actor.try_take(&mut from_worker).expect("work update seemed available but wasn't...");
+            saw_pivot |= u.frame_info.is_some();
             absorb_work_update(&mut state, u);
         }
 
         // Content beat: always publish resident work-so-far (shade always runs).
-        // r[impl cz.craft.content-beat-publish+1]
-        if content_beat_due(last_publish, content_period, Instant::now()) {
+        // Pivot announce (`frame_info`) publishes this wake — not the next beat.
+        // r[impl cz.craft.content-beat-publish+2]
+        if should_publish_resident(
+            content_beat_due(last_publish, content_period, Instant::now()),
+            saw_pivot,
+        ) {
             let _cpu = crate::debug_agent::busy_collector();
             if let Some(package) = state.completed_work.clone() {
                 if !actor.is_full(&mut values_out) {
@@ -476,7 +488,7 @@ mod mutant_kill {
         }
     }
 
-    // r[verify cz.craft.content-beat-publish+1]
+    // r[verify cz.craft.content-beat-publish+2]
     #[test]
     fn content_beat_due_without_new_work() {
         let period = Duration::from_millis(16);
@@ -489,6 +501,15 @@ mod mutant_kill {
         ));
         // Still due even if no WorkUpdate arrived in between — shade keeps running.
         assert!(content_beat_due(t0, period, t0 + period * 2));
+    }
+
+    #[test]
+    // r[verify cz.craft.content-beat-publish+2]
+    fn pivot_frame_info_publishes_without_waiting_for_beat() {
+        assert!(should_publish_resident(false, true));
+        assert!(should_publish_resident(true, false));
+        assert!(should_publish_resident(true, true));
+        assert!(!should_publish_resident(false, false));
     }
 
     fn seat_escape(time: u32) -> CompletedPoint<f64> {

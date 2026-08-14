@@ -618,20 +618,23 @@ on escaper/colorer state; `ViewHud.packages_dropped`.
 
 **Test.** `coalesce_drop_count_keeps_newest_only`, `take_newest_plan_drops_all_but_tip` (escaper.rs).
 
-r[cz.craft.content-beat-publish+1]
+r[cz.craft.content-beat-publish+2]
 
 **Normative summary.** Work collector publishes the resident package on every
 content beat (`resolved_content_period`), whether or not new WorkUpdates
 arrived since the last publish. Shade stays on the continuum; only the screen
-worker parks.
+worker parks. A WorkUpdate that carries `frame_info` (pivot announce) publishes
+on that wake — it must not wait for the next beat (virtues: Replace ~10ms).
 
-**Code site.** `content_beat_due` + publish branch in `work_collector.rs`.
+**Code site.** `content_beat_due` / `should_publish_resident` + publish branch in `work_collector.rs`.
 
 **Acceptance criteria.**
-- [ ] `content_beat_due` is true after the period with no intervening work.
-- [ ] Publish path has no “only when work arrived” gate.
+- [x] `content_beat_due` is true after the period with no intervening work.
+- [x] Publish path has no “only when work arrived” gate.
+- [x] `frame_info: Some` publishes even when the beat is not due.
 
-**Test.** `content_beat_due_without_new_work` (work_collector.rs).
+**Test.** `content_beat_due_without_new_work`,
+`pivot_frame_info_publishes_without_waiting_for_beat` (work_collector.rs).
 
 r[cz.craft.collector-absorbs-all+1]
 
