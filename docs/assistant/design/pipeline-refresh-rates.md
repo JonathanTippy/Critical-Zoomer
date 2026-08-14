@@ -58,6 +58,8 @@ The head aims at egui’s declared vsync period:
 3. eframe often leaves `predicted_dt` at the **1/60 placeholder**; Automatic
    then stays on that stable rate (manual Hz overrides). A future
    non-EventLoop monitor source may fill the optional probe argument.
+   A stall (`predicted_dt` implying **<20 Hz**) is not the monitor — keep 60
+   (or the probe). Do not fan Automatic content to 1 Hz.
 
 Fan Settings to content actors only when the resolved Hz moves (≥2 Hz).
 

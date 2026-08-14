@@ -218,8 +218,14 @@ impl Settings {
             60.0
         };
         const PLACEHOLDER_HZ: f64 = 60.0;
+        // A stall's predicted_dt is not the monitor. Fanning that to 1 Hz made
+        // the content beat a second long (late first publish, old view while
+        // attention moved). Below 20 Hz is a hitch, not a 24 Hz display.
+        const STALL_HZ: f64 = 20.0;
         let hz = if (from_egui - PLACEHOLDER_HZ).abs() < 0.05 {
             probed_monitor_hz.unwrap_or(from_egui)
+        } else if from_egui < STALL_HZ {
+            probed_monitor_hz.unwrap_or(PLACEHOLDER_HZ)
         } else {
             from_egui
         };
@@ -913,7 +919,10 @@ mod mutant_kill {
         assert!((hz - 60.0).abs() < 0.1);
         // Clamp.
         assert!((Settings::resolve_auto_vsync_hz(1.0 / 1000.0, None) - 240.0).abs() < 0.1);
-        assert!((Settings::resolve_auto_vsync_hz(2.0, None) - 1.0).abs() < 1e-9);
+        // Hitch / stall predicted_dt must not become a 1 Hz content beat.
+        assert!((Settings::resolve_auto_vsync_hz(2.0, None) - 60.0).abs() < 0.1);
+        assert!((Settings::resolve_auto_vsync_hz(0.1, None) - 60.0).abs() < 0.1);
+        assert!((Settings::resolve_auto_vsync_hz(1.0 / 30.0, None) - 30.0).abs() < 0.1);
     }
 
     #[test]
