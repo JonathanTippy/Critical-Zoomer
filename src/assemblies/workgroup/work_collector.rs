@@ -510,6 +510,19 @@ mod mutant_kill {
         assert!(should_publish_resident(true, false));
         assert!(should_publish_resident(true, true));
         assert!(!should_publish_resident(false, false));
+        // After a pivot publish, last_publish is now. Seat fills with no new
+        // frame_info wait the rest of the content period — 500ms into a 1s
+        // beat is still silent.
+        let period = Duration::from_secs(1);
+        let t0 = Instant::now();
+        assert!(!should_publish_resident(
+            content_beat_due(t0, period, t0 + Duration::from_millis(500)),
+            false,
+        ));
+        assert!(should_publish_resident(
+            content_beat_due(t0, period, t0 + period),
+            false,
+        ));
     }
 
     fn seat_escape(time: u32) -> CompletedPoint<f64> {

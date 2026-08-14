@@ -116,8 +116,11 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
   `CGenerator<f64>` only. Home and mag 43 at the i64-black locus admit;
   mag 44 does not. Worker `continue` keeps the previous grid. Pin:
   `experiment_automatic_replace_admits_headed_views`. `from_stencil` at
-  live home res was 125 ms this run — not a one-second stall. Headed
-  “often behind” at shallow zoom still unproven.
+  live home res was   125 ms this run — not a one-second stall. Headed
+  “often behind” at shallow zoom still unproven. Naive `from_stencil` f32
+  home live res was 69 ms. After a pivot publish, seat fills with no
+  `frame_info` stay silent for the rest of the content period (1 s beat →
+  500 ms still unpublished).
 
 - **Shallow-mag start lag — pacing hypotheses (2026-08-13).** Not admission
   (home/mag 43 Automatic admit). Extra second vs ~16 ms:
