@@ -57,21 +57,21 @@ if [[ -z "$RELEVANT" && ! -f /tmp/cz_full_check_last_fail ]]; then
   exit 0
 fi
 
-if [[ -f /tmp/cz_groove_check_last_ok ]] \
-  && [[ -n "$(find /tmp/cz_groove_check_last_ok -mmin -2 -print 2>/dev/null)" ]]; then
-  export CZ_FULL_CHECK_SKIP_GROOVE=1
+# groove_check_on_stop always runs first on park; full_check is cadence+benches only.
+export CZ_FULL_CHECK_SKIP_GROOVE=1
+if [[ -f /tmp/cz_groove_check_last_fail ]]; then
+  echo '{}'
+  exit 0
 fi
 
 if ! "$ROOT/scripts/full_check.sh"; then
-  TAIL="$(cat /tmp/cz_full_check_last_fail_excerpt 2>/dev/null || true)"
-  if [[ -z "$TAIL" ]]; then
-    TAIL="$(tail -c 6000 "$LOG" 2>/dev/null || echo '(no full_check log)')"
+  BODY="$(cat /tmp/cz_full_check_last_fail_excerpt 2>/dev/null || true)"
+  if [[ -z "$BODY" ]]; then
+    BODY="$(tail -c 8000 "$LOG" 2>/dev/null || echo '(no full_check log)')"
   fi
-  MSG="$(printf '%s\n' \
-    "scripts/full_check.sh failed. Do not ignore or soft-skip. Fix it, then stop so this hook re-runs." \
-    "Full log: $LOG" \
-    "--- tail ---" \
-    "$TAIL")"
+  MSG="scripts/full_check.sh failed. Fix it, then stop so this hook re-runs.
+
+$BODY"
   emit "$MSG"
   exit 0
 fi

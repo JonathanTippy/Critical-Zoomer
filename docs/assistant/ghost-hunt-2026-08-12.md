@@ -1,5 +1,10 @@
 # Ghost hunt (2026-08-12)
 
+**PAUSED (developer 2026-08-14):** mutant grind is active —
+`docs/assistant/mutant-hunt-2026-08-14.md`, `docs/assistant/work-stack.md`,
+loop body `mutant-grind-loop-prompt.md`. Do not resume this hunt until mutant
+hunt ends or developer says otherwise.
+
 **Standing (developer 2026-08-13):** while this hunt is not done, after the
 latest user ask is finished and its checks pass, **continue this hunt**
 without waiting to be asked. Interruptions are expected. Rule:

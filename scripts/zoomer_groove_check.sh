@@ -57,8 +57,8 @@ fi
 
 exec 9>"$LOCK"
 if ! flock -n 9; then
-  echo "GROOVE CHECK FAIL: another zoomer_groove_check is already running (lock $LOCK)" >&2
-  exit 1
+  echo "another zoomer_groove_check is already running (lock $LOCK)" >"$STEP_LOG"
+  fail "another zoomer_groove_check is already running"
 fi
 
 : >"$LOG"

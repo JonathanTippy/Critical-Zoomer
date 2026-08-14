@@ -471,6 +471,9 @@ mod mutant_kill {
         assert_eq!(signed_shift(8, 40), 0);
         assert_eq!(signed_shift(8, -40), 0);
         assert_eq!(signed_shift(-8, -40), -1);
+        assert_eq!(signed_shift(0, -40), 0);
+        assert_ne!(signed_shift(0, -40), -1);
+        assert_eq!(signed_shift(0, -40), 0);
         assert_eq!(shift(1, 32), 0);
         assert_eq!(shift(-1, -32), -1);
     }

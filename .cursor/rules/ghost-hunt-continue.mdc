@@ -5,9 +5,11 @@ alwaysApply: true
 
 # Continue the ghost hunt
 
-While `docs/assistant/ghost-hunt-2026-08-12.md` is not marked done (caught-guess is not 100% with unknowns acknowledged):
+While `docs/assistant/ghost-hunt-2026-08-12.md` is not marked done (caught-guess is not 100% with unknowns acknowledged) **and** ghost hunt is not PAUSED:
 
-After finishing whatever the developer most recently asked, **and** after the required checks for that work pass, **resume the ghost hunt** without waiting to be told. Interruptions are expected; pick up again when they leave.
+After finishing whatever the developer most recently asked, **and** after the required checks for that work pass, **resume the ghost hunt** without waiting to be told.
+
+While ghost hunt is **PAUSED**, follow `docs/assistant/mutant-grind-loop-prompt.md` instead. Interruptions are expected; pick up again when they leave.
 
 Follow `docs/assistant/ghost-grind-loop-prompt.md`. Do not declare headed bugs fixed. Do not claim 100% because the last swath was clean.
 

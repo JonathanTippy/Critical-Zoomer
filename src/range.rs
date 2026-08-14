@@ -647,6 +647,62 @@ fn mutant_kill_range_square_middle_ne_mul() {
     assert!(scaled.upper_bound >= -2.0 - 1e-9, "got {:?}", scaled);
 }
 
+/// MUST_INTEGER guess_* / Expand / disjoint can_ne — dense missed cluster in full lib run.
+#[test]
+fn mutant_kill_range_must_integer_guess_expand() {
+    assert_ne!(f32::next_down(1.0), 0.0);
+    assert_ne!(f32::next_up(1.0), 0.0);
+    assert!(f32::next_down(1.0) < 1.0);
+    assert!(f32::next_up(1.0) > 1.0);
+    assert_ne!(f64::next_down(1.0), 0.0);
+    assert_ne!(f64::next_up(1.0), 0.0);
+
+    let span = Range::<f64, true> {
+        lower_bound: 3.2,
+        upper_bound: 7.8,
+    };
+    let mid = span.guess_middle();
+    assert_eq!(mid, 5.0);
+    assert_ne!(mid, 5.5);
+    assert_ne!(mid, 3.2 + 7.8);
+    assert_ne!(mid, 3.2 - 7.8);
+    assert_ne!(mid, 3.2 * 7.8);
+    assert_ne!(mid, 10.0 % 2.0);
+
+    let left = span.guess_left();
+    let right = span.guess_right();
+    assert_eq!(left, 4.0);
+    assert_eq!(right, 7.0);
+
+    for _ in 0..64 {
+        let sample = span.guess_random();
+        assert!(sample >= left && sample <= right);
+        assert_eq!(sample, sample.floor(), "non-integer sample {sample}");
+    }
+
+    let sq = Range::<f64, true>::new(3.0).square();
+    assert!(sq.must_eq(Range::new(9.0)));
+    assert_ne!(sq.lower_bound, 3.0 + 3.0);
+
+    let five = Range::<f64, true>::new(5.0);
+    let six = Range::<f64, true>::new(6.0);
+    assert!(five.can_ne(six));
+
+    let pt = Range::<f64, true>::new(5.0);
+    let frac = Range::<f64, true> {
+        lower_bound: 0.1,
+        upper_bound: 1.9,
+    };
+    let sum = pt + frac;
+    assert!(sum.must_eq(Range::new(6.0)));
+    assert_ne!(sum.lower_bound, 5.0 * 0.1);
+
+    let ten = Range::<f64, true>::new(10.0);
+    let diff = ten - 2.0;
+    assert!(diff.must_eq(Range::new(8.0)));
+    assert_ne!(diff.lower_bound, 10.0 + 2.0);
+}
+
 #[test]
 fn nan_min_max_propagate_ignorance() {
     let n = f64::NAN;

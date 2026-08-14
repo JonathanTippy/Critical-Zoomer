@@ -550,6 +550,16 @@ mod tests {
         assert_eq!(twin.exponent, 1);
         assert_ne!(twin.mantissa, 3.0 + 0.5);
         assert_ne!(twin.mantissa, 3.0 / 0.5);
+
+        // delete neg must flip mantissa sign.
+        let neg = -FloatExp::from(1.5);
+        assert_eq!(neg.mantissa, -1.5);
+        assert_eq!(neg.exponent, 0);
+
+        // Same exponent uses >= branch (not recursive-only).
+        let eight = FloatExp::new(1.0, 3);
+        let sixteen = FloatExp::new(2.0, 3);
+        assert!(((eight + sixteen).to_f64() - 24.0).abs() < 1e-9);
     }
 
     /// Filter-friendly name for scoped `cargo mutants -- --lib mutant_kill`.
