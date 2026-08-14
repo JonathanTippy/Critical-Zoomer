@@ -28,6 +28,14 @@ violation until justified or reverted.
 | `headgroup/window/mod.rs` | HUD rows: rates / gears / PPS·IPS·IPP; no drop/gaze/mode | **Yes** — HUD |
 | `headgroup/window/mod.rs` / `settings.rs` | **2026-08-11:** embedded Settings window (no deferred viewport dual-vsync) | Bucket 3 — display timing / settings UI |
 
+## Open display pacing (not shelved — 2026-08-13)
+
+Screen **worker** parks after fill (`seats_need_work`) — that idles compute, not
+the window thread. `window/mod.rs` still does bare `ctx.request_repaint()` every
+`update` (`351afdf`). Developer: ~100% CPU at vsync-looking rates. **Not fixed.**
+Worker park ≠ head present idle. See `design/pipeline-refresh-rates.md`,
+`issue-stack.md` (head CPU), `ghost-hunt-2026-08-12.md`.
+
 ## Enforcement
 
 - Quality ticks: re-run `git diff e6a0560..HEAD --stat -- src/assemblies/headgroup/ src/assemblies/shadergroup/` and update this table.

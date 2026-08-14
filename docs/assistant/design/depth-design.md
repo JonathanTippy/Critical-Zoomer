@@ -5,7 +5,9 @@ HUD telemetry, and **live series approximation** (fused coeff steps + O(log N)
 seat-init skip) are in the tree (`r[cz.depth.series-approximation+1]`; developer
 interview 2026-08-11). **In progress:** CGenerator admission wiring,
 reference-scoped generator rebuild, and PPS-selected naive vs pert dispatch
-(`r[cz.perf.pps-selected-kernel+1]`).
+(`r[cz.perf.pps-selected-kernel+1]`). **Product depth-trust is not done:**
+finish-line **unit** gates landed; headed rectangular blockiness and post-admit
+precision drop remain open (`issue-stack.md`; interview 2026-08-12).
 The per-pixel path uses the **fastest compute gear whose range admits the
 delta**. Research digests live
 in the private sister repo `Critical-Zoomer-Math-Library` (not published with
@@ -274,9 +276,10 @@ fused / O(log N) production path in `src/series.rs`.
 
 ### Acceptance for re-enable
 
-**Landed 2026-08-11:** membership pins green with SA on; logarithmic probe +
-shallow no-op + deep material skip pins; live `apply_series_skip` on seat init;
-full suite / benches / visual as the gate for this chunk.
+**Landed 2026-08-11 (unit pins, not headed depth-trust):** membership pins
+green with SA on; logarithmic probe + shallow no-op + deep material skip pins;
+live `apply_series_skip` on seat init. That chunk closed on tests/benches — it
+does **not** close v0.1 blockiness / precision-wall product trust.
 
 ## Acceptance (this push — all gates together)
 
@@ -288,6 +291,8 @@ Nothing is complete until every gate passes on one final tree:
 - Live adjacent-pixel distinction at capacity ≥2^3600000.
 - Full tests, tracey links, visual captures (no banding/blobs), HUD gear+IPS+PPS.
 - Zero regressions vs accepted benchmarks and craftsmanship invariants.
+- **Headed blockiness / post-admit precision drop** still open separately — do
+  not read the bullets above as “depth-trust done” (`interviews/2026-08-12-v01-product-direction.md`).
 
 ## Deferrals (named, not smuggled)
 
