@@ -119,6 +119,13 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
   live home res was 125 ms this run — not a one-second stall. Headed
   “often behind” at shallow zoom still unproven.
 
+- **Shallow-mag start lag — pacing hypotheses (2026-08-13).** Not admission
+  (home/mag 43 Automatic admit). Extra second vs ~16 ms:
+  hitch `predicted_dt` → 1 Hz beat still a hypothesis (stall now stays 60);
+  seat fills still wait the beat after a Dummy pivot; `from_stencil` home
+  125 ms; worker park 50 ms wakes on Replace; window sends stencil *before*
+  `parse_inputs` (one present, not one second). Headed not re-checked.
+
 - **Open (ghost-hunt 2026-08-12): head window ~100% CPU.** Not shelved.
   Screen **worker** parks after fill (`seats_need_work`) — that is the wrong
   actor. Window `update` still does bare `ctx.request_repaint()` (`351afdf`).
