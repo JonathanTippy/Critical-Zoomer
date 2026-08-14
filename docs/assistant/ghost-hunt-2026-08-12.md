@@ -60,6 +60,7 @@ Commits: `automatic checkpoint` ≈ assistant; `WIP` ≈ developer.
 | 21 | Idle HUD `ctrl:` 0 | Controller woke ~50 ms and only `Replace`d on stencil change; stamps aged out of the 1 s counter. Now content-period + `Pace` (no remap). Drain merge keeps Replace over Pace. Headed `ctrl:` vs `pub:` still for the developer. | **~62%** |
 | 22 | Pace as `frame_info: Some` | Collector remap path. Headed black, `pub:`/`ctrl:` 0, shade still emitting Dummy. Pace is `None` + empty seats. | **~64%** |
 | 23 | Mag 44 i64 full black | DirectKernel checkpoint stayed origin; pert already latches `(z,0)`. CopyIntExp `0-ε` → -1, ipp:1 all repeats. Assistant Ord/shr rewrite reverted. | **~66%** |
+| 24 | Work pacing / shallow-mag lag | Collector beat-only publish + stall→1 Hz + controller stencil-before-send. `content-beat-publish+3`, Hz floor, drain-to-newest+2. Developer headed 2026-08-13. | **~68%** |
 
 Not 100%. Implementation ghosts still mostly unknown. Headed i64 grey is closed.
-Mag 44 `|c|<1` black is pinned, not headed-confirmed.
+Mag 44 `|c|<1` black is pinned, not headed-confirmed. Work pacing closed headed.

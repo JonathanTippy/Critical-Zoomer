@@ -97,14 +97,14 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
 - **Finished-frame busy-spin — fix landed.** `percent_completed` was derived from the empty-queue break index (`(N-1)/N*100`), so completed frames never idled. Now delivered-fraction. Pin via never-stall / load-proportional follow-up.
 - **Harness zombie processes — fixed (2026-08-07).** Repeated Xvfb captures left orphaned `critical_zoomer` / `Xvfb` processes. `tmp/capture_at.sh` now has an `EXIT` trap that stops the session and kills session-scoped app/Xvfb processes.
 - **Short published orbit soft-stall / iteration wall — fix landed.** Library: missing iterate = `Unfinished`, not Glitch. Seats soft-continue on zero orbit (`δz ← z`). Reference worker no longer publishes at an artificial `max_iterations`/`MAX_BOUT` length wall — only period or escaped (`r[cz.depth.reference-until-done+1]`).
+- **Work pacing regression — closed headed (2026-08-13).** Slow start / old view
+  while attention moved at shallow mag. Collector waited the content beat for
+  pivot and seat fills; hitch `predicted_dt` could fan 1 Hz; controller
+  recorded stencil before a full worker channel. Fixes: `content-beat-publish+3`,
+  stall Hz floor in `resolve_auto_vsync_hz`, `replace_needed` /
+  `record_replace_sent`. Developer confirmed headed.
 
 ## Known issues (open)
-
-- **Pivot publish waited for the content beat (2026-08-13).** Collector only
-  sent to shade when `content_beat_due`. Hitch `predicted_dt` could fan 1 Hz.
-  Pivot `frame_info` and seat `completed_points` now publish that wake
-  (`should_publish_resident` +3). Stall `predicted_dt` stays 60 below 20 Hz.
-  Headed not re-checked.
 
 - **Controller consumed Replace on a full worker channel (2026-08-13).**
   `should_send_replace` recorded the tip before the put; a full command
@@ -112,22 +112,10 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
   `full_channel_does_not_consume_changed_stencil`. Headed not re-checked.
 
 - **Automatic Replace fail-closed at mag 44 (2026-08-13 experiment).**
-  Same formula as the worker: f32/cie need Naive gear, so Automatic is
-  `CGenerator<f64>` only. Home and mag 43 at the i64-black locus admit;
-  mag 44 does not. Worker `continue` keeps the previous grid. Pin:
-  `experiment_automatic_replace_admits_headed_views`. `from_stencil` at
-  live home res was   125 ms this run — not a one-second stall. Headed
-  “often behind” at shallow zoom still unproven. Naive `from_stencil` f32
-  home live res was 69 ms. After a pivot publish, seat fills with no
-  `frame_info` stay silent for the rest of the content period (1 s beat →
-  500 ms still unpublished).
-
-- **Shallow-mag start lag — pacing hypotheses (2026-08-13).** Not admission
-  (home/mag 43 Automatic admit). Extra second vs ~16 ms:
-  hitch `predicted_dt` → 1 Hz beat still a hypothesis (stall now stays 60);
-  seat fills still wait the beat after a Dummy pivot; `from_stencil` home
-  125 ms; worker park 50 ms wakes on Replace; window sends stencil *before*
-  `parse_inputs` (one present, not one second). Headed not re-checked.
+  f32/cie need Naive gear; Automatic is `CGenerator<f64>` only. Mag 44 at the
+  i64-black locus does not admit — worker `continue` keeps previous grid. Pin:
+  `experiment_automatic_replace_admits_headed_views`. Separate from pacing
+  (closed headed 2026-08-13).
 
 - **Open (ghost-hunt 2026-08-12): head window ~100% CPU.** Not shelved.
   Screen **worker** parks after fill (`seats_need_work`) — that is the wrong
