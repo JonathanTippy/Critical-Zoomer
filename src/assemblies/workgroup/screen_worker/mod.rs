@@ -1328,7 +1328,10 @@ mod mutant_kill {
     use super::*;
     use crate::assemblies::structs::{KernelMode, ReferenceStatus};
     use crate::assemblies::workgroup::screen_worker::workshift::from_stencil;
-    use crate::constants::{HOME_POSITION, TEST_SCREEN_RES};
+    use crate::constants::{
+        DEFAULT_WINDOW_RES, HEADED_I64_BLACK_IM, HEADED_I64_BLACK_MAG, HEADED_I64_BLACK_RE,
+        HOME_POSITION, TEST_SCREEN_RES,
+    };
     use crate::floatexp::FloatExp;
     use crate::utils::{IntExp, ObjectivePosAndZoom};
 
@@ -1433,6 +1436,36 @@ mod mutant_kill {
         );
         assert!(CGenerator::<f64>::new_with_margin(&tip, 38, res, 1).is_some());
         assert!(!og_copy_intexp1_naive_admits(naive, &tip, 38, res, 1));
+    }
+
+    /// Experiment: Automatic Replace `stencil_ok` is `CGenerator<f64>` only.
+    /// Headed mag 44 at the i64-black locus does not admit — worker `continue`
+    /// keeps the previous live grid while attention still tracks the pointer.
+    #[test]
+    fn experiment_automatic_replace_admits_headed_views() {
+        use crate::assemblies::workgroup::c_generator::DEFAULT_C_GENERATOR_MARGIN_BITS;
+        use crate::assemblies::headgroup::window::coords::decimal_str_to_intexp;
+        let res = DEFAULT_WINDOW_RES;
+        let margin = DEFAULT_C_GENERATOR_MARGIN_BITS;
+        let home = (
+            IntExp::from(HOME_POSITION.0),
+            IntExp::ZERO - IntExp::from(HOME_POSITION.1),
+        );
+        let black = (
+            decimal_str_to_intexp(HEADED_I64_BLACK_RE).unwrap(),
+            decimal_str_to_intexp(HEADED_I64_BLACK_IM).unwrap(),
+        );
+        let ok = |loc: &(IntExp, IntExp), zoom: i64| {
+            og_f32_naive_admits(None, loc, zoom, res, margin)
+                || og_copy_intexp1_naive_admits(None, loc, zoom, res, margin)
+                || CGenerator::<f64>::new_with_margin(loc, zoom, res, margin).is_some()
+        };
+        assert!(ok(&home, HOME_POSITION.2 as i64), "home Automatic admits");
+        assert!(ok(&black, 43), "mag 43 Automatic admits");
+        assert!(
+            !ok(&black, HEADED_I64_BLACK_MAG as i64),
+            "mag 44 Automatic must fail-closed on f64"
+        );
     }
 
     #[test]

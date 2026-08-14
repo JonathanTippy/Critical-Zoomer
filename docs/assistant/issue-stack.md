@@ -110,6 +110,14 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
   channel then suppressed retries. Attention still moved. Pin:
   `full_channel_does_not_consume_changed_stencil`. Headed not re-checked.
 
+- **Automatic Replace fail-closed at mag 44 (2026-08-13 experiment).**
+  Same formula as the worker: f32/cie need Naive gear, so Automatic is
+  `CGenerator<f64>` only. Home and mag 43 at the i64-black locus admit;
+  mag 44 does not. Worker `continue` keeps the previous grid. Pin:
+  `experiment_automatic_replace_admits_headed_views`. `from_stencil` at
+  live home res was 125 ms this run — not a one-second stall. Headed
+  “often behind” at shallow zoom still unproven.
+
 - **Open (ghost-hunt 2026-08-12): head window ~100% CPU.** Not shelved.
   Screen **worker** parks after fill (`seats_need_work`) — that is the wrong
   actor. Window `update` still does bare `ctx.request_repaint()` (`351afdf`).
