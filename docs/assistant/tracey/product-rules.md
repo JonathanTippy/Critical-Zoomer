@@ -117,14 +117,14 @@ Defined in requirements.md: r[cz.fast.input-next-frame-17ms+1]
 **Acceptance criteria.**
 - [ ] Re-verify on restored headgroup; v0.0.9's same-turn input apply is the design intent.
 
-Defined in requirements.md: r[cz.system.memory-default-1gb+1]
+r[cz.system.memory-default-1gb+2]
 
-**Normative summary.** Default memory limit is 1GB CPU + 1GB VRAM class.
+**Normative summary.** No memory-limit setting. The hoard is one screen package
+plus one previous package; there is nothing to budget and no 1GB CPU+VRAM slider.
 
 **Acceptance criteria.**
-- **SUSPENDED.** v0.0.9 has no memory-limit setting — the hoard is one screen package plus one
-  previous package, so there is nothing to budget. The product rule (user-settable limit,
-  floor from screen size) returns with any multi-package hoard; see collected-wisdom.
+- Settings has no memory-limit control and `Settings` has no memory-budget field.
+**Verification.** `settings_has_no_memory_limit_control`.
 
 Defined in requirements.md: r[cz.cosmetic.bailout-range-2-255+1]
 

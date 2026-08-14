@@ -19,7 +19,10 @@ otherwise it shifts one word and adds 64 to `exp`.
 
 ## Add
 
-1. Align to the **coarser** exp (the larger one). Right-shift the finer mantissa.
+When aligning to a coarser exp, shift the **magnitude** as unsigned bits, then
+restore sign. A tiny negative that shifts off the tape becomes **zero**, not
+sticky two’s-complement `-1` (that made `0 - ε = -1` and the period box
+`[-1, 0]` — headed mag 44 `|c|<1` full black at ipp:1).
 2. Add limbs. High limb is signed; keep the word when the extra high word is
    sign extension (`0` or `-1`). A real extra word still shifts one word right
    and adds 64 to `exp`. Mixed-sign wrap that lands in range stays as-is
@@ -39,7 +42,9 @@ Unsigned 64×64 on a negative limb is not `z²`. Not Karatsuba.
 ## Finite
 
 No infinities, same as `IntExp`. Overflow is a scale bump, not NaN/Inf.
-`is_finite` is always true.
+`is_finite` is always true. `Ord`: a zero mantissa is zero at every exp; a
+nonzero that shifts off the coarse tape is **not** equal to zero (headed mag 44
+`|c|<1` was matching the period checkpoint).
 
 ## From IntExp
 
@@ -65,4 +70,6 @@ f64 relative `c`, and `Words=1` mul `>>64`. Pins:
 `headed_mag_43_get_c_unique_count_at_window_res`,
 `relative_copy_intexp1_mag_44_does_not_f64_collapse_c`,
 `copy_intexp1_mandel_orbit_tracks_f64_at_headed_c`. Admit is correct. Not
-WorkUpdate `c`. Headed mag-44 grey closed (developer 2026-08-13).
+WorkUpdate `c`. Headed mag-44 grey closed (developer 2026-08-13). Mag 44
+`|c|<1` full black was `Ord` vs `ZERO` (period at ipp:1); pin
+`og_copy_intexp1_headed_mag_44_not_all_interior`.

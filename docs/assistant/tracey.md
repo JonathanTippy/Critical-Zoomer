@@ -30,11 +30,14 @@ Bacon job `jobs.tracey` already calls `tracey query validate`.
 
 ## Config that actually loads rules
 
-Spec `include` starts with the three cardinal files
-(`docs/authoritative/expectations.md`, `requirements.md`, `architecture.md`)
-so the web view opens on owner spec, then the assistant Tracey mapping files.
-IDs must be unique in the spec: product/e2e/foundations notes that repeat a
-requirements ID use an inline mention, not a second definition.
+Two specs in `.config/tracey/config.styx` so the web view’s first spec is the
+three cardinal owner files (`expectations.md`, `requirements.md`,
+`architecture.md`). Mapping rules are a second spec; they used to sort ahead
+of `docs/authoritative/` (`assistant` < `authoritative`) and open on
+craftsmanship. IDs must be unique **within** a spec: product/e2e/foundations
+notes that repeat a requirements ID use an inline mention, not a second
+definition. A version bump (`+2`) in mapping is how an owner `+1` is
+superseded when that file cannot be edited.
 
 `test_include` must **not** be all of `src/**/*.rs` (that flags every `r[impl]`
 as ImplInTestFile). Dedicated test trees only (`craftsmanship_tests`).

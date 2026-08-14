@@ -294,8 +294,11 @@ pub struct Settings {
     // Webcam gaze → extra attention spiral. Off until calibrated.
     , pub eye_tracking_enabled: bool
     // One-shot: window consumes this and starts the four-corner toast.
-    , pub request_gaze_calibrate: bool
+    ,     pub request_gaze_calibrate: bool
 }
+
+// r[impl cz.system.memory-default-1gb+2]
+// No memory-budget field. Owner declined a settings limit box.
 
 
 #[derive(Clone, Debug, Copy)]
@@ -808,6 +811,36 @@ mod mutant_kill {
         s.manual_gear_enabled = true;
         s.manual_gear = KernelMode::NaiveGpu;
         assert_eq!(s.manual_gear_override(), Some(KernelMode::NaiveGpu));
+    }
+
+    #[test]
+    // r[verify cz.system.memory-default-1gb+2]
+    fn settings_has_no_memory_limit_control() {
+        let Settings {
+            coloring_script: _,
+            bailout_radius: _,
+            bailout_max_additional_iterations: _,
+            estimate_extra_iterations: _,
+            currently_selected_coloring_instruction: _,
+            id_counter: _,
+            manual_gear_enabled: _,
+            manual_gear: _,
+            manual_color_gear_enabled: _,
+            manual_color_gear: _,
+            manual_escape_gear_enabled: _,
+            manual_escape_gear: _,
+            content_refresh_automatic: _,
+            content_refresh_hz: _,
+            auto_vsync_hz: _,
+            head_vsync_enabled: _,
+            head_max_fps: _,
+            c_generator_margin_bits: _,
+            eye_tracking_enabled: _,
+            request_gaze_calibrate: _,
+        } = Settings::DEFAULT;
+        let ui = include_str!("assemblies/headgroup/window/widgetize.rs").to_ascii_lowercase();
+        assert!(!ui.contains("memory limit"));
+        assert!(!ui.contains("1gb"));
     }
 
     #[test]

@@ -58,6 +58,7 @@ Commits: `automatic checkpoint` ≈ assistant; `WIP` ≈ developer.
 
 | 20 | HUD `stack:` + taskset `0-7`/`4-11` | Overlay is `type:`. Pin is middle-half cores (`3-8` on 12). Mag-44 grey closed. | **~60%** |
 | 21 | Idle HUD `ctrl:` 0 | Controller woke ~50 ms and only `Replace`d on stencil change; stamps aged out of the 1 s counter. Now content-period + `Pace` (no remap). Drain merge keeps Replace over Pace. Headed `ctrl:` vs `pub:` still for the developer. | **~62%** |
-| 22 | Pace as `frame_info: Some` | Collector remap path. Headed black, `pub:`/`ctrl:` 0, shade still emitting Dummy. Pace is `None` + empty seats. | **~64%** |
+| 23 | Mag 44 i64 full black / `|c|<1` ≡ 0 | CopyIntExp `Ord` shifted sub-units onto ZERO; period check ipp:1 all repeats. Mag 43 good because still f64. | **~66%** |
 
 Not 100%. Implementation ghosts still mostly unknown. Headed i64 grey is closed.
+Mag 44 `|c|<1` black is pinned, not headed-confirmed.

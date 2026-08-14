@@ -2418,6 +2418,84 @@ mod mutant_kill {
 
     #[test]
     // r[verify cz.depth.c-generator-fails-closed+1]
+    // r[verify cz.math.copy-intexp-mul-schoolbook+1]
+    fn og_copy_intexp1_headed_mag_44_not_all_interior() {
+        use crate::assemblies::headgroup::window::coords::{decimal_str_to_intexp, ul_for_center};
+        use crate::constants::{
+            HEADED_I64_BLACK_IM, HEADED_I64_BLACK_MAG, HEADED_I64_BLACK_RE, TEST_SCREEN_RES,
+        };
+        use crate::copy_intexp::CopyIntExp1;
+        use crate::assemblies::workgroup::c_generator::{CGenerator, Mandelbrotable};
+        use super::{from_stencil_with_margin, workshift_with_kernel, DirectKernel, SeatKernel};
+        let loc = ul_for_center(
+            decimal_str_to_intexp(HEADED_I64_BLACK_RE).unwrap(),
+            decimal_str_to_intexp(HEADED_I64_BLACK_IM).unwrap(),
+            HEADED_I64_BLACK_MAG,
+            TEST_SCREEN_RES,
+        );
+        let compute = (
+            loc.pos.0.clone(),
+            crate::utils::IntExp::ZERO - loc.pos.1.clone(),
+        );
+        assert!(
+            CGenerator::<f64>::new_with_margin(&compute, HEADED_I64_BLACK_MAG as i64, TEST_SCREEN_RES, 1)
+                .is_none(),
+            "mag 44 must be past absolute f64 (HUD type:i64)"
+        );
+        let frame = (loc, TEST_SCREEN_RES);
+        let mut ctx = from_stencil_with_margin::<CopyIntExp1>(frame, None, 1, false)
+            .expect("mag 44 CopyIntExp<1> admits");
+        DirectKernel.start_seat(&mut ctx, (0, 0));
+        let p0 = &ctx.points[0];
+        assert!(
+            p0.c.0.to_f64().abs() > 0.1 && p0.c.1.to_f64().abs() > 0.1,
+            "UL c collapsed ({}, {})",
+            p0.c.0.to_f64(),
+            p0.c.1.to_f64()
+        );
+        assert!(
+            p0.c.0 != CopyIntExp1::ZERO,
+            "real |c|<1 must not Ord-equal ZERO (period checkpoint)"
+        );
+        workshift_with_kernel(16_000_000, 2, 4, 150, &mut ctx, &DirectKernel);
+        let p0 = &ctx.points[0];
+        assert!(
+            !p0.repeats || p0.iterations > 8,
+            "false period at n={} z=({}, {}) eps={}",
+            p0.iterations,
+            p0.z.0.to_f64(),
+            p0.z.1.to_f64(),
+            ctx.pitch_epsilon.to_f64()
+        );
+        for _ in 0..800 {
+            workshift_with_kernel(16_000_000, 2, 4, 150, &mut ctx, &DirectKernel);
+            if ctx.points.iter().all(|p| p.delivered || p.escapes || p.repeats) {
+                break;
+            }
+        }
+        let escapes = ctx.points.iter().filter(|p| p.escapes).count();
+        let repeats = ctx.points.iter().filter(|p| p.repeats).count();
+        let dummyish = ctx.points.iter().filter(|p| !p.escapes && !p.repeats).count();
+        let uniq_esc: std::collections::BTreeSet<u32> = ctx
+            .points
+            .iter()
+            .filter(|p| p.escapes)
+            .map(|p| p.iterations)
+            .collect();
+        assert!(
+            escapes > 0,
+            "headed mag 44: full black at high IPP (escapes={escapes} repeats={repeats} unfinished={dummyish} ipp={})",
+            ctx.view_ipp()
+        );
+        assert!(
+            uniq_esc.len() > 1,
+            "i64 ruffles/collapse: only {} distinct escape times",
+            uniq_esc.len()
+        );
+    }
+
+    #[test]
+    // r[verify cz.depth.c-generator-fails-closed+1]
     // r[verify cz.depth.gear-hud+2]
     fn og_copy_intexp1_headed_mag_43_not_all_interior() {
         use crate::assemblies::headgroup::window::coords::{decimal_str_to_intexp, ul_for_center};

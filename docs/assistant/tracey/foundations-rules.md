@@ -127,15 +127,22 @@ source. A 64-bit magnitude must not be stored with `u64 as i64`.
 `from_64bit_positive_mantissa_stays_positive`,
 `headed_mag_43_get_c_unique_count_at_window_res`.
 
-r[cz.math.copy-intexp-no-infinity+1]
+r[cz.math.copy-intexp-no-infinity+2]
 
 **Normative summary.** `CopyIntExp` cannot represent infinities. Every value is
 finite. `Mandelbrotable::is_finite` is constantly true. Squeeze never produces Inf.
+`Ord` treats a zero mantissa as zero at every exp; a nonzero that shifts off the
+tape is not equal to zero (sub-unit `|c|` must not look like the period
+checkpoint).
 
 **Acceptance criteria.**
 - [x] Arbitrary values, `ZERO`, `max_value`, and finite `from_f32` are finite.
-- [x] `Ord` agrees with the sign of `a - b` after squeeze subtract.
+- [x] `Ord` agrees with the sign of `a - b` after squeeze subtract for values
+  that still overlap.
+- [x] A positive value with negative exp is greater than `ZERO` (headed mag 44
+  `|c|<1` must not period-match the origin).
 
-**Implementation.** `Mandelbrotable` for `CopyIntExp`.
-**Verification.** `every_value_is_finite`, `never_infinite`, `ord_is_total`.
+**Implementation.** `Mandelbrotable` / `Ord` for `CopyIntExp`.
+**Verification.** `every_value_is_finite`, `never_infinite`, `ord_is_total`,
+`sub_unit_is_not_zero`.
 

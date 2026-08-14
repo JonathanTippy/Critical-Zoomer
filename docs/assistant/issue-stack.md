@@ -63,6 +63,12 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
   (2026-08-13) — closed.** `From` 63-bit squeeze; signed add; relative `c` in
   T not f64; `Words=1` mul bit-squeezes (not `>>64`). Developer confirmed
   headed. RCA: `docs/assistant/rca-i64-flat-grey-2026-08-13.md`.
+- **OG naive `type:i64` mag 2^44 full black at high IPP (2026-08-13).** Locus
+  `-0.6487374290236704 + 0.374687166530634i` (mag 43 still f64, good). `|c|<1`
+  aligned onto `ZERO` and looked equal; period check fired at ipp:1 (all
+  repeats). `Ord` now keeps sub-unit ≠ 0. Pin
+  `og_copy_intexp1_headed_mag_44_not_all_interior`. Headed not re-checked.
+  Low-IPP ruffles at this wall are leftover iterate headroom, not the black.
 - **Transition rectangular blockiness / shallow false admit (2026-08-12 design RCA).**
   When a deeper gear exists but the image shows rectangular precision blocks,
   suspect **C-generator false-admit of a shallow type**, or a **later precision

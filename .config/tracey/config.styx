@@ -1,10 +1,25 @@
 specs (
   {
-    name critical-zoomer
+    name cardinal
     include (
       docs/authoritative/expectations.md
       docs/authoritative/requirements.md
       docs/authoritative/architecture.md
+    )
+    impls (
+      {
+        name rust
+        include (src/**/*.rs scripts/**/*.sh)
+        exclude (target/** **/*.wgsl)
+        test_include (
+          src/**/craftsmanship_tests/**/*.rs
+        )
+      }
+    )
+  }
+  {
+    name mapping
+    include (
       docs/assistant/tracey/craftsmanship-rules.md
       docs/assistant/tracey/depth-rules.md
       docs/assistant/tracey/standards-rules.md
