@@ -63,12 +63,14 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
   (2026-08-13) — closed.** `From` 63-bit squeeze; signed add; relative `c` in
   T not f64; `Words=1` mul bit-squeezes (not `>>64`). Developer confirmed
   headed. RCA: `docs/assistant/rca-i64-flat-grey-2026-08-13.md`.
-- **OG naive `type:i64` mag 2^44 full black at high IPP (2026-08-13).** Locus
+- **OG naive `type:i64` mag 2^44 full black at high IPP (2026-08-13) — pinned,
+  not headed-confirmed.** Locus
   `-0.6487374290236704 + 0.374687166530634i` (mag 43 still f64). DirectKernel
   left the period checkpoint at origin; pert already latches `(z, 0)` at start.
   CopyIntExp `0-ε` sticks at -1, so the first iterate sits in `[-1,0]` and
   every seat “repeats” at ipp:1. Latch matches pert. Pin
-  `og_copy_intexp1_headed_mag_44_not_all_interior`. Headed not re-checked.
+  `og_copy_intexp1_headed_mag_44_not_all_interior`. Pin only — developer has
+  not confirmed headed.
 - **Transition rectangular blockiness / shallow false admit (2026-08-12 design RCA).**
   When a deeper gear exists but the image shows rectangular precision blocks,
   suspect **C-generator false-admit of a shallow type**, or a **later precision
