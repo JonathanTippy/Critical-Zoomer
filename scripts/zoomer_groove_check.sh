@@ -69,16 +69,44 @@ echo
 
 fail() {
   local msg="$1"
+  local issue
+  issue="$(python3 - "$STEP_LOG" <<'PY'
+import sys
+path = sys.argv[1]
+try:
+    lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
+except OSError:
+    print("(no step output captured)")
+    raise SystemExit(0)
+markers = (
+    "panicked at", "assertion `", "error[E", "error: could not compile",
+    "error: test failed", "FAILED.", "tracey binary not",
+)
+start = 0
+for i, line in enumerate(lines):
+    if any(m in line for m in markers):
+        start = max(0, i - 2)
+        break
+else:
+    for i, line in enumerate(lines):
+        if line.strip() == "failures:" or line.startswith("failures:"):
+            start = i
+            break
+    else:
+        start = max(0, len(lines) - 40)
+snippet = "\n".join(lines[start:])
+if len(snippet) > 10000:
+    snippet = snippet[-10000:]
+print(snippet)
+PY
+)"
   echo "GROOVE CHECK FAIL: $msg"
+  echo "$issue"
   date -Iseconds >"$STAMP_FAIL"
   {
     echo "GROOVE CHECK FAIL: $msg"
-    if [[ -s "$STEP_LOG" ]]; then
-      echo "--- failure output (${STEP_LOG}) ---"
-      tail -c 16000 "$STEP_LOG"
-    fi
-    echo "--- log tail ---"
-    tail -c 4000 "$LOG"
+    echo ""
+    echo "$issue"
   } >"$EXCERPT"
   echo "$msg" >>"$STAMP_FAIL"
   exit 1
