@@ -57,6 +57,11 @@ if [[ -z "$RELEVANT" && ! -f /tmp/cz_full_check_last_fail ]]; then
   exit 0
 fi
 
+if [[ -f /tmp/cz_groove_check_last_ok ]] \
+  && [[ -n "$(find /tmp/cz_groove_check_last_ok -mmin -2 -print 2>/dev/null)" ]]; then
+  export CZ_FULL_CHECK_SKIP_GROOVE=1
+fi
+
 if ! "$ROOT/scripts/full_check.sh"; then
   TAIL="$(cat /tmp/cz_full_check_last_fail_excerpt 2>/dev/null || true)"
   if [[ -z "$TAIL" ]]; then

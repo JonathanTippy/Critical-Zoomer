@@ -21,14 +21,10 @@ PIN=(taskset -c "${START}-${END}" nice -n 10)
 
 plan() {
   echo "full_check: pin ${START}-${END}  log $LOG"
-  echo "  1. cargo check --lib"
-  echo "  2. cargo test --lib  (unit; skip integration_tier, e2e_tier; debug+opt-3)"
-  echo "  3. cargo test --lib integration_tier   (≤10, 15s)"
-  echo "  4. cargo test --lib e2e_tier            (park, 60s)"
-  echo "  5. cargo test --test pipeline_cadence   (OG + GPU, 60s)"
-  echo "  6. cargo bench workgroup_fitness shadergroup_fitness my_bench"
-  echo "  7. tracey query validate      (fail-closed)"
-  echo "  8. tracey query status        (dump; does not fail the check)"
+  echo "  0. zoomer_groove_check.sh --no-screenshot (tracey check → unit → int → e2e)"
+  echo "  1. cargo test --test pipeline_cadence   (OG + GPU, 60s)"
+  echo "  2. cargo bench workgroup_fitness shadergroup_fitness my_bench"
+  echo "  3. tracey query validate + status (fail-closed after benches)"
 }
 
 if [[ "$DRY" -eq 1 ]]; then
@@ -86,27 +82,13 @@ if [[ -d "$WGPU_LOCKDIR" ]]; then
   fi
 fi
 
-run cargo check --lib || fail "cargo check --lib"
-# Unit first. Retries are for leftover rustc scratch in this target dir, not
-# a skipped assertion. A real unit fail still fails the last try.
-unit_ok=0
-for unit_try in 1 2 3; do
-  echo "======== cargo test --lib unit (try ${unit_try}/3) ========"
-  if taskset -c "${START}-${END}" nice -n 10 -- \
-    cargo test --lib -- --skip integration_tier --skip e2e_tier
-  then
-    unit_ok=1
-    break
-  fi
-  echo "full_check: unit try ${unit_try} missed (compile/link or test); wait and retry"
-  find "$CARGO_TARGET_DIR" -maxdepth 4 -type d -name 'rustc*' -prune -exec rm -rf {} + 2>/dev/null || true
-  sleep 8
-done
-[[ "$unit_ok" -eq 1 ]] || fail "cargo test unit (--lib, skip integration/e2e)"
-run cargo test --lib integration_tier \
-  || fail "cargo test integration_tier"
-run cargo test --lib e2e_tier \
-  || fail "cargo test e2e_tier"
+if [[ "${CZ_FULL_CHECK_SKIP_GROOVE:-0}" == 1 ]]; then
+  echo "full_check: skipping groove tier (fresh zoomer_groove_check_on_stop)"
+else
+  CZ_GROOVE_TARGET_DIR="$CARGO_TARGET_DIR" \
+    "$ROOT/scripts/zoomer_groove_check.sh" --no-screenshot \
+    || fail "zoomer_groove_check (no screenshot)"
+fi
 # Same floors; one retry after leftover reap (overlapping cargo/GPU load).
 cadence_ok=0
 for cadence_try in 1 2; do

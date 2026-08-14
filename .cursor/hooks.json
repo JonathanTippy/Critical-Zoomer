@@ -28,6 +28,11 @@
         "timeout": 15
       },
       {
+        "command": "bash .cursor/hooks/groove_check_on_stop.sh",
+        "timeout": 2400,
+        "loop_limit": 3
+      },
+      {
         "command": "bash .cursor/hooks/full_check_on_stop.sh",
         "timeout": 2400,
         "loop_limit": 3
