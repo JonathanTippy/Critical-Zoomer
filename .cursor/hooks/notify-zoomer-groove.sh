@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
-# Workspace hook: zoomer-groove skill notifier. Canonical scripts live in JFT_Prompts/hooks.
+# DISABLED 2026-08-14: file-change hooks off (predictability). Manual JFT_Prompts review only.
 set -u
-export JFT_WATCH_TARGET="/home/jonathan/git/JFT_Prompts/skills/zoomer-groove/SKILL.md"
-export JFT_WATCH_PENDING="/tmp/jft-zoomer-groove.pending"
-export JFT_WATCH_WAKE="/tmp/jft-zoomer-groove.wake"
-export JFT_WATCH_PIDFILE="/tmp/jft-zoomer-groove-watch.pid"
-export JFT_WATCH_BASELINE="/tmp/jft-zoomer-groove.baseline"
-export JFT_WATCH_LATEST="/tmp/jft-zoomer-groove.latest.msg"
-export JFT_WATCH_TOKEN="AGENT_ZOOMER_GROOVE_CHANGED"
-export JFT_WATCH_LOG="/tmp/jft-zoomer-groove-watch.log"
-CANON="/home/jonathan/git/JFT_Prompts/hooks/notify-jft-file.sh"
-exec bash "$CANON" "${1:-post}"
+PF="/tmp/jft-zoomer-groove-watch.pid"
+if [[ -f "$PF" ]]; then
+  pid="$(tr -d '[:space:]' <"$PF")"
+  if [[ -n "$pid" && -d "/proc/$pid" ]]; then
+    kill -TERM "$pid" 2>/dev/null || true
+  fi
+  rm -f "$PF"
+fi
+exit 0
