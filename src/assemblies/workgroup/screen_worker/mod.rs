@@ -526,7 +526,7 @@ async fn internal_behavior<A: SteadyActor>(
 
         if actor.avail_units(&mut commands_in) > 0 {
 
-            // r[impl cz.craft.drain-to-newest+1]
+            // r[impl cz.craft.drain-to-newest+2]
             let mut cmd = actor.try_take(&mut commands_in).expect("internal error");
             while actor.avail_units(&mut commands_in) > 0 {
                 cmd = merge_worker_command(

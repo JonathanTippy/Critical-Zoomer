@@ -21,7 +21,7 @@ pub enum WorkerCommand {
 
 /// Drain-to-newest for mixed Pace/Replace: a later Replace wins; a later Pace
 /// only refreshes the stamp on a kept Replace (never drops the view change).
-// r[impl cz.craft.drain-to-newest+1]
+// r[impl cz.craft.drain-to-newest+2]
 pub(crate) fn merge_worker_command(prev: Option<WorkerCommand>, next: WorkerCommand) -> WorkerCommand {
     match (prev, next) {
         (None, n) => n,
@@ -107,7 +107,7 @@ async fn internal_behavior<A: SteadyActor>(
 
         let mut sent = false;
         if actor.avail_units(&mut from_sampler) > 0 {
-            // r[impl cz.craft.drain-to-newest+1]
+            // r[impl cz.craft.drain-to-newest+2]
             while actor.avail_units(&mut from_sampler) > 1 {
                 let stuff = actor.try_take(&mut from_sampler).expect("internal error");
                 drop(stuff);
@@ -127,14 +127,16 @@ async fn internal_behavior<A: SteadyActor>(
             );
 
             // r[impl cz.craft.stencil-only-replace+2]
-            if should_send_replace(&mut state, &frame_info) && !actor.is_full(&mut to_worker) {
+            // r[impl cz.craft.drain-to-newest+2]
+            if replace_needed(&state, &frame_info) && !actor.is_full(&mut to_worker) {
                 let _ = actor.try_send(
                     &mut to_worker,
                     WorkerCommand::Replace {
-                        frame_info,
+                        frame_info: frame_info.clone(),
                         emitted_at: Instant::now(),
                     },
                 );
+                record_replace_sent(&mut state, &frame_info);
                 last_stamp = Instant::now();
                 sent = true;
             }
@@ -239,21 +241,35 @@ pub fn get_points<
 
 /// Stencil gate: unchanged views are suppressed. Admission lives on the
 /// worker with the live C-generator margin, not a default-10 f64 probe here.
-fn should_send_replace(
-    state: &mut WorkControllerState,
+/// Peek only — recording sent is `record_replace_sent` after a successful put.
+fn replace_needed(
+    state: &WorkControllerState,
     frame_info: &(ObjectivePosAndZoom, (u32, u32)),
 ) -> bool {
     let obj = &frame_info.0;
     let res = frame_info.1;
-
-    if let Some(loc) = &state.last_sampler_location {
-        if !((*obj != *loc) || res != state.worker_res) {
-            return false;
-        }
+    match &state.last_sampler_location {
+        Some(loc) if !((*obj != *loc) || res != state.worker_res) => false,
+        _ => true,
     }
+}
 
-    state.worker_res = res;
-    state.last_sampler_location = Some(obj.clone());
+fn record_replace_sent(
+    state: &mut WorkControllerState,
+    frame_info: &(ObjectivePosAndZoom, (u32, u32)),
+) {
+    state.worker_res = frame_info.1;
+    state.last_sampler_location = Some(frame_info.0.clone());
+}
+
+fn should_send_replace(
+    state: &mut WorkControllerState,
+    frame_info: &(ObjectivePosAndZoom, (u32, u32)),
+) -> bool {
+    if !replace_needed(state, frame_info) {
+        return false;
+    }
+    record_replace_sent(state, frame_info);
     true
 }
 
@@ -296,6 +312,32 @@ mod mutant_kill {
         fres.1 = (TEST_SCREEN_RES.0 + 2, TEST_SCREEN_RES.1);
         assert!(should_send_replace(&mut state, &fres));
         assert_eq!(state.worker_res, fres.1);
+    }
+
+    /// A full worker channel must not consume the tip. Recording `last_sampler`
+    /// before the put left the worker on an older Replace while attention
+    /// still tracked the pointer.
+    #[test]
+    fn full_channel_does_not_consume_changed_stencil() {
+        let mut state = WorkControllerState {
+            worker_res: TEST_SCREEN_RES,
+            last_sampler_location: None,
+        };
+        let f0 = frame(-2);
+        assert!(replace_needed(&state, &f0));
+        record_replace_sent(&mut state, &f0);
+        let f1 = frame(-1);
+        assert!(replace_needed(&state, &f1));
+        let worker_full = true;
+        if replace_needed(&state, &f1) && !worker_full {
+            record_replace_sent(&mut state, &f1);
+        }
+        assert!(
+            replace_needed(&state, &f1),
+            "unsent tip must remain needed"
+        );
+        record_replace_sent(&mut state, &f1);
+        assert!(!replace_needed(&state, &f1));
     }
 
     #[test]

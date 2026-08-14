@@ -354,7 +354,7 @@ Details that are easy to miss and were clearly earned (each bound to its code si
 - **Publish cadence emergent** — no timer to tune. `r[cz.craft.emergent-cadence+1]`
 - **Load proportional to ignorance** — busy exactly while incomplete. `r[cz.craft.load-proportional-ignorance+1]`
 
-Two protocol-level disciplines are likewise bound: drain-to-newest coalescing (`r[cz.craft.drain-to-newest+1]`, §2) and the pivot two-message ordering (`r[cz.craft.pivot-two-message-order+1]`, §6). The shared remap transform (§7) carries `r[cz.craft.shared-remap-transform+1]`.
+Two protocol-level disciplines are likewise bound: drain-to-newest coalescing (`r[cz.craft.drain-to-newest+2]`, §2) and the pivot two-message ordering (`r[cz.craft.pivot-two-message-order+1]`, §6). The shared remap transform (§7) carries `r[cz.craft.shared-remap-transform+1]`.
 
 Each is a line or two. Together they are the difference between a machine that was designed and a machine that was *finished*.
 

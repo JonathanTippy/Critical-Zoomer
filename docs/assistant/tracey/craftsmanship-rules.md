@@ -422,7 +422,7 @@ consumes toward the tip, not a resource limit.
 
 **Acceptance criteria.**
 - [ ] No workgroup channel capacity exceeds the established range; senders never block on
-  stale-consumer buildup (coalescing handles overflow, see `cz.craft.drain-to-newest+1`).
+  stale-consumer buildup (coalescing handles overflow, see `cz.craft.drain-to-newest+2`).
 - Note: visible banding from completion-channel backpressure was a product bug in a later era
   (see collected-wisdom tensions) — the promise is kept by *draining*, not by growing buffers.
 
@@ -497,20 +497,25 @@ workshift gated on the same flag.
 **Test.** `mutant_kill_complete_frame_has_no_undelivered_seats`;
 `steady_state_home_stays_parked_for_10s_after_fill`; headed `CZ_PROFILE_CPU` after settle.
 
-r[cz.craft.drain-to-newest+1]
+r[cz.craft.drain-to-newest+2]
 
 **Normative summary.** Every workgroup input (stencils, Replace commands, attention) is drained
 to newest-only, so backlogs of stale obligations are unrepresentable. Mixed Pace/Replace
-keeps the newest Replace (Pace only refreshes `emitted_at`).
+keeps the newest Replace (Pace only refreshes `emitted_at`). The controller must not mark a
+stencil sent when the worker channel is full — that dropped the tip while attention still
+moved.
 
-**Code site.** `work_controller.rs` — stencil drain loop and `merge_worker_command`;
-`screen_worker/mod.rs` — command and attention drains at loop head.
+**Code site.** `work_controller.rs` — stencil drain loop, `replace_needed` /
+`record_replace_sent`, and `merge_worker_command`; `screen_worker/mod.rs` — command and
+attention drains at loop head.
 
 **Acceptance criteria.**
 - [ ] Burst test: N rapid stencils result in exactly one context construction (for the newest);
   intermediate poses never become work obligations.
+- [ ] A changed stencil still needed after a simulated full worker channel.
 
-**Test.** `mutant_kill_merge_pace_does_not_drop_replace`; stencil/attention drains by review.
+**Test.** `mutant_kill_merge_pace_does_not_drop_replace`,
+`full_channel_does_not_consume_changed_stencil`; stencil/attention drains by review.
 
 r[cz.craft.pivot-two-message-order+1]
 
