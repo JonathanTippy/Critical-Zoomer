@@ -101,10 +101,10 @@ vsync send gates hardened; `steady_state_home_stays_parked_for_10s_after_fill`.
 ## Known issues (open)
 
 - **Pivot publish waited for the content beat (2026-08-13).** Collector only
-  sent to shade when `content_beat_due`. A hitch that fans Automatic to 1 Hz
-  made Replace wait a second to show. Pivot `frame_info` now publishes that
-  wake (`should_publish_resident`). Stall `predicted_dt` no longer resolves
-  to 1 Hz (`resolve_auto_vsync_hz(2.0)` stays 60). Headed not re-checked.
+  sent to shade when `content_beat_due`. Hitch `predicted_dt` could fan 1 Hz.
+  Pivot `frame_info` and seat `completed_points` now publish that wake
+  (`should_publish_resident` +3). Stall `predicted_dt` stays 60 below 20 Hz.
+  Headed not re-checked.
 
 - **Controller consumed Replace on a full worker channel (2026-08-13).**
   `should_send_replace` recorded the tip before the put; a full command
