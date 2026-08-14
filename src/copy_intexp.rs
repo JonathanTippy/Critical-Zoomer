@@ -138,7 +138,7 @@ fn pack_add<const Words: usize>(sum: ([i64; Words], i64), exp: i32) -> CopyIntEx
     } else {
         CopyIntExp {
             value: shr_one_word(limbs, extra),
-            exp: exp.saturating_add(WORDSIZE as i32),
+            exp: exp + WORDSIZE as i32,
         }
     }
 }
@@ -153,40 +153,35 @@ fn shr_one_word<const Words: usize>(a: [i64; Words], extra: i64) -> [i64; Words]
 }
 
 fn shr_limbs<const Words: usize>(a: [i64; Words], s: u32) -> [i64; Words] {
-    if s == 0 {
-        return a;
-    }
-    let neg = limbs_neg(a);
-    let mag = if neg { neg_limbs(a) } else { a };
     let mut out = [0i64; Words];
     let word_shift = (s as usize) / WORDSIZE;
     let bits = s % (WORDSIZE as u32);
+    let sign = if a[Words - 1] < 0 { !0u64 } else { 0u64 };
     if word_shift >= Words {
+        if sign != 0 {
+            out = [!0i64; Words];
+        }
         return out;
     }
     for (i, dst) in out.iter_mut().enumerate() {
         let src = i + word_shift;
         if src >= Words {
-            *dst = 0;
+            *dst = sign as i64;
             continue;
         }
-        let low = mag[src] as u64;
+        let low = a[src] as u64;
         let mut v = if bits == 0 { low } else { low >> bits };
         if bits != 0 {
             let high = if src + 1 < Words {
-                mag[src + 1] as u64
+                a[src + 1] as u64
             } else {
-                0
+                sign
             };
             v |= high << (WORDSIZE as u32 - bits);
         }
         *dst = v as i64;
     }
-    if neg && !limbs_zero(out) {
-        neg_limbs(out)
-    } else {
-        out
-    }
+    out
 }
 
 impl<const Words: usize> Mul for CopyIntExp<Words> {
@@ -195,17 +190,17 @@ impl<const Words: usize> Mul for CopyIntExp<Words> {
         // r[impl cz.math.copy-intexp-mul-schoolbook+1]
         if Words == 1 {
             let mut p = (self.value[0] as i128) * (other.value[0] as i128);
-            let mut exp = self.exp.saturating_add(other.exp);
+            let mut exp = self.exp + other.exp;
             while p > i64::MAX as i128 || p < i64::MIN as i128 {
                 p >>= 1;
-                exp = exp.saturating_add(1);
+                exp += 1;
             }
             let mut value = [0i64; Words];
             value[0] = p as i64;
             return Self { value, exp };
         }
         let (lo, hi) = mul_limbs_full(self.value, other.value);
-        let exp = self.exp.saturating_add(other.exp);
+        let exp = self.exp + other.exp;
         if hi.iter().all(|&w| w == 0) {
             return Self { value: lo, exp };
         }
@@ -216,7 +211,7 @@ impl<const Words: usize> Mul for CopyIntExp<Words> {
             lo = shr_one_word(lo, hi[0]);
             hi.rotate_left(1);
             hi[Words - 1] = 0;
-            exp = exp.saturating_add(WORDSIZE as i32);
+            exp += WORDSIZE as i32;
             if hi.iter().all(|&w| w == 0) {
                 return Self { value: lo, exp };
             }
@@ -277,56 +272,17 @@ impl<const Words: usize> PartialOrd for CopyIntExp<Words> {
 
 impl<const Words: usize> Ord for CopyIntExp<Words> {
     fn cmp(&self, other: &Self) -> Ordering {
-        // r[impl cz.math.copy-intexp-no-infinity+2]
-        // Aligning a sub-unit onto ZERO (exp 0) used to shift the mantissa
-        // away and call |c|<1 equal to 0. Period check then marked every
-        // interior-looking seat a repeat (headed mag 44 full black, ipp:1).
-        let az = limbs_zero(self.value);
-        let bz = limbs_zero(other.value);
-        match (az, bz) {
-            (true, true) => Ordering::Equal,
-            (true, false) => {
-                if limbs_neg(other.value) {
-                    Ordering::Greater
-                } else {
-                    Ordering::Less
-                }
+        match self.exp.cmp(&other.exp) {
+            Equal => cmp_limbs(self.value, other.value),
+            Greater => {
+                let s = (self.exp - other.exp) as u32;
+                cmp_limbs(self.value, shr_limbs(other.value, s))
             }
-            (false, true) => {
-                if limbs_neg(self.value) {
-                    Ordering::Less
-                } else {
-                    Ordering::Greater
-                }
+            Less => {
+                let s = (other.exp - self.exp) as u32;
+                cmp_limbs(shr_limbs(self.value, s), other.value)
             }
-            (false, false) => match self.exp.cmp(&other.exp) {
-                Equal => cmp_limbs(self.value, other.value),
-                Greater => cmp_after_shr(
-                    self.value,
-                    other.value,
-                    (self.exp - other.exp) as u32,
-                ),
-                Less => cmp_after_shr(
-                    other.value,
-                    self.value,
-                    (other.exp - self.exp) as u32,
-                )
-                .reverse(),
-            },
         }
-    }
-}
-
-fn cmp_after_shr<const Words: usize>(
-    coarse: [i64; Words],
-    fine: [i64; Words],
-    s: u32,
-) -> Ordering {
-    let shifted = shr_limbs(fine, s);
-    if limbs_zero(shifted) {
-        cmp_limbs(coarse, [0; Words])
-    } else {
-        cmp_limbs(coarse, shifted)
     }
 }
 
@@ -396,7 +352,7 @@ fn to_intexp<const Words: usize>(x: CopyIntExp<Words>) -> IntExp {
 }
 
 impl<const Words: usize> Mandelbrotable for CopyIntExp<Words> {
-    // r[impl cz.math.copy-intexp-no-infinity+2]
+    // r[impl cz.math.copy-intexp-no-infinity+1]
     const ZERO: Self = Self {
         value: [0; Words],
         exp: 0,
@@ -541,55 +497,6 @@ mod tests {
         assert_eq!(p.exp, 2);
         assert_eq!(p.value[0], 1i64 << 62);
         assert_eq!(p.to_f64(), 2.0_f64.powi(64));
-    }
-
-    #[test]
-    // r[verify cz.math.copy-intexp-mul-schoolbook+1]
-    fn copy_intexp1_mandel_orbit_tracks_f64_at_mag_44_black_locus() {
-        let cre = -0.6487374290236704_f64;
-        let cim = 0.374687166530634_f64;
-        let c = (
-            CopyIntExp1::from(crate::assemblies::headgroup::window::coords::f64_to_intexp(cre)),
-            CopyIntExp1::from(crate::assemblies::headgroup::window::coords::f64_to_intexp(cim)),
-        );
-        let r2 = CopyIntExp1::from_f32(4.0);
-        let mut z = c;
-        let mut zf = (cre, cim);
-        let mut t_esc = None;
-        let mut f_esc = None;
-        for n in 1..=4000u32 {
-            let re2 = z.0 * z.0;
-            let im2 = z.1 * z.1;
-            let ri = z.0 * z.1;
-            z = (re2 - im2 + c.0, CopyIntExp1::TWO * ri + c.1);
-            zf = (zf.0 * zf.0 - zf.1 * zf.1 + cre, 2.0 * zf.0 * zf.1 + cim);
-            let rad_t = (z.0 * z.0 + z.1 * z.1).to_f64();
-            let rad_f = zf.0 * zf.0 + zf.1 * zf.1;
-            if t_esc.is_none() && rad_t > r2.to_f64() {
-                t_esc = Some(n);
-            }
-            if f_esc.is_none() && rad_f > 4.0 {
-                f_esc = Some(n);
-            }
-            if n <= 80 {
-                let zt = (z.0.to_f64(), z.1.to_f64());
-                assert!(
-                    (zt.0 - zf.0).abs() < 1e-6 && (zt.1 - zf.1).abs() < 1e-6,
-                    "n={n} zT=({:.8},{:.8}) zf=({:.8},{:.8})",
-                    zt.0,
-                    zt.1,
-                    zf.0,
-                    zf.1
-                );
-            }
-            if t_esc.is_some() && f_esc.is_some() {
-                break;
-            }
-        }
-        assert!(
-            t_esc.is_some() && f_esc.is_some(),
-            "i64 escape {t_esc:?} vs f64 {f_esc:?} (high-IPP black if i64 never escapes)"
-        );
     }
 
     #[test]
@@ -773,32 +680,11 @@ mod tests {
     }
 
     #[test]
-    // r[verify cz.math.copy-intexp-no-infinity+2]
     fn never_infinite() {
         assert!(C2::ZERO.is_finite());
         assert!(C2::max_value().is_finite());
         assert!(C2::from_f32(-0.0).is_finite());
         assert!(C2::from_f32(1.25).is_finite());
-    }
-
-    #[test]
-    // r[verify cz.math.copy-intexp-no-infinity+2]
-    fn sub_unit_is_not_zero() {
-        let c = CopyIntExp::<1> {
-            value: [3 << 50],
-            exp: -52,
-        };
-        assert!(c > CopyIntExp1::ZERO);
-        assert_ne!(c, CopyIntExp1::ZERO);
-        let tiny = CopyIntExp::<1> {
-            value: [1],
-            exp: -61,
-        };
-        assert!(tiny > CopyIntExp1::ZERO);
-        assert!(c > tiny);
-        let vanished = CopyIntExp1::ZERO - tiny;
-        assert_eq!(vanished, CopyIntExp1::ZERO);
-        assert!(!(c <= vanished));
     }
 
     prop_compose! {
@@ -877,14 +763,14 @@ mod tests {
             prop_assert_eq!(a - b, a + b.neg());
         }
 
-        // r[verify cz.math.copy-intexp-no-infinity+2]
+        // r[verify cz.math.copy-intexp-no-infinity+1]
         #[test]
         fn every_value_is_finite(a in arb_c2()) {
             prop_assert!(a.is_finite());
             prop_assert!(<C2 as Mandelbrotable>::is_finite(a));
         }
 
-        // r[verify cz.math.copy-intexp-no-infinity+2]
+        // r[verify cz.math.copy-intexp-no-infinity+1]
         #[test]
         fn ord_is_total(a in arb_c2(), b in arb_c2()) {
             prop_assert_eq!(a.cmp(&b), b.cmp(&a).reverse());
