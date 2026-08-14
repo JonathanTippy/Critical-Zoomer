@@ -60,14 +60,14 @@ if [[ -z "$RELEVANT" && ! -f /tmp/cz_groove_check_last_fail ]]; then
 fi
 
 if ! "$ROOT/scripts/zoomer_groove_check.sh"; then
-  TAIL="$(cat /tmp/cz_groove_check_last_fail_excerpt 2>/dev/null || true)"
+  TAIL="$(cat "${CZ_GROOVE_CHECK_EXCERPT:-/tmp/cz_groove_check_last_fail_excerpt}" 2>/dev/null || true)"
   if [[ -z "$TAIL" ]]; then
-    TAIL="$(tail -c 6000 "$LOG" 2>/dev/null || echo '(no groove check log)')"
+    TAIL="$(tail -c 12000 "$LOG" 2>/dev/null || echo '(no groove check log)')"
   fi
   MSG="$(printf '%s\n' \
     "zoomer_groove_check failed. Fix it, then stop so this hook re-runs." \
     "Full log: $LOG" \
-    "--- tail ---" \
+    "--- excerpt ---" \
     "$TAIL")"
   emit "$MSG"
   exit 0

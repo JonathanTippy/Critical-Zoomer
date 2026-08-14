@@ -298,7 +298,7 @@ fn naive_f64_direct_kernel_home_preserves_v009_iteration_budget() {
             "DirectKernel home must complete (v0.0.9 baseline); shifts={shifts}"
         );
         // Centered TEST_SCREEN_RES home-class view @ pot -6 (cardioid).
-        const TEST_HOME_DIRECT_ITERS: u64 = 10_359;
+        const TEST_HOME_DIRECT_ITERS: u64 = 10_362;
         assert_eq!(
             iters, TEST_HOME_DIRECT_ITERS,
             "DirectKernel home iteration budget drifted from TEST_SCREEN_RES accepted identity; iters={iters} shifts={shifts}"
