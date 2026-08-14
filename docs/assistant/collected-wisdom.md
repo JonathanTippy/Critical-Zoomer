@@ -46,7 +46,10 @@ Harvested 2026-08-06 during the v0.0.9 revert cleanup. Each entry: the rule, its
   math, not by hoping the radius stays near 2. That is the point of the phase
   cut: workgroup owns membership / escape-to-4; shadergroup owns a tiny continue
   + paint so bailout anim never re-runs the worker.
-- Escaper target: 60 Hz at 1080p worst case (every pixel at max escaper iterations, including the antenna).
+- Escaper aspiration (tile-era wisdom): 60 Hz at 1080p worst case. **Live pin**
+  is dummy-head pipeline cadence: OG esc ≥15, GPU esc ≥40 on **debug+opt-3**
+  (`docs/assistant/testing.md`) — not a headed ~60 Hz guarantee; snapshot
+  convert-hoist passes are history only.
 - v0.0.9 does bailout at iterate time with an animated bailout that works (DAT watchlist); a split escaper stage is a GPU-era design decision, not a baseline requirement.
 - **Single path (2026-08-11):** animated vs static bailout is the same `escape_frame` / `color` body — only numbers change (`shadergroup-virtues.md`). Guard that; do not fork paths.
 - **2026-08-11 Criterion:** colorer is ~10× escaper wall time on filled home; problem child for the ~1.5×-pixel cliff (`shadergroup_fitness`).

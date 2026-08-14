@@ -18,7 +18,7 @@ interview. Correct the note. Do not treat headed bugs as fixed.
 | “Shelved: worker parks so head CPU is fine” | Wrong actor. Window still immediate-repaint. Developer: 100% CPU at vsync rates. | Unshelve as open; worker park ≠ window idle. |
 | Actor-layout interview parking lot “cadence not implemented / no code” | Historical snapshot; content timers landed; head bare repaint open | Parking lot + snapshot note updated (tick 25). |
 | Depth “finish-line / precision wall green” | Blockiness + post-admit interlayer still open. Collector channel is still `WorkUpdate<f64>`; OG naive may iterate f32 then convert. | Do not call depth-trust done. |
-| Dummy-head GPU esc ~60 Hz / “test currently passes” | Snapshot Hz. Pin is dummy-head GPU esc ≥40 / OG ≥15 on **debug+opt-3**. Unoptimized debug misses it; `--release` is not the gate. Headed still unchecked. | Honest `testing.md`. Do not ignore or lower floors. GPU grind paused. |
+| Dummy-head GPU esc ~60 Hz / “test currently passes” | Snapshot Hz. Pin is dummy-head GPU esc ≥40 / OG ≥15 on **debug+opt-3**. | `collected-wisdom.md` aspiration vs pin (tick 26). |
 | Admit-margin “in tree” read as product fix | Mechanism only | Keep “product not verified”; add failure shape (C) post-admit drop. |
 
 GPU compute/escape grind **paused** for v0.1 (interview). This hunt does not
@@ -62,6 +62,7 @@ Commits: `automatic checkpoint` ≈ assistant; `WIP` ≈ developer.
 | 23 | Mag 44 i64 full black | DirectKernel checkpoint stayed origin; pert already latches `(z,0)`. CopyIntExp `0-ε` → -1, ipp:1 all repeats. Assistant Ord/shr rewrite reverted. | **~66%** |
 | 24 | Work pacing / shallow-mag lag | Collector beat-only publish + stall→1 Hz + controller stencil-before-send. `content-beat-publish+3`, Hz floor, drain-to-newest+2. Developer headed 2026-08-13. | **~68%** |
 | 25 | Cadence docs vs live timers | `shadergroup-virtues` still said 8 ms shade + ~20 Hz publish; actor-layout parking lot still “not implemented”. Updated to `resolved_content_period` / content landed / head open. | **~70%** |
+| 26 | `collected-wisdom` escaper 60 Hz | Line read as current perf; live pin is dummy-head ≥15/≥40 on debug+opt-3. Aspiration vs pin separated. Loop restarted (old sleeper not wired to this chat). | **~71%** |
 
 Not 100%. Implementation ghosts still mostly unknown. Headed i64 grey is closed.
 Mag 44 `|c|<1` black is pinned, not headed-confirmed. Work pacing closed headed.
