@@ -62,6 +62,7 @@ Commits: `automatic checkpoint` ≈ assistant; `WIP` ≈ developer.
 | 27 | Depth “finish-line green” + shelved head CPU | `depth-design` SA acceptance read as product done; worker park still confused with window idle. Status + acceptance bullets + `headgroup-charter` open pacing section. Top table trimmed to open ghosts only. | **~72%** |
 | 28 | `HEADED_I64_BLACK` comment | Line 18 bundled mag 44 black under “Headed 2026-08-13”. Split: grey headed-closed; black pinned not headed-confirmed (`constants.rs`). | **~73%** |
 | 29 | `testing.md` mag 44 wording | Read mag 44 as grey headed-closed. Grey vs black split; black pinned only. | **~74%** |
+| 30 | `copy-intexp.md` mag 44 mul note | “headed mag 44 escape-at-7” read as closed. Pinned `HEADED_I64_BLACK_*`; headed not confirmed. | **~75%** |
 
 Not 100%. Implementation ghosts still mostly unknown. Headed i64 grey is closed.
 Mag 44 `|c|<1` black is pinned, not headed-confirmed. Work pacing closed headed.

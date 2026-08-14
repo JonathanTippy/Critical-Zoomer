@@ -33,8 +33,8 @@ need a longer tape.
 
 Schoolbook into `2×Words` limbs for `Words > 1`. **`Words = 1` is signed
 `i128` product**, then **minimum bit-shifts** until it fits a signed `i64`
-limb. A 64-bit dump per overflow starved `z²` (headed mag 44 escape-at-7).
-Unsigned 64×64 on a negative limb is not `z²`. Not Karatsuba.
+limb. A 64-bit dump per overflow starved `z²` (mag 44 `HEADED_I64_BLACK_*` pin;
+headed not developer-confirmed). Unsigned 64×64 on a negative limb is not `z²`.
 
 ## Finite
 
