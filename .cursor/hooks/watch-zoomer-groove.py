@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import datetime as dt
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -18,6 +19,7 @@ PIDFILE = "/tmp/jft-zoomer-groove-watch.pid"
 BASELINE = "/tmp/jft-zoomer-groove.baseline"
 LATEST = "/tmp/jft-zoomer-groove.latest.msg"
 DEBOUNCE_S = 0.15
+TRIVIAL_EDIT_MAX = 4
 
 IN_CLOSE_WRITE = 0x00000008
 IN_MOVED_TO = 0x00000080
@@ -30,6 +32,39 @@ libc = ctypes.CDLL("libc.so.6", use_errno=True)
 
 _lock = threading.Lock()
 _timer: threading.Timer | None = None
+
+
+def _collapse_ws(data: bytes) -> str:
+    return re.sub(r"\s+", "", data.decode("utf-8", "replace"))
+
+
+def _edit_distance_capped(a: str, b: str, cap: int) -> int:
+    if a == b:
+        return 0
+    if abs(len(a) - len(b)) > cap:
+        return cap + 1
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            ins = cur[j - 1] + 1
+            delete = prev[j] + 1
+            sub = prev[j - 1] + (0 if ca == cb else 1)
+            cur.append(min(ins, delete, sub))
+        if min(cur) > cap:
+            return cap + 1
+        prev = cur
+    return prev[-1]
+
+
+def _is_trivial(old: bytes, new: bytes) -> bool:
+    if old == new:
+        return True
+    a = _collapse_ws(old)
+    b = _collapse_ws(new)
+    if a == b:
+        return True
+    return _edit_distance_capped(a, b, TRIVIAL_EDIT_MAX) <= TRIVIAL_EDIT_MAX
 
 
 def _diff() -> str:
@@ -73,7 +108,9 @@ def _emit_now() -> None:
                 old = f.read()
         except OSError:
             old = b""
-    if new == old:
+    if _is_trivial(old, new):
+        with open(BASELINE, "wb") as f:
+            f.write(new)
         return
     diff = _diff()
     if not diff.strip():
