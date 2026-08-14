@@ -27,22 +27,27 @@ Carry-forward from this afternoon’s design talk + shade pass. Strike when done
 |---|---|---|
 | GPU color default | **done** | settings `resolved_color_gear` → Gpu |
 | Escape gear default | **locked OG** (GPU escape slower for now) | settings / escape gear |
-| Two-tier cadence (content=vsync from head; head=vsync\|maxFPS) | **doc’d, not implemented** | `pipeline-refresh-rates.md` |
+| Two-tier cadence (content=vsync from head; head=vsync\|maxFPS) | **content landed**; head present not | `pipeline-refresh-rates.md` |
 | Hardcoded 60 for shade | **rejected** — use egui/head vsync rate | interview |
-| Workgroup publish at vsync (partial packages OK) | **locked on paper** | was ~20 Hz; revised |
-| Headgroup uncapped today | **bug vs lock** | window/mod.rs |
-| Headgroup max-FPS + vsync toggle + **broadcast vsync Hz** | not started | settings + window |
-| Per-actor timers at vsync period (not channel-paced) | **preferred** | escaper/colorer/collector |
-| Shade wake ~8 ms → vsync period | not started | escaper/colorer |
+| Workgroup publish at vsync (partial packages OK) | **landed** (`content-beat-publish+3`) | collector |
+| Headgroup uncapped today | **still open** — bare `request_repaint` | `window/mod.rs` |
+| Headgroup max-FPS + vsync toggle + **broadcast vsync Hz** | settings fields only; no present UI | settings + window |
+| Per-actor timers at vsync period (not channel-paced) | **landed** on collector/escaper/colorer | content_period |
+| Shade wake ~8 ms → vsync period | **landed** (was 8 ms periodic) | escaper/colorer |
 | Content floor smell ≲15 Hz (worse ≲10) | product bar | headed / HUD |
 | Resident latest-buffer + swap | partial; formalize with cadence | shade + window |
 | Workgroup TTFP / ≥1.5× | **parked** | issue-stack |
 | Dual wgpu / stops-on-GPU-color | **parked** | issue-stack |
 | Precision wall ~2^41 | accepted | prior interview |
 | Auto gearbox never picks shade GPU | still law | virtues |
-| **Big plan** of all undiscussed work | **wait** — no code yet | developer |
+| **Big plan** of all undiscussed work | **partial** — content cadence landed; head CPU open | issue-stack |
 
 ---
+
+**Snapshot (2026-08-11 afternoon, not live):** the “How it works today” facts
+below describe the tree *before* content-tier timers landed and before
+`351afdf` restored bare head repaint. Do not cite `VSYNC=false` or 8 ms shade
+wake as current.
 
 ### Developer
 

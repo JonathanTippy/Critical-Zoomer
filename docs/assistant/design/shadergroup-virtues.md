@@ -141,9 +141,10 @@ is load-bearing for comprehensibility and maintainability. Do not fork
   full-frame packages** (count on HUD `drop:` / `ViewHud.packages_dropped`) and
   keep the newest. Persistent drops mean the shade path is too slow for the
   pixel count — fix cost, do not grow channels into a landfill.
-- **Cadence (design lock):** shade path aims at **vsync** (~60 Hz default), not
-  the current ~8 ms “as fast as periodic wake” forever. Workgroup *publish*
-  aims ~20 Hz. See `pipeline-refresh-rates.md`.
+- **Cadence (live 2026-08-13):** collector, escaper, and colorer wake on
+  `Settings::resolved_content_period()` (Automatic = head `auto_vsync_hz`, not
+  hardcoded 60). Head present is still bare `request_repaint` (CPU open). See
+  `pipeline-refresh-rates.md`.
 - Criterion: `benches/shadergroup_fitness.rs` — escaper vs colorer at 1.0× /
   1.5× / 2.0× default pixel count (developer cliff ≈ 1.5×).
 

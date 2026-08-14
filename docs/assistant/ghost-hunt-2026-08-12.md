@@ -16,7 +16,7 @@ interview. Correct the note. Do not treat headed bugs as fixed.
 | Issue-stack “OG remains default” under 1080p colorer | `resolved_color_gear()` defaults **GPU** | Strike OG-default line. |
 | Issue-stack pipeline gap: `VSYNC=false` + “no code until big plan” | `VSYNC=true` in window; content timers exist; head still bare repaint | Align with live; head CPU still open. |
 | “Shelved: worker parks so head CPU is fine” | Wrong actor. Window still immediate-repaint. Developer: 100% CPU at vsync rates. | Unshelve as open; worker park ≠ window idle. |
-| Actor-layout interview parking lot “cadence not implemented / no code” | Historical; later code landed then `351afdf` reverted head pacing | Amendment on that interview, do not rewrite the transcript. |
+| Actor-layout interview parking lot “cadence not implemented / no code” | Historical snapshot; content timers landed; head bare repaint open | Parking lot + snapshot note updated (tick 25). |
 | Depth “finish-line / precision wall green” | Blockiness + post-admit interlayer still open. Collector channel is still `WorkUpdate<f64>`; OG naive may iterate f32 then convert. | Do not call depth-trust done. |
 | Dummy-head GPU esc ~60 Hz / “test currently passes” | Snapshot Hz. Pin is dummy-head GPU esc ≥40 / OG ≥15 on **debug+opt-3**. Unoptimized debug misses it; `--release` is not the gate. Headed still unchecked. | Honest `testing.md`. Do not ignore or lower floors. GPU grind paused. |
 | Admit-margin “in tree” read as product fix | Mechanism only | Keep “product not verified”; add failure shape (C) post-admit drop. |
@@ -61,6 +61,7 @@ Commits: `automatic checkpoint` ≈ assistant; `WIP` ≈ developer.
 | 22 | Pace as `frame_info: Some` | Collector remap path. Headed black, `pub:`/`ctrl:` 0, shade still emitting Dummy. Pace is `None` + empty seats. | **~64%** |
 | 23 | Mag 44 i64 full black | DirectKernel checkpoint stayed origin; pert already latches `(z,0)`. CopyIntExp `0-ε` → -1, ipp:1 all repeats. Assistant Ord/shr rewrite reverted. | **~66%** |
 | 24 | Work pacing / shallow-mag lag | Collector beat-only publish + stall→1 Hz + controller stencil-before-send. `content-beat-publish+3`, Hz floor, drain-to-newest+2. Developer headed 2026-08-13. | **~68%** |
+| 25 | Cadence docs vs live timers | `shadergroup-virtues` still said 8 ms shade + ~20 Hz publish; actor-layout parking lot still “not implemented”. Updated to `resolved_content_period` / content landed / head open. | **~70%** |
 
 Not 100%. Implementation ghosts still mostly unknown. Headed i64 grey is closed.
 Mag 44 `|c|<1` black is pinned, not headed-confirmed. Work pacing closed headed.
