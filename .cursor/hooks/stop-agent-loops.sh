@@ -96,5 +96,32 @@ for cmdline in /proc/[0-9]*/cmdline; do
   esac
 done
 
-echo "stop-agent-loops: stopped≈$n (log $LOG)"
+is_wake_follower_cmd() {
+  local cmd="$1"
+  case "$cmd" in
+    *jft-agents-md.wake* | *jft-debugging.wake* | *jft-zoomer-groove.wake*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+n_wake=0
+for cmdline in /proc/[0-9]*/cmdline; do
+  pid="${cmdline%/cmdline}"
+  pid="${pid#/proc/}"
+  [[ "$pid" =~ ^[0-9]+$ ]] || continue
+  [[ "$pid" == "$$" || "$pid" == "$PPID" ]] && continue
+  [[ -r "$cmdline" ]] || continue
+  cmd="$(tr '\0' ' ' <"$cmdline" 2>/dev/null || true)"
+  [[ -n "$cmd" ]] || continue
+  if is_wake_follower_cmd "$cmd"; then
+    log "KILL wake-follower pid=$pid cmd=${cmd:0:240}"
+    if term_kill "$pid"; then
+      n_wake=$((n_wake + 1))
+    fi
+  fi
+done
+
+echo "stop-agent-loops: stopped≈$n (wake-followers≈$n_wake) (log $LOG)"
 exit 0
