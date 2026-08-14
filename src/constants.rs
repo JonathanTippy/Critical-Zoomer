@@ -11,11 +11,11 @@ pub const HOME_POSITION:(i32, i32, i32) = (-2, -2, -2);
 /// structure. Harder minibrots stay for compute-health, not everyday pins.
 pub const NORTH_TIP_RE: &str = "-0.161913425661";
 pub const NORTH_TIP_IM: &str = "1.035546905361";
-/// Headed 2026-08-13 mag 2^43 (`type:i64`, HUD `gear:F64`). Grey locus; closed.
+/// Headed closed 2026-08-13 mag 2^43 (`type:i64`, HUD `gear:F64`). Grey locus.
 pub const HEADED_I64_GREY_RE: &str = "-0.1761779392230477";
 pub const HEADED_I64_GREY_IM: &str = "1.0870336335448237";
 pub const HEADED_I64_GREY_MAG: i32 = 43;
-/// Headed 2026-08-13: mag 2^43 good / mag 2^44 i64 full-black at high IPP.
+/// Mag 2^44 same neighborhood: i64 full-black at high IPP — **pinned**, not headed-confirmed.
 pub const HEADED_I64_BLACK_RE: &str = "-0.6487374290236704";
 pub const HEADED_I64_BLACK_IM: &str = "0.374687166530634";
 pub const HEADED_I64_BLACK_MAG: i32 = 44;

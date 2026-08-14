@@ -60,6 +60,7 @@ Commits: `automatic checkpoint` ≈ assistant; `WIP` ≈ developer.
 | 25 | Cadence docs vs live timers | `shadergroup-virtues` still said 8 ms shade + ~20 Hz publish; actor-layout parking lot still “not implemented”. Updated to `resolved_content_period` / content landed / head open. | **~70%** |
 | 26 | `collected-wisdom` escaper 60 Hz | Line read as current perf; live pin is dummy-head ≥15/≥40 on debug+opt-3. Aspiration vs pin separated. Loop restarted (old sleeper not wired to this chat). | **~71%** |
 | 27 | Depth “finish-line green” + shelved head CPU | `depth-design` SA acceptance read as product done; worker park still confused with window idle. Status + acceptance bullets + `headgroup-charter` open pacing section. Top table trimmed to open ghosts only. | **~72%** |
+| 28 | `HEADED_I64_BLACK` comment | Line 18 bundled mag 44 black under “Headed 2026-08-13”. Split: grey headed-closed; black pinned not headed-confirmed (`constants.rs`). | **~73%** |
 
 Not 100%. Implementation ghosts still mostly unknown. Headed i64 grey is closed.
 Mag 44 `|c|<1` black is pinned, not headed-confirmed. Work pacing closed headed.
