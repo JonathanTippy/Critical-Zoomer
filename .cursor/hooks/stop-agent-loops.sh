@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Stop agent /loop sleepers for this workspace (approval-free path).
+# Pause agent /loop sleepers for this workspace (approval-free path).
+#   stop-agent-loops.sh              — agent loops + stale JFT wake tails
+#   stop-agent-loops.sh --loops-only — agent loops only
+#   stop-agent-loops.sh --wake-only  — stale JFT wake tails only
 # Allowlisted by .cursor/hooks/guard-raw-kill.sh — do not use raw kill/pkill.
 #
 # Targets only cmdlines that look like Cursor agent loop wakes/ticks:
@@ -7,6 +10,11 @@
 # Also stops the outer cursorsandbox wrapper when its argv is that loop.
 # Never touches headed apps or test binaries (those stay under kill-test-zombies.sh).
 set -u
+MODE="${1:-all}"
+case "$MODE" in
+  --loops-only | --wake-only | all) ;;
+  *) MODE="all" ;;
+esac
 LOG="${CZ_ZOMBIE_KILL_LOG:-/tmp/cz_zombie_kill.log}"
 ROOT="$(git -C "$(dirname "$0")/../.." rev-parse --show-toplevel 2>/dev/null || true)"
 if [[ -z "${ROOT:-}" ]]; then
@@ -55,6 +63,7 @@ is_agent_loop_cmd() {
 }
 
 n=0
+if [[ "$MODE" != "--wake-only" ]]; then
 # Scan /proc directly — pgrep -f can miss very long Cursor wrapper cmdlines.
 for cmdline in /proc/[0-9]*/cmdline; do
   pid="${cmdline%/cmdline}"
@@ -72,7 +81,9 @@ for cmdline in /proc/[0-9]*/cmdline; do
     fi
   fi
 done
+fi
 
+if [[ "$MODE" != "--loops-only" ]]; then
 # Also stop orphan `sleep N` children whose parent was the loop bash (best-effort).
 for cmdline in /proc/[0-9]*/cmdline; do
   pid="${cmdline%/cmdline}"
@@ -95,6 +106,7 @@ for cmdline in /proc/[0-9]*/cmdline; do
       ;;
   esac
 done
+fi
 
 is_wake_follower_cmd() {
   local cmd="$1"
@@ -107,6 +119,7 @@ is_wake_follower_cmd() {
 }
 
 n_wake=0
+if [[ "$MODE" != "--loops-only" ]]; then
 for cmdline in /proc/[0-9]*/cmdline; do
   pid="${cmdline%/cmdline}"
   pid="${pid#/proc/}"
@@ -122,6 +135,7 @@ for cmdline in /proc/[0-9]*/cmdline; do
     fi
   fi
 done
+fi
 
-echo "stop-agent-loops: stopped≈$n (wake-followers≈$n_wake) (log $LOG)"
+echo "stop-agent-loops: stopped≈$n (wake-followers≈$n_wake) mode=$MODE (log $LOG)"
 exit 0
